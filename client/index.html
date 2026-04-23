@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#6366f1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NeuraTalk" />
+    <meta name="application-name" content="NeuraTalk" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="description" content="Real-time multilingual voice and video communication with AI translation" />
+    
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Accessibility: Screen reader announcements -->
+    <div id="a11y-announcer" aria-live="polite" aria-atomic="true" class="sr-only"></div>
+    
+    <!-- Accessibility: Color blind mode SVG filters -->
+    <svg class="hidden" aria-hidden="true">
+      <defs>
+        <!-- Protanopia (red-blind) filter -->
+        <filter id="protanopia-filter">
+          <feColorMatrix type="matrix" values="
+            0.567, 0.433, 0.000, 0, 0
+            0.558, 0.442, 0.000, 0, 0
+            0.000, 0.242, 0.758, 0, 0
+            0.000, 0.000, 0.000, 1, 0
+          "/>
+        </filter>
+        <!-- Deuteranopia (green-blind) filter -->
+        <filter id="deuteranopia-filter">
+          <feColorMatrix type="matrix" values="
+            0.625, 0.375, 0.000, 0, 0
+            0.700, 0.300, 0.000, 0, 0
+            0.000, 0.300, 0.700, 0, 0
+            0.000, 0.000, 0.000, 1, 0
+          "/>
+        </filter>
+        <!-- Tritanopia (blue-blind) filter -->
+        <filter id="tritanopia-filter">
+          <feColorMatrix type="matrix" values="
+            0.950, 0.050, 0.000, 0, 0
+            0.000, 0.433, 0.567, 0, 0
+            0.000, 0.475, 0.525, 0, 0
+            0.000, 0.000, 0.000, 1, 0
+          "/>
+        </filter>
+      </defs>
+    </svg>
+    
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

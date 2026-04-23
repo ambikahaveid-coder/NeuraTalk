@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "612487293092",
+    "project_id": "neuratalk-c6683",
+    "storage_bucket": "neuratalk-c6683.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:612487293092:android:061d1a7107857339335e31",
+        "android_client_info": {
+          "package_name": "com.Mindwhile.neuratalk"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA065dn3hl2DZBP-TwRKfEKVbLgKLnBbgg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

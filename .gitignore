@@ -1,0 +1,63 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+
+# Local tools / editor state
+.agents/
+.claude/
+.local/
+.neon/
+.neon
+.vscode/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Secrets / service accounts
+*.jks
+*.keystore
+key.properties
+*service-account*.json
+!*service-account*.example.json
+*credentials*.json
+!*credentials*.example.json
+*.pem
+*.key
+!*.pub.key
+firebase-adminsdk-*.json
+neuratalk-release-key.jks
+
+# Replit paste/attachment dumps (often contain pasted secrets)
+attached_assets/Pasted-*
+
+# Backup dumps / data snapshots with platform_secrets or user data
+backups/
+!backups/**/config/
+!backups/**/BACKUP_MANIFEST.txt
+backups/**/database/*.sql
+backups/**/database/*.sql.gz
+
+# Logs
+*.log
+dev_error.log
+server_err.txt
+server_out.txt
+/tmp/
+
+# Build outputs and local crash artifacts
+build/
+flutter_app/build/
+flutter_app/android/.gradle/
+flutter_app/android/build/
+flutter_app/android/local.properties
+flutter_app/android/key.properties
+*.apk
+*.aab
+*.hprof
+hs_err_pid*.log
+replay_pid*.log

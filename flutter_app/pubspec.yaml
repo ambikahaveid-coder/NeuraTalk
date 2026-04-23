@@ -1,0 +1,29 @@
+name: neuratalk
+description: NeuraTalk live thin-client shell for the production platform
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Runtime permissions for mic/camera prompts surfaced through WebView.
+  permission_handler: ^11.3.1
+
+  # Network reachability and retry UX.
+  connectivity_plus: ^5.0.2
+
+  # Thin-client live shell.
+  webview_flutter: ^4.7.0
+  webview_flutter_android: ^3.16.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true

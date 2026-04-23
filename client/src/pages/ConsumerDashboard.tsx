@@ -1,0 +1,301 @@
+import { useState, useMemo } from "react";
+import { Link, useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { useContacts } from "@/hooks/use-contacts";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import AppNavigation from "@/components/AppNavigation";
+import {
+  Phone, Video, Search, Clock, Star, Sparkles,
+  CreditCard, Users, History, Mic, Globe,
+} from "lucide-react";
+
+interface RecentCall {
+  id: number | string;
+  peerName: string;
+  peerIdentifier: string;
+  direction: "inbound" | "outbound";
+  status: string;
+  durationSec?: number;
+  startedAt: string;
+  translationEnabled?: boolean;
+}
+
+export default function ConsumerDashboard() {
+  const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const { contacts, toggleFavorite } = useContacts();
+  const [search, setSearch] = useState("");
+  const [dial, setDial] = useState("");
+
+  const { data: recentData } = useQuery<{ calls: RecentCall[] }>({
+    queryKey: ["/api/calls/history", { limit: 5 }],
+    queryFn: async () => {
+      try {
+        const res = await apiRequest("GET", "/api/calls/history?limit=5");
+        return res as any;
+      } catch {
+        return { calls: [] };
+      }
+    },
+  });
+
+  const { data: balanceData } = useQuery<{ balanceInr: number; minutesRemaining: number }>({
+    queryKey: ["/api/billing/balance"],
+    queryFn: async () => {
+      try {
+        const res = await apiRequest("GET", "/api/billing/balance");
+        return res as any;
+      } catch {
+        return { balanceInr: 0, minutesRemaining: 0 };
+      }
+    },
+  });
+
+  const filteredContacts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? contacts.filter(c =>
+          c.name.toLowerCase().includes(q) ||
+          c.identifier.toLowerCase().includes(q))
+      : contacts;
+    return list.slice(0, 8);
+  }, [contacts, search]);
+
+  const favorites = useMemo(() => contacts.filter(c => c.isFavorite).slice(0, 6), [contacts]);
+
+  const startCall = (identifier: string, mode: "voice" | "video" = "voice") => {
+    const url = `/calls/c2c?to=${encodeURIComponent(identifier)}&mode=${mode}`;
+    navigate(url);
+  };
+
+  const handleDial = (mode: "voice" | "video") => {
+    const target = dial.trim();
+    if (!target) return;
+    startCall(target, mode);
+  };
+
+  const initials = (name: string) =>
+    name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      <AppNavigation />
+
+      <div className="container mx-auto p-4 max-w-6xl pt-24 pb-12 space-y-6">
+        {/* Greeting + balance strip */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="md:col-span-2">
+            <CardContent className="pt-6">
+              <p className="text-sm text-gray-500">Welcome back</p>
+              <h1 className="text-3xl font-bold">
+                {user?.username ?? "there"} 👋
+              </h1>
+              <p className="text-gray-600 mt-1">
+                Ready to talk across any language — make a call in one tap.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6 space-y-2">
+              <div className="flex items-center gap-2 text-sm text-gray-500">
+                <CreditCard className="w-4 h-4" /> Balance
+              </div>
+              <div className="text-2xl font-bold">
+                ₹{(balanceData?.balanceInr ?? 0).toFixed(2)}
+              </div>
+              <div className="text-xs text-gray-500">
+                ~{balanceData?.minutesRemaining ?? 0} min of translated calling
+              </div>
+              <Button
+                size="sm" variant="outline" className="w-full mt-2"
+                onClick={() => navigate("/billing")}
+              >
+                Add credit
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Dial pad */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Phone className="w-5 h-5 text-blue-600" /> Quick Dial
+            </CardTitle>
+            <CardDescription>
+              Enter a phone number or NeuraTalk username to call. Translation is automatic if languages differ.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input
+                placeholder="+91 98xxxxxxx or username"
+                value={dial}
+                onChange={e => setDial(e.target.value)}
+                className="flex-1 text-lg"
+                onKeyDown={e => { if (e.key === "Enter") handleDial("voice"); }}
+              />
+              <Button onClick={() => handleDial("voice")} className="gap-2">
+                <Phone className="w-4 h-4" /> Voice
+              </Button>
+              <Button onClick={() => handleDial("video")} variant="outline" className="gap-2">
+                <Video className="w-4 h-4" /> Video
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-4 text-xs text-gray-500">
+              <Badge variant="secondary" className="gap-1">
+                <Sparkles className="w-3 h-3" /> AI translation
+              </Badge>
+              <Badge variant="secondary" className="gap-1">
+                <Globe className="w-3 h-3" /> 12+ languages
+              </Badge>
+              <Badge variant="secondary" className="gap-1">
+                <Mic className="w-3 h-3" /> Emotion-preserving
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Favorites + Contacts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="flex-row items-center justify-between space-y-0">
+              <CardTitle className="flex items-center gap-2">
+                <Star className="w-5 h-5 text-yellow-500 fill-yellow-400" />
+                Favorites
+              </CardTitle>
+              <Link href="/calls/c2c">
+                <Button variant="ghost" size="sm">View all</Button>
+              </Link>
+            </CardHeader>
+            <CardContent>
+              {favorites.length === 0 ? (
+                <p className="text-sm text-gray-500 py-6 text-center">
+                  Tap the star on any contact to pin them here.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {favorites.map(c => (
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg">
+                      <Avatar className="w-10 h-10">
+                        <AvatarFallback>{initials(c.name)}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{c.name}</div>
+                        <div className="text-xs text-gray-500 truncate">{c.identifier}</div>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => toggleFavorite(c.id)}>
+                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-500" />
+                      </Button>
+                      <Button size="sm" onClick={() => startCall(c.identifier, "voice")} className="bg-green-500 hover:bg-green-600">
+                        <Phone className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                Contacts
+              </CardTitle>
+              <div className="relative mt-2">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <Input
+                  className="pl-10"
+                  placeholder="Search contacts..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              {filteredContacts.length === 0 ? (
+                <p className="text-sm text-gray-500 py-6 text-center">
+                  No contacts yet — add your first from the calling page.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {filteredContacts.map(c => (
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg">
+                      <Avatar className="w-9 h-9">
+                        <AvatarFallback>{initials(c.name)}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{c.name}</div>
+                        <div className="text-xs text-gray-500 truncate">
+                          {c.language?.toUpperCase() ?? "EN"} · {c.identifier}
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => startCall(c.identifier, "voice")}>
+                        <Phone className="w-4 h-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => startCall(c.identifier, "video")}>
+                        <Video className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Recent calls */}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="flex items-center gap-2">
+              <History className="w-5 h-5 text-purple-600" /> Recent calls
+            </CardTitle>
+            <Link href="/call-history">
+              <Button variant="ghost" size="sm">Full history</Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {!recentData?.calls || recentData.calls.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                Your recent calls will appear here.
+              </p>
+            ) : (
+              <div className="divide-y">
+                {recentData.calls.map(call => (
+                  <div key={call.id} className="flex items-center gap-3 py-3">
+                    <Avatar className="w-9 h-9">
+                      <AvatarFallback>{initials(call.peerName || "?")}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{call.peerName || call.peerIdentifier}</div>
+                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                        <Clock className="w-3 h-3" />
+                        {new Date(call.startedAt).toLocaleString()}
+                        {call.durationSec != null && <span>· {Math.round(call.durationSec / 60)}m</span>}
+                        {call.translationEnabled && <Sparkles className="w-3 h-3 text-purple-500" />}
+                      </div>
+                    </div>
+                    <Badge variant={call.direction === "inbound" ? "secondary" : "outline"} className="text-xs">
+                      {call.direction}
+                    </Badge>
+                    <Button size="sm" variant="ghost" onClick={() => startCall(call.peerIdentifier, "voice")}>
+                      <Phone className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

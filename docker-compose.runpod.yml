@@ -1,0 +1,87 @@
+version: '3.8'
+
+# NeuraTalk RunPod Stack
+# Deploy: docker-compose -f docker-compose.runpod.yml up -d
+#
+# Services:
+#   - LiveKit    (WebRTC media server) - ports 7880, 7881, 7882/udp
+#   - Whisper    (STT on GPU)          - port 8080
+#   - LibreTranslate (Translation)     - port 8081
+#   - Piper      (TTS)                 - port 8083
+#   - Backend    (NeuraTalk API)       - port 3000
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      - LIVEKIT_KEYS=devkey:devsecret32charssecret32chars123
+    restart: unless-stopped
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest-gpu
+    ports:
+      - "8080:9000"
+    environment:
+      - ASR_MODEL=base
+      - ASR_ENGINE=faster_whisper
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  libretranslate:
+    image: libretranslate/libretranslate:latest
+    ports:
+      - "8081:5000"
+    environment:
+      - LT_LOAD_ONLY=en,hi,te,ta,ml,kn,mr,gu,bn,pa,es,fr,de,ja,zh,ar
+      - LT_SUGGESTIONS=false
+      - LT_DISABLE_WEB_UI=true
+    restart: unless-stopped
+
+  piper:
+    image: lscr.io/linuxserver/piper:latest
+    ports:
+      - "8083:10200"
+    environment:
+      - PIPER_VOICE=en_US-amy-medium
+      - PIPER_LENGTH=1.0
+    volumes:
+      - /workspace/piper-voices:/config
+    restart: unless-stopped
+
+  backend:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - /workspace/neuratalk:/app
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - LOCAL_WHISPER_URL=http://whisper:9000/asr
+      - LOCAL_TRANSLATION_URL=http://libretranslate:5000/translate
+      - LOCAL_TTS_URL=http://piper:10200
+      - LOCAL_TTS_ENGINE=piper
+      - PREFER_LOCAL_AI=true
+      - PREFER_LOCAL_TTS=true
+      - LIVEKIT_URL=ws://livekit:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=devsecret32charssecret32chars123
+    command: sh -c "npm install && npm start"
+    depends_on:
+      - livekit
+      - whisper
+      - libretranslate
+      - piper
+    restart: unless-stopped

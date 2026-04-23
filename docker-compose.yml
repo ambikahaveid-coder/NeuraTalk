@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  api-gateway:
+    build: ../api-gateway
+    ports: ["3000:3000"]
+    environment:
+      - STT_SERVICE_URL=ws://ai-stt-service:3003
+  ai-stt-service:
+    build: ../ai-stt-service
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  redis:
+    image: redis:alpine
+    ports: ["6379:6379"]

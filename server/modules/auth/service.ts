@@ -1,0 +1,462 @@
+/**
+ * Auth service — pure business logic for authentication flows.
+ * No express req/res. Controller/routes sit on top.
+ */
+
+import { db } from "../../db";
+import { storage } from "../../storage";
+import { hashPassword, verifyPassword } from "../../password-utils";
+import { createSession, invalidateSession, validateSession } from "../../role-middleware";
+import { requestOtp, verifyOtp } from "../../otp-auth";
+import { verifyFirebaseToken, isFirebaseAdminConfigured } from "../../firebase-admin";
+import { issueWsToken } from "../../signaling-server";
+import { AuditHelpers } from "../../audit";
+import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
+import { eq, and, or } from "drizzle-orm";
+
+function generateSlug(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+async function grantFreeTrialB2C(userId: number, defaultMinutes = 30): Promise<void> {
+  try {
+    const [freePlan] = await db.select().from(billingPlans)
+      .where(eq(billingPlans.priceInPaise, 0))
+      .limit(1);
+    if (!freePlan) return;
+    const now = new Date();
+    const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
+    await db.insert(subscriptions).values({
+      userId,
+      planId: freePlan.id,
+      status: "active",
+      billingModel: "prepaid",
+      startDate: now,
+      endDate: trialEnd,
+      minutesUsed: 0,
+      minutesRemaining: freePlan.includedMinutes || defaultMinutes,
+      autoRenew: false,
+    });
+  } catch {
+    /* non-fatal — user can still log in and subscribe manually */
+  }
+}
+
+export interface RegisterInput {
+  username: string;
+  password?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  role?: string | null;
+  organizationName?: string | null;
+  tenantSlug?: string | null;
+  organizationSlug?: string | null;
+  [key: string]: unknown;
+}
+
+interface AuthRequestContext {
+  userAgent?: string;
+  ipAddress?: string;
+  requestedTenantSlug?: string | null;
+}
+
+function normalizeTenantSlug(value?: string | null): string | null {
+  return value?.trim() ? value.trim().toLowerCase() : null;
+}
+
+function buildSessionBinding(organization?: { id: number; slug: string } | null) {
+  return {
+    organizationId: organization?.id ?? null,
+    tenantSlug: organization?.slug ?? null,
+    sessionScope: organization ? "tenant" : "platform",
+  };
+}
+
+function usesFirebasePhoneOtp(): boolean {
+  const provider = (
+    process.env.PHONE_OTP_PROVIDER ||
+    process.env.VITE_PHONE_OTP_PROVIDER ||
+    "firebase"
+  ).toLowerCase();
+  return provider === "firebase";
+}
+
+export async function registerUser(input: RegisterInput, context?: AuthRequestContext) {
+  const existing = await storage.getUserByUsername(input.username);
+  if (existing) {
+    return { error: "USERNAME_EXISTS" as const };
+  }
+
+  let organizationId: number | undefined;
+  if (input.role === "business" && input.organizationName) {
+    const slug = generateSlug(input.organizationName);
+    const org = await storage.createOrganization({
+      name: input.organizationName,
+      slug,
+      plan: "free",
+    });
+    organizationId = org.id;
+  }
+
+  const user = await storage.createUser({
+    username: input.username,
+    password: input.password ? hashPassword(input.password) : null,
+    email: input.email,
+    avatarUrl: input.avatarUrl,
+    role: input.role || USER_ROLES.CONSUMER,
+    organizationId,
+  });
+
+  let organization = null;
+  if (organizationId) {
+    await storage.addOrgMember({
+      organizationId,
+      userId: user.id,
+      memberRole: "owner",
+    });
+    organization = await storage.getOrganization(organizationId);
+  } else {
+    await grantFreeTrialB2C(user.id, 30);
+  }
+
+  const token = await createSession(
+    user.id,
+    context?.userAgent,
+    context?.ipAddress,
+    buildSessionBinding(organization),
+  );
+  const { password: _pw, ...safeUser } = user;
+  return { user: safeUser, organization, token };
+}
+
+export interface LoginInput {
+  username: string;
+  password: string;
+  tenantSlug?: string | null;
+  organizationSlug?: string | null;
+}
+
+export async function loginUser(input: LoginInput, context?: AuthRequestContext) {
+  const user = await storage.getUserByUsername(input.username);
+  if (!user || !user.password) {
+    return { error: "INVALID_CREDENTIALS" as const };
+  }
+  const passwordValid = user.password.includes(":")
+    ? verifyPassword(input.password, user.password)
+    : user.password === input.password; // backward compat for old plaintext
+  if (!passwordValid) {
+    return { error: "INVALID_CREDENTIALS" as const };
+  }
+
+  const requestedTenantSlug = normalizeTenantSlug(
+    context?.requestedTenantSlug ?? input.tenantSlug ?? input.organizationSlug,
+  );
+
+  let organization = null;
+  if (requestedTenantSlug) {
+    organization = await storage.getOrganizationBySlug(requestedTenantSlug);
+    if (!organization) {
+      return { error: "TENANT_NOT_FOUND" as const };
+    }
+
+    if (user.role !== "super_admin" && user.organizationId !== organization.id) {
+      return { error: "TENANT_ACCESS_DENIED" as const };
+    }
+  } else if (user.organizationId) {
+    organization = await storage.getOrganization(user.organizationId);
+  }
+
+  if (user.organizationId && !organization && user.role !== "super_admin") {
+    return { error: "TENANT_ACCESS_DENIED" as const };
+  }
+
+  if (
+    organization &&
+    user.role !== "super_admin" &&
+    organization.status &&
+    organization.status !== "approved"
+  ) {
+    return { error: "TENANT_INACTIVE" as const };
+  }
+
+  const token = await createSession(
+    user.id,
+    context?.userAgent,
+    context?.ipAddress,
+    buildSessionBinding(organization),
+  );
+  const { password: _pw, ...safeUser } = user;
+  return { user: safeUser, organization, token };
+}
+
+export async function forgotPassword(identifier: string, channel: "email" | "mobile") {
+  if (channel === "mobile" && usesFirebasePhoneOtp()) {
+    return { error: "PHONE_RESET_USES_FIREBASE" as const };
+  }
+
+  const whereClause = channel === "email"
+    ? eq(users.email, identifier)
+    : eq(users.phone, identifier);
+  const user = await db.query.users.findFirst({ where: whereClause });
+
+  // Silent success prevents user enumeration
+  if (!user) return { success: true };
+  await requestOtp(identifier, channel);
+  return { success: true };
+}
+
+export async function resetPassword(
+  identifier: string,
+  channel: "email" | "mobile",
+  code: string,
+  newPassword: string,
+) {
+  const otpResult = await verifyOtp(identifier, channel, code);
+  if (!otpResult.success) {
+    return { error: "INVALID_OTP" as const, message: otpResult.message };
+  }
+
+  const whereClause = channel === "email"
+    ? eq(users.email, identifier)
+    : eq(users.phone, identifier);
+  const user = await db.query.users.findFirst({ where: whereClause });
+  if (!user) return { error: "USER_NOT_FOUND" as const };
+
+  await db.update(users).set({ password: hashPassword(newPassword) }).where(eq(users.id, user.id));
+  const organization = user.organizationId
+    ? await storage.getOrganization(user.organizationId)
+    : null;
+  const token = await createSession(user.id, undefined, undefined, buildSessionBinding(organization));
+  const { password: _pw, ...safeUser } = user;
+  return { user: safeUser, token };
+}
+
+export async function changePassword(
+  userId: number,
+  currentPassword: string,
+  newPassword: string,
+) {
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!user) return { error: "USER_NOT_FOUND" as const };
+  if (!user.password) return { error: "PASSWORD_AUTH_NOT_AVAILABLE" as const };
+
+  const passwordValid = user.password.includes(":")
+    ? verifyPassword(currentPassword, user.password)
+    : user.password === currentPassword;
+  if (!passwordValid) {
+    return { error: "INVALID_CURRENT_PASSWORD" as const };
+  }
+
+  await db.update(users)
+    .set({ password: hashPassword(newPassword) })
+    .where(eq(users.id, user.id));
+
+  return { success: true as const };
+}
+
+export async function firebaseVerify(idToken: string) {
+  const firebaseUser = await verifyFirebaseToken(idToken);
+  if (!firebaseUser) return { error: "INVALID_TOKEN" as const };
+
+  let user = await db.query.users.findFirst({
+    where: eq(users.phone, firebaseUser.phoneNumber),
+  });
+
+  const isNewUser = !user;
+  if (!user) {
+    const [newUser] = await db.insert(users).values({
+      username: firebaseUser.phoneNumber,
+      phone: firebaseUser.phoneNumber,
+      role: "consumer",
+    }).returning();
+    user = newUser;
+
+    try {
+      const freePlan = await db.query.billingPlans.findFirst({
+        where: and(
+          eq(billingPlans.priceInPaise, 0),
+          eq(billingPlans.planType, "b2c"),
+          eq(billingPlans.isEnabled, true),
+        ),
+      });
+      if (freePlan) {
+        const now = new Date();
+        const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
+        await db.insert(subscriptions).values({
+          userId: user.id,
+          planId: freePlan.id,
+          status: "active",
+          billingModel: "prepaid",
+          startDate: now,
+          endDate: trialEnd,
+          minutesUsed: 0,
+          minutesRemaining: freePlan.includedMinutes || 15,
+          autoRenew: false,
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  const organization = user.organizationId
+    ? await storage.getOrganization(user.organizationId)
+    : null;
+  const token = await createSession(user.id, undefined, undefined, buildSessionBinding(organization));
+  const { password: _pw, ...safeUser } = user;
+  return { user: safeUser, token, isNewUser };
+}
+
+export async function requestAuthOtp(identifier: string, channel: "email" | "mobile") {
+  if (channel === "mobile" && usesFirebasePhoneOtp()) {
+    return {
+      success: false,
+      message: "Mobile OTP is handled by Firebase Phone Auth. Please use Firebase phone verification.",
+    };
+  }
+
+  return await requestOtp(identifier, channel);
+}
+
+export type VerifyAuthOtpResult =
+  | { success: true; token: string; userId: number; user: any; message?: string }
+  | { success: false; status: number; message: string };
+
+export async function verifyAuthOtp(params: {
+  identifier: string;
+  channel: "email" | "mobile";
+  code: string;
+  firebaseToken?: string;
+  userAgent?: string;
+  ipAddress?: string;
+  requestedTenantSlug?: string | null;
+}): Promise<VerifyAuthOtpResult> {
+  const {
+    identifier,
+    channel,
+    code,
+    firebaseToken,
+    userAgent,
+    ipAddress,
+    requestedTenantSlug,
+  } = params;
+
+  let result: { success: boolean; userId?: number; message?: string };
+
+  if (firebaseToken && channel === "mobile") {
+    if (!isFirebaseAdminConfigured()) {
+      return { success: false, status: 400, message: "Firebase Phone Auth is not configured on this server. Please use SMS OTP." };
+    }
+    const verifiedToken = await verifyFirebaseToken(firebaseToken);
+    if (!verifiedToken) {
+      return { success: false, status: 401, message: "Invalid or expired verification token. Please try again." };
+    }
+    const verifiedPhone = verifiedToken.phoneNumber;
+
+    let user = await db.query.users.findFirst({
+      where: or(eq(users.phone, verifiedPhone), eq(users.phone, verifiedPhone.replace("+91", ""))),
+    });
+    if (!user) {
+      const username = `user_${Date.now().toString(36)}`;
+      const [newUser] = await db.insert(users).values({
+        username,
+        phone: verifiedPhone,
+        phoneVerified: true,
+        role: "consumer",
+      }).returning();
+      user = newUser;
+      await grantFreeTrialB2C(newUser.id, 30);
+    } else {
+      await db.update(users).set({ phoneVerified: true }).where(eq(users.id, user.id));
+    }
+    result = { success: true, userId: user.id };
+  } else {
+    result = await verifyOtp(identifier, channel, code);
+  }
+
+  if (!result.success || !result.userId) {
+    return { success: false, status: 400, message: result.message || "Verification failed" };
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, result.userId),
+    with: { organization: true },
+  });
+
+  const normalizedRequestedTenantSlug = normalizeTenantSlug(requestedTenantSlug);
+  if (normalizedRequestedTenantSlug && user?.role !== "super_admin") {
+    if (!user?.organization) {
+      return {
+        success: false,
+        status: 403,
+        message: "This account does not belong to the requested company workspace",
+      };
+    }
+
+    if (user.organization.slug !== normalizedRequestedTenantSlug) {
+      return {
+        success: false,
+        status: 403,
+        message: "This account does not belong to the requested company workspace",
+      };
+    }
+  }
+
+  const token = await createSession(
+    result.userId,
+    userAgent,
+    ipAddress,
+    buildSessionBinding(user?.organization ?? null),
+  );
+  await AuditHelpers.logLogin(result.userId, ipAddress, userAgent, user?.organizationId ?? undefined);
+
+  return {
+    success: true,
+    token,
+    userId: result.userId,
+    user: user ? {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      organization: user.organization,
+    } : null,
+    message: result.message,
+  };
+}
+
+export async function logout(token: string | undefined, userId?: number) {
+  if (token) {
+    try { await invalidateSession(token); } catch { /* best-effort */ }
+  }
+  if (userId) {
+    try { await AuditHelpers.logLogout(userId); } catch { /* best-effort */ }
+  }
+}
+
+export async function getMe(token: string) {
+  const userId = await validateSession(token);
+  if (!userId) return { error: "INVALID_SESSION" as const };
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    with: { organization: true },
+  });
+  if (!user || !user.isActive) return { error: "USER_INACTIVE" as const };
+  return {
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      avatarUrl: user.avatarUrl,
+      organizationId: user.organizationId,
+      organization: user.organization || null,
+    },
+  };
+}
+
+export function issueSignalingToken(userId: number, phone?: string | null) {
+  return issueWsToken({ userId, phoneNumber: phone ?? undefined }, 300);
+}
