@@ -1,8 +1,25 @@
+import 'package:flutter/foundation.dart';
+
 class ShellConfig {
-  static const String rawAppUrl = String.fromEnvironment(
+  static const String _configuredAppUrl = String.fromEnvironment(
     'NEURATALK_APP_URL',
-    defaultValue: 'https://neuratalk.in/login',
+    defaultValue: '',
   );
+
+  static String get rawAppUrl {
+    if (_configuredAppUrl.isNotEmpty) {
+      return _configuredAppUrl;
+    }
+
+    if (kDebugMode) {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        return 'http://10.0.2.2:5000/login';
+      }
+      return 'http://localhost:5000/login';
+    }
+
+    return 'https://neuratalk.in/login';
+  }
 
   static const String shellVersion = String.fromEnvironment(
     'NEURATALK_SHELL_VERSION',

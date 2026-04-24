@@ -356,12 +356,20 @@ function ensureSmartCallWatchdog(): void {
 
   watchdogStarted = true;
   setInterval(() => {
-    void processSmartCallWatchdog();
+    void processSmartCallWatchdog().catch((error) => {
+      logger.warn("SmartCallRouter", `watchdog tick skipped: ${String(error)}`);
+    });
   }, 5_000).unref?.();
 }
 
 async function processSmartCallWatchdog(): Promise<void> {
-  const activeCalls = await listSmartActiveCalls();
+  let activeCalls: SmartCallRecord[] = [];
+  try {
+    activeCalls = await listSmartActiveCalls();
+  } catch (error) {
+    logger.warn("SmartCallRouter", `watchdog failed to load active calls: ${String(error)}`);
+    return;
+  }
   const nowMs = Date.now();
 
   await Promise.all(activeCalls.map(async (record) => {
@@ -432,7 +440,13 @@ export async function getSmartCall(callId: string): Promise<SmartCallRecord | nu
     return null;
   }
 
-  const raw = await redisClient().get(smartCallKey(callId));
+  let raw: string | null = null;
+  try {
+    raw = await redisClient().get(smartCallKey(callId));
+  } catch (error) {
+    logger.warn("SmartCallRouter", `failed to read smart call ${callId}: ${String(error)}`);
+    return null;
+  }
   if (!raw) {
     return null;
   }
@@ -460,12 +474,24 @@ function parseSmartCallRecord(raw: string): SmartCallRecord {
 }
 
 export async function listSmartCallsForUser(userId: string): Promise<SmartCallRecord[]> {
-  const callIds = await redisClient().zrevrange(smartCallUserIndexKey(userId), 0, 99);
+  let callIds: string[] = [];
+  try {
+    callIds = await redisClient().zrevrange(smartCallUserIndexKey(userId), 0, 99);
+  } catch (error) {
+    logger.warn("SmartCallRouter", `failed to list smart calls for user ${userId}: ${String(error)}`);
+    return [];
+  }
   if (callIds.length === 0) {
     return [];
   }
 
-  const rawRecords = await redisClient().mget(callIds.map((callId) => smartCallKey(callId)));
+  let rawRecords: (string | null)[] = [];
+  try {
+    rawRecords = await redisClient().mget(callIds.map((callId) => smartCallKey(callId)));
+  } catch (error) {
+    logger.warn("SmartCallRouter", `failed to load smart call records for user ${userId}: ${String(error)}`);
+    return [];
+  }
   return rawRecords.flatMap((raw) => {
     if (!raw) {
       return [];
@@ -480,12 +506,24 @@ export async function listSmartCallsForUser(userId: string): Promise<SmartCallRe
 }
 
 export async function listSmartActiveCalls(): Promise<SmartCallRecord[]> {
-  const callIds = await redisClient().smembers("smart_call:active");
+  let callIds: string[] = [];
+  try {
+    callIds = await redisClient().smembers("smart_call:active");
+  } catch (error) {
+    logger.warn("SmartCallRouter", `failed to list active smart calls: ${String(error)}`);
+    return [];
+  }
   if (callIds.length === 0) {
     return [];
   }
 
-  const rawRecords = await redisClient().mget(callIds.map((callId) => smartCallKey(callId)));
+  let rawRecords: (string | null)[] = [];
+  try {
+    rawRecords = await redisClient().mget(callIds.map((callId) => smartCallKey(callId)));
+  } catch (error) {
+    logger.warn("SmartCallRouter", `failed to load active smart call records: ${String(error)}`);
+    return [];
+  }
   return rawRecords.flatMap((raw) => {
     if (!raw) {
       return [];
