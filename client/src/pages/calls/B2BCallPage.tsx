@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AppNavigation from "@/components/AppNavigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select,
   SelectContent,
@@ -55,7 +56,10 @@ interface TranslationRoute {
   targetLanguage: string;
   status: "active" | "degraded" | "offline";
   latency: number;
+  issue?: string | null;
 }
+
+type RouteSummaryStatus = "healthy" | "degraded" | "offline" | "unknown";
 
 const API_BASE = import.meta.env.DEV 
   ? "http://localhost:5000" 
@@ -63,10 +67,15 @@ const API_BASE = import.meta.env.DEV
 
 export default function B2BCallPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [autoRouting, setAutoRouting] = useState(true);
   const [translationQuality, setTranslationQuality] = useState("balanced");
+  const [translationMode, setTranslationMode] = useState<"off" | "subtitles" | "voice">("voice");
   const [complianceMode, setComplianceMode] = useState(true);
+  const [calleeIdentifier, setCalleeIdentifier] = useState("");
+  const [callType, setCallType] = useState<"voice" | "video">("voice");
 
   const { data: agentsData, isLoading: agentsLoading } = useQuery({
     queryKey: ["/api/company/agents"],
@@ -110,12 +119,114 @@ export default function B2BCallPage() {
     id: a.id.toString(),
     name: a.name || a.email || "Unknown",
     status: a.isOnline ? (a.isOnCall ? "on_call" : "available") : "offline",
+    currentCall: a.currentCall || undefined,
     callsToday: a.callsToday || 0,
     avgHandleTime: a.avgHandleTime || "0:00",
   }));
 
   const queue: QueueItem[] = queueData?.queue || [];
   const routes: TranslationRoute[] = routesData?.routes || [];
+  const routeSummary = routesData?.summary || {
+    total: routes.length,
+    active: routes.filter((route) => route.status === "active").length,
+    degraded: routes.filter((route) => route.status === "degraded").length,
+    offline: routes.filter((route) => route.status === "offline").length,
+    status: "unknown" as RouteSummaryStatus,
+  };
+
+  const outboundCallMutation = useMutation({
+    mutationFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE}/api/b2b/outbound-call`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          calleeIdentifier,
+          callType,
+          agentUserId: selectedAgent ? Number(selectedAgent) : undefined,
+          myLanguage: "auto",
+          theirLanguage: "auto",
+          translationMode,
+          transportPreference: autoRouting ? "auto" : "app_to_app",
+          enableRecording: complianceMode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to start outbound call");
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      toast({
+        title: "Call Started",
+        description: `${data.call.joinMethod === "app_to_pstn" ? "Phone bridge" : "App call"} initiated successfully.`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Call Failed",
+        description: error.message || "Could not start outbound call",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const assignQueueMutation = useMutation({
+    mutationFn: async ({ queueId, agentId }: { queueId: string; agentId: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE}/api/b2b/call-queue/${queueId}/assign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ agentUserId: Number(agentId) }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to assign queue item");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/b2b/call-queue"] });
+      toast({ title: "Assigned", description: "Call was assigned to the selected agent." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Assign Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const autoRouteMutation = useMutation({
+    mutationFn: async (queueId: string) => {
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE}/api/b2b/call-queue/${queueId}/auto-route`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to auto-route call");
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/b2b/call-queue"] });
+      toast({ title: "Auto-Routed", description: "Call was routed to the best available agent." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Auto-Routing Failed", description: error.message, variant: "destructive" });
+    },
+  });
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -148,6 +259,70 @@ export default function B2BCallPage() {
   const onCallAgents = agents.filter(a => a.status === "on_call").length;
   const queueLength = queue.length;
   const avgWaitTime = queue.length > 0 ? Math.round(queue.reduce((sum, q) => sum + q.waitTime, 0) / queue.length) : 0;
+  const activeRouteCount = routes.filter((route) => route.status === "active").length;
+  const routeCoverage = routeSummary.total > 0
+    ? Math.round(((routeSummary.active + routeSummary.degraded) / routeSummary.total) * 100)
+    : 0;
+  const agentAvailability = totalAgents > 0 ? Math.round((availableAgents / totalAgents) * 100) : 0;
+  const queueClearance = queueLength === 0 ? 100 : Math.max(0, Math.min(100, Math.round((availableAgents / queueLength) * 100)));
+  const activeLoad = totalAgents > 0 ? Math.round((onCallAgents / totalAgents) * 100) : 0;
+  const systemStatus = routeSummary.status === "unknown"
+    ? "degraded"
+    : routeSummary.status === "offline"
+    ? "offline"
+    : queue.some((item) => item.waitTime >= 120) || (queueLength > 0 && availableAgents === 0) || routeSummary.status === "degraded"
+      ? "degraded"
+      : "healthy";
+  const statusLabel = systemStatus === "healthy" ? "System Healthy" : systemStatus === "degraded" ? "Attention Needed" : "Service At Risk";
+  const statusTone = systemStatus === "healthy"
+    ? "text-green-500"
+    : systemStatus === "degraded"
+      ? "text-yellow-500"
+      : "text-red-500";
+  const languageBuckets = new Map<string, number>();
+  for (const item of queue) {
+    const key = item.language || "auto";
+    languageBuckets.set(key, (languageBuckets.get(key) || 0) + 1);
+  }
+  for (const agent of agents) {
+    if (!agent.currentCall?.language) continue;
+    const key = agent.currentCall.language;
+    languageBuckets.set(key, (languageBuckets.get(key) || 0) + 1);
+  }
+  const totalLanguageSignals = Array.from(languageBuckets.values()).reduce((sum, count) => sum + count, 0);
+  const languageDistribution = totalLanguageSignals > 0
+    ? Array.from(languageBuckets.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([lang, count], index) => ({
+        lang: lang === "auto" ? "Undetected" : lang,
+        percent: Math.max(1, Math.round((count / totalLanguageSignals) * 100)),
+        color: ["bg-blue-500", "bg-green-500", "bg-orange-500", "bg-cyan-500", "bg-gray-500"][index] || "bg-gray-500",
+      }))
+    : [{ lang: "No live traffic", percent: 100, color: "bg-gray-500" }];
+  const alerts = [
+    ...(queue.some((item) => item.waitTime >= 120) ? [{
+      id: "queue-critical",
+      tone: "yellow" as const,
+      icon: AlertTriangle,
+      title: "Queue wait threshold exceeded",
+      description: "At least one caller has been waiting more than 120 seconds.",
+    }] : []),
+    ...(queueLength > 0 && availableAgents === 0 ? [{
+      id: "agent-capacity",
+      tone: "red" as const,
+      icon: Users,
+      title: "No free agents for queued calls",
+      description: "Queue is building while every visible agent is busy or offline.",
+    }] : []),
+    ...routes.filter((route) => route.status !== "active").map((route) => ({
+      id: `route-${route.id}`,
+      tone: route.status === "offline" ? "red" as const : "blue" as const,
+      icon: route.status === "offline" ? AlertTriangle : Radio,
+      title: `${route.name} ${route.status === "offline" ? "offline" : "degraded"}`,
+      description: route.issue || `Current latency: ${route.latency}ms`,
+    })),
+  ].slice(0, 4);
 
   return (
     <div className="min-h-screen bg-background">
@@ -162,8 +337,8 @@ export default function B2BCallPage() {
           </div>
           <div className="flex items-center gap-4">
             <Badge variant="outline" className="gap-1">
-              <Activity className="w-3 h-3 text-green-500" />
-              System Healthy
+              <Activity className={`w-3 h-3 ${statusTone}`} />
+              {statusLabel}
             </Badge>
             <Badge variant="secondary" className="gap-1">
               <Sparkles className="w-3 h-3" />
@@ -223,8 +398,8 @@ export default function B2BCallPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-muted-foreground">Translation Rate</p>
-                  <p className="text-2xl font-bold">{routes.length > 0 ? `${Math.round(routes.filter(r => r.status === "active").length / routes.length * 100)}%` : "N/A"}</p>
+                  <p className="text-xs text-muted-foreground">Route Coverage</p>
+                  <p className="text-2xl font-bold">{routeSummary.total > 0 ? `${routeCoverage}%` : "N/A"}</p>
                 </div>
                 <Languages className="w-8 h-8 text-blue-500 opacity-50" />
               </div>
@@ -244,6 +419,11 @@ export default function B2BCallPage() {
               <CardContent>
                 <ScrollArea className="h-[400px]">
                   <div className="space-y-2">
+                    {agents.length === 0 && (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                        No agents are linked to this company yet.
+                      </div>
+                    )}
                     {agents.map(agent => (
                       <div
                         key={agent.id}
@@ -296,6 +476,53 @@ export default function B2BCallPage() {
           <div className="lg:col-span-2 space-y-4">
             <Card>
               <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <PhoneOutgoing className="w-4 h-4" />
+                  Outbound B2B Call
+                </CardTitle>
+                <CardDescription>
+                  Start a real customer call from the control room using the selected agent.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid md:grid-cols-[1fr_140px] gap-3">
+                  <Input
+                    value={calleeIdentifier}
+                    onChange={(e) => setCalleeIdentifier(e.target.value)}
+                    placeholder="Customer phone, user ID, or app identifier"
+                    data-testid="input-b2b-callee"
+                  />
+                  <Select value={callType} onValueChange={(value: "voice" | "video") => setCallType(value)}>
+                    <SelectTrigger data-testid="select-b2b-call-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="voice">Voice</SelectItem>
+                      <SelectItem value="video">Video</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {selectedAgent
+                      ? `Selected agent: ${agents.find((agent) => agent.id === selectedAgent)?.name || selectedAgent}`
+                      : "No agent selected. Current user will place the call."}
+                  </span>
+                  <span>{autoRouting ? "Transport: Auto" : "Transport: App-to-app only"}</span>
+                </div>
+                <Button
+                  onClick={() => outboundCallMutation.mutate()}
+                  disabled={!calleeIdentifier.trim() || outboundCallMutation.isPending}
+                  data-testid="button-start-b2b-outbound-call"
+                >
+                  {outboundCallMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Phone className="w-4 h-4 mr-2" />}
+                  Start Call
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-base flex items-center gap-2">
                     <PhoneIncoming className="w-4 h-4" />
@@ -306,6 +533,11 @@ export default function B2BCallPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
+                  {queue.length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      No pending calls in the company queue.
+                    </div>
+                  )}
                   {queue.map(item => (
                     <div
                       key={item.id}
@@ -332,10 +564,21 @@ export default function B2BCallPage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" data-testid={`assign-${item.id}`}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          data-testid={`assign-${item.id}`}
+                          disabled={!selectedAgent || assignQueueMutation.isPending}
+                          onClick={() => selectedAgent && assignQueueMutation.mutate({ queueId: item.id, agentId: selectedAgent })}
+                        >
                           Assign
                         </Button>
-                        <Button size="sm" data-testid={`route-${item.id}`}>
+                        <Button
+                          size="sm"
+                          data-testid={`route-${item.id}`}
+                          disabled={autoRouteMutation.isPending}
+                          onClick={() => autoRouteMutation.mutate(item.id)}
+                        >
                           Auto-Route
                         </Button>
                       </div>
@@ -354,6 +597,11 @@ export default function B2BCallPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
+                  {routes.length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      No translation or bridge routes are currently reporting status.
+                    </div>
+                  )}
                   {routes.map(route => (
                     <div
                       key={route.id}
@@ -363,6 +611,9 @@ export default function B2BCallPage() {
                       <div className={`w-3 h-3 rounded-full ${getStatusColor(route.status)}`} />
                       <div className="flex-1">
                         <div className="font-medium text-sm">{route.name}</div>
+                        {route.issue && (
+                          <div className="text-xs text-muted-foreground mt-1">{route.issue}</div>
+                        )}
                         <div className="text-xs text-muted-foreground">
                           {route.sourceLanguage} → {route.targetLanguage}
                         </div>
@@ -391,33 +642,36 @@ export default function B2BCallPage() {
               <CardContent>
                 <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <Label className="text-xs text-muted-foreground">Service Level</Label>
+                    <Label className="text-xs text-muted-foreground">Agent Availability</Label>
                     <div className="flex items-center gap-2 mt-1">
-                      <Progress value={87} className="h-2" />
-                      <span className="text-sm font-medium">87%</span>
+                      <Progress value={agentAvailability} className="h-2" />
+                      <span className="text-sm font-medium">{agentAvailability}%</span>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Answer Rate</Label>
+                    <Label className="text-xs text-muted-foreground">Queue Clearance</Label>
                     <div className="flex items-center gap-2 mt-1">
-                      <Progress value={95} className="h-2" />
-                      <span className="text-sm font-medium">95%</span>
+                      <Progress value={queueClearance} className="h-2" />
+                      <span className="text-sm font-medium">{queueClearance}%</span>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Translation Accuracy</Label>
+                    <Label className="text-xs text-muted-foreground">Route Availability</Label>
                     <div className="flex items-center gap-2 mt-1">
-                      <Progress value={98} className="h-2" />
-                      <span className="text-sm font-medium">98%</span>
+                      <Progress value={routeCoverage} className="h-2" />
+                      <span className="text-sm font-medium">{routeCoverage}%</span>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground">Customer Satisfaction</Label>
+                    <Label className="text-xs text-muted-foreground">Active Load</Label>
                     <div className="flex items-center gap-2 mt-1">
-                      <Progress value={92} className="h-2" />
-                      <span className="text-sm font-medium">92%</span>
+                      <Progress value={activeLoad} className="h-2" />
+                      <span className="text-sm font-medium">{activeLoad}%</span>
                     </div>
                   </div>
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  Active routes: {activeRouteCount}/{routeSummary.total} | Degraded: {routeSummary.degraded} | Offline: {routeSummary.offline}
                 </div>
               </CardContent>
             </Card>
@@ -457,6 +711,22 @@ export default function B2BCallPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label>Translation Output</Label>
+                  <Select value={translationMode} onValueChange={(value: "off" | "subtitles" | "voice") => setTranslationMode(value)}>
+                    <SelectTrigger data-testid="select-b2b-translation-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">Original voice only</SelectItem>
+                      <SelectItem value="subtitles">Agent subtitles only</SelectItem>
+                      <SelectItem value="voice">Translated voice to listener</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    PSTN listeners need voice mode for translated audio. App users can still override after they join.
+                  </p>
+                </div>
                 <Separator />
                 <div className="flex items-center justify-between">
                   <div>
@@ -484,13 +754,7 @@ export default function B2BCallPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[
-                    { lang: "Telugu", percent: 35, color: "bg-blue-500" },
-                    { lang: "Hindi", percent: 25, color: "bg-green-500" },
-                    { lang: "English", percent: 20, color: "bg-purple-500" },
-                    { lang: "Tamil", percent: 12, color: "bg-orange-500" },
-                    { lang: "Other", percent: 8, color: "bg-gray-500" },
-                  ].map(item => (
+                  {languageDistribution.map(item => (
                     <div key={item.lang}>
                       <div className="flex justify-between text-sm mb-1">
                         <span>{item.lang}</span>
@@ -514,20 +778,33 @@ export default function B2BCallPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  <div className="flex items-start gap-2 p-2 rounded bg-yellow-500/10 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5" />
-                    <div>
-                      <div className="font-medium">High queue wait time</div>
-                      <div className="text-xs text-muted-foreground">VIP customer waiting 45s</div>
+                  {alerts.length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      No active operational alerts right now.
                     </div>
-                  </div>
-                  <div className="flex items-start gap-2 p-2 rounded bg-blue-500/10 text-sm">
-                    <Radio className="w-4 h-4 text-blue-500 mt-0.5" />
-                    <div>
-                      <div className="font-medium">SIP Trunk Backup degraded</div>
-                      <div className="text-xs text-muted-foreground">Latency above threshold</div>
-                    </div>
-                  </div>
+                  )}
+                  {alerts.map((alert) => {
+                    const Icon = alert.icon;
+                    const toneClass = alert.tone === "red"
+                      ? "bg-red-500/10"
+                      : alert.tone === "yellow"
+                        ? "bg-yellow-500/10"
+                        : "bg-blue-500/10";
+                    const iconClass = alert.tone === "red"
+                      ? "text-red-500"
+                      : alert.tone === "yellow"
+                        ? "text-yellow-500"
+                        : "text-blue-500";
+                    return (
+                      <div key={alert.id} className={`flex items-start gap-2 p-2 rounded text-sm ${toneClass}`}>
+                        <Icon className={`w-4 h-4 mt-0.5 ${iconClass}`} />
+                        <div>
+                          <div className="font-medium">{alert.title}</div>
+                          <div className="text-xs text-muted-foreground">{alert.description}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

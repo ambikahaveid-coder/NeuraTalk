@@ -174,11 +174,14 @@ function AnalyticsTab() {
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" data-testid="button-export">
+          <Button variant="outline" size="icon" data-testid="button-export" disabled title="Export is not wired on this screen yet">
             <Download className="w-4 h-4" />
           </Button>
         </div>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Export from this dashboard is disabled in the current environment. Use the supported admin reporting workflow when export is enabled.
+      </p>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {stats.map((stat, i) => (
@@ -329,10 +332,15 @@ function TeamManagementTab() {
           <h2 className="text-2xl font-bold">Team Management</h2>
           <p className="text-muted-foreground">Manage team members and their access</p>
         </div>
-        <Button className="gap-2" data-testid="button-invite-member">
-          <UserPlus className="w-4 h-4" />
-          Invite Member
-        </Button>
+        <div className="text-right">
+          <Button className="gap-2" data-testid="button-invite-member" disabled title="Team invitation is handled in company admin workflows">
+            <UserPlus className="w-4 h-4" />
+            Invite Member
+          </Button>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Team invites are handled in the dedicated company admin workflow, not from this enterprise summary page.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -662,6 +670,18 @@ function EnterpriseSettingsTab() {
         <p className="text-sm text-primary/70 font-medium uppercase tracking-widest">Organization & Security Configuration</p>
       </div>
 
+      <Card className="border-yellow-500/20 bg-yellow-500/5">
+        <CardContent className="p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5 shrink-0" />
+          <div>
+            <div className="font-medium">Read-only operational view</div>
+            <p className="text-sm text-muted-foreground">
+              This page now shows configuration posture only. Editing and deployment are not wired here yet, so controls are intentionally disabled to avoid false saves.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="space-y-6">
         <Card className="glass-card">
           <CardHeader className="cursor-pointer border-b border-white/5" onClick={() => setBrandingOpen(!brandingOpen)}>
@@ -677,26 +697,26 @@ function EnterpriseSettingsTab() {
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Company Name</Label>
-                  <Input defaultValue="Acme Corporation" data-testid="input-company-name" />
+                  <Input value="" placeholder="Managed outside this screen" disabled data-testid="input-company-name" />
                 </div>
                 <div className="space-y-2">
                   <Label>Primary Color</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="color" defaultValue="#00b8d4" className="w-16 h-10" data-testid="input-primary-color" />
-                    <Input defaultValue="#00b8d4" className="flex-1" />
+                    <Input type="color" value="#9ca3af" className="w-16 h-10" disabled data-testid="input-primary-color" />
+                    <Input value="" placeholder="Managed outside this screen" className="flex-1" disabled />
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label>Logo URL</Label>
-                <Input placeholder="https://example.com/logo.png" data-testid="input-logo-url" />
+                <Input placeholder="Managed outside this screen" disabled data-testid="input-logo-url" />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Custom Domain</Label>
                   <p className="text-sm text-muted-foreground">Use your own domain for white-label experience</p>
                 </div>
-                <Switch data-testid="switch-custom-domain" />
+                <Switch disabled data-testid="switch-custom-domain" />
               </div>
             </CardContent>
           )}
@@ -718,32 +738,32 @@ function EnterpriseSettingsTab() {
                   <Label>Two-Factor Authentication</Label>
                   <p className="text-sm text-muted-foreground">Require 2FA for all team members</p>
                 </div>
-                <Switch defaultChecked data-testid="switch-2fa" />
+                <Switch checked disabled data-testid="switch-2fa" />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label>SSO / SAML</Label>
                   <p className="text-sm text-muted-foreground">Enable single sign-on integration</p>
                 </div>
-                <Switch data-testid="switch-sso" />
+                <Switch disabled data-testid="switch-sso" />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label>IP Whitelisting</Label>
                   <p className="text-sm text-muted-foreground">Restrict access to specific IP ranges</p>
                 </div>
-                <Switch data-testid="switch-ip-whitelist" />
+                <Switch disabled data-testid="switch-ip-whitelist" />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Data Encryption</Label>
                   <p className="text-sm text-muted-foreground">End-to-end encryption for all calls</p>
                 </div>
-                <Switch defaultChecked data-testid="switch-encryption" />
+                <Switch checked disabled data-testid="switch-encryption" />
               </div>
               <div className="space-y-2">
                 <Label>Session Timeout</Label>
-                <Select defaultValue="24h">
+                <Select value="24h" disabled>
                   <SelectTrigger data-testid="select-session-timeout">
                     <SelectValue />
                   </SelectTrigger>
@@ -776,21 +796,21 @@ function EnterpriseSettingsTab() {
                   <Mail className="w-4 h-4 text-muted-foreground" />
                   <Label className="font-medium">Email Intelligence Reports</Label>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked disabled />
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Smartphone className="w-4 h-4 text-muted-foreground" />
                   <Label className="font-medium">SMS Critical Alerts</Label>
                 </div>
-                <Switch />
+                <Switch disabled />
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-muted-foreground" />
                   <Label className="font-medium">Real-time Usage Thresholds</Label>
                 </div>
-                <Switch defaultChecked />
+                <Switch checked disabled />
               </div>
             </CardContent>
           )}
@@ -798,8 +818,13 @@ function EnterpriseSettingsTab() {
 
         <div className="flex justify-end gap-3 pt-6 pb-12">
           <Button variant="outline" className="px-8 border-white/10 hover:bg-white/5" onClick={() => window.history.back()}>Cancel</Button>
-          <Button className="px-8 shadow-lg shadow-primary/20 bg-primary text-primary-foreground font-bold">Deploy Configuration</Button>
+          <Button className="px-8 shadow-lg shadow-primary/20 bg-primary text-primary-foreground font-bold" disabled title="Configuration editing is not wired on this screen">
+            Configuration Editing Not Wired
+          </Button>
         </div>
+        <p className="text-xs text-muted-foreground text-right">
+          These controls are visible for posture review only. Any writable enterprise configuration should be done through the supported backend-admin workflow.
+        </p>
       </div>
     </div>
   );
@@ -807,19 +832,29 @@ function EnterpriseSettingsTab() {
 
 function SystemHealthPanel() {
   const { data: healthData } = useQuery({
-    queryKey: ["/api/health/services"],
+    queryKey: ["/readyz"],
     queryFn: async () => {
-      const start = Date.now();
-      const res = await fetch("/api/health");
-      const latency = Date.now() - start;
-      const ok = res.ok;
+      const res = await fetch("/readyz");
+      const payload = await res.json().catch(() => null);
+      const checks = payload?.checks && typeof payload.checks === "object" ? payload.checks : {};
+      const entries = Object.entries(checks) as Array<
+        [string, { status?: string; latencyMs?: number; error?: string }]
+      >;
+      const serviceNames: Record<string, string> = {
+        database: "Database",
+        redis: "Redis",
+        providers: "Provider Config",
+        msg91: "MSG91 Bridge",
+      };
+
       return {
-        services: [
-          { name: "API Gateway", status: ok ? "healthy" : "down", latency: `${latency}ms` },
-          { name: "Database", status: ok ? "healthy" : "down", latency: `${latency}ms` },
-          { name: "WebSocket Signaling", status: "healthy", latency: "<50ms" },
-          { name: "Translation Pipeline", status: "healthy", latency: "~200ms" },
-        ],
+        services: entries.map(([key, value]) => ({
+          name: serviceNames[key] || key,
+          status: value?.status === "healthy" ? "healthy" : value?.status === "unhealthy" ? "down" : "unknown",
+          detail: typeof value?.latencyMs === "number"
+            ? `${value.latencyMs}ms`
+            : value?.error || "No probe detail",
+        })),
       };
     },
     refetchInterval: 30000,
@@ -830,7 +865,7 @@ function SystemHealthPanel() {
   return (
     <div className="space-y-3">
       {services.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Checking services...</p>
+        <p className="text-sm text-muted-foreground">No live readiness data yet.</p>
       ) : services.map((service) => (
         <div key={service.name} className="flex items-center justify-between p-2 rounded-lg bg-secondary/30">
           <div className="flex items-center gap-2">
@@ -841,7 +876,7 @@ function SystemHealthPanel() {
             )}
             <span className="text-sm">{service.name}</span>
           </div>
-          <Badge variant="outline" className="text-xs">{service.latency}</Badge>
+          <Badge variant="outline" className="text-xs">{service.detail}</Badge>
         </div>
       ))}
     </div>

@@ -7,7 +7,8 @@ export function loadEnvironment(): void {
     return;
   }
 
-  dotenv.config({ override: true });
+  const explicitOverride = (process.env.DOTENV_OVERRIDE || "").toLowerCase() === "true";
+  dotenv.config({ override: explicitOverride });
   loaded = true;
 }
 

@@ -49,6 +49,11 @@ server_err.txt
 server_out.txt
 /tmp/
 
+# Gradle home caches (local build tool cache, not source code)
+.gradle-home/
+mobile/android/.gradle-home/
+mobile/android/.gradle/
+
 # Build outputs and local crash artifacts
 build/
 flutter_app/build/

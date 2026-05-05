@@ -8,6 +8,7 @@
  * through this service as the single integration point.
  */
 
+import { EventEmitter } from "node:events";
 import {
   initiateCall as routerInitiateCall,
   initiateConference as routerInitiateConference,
@@ -18,6 +19,8 @@ import {
   listSmartCallsForUser as routerListSmartCallsForUser,
   updateSmartCallStatus as routerUpdateSmartCallStatus,
   isSmartCallId as routerIsSmartCallId,
+  isActiveSmartCall as routerIsActiveSmartCall,
+  resolveCalleeForTransfer as routerResolveCalleeForTransfer,
   type CallInitiateRequest,
   type CallInitiateResponse,
   type SmartCallRecord,
@@ -25,11 +28,20 @@ import {
 import { getClientConfig, issueAccessToken } from "../../livekit-service";
 import { storage } from "../../storage";
 import { db } from "../../db";
+import { getRedisClient } from "../../redis";
+import { logger } from "../../observability";
 import { registeredDevices, auditLogs } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import type { StrictBillingPlanConfig } from "../../billing-config";
+import type { ListenerTranslationMode } from "../../translation/translation-service";
+
+// SSE notification bus — emits "incoming:<userId>" when a call arrives
+export const incomingCallBus = new EventEmitter();
+incomingCallBus.setMaxListeners(512);
 
 const INCOMING_TTL_MS = 45_000;
+const INCOMING_QUEUE_TTL_SECONDS = Math.max(60, Math.ceil((INCOMING_TTL_MS * 2) / 1000));
+const INCOMING_QUEUE_KEY_PREFIX = "incoming_call_queue:";
 
 interface IncomingCallEntry {
   callId: string;
@@ -43,25 +55,144 @@ interface IncomingCallEntry {
 
 const incomingQueue = new Map<string, IncomingCallEntry[]>();
 
-export function queueIncomingCall(userId: string, payload: Omit<IncomingCallEntry, "expiresAt">): void {
+function incomingQueueKey(userId: string): string {
+  return `${INCOMING_QUEUE_KEY_PREFIX}${userId}`;
+}
+
+function queueIncomingCallInMemory(userId: string, entry: IncomingCallEntry): void {
   const list = incomingQueue.get(userId) ?? [];
-  list.push({ ...payload, expiresAt: Date.now() + INCOMING_TTL_MS });
+  list.push(entry);
   incomingQueue.set(userId, list);
 }
 
-export function popIncomingCall(userId: string): IncomingCallEntry | null {
+function popIncomingCallFromMemory(userId: string): IncomingCallEntry | null {
   const list = incomingQueue.get(userId);
   if (!list || list.length === 0) return null;
   const now = Date.now();
   const alive = list.filter(c => c.expiresAt > now);
-  incomingQueue.set(userId, alive);
-  return alive[0] ?? null;
+  const [next, ...rest] = alive;
+  incomingQueue.set(userId, rest);
+  return next ?? null;
 }
 
-export function removeIncomingCall(userId: string, callId: string): void {
+function removeIncomingCallFromMemory(userId: string, callId: string): void {
   const list = incomingQueue.get(userId);
   if (!list) return;
   incomingQueue.set(userId, list.filter(c => c.callId !== callId));
+}
+
+function parseIncomingCallEntry(raw: string): IncomingCallEntry | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<IncomingCallEntry>;
+    if (
+      typeof parsed.callId !== "string" ||
+      typeof parsed.callerId !== "string" ||
+      typeof parsed.callType !== "string" ||
+      typeof parsed.livekitUrl !== "string" ||
+      typeof parsed.livekitToken !== "string" ||
+      typeof parsed.expiresAt !== "number"
+    ) {
+      return null;
+    }
+
+    return {
+      callId: parsed.callId,
+      callerId: parsed.callerId,
+      callerName: typeof parsed.callerName === "string" ? parsed.callerName : undefined,
+      callType: parsed.callType === "video" ? "video" : "voice",
+      livekitUrl: parsed.livekitUrl,
+      livekitToken: parsed.livekitToken,
+      expiresAt: parsed.expiresAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function queueIncomingCallInRedis(userId: string, entry: IncomingCallEntry): Promise<boolean> {
+  try {
+    const queueKey = incomingQueueKey(userId);
+    const client = getRedisClient();
+    await client.multi()
+      .zadd(queueKey, entry.expiresAt, JSON.stringify(entry))
+      .expire(queueKey, INCOMING_QUEUE_TTL_SECONDS)
+      .exec();
+    return true;
+  } catch (error) {
+    logger.warn("CallsService", `incoming queue Redis write failed for ${userId}: ${String(error)}`);
+    return false;
+  }
+}
+
+async function popIncomingCallFromRedis(userId: string): Promise<IncomingCallEntry | null> {
+  try {
+    const queueKey = incomingQueueKey(userId);
+    const client = getRedisClient();
+    const now = Date.now();
+    await client.zremrangebyscore(queueKey, 0, now);
+    const members = await client.zrange(queueKey, 0, -1);
+
+    for (const member of members) {
+      const entry = parseIncomingCallEntry(member);
+      if (!entry || entry.expiresAt <= now) {
+        await client.zrem(queueKey, member).catch(() => undefined);
+        continue;
+      }
+
+      const removed = await client.zrem(queueKey, member);
+      if (removed > 0) {
+        removeIncomingCallFromMemory(userId, entry.callId);
+        return entry;
+      }
+    }
+  } catch (error) {
+    logger.warn("CallsService", `incoming queue Redis read failed for ${userId}: ${String(error)}`);
+  }
+
+  return null;
+}
+
+async function removeIncomingCallFromRedis(userId: string, callId: string): Promise<void> {
+  try {
+    const queueKey = incomingQueueKey(userId);
+    const client = getRedisClient();
+    const members = await client.zrange(queueKey, 0, -1);
+    if (members.length === 0) return;
+
+    const toRemove = members.filter((member) => parseIncomingCallEntry(member)?.callId === callId);
+    if (toRemove.length > 0) {
+      await client.zrem(queueKey, ...toRemove);
+    }
+  } catch (error) {
+    logger.warn("CallsService", `incoming queue Redis remove failed for ${userId}/${callId}: ${String(error)}`);
+  }
+}
+
+export async function queueIncomingCall(userId: string, payload: Omit<IncomingCallEntry, "expiresAt">): Promise<void> {
+  const entry: IncomingCallEntry = { ...payload, expiresAt: Date.now() + INCOMING_TTL_MS };
+  const persisted = await queueIncomingCallInRedis(userId, entry);
+  if (!persisted) {
+    queueIncomingCallInMemory(userId, entry);
+  } else {
+    removeIncomingCallFromMemory(userId, entry.callId);
+  }
+
+  // Notify any open SSE connections immediately (no polling needed)
+  incomingCallBus.emit(`incoming:${userId}`, entry);
+}
+
+export async function popIncomingCall(userId: string): Promise<IncomingCallEntry | null> {
+  const redisEntry = await popIncomingCallFromRedis(userId);
+  if (redisEntry) {
+    return redisEntry;
+  }
+
+  return popIncomingCallFromMemory(userId);
+}
+
+export async function removeIncomingCall(userId: string, callId: string): Promise<void> {
+  removeIncomingCallFromMemory(userId, callId);
+  await removeIncomingCallFromRedis(userId, callId);
 }
 
 export function getLivekitClientConfig() {
@@ -93,6 +224,9 @@ export interface InitiateCallParams {
   calleeDisplayName?: string;
   callerLanguage?: string;
   calleeLanguage?: string;
+  translationEnabled?: boolean;
+  callerTranslationMode?: ListenerTranslationMode;
+  calleeTranslationMode?: ListenerTranslationMode;
   callType: "voice" | "video";
   enableLipsync?: boolean;
   enableRecording?: boolean;
@@ -110,6 +244,7 @@ export async function initiateCall(params: InitiateCallParams): Promise<CallInit
     callerLanguage: params.callerLanguage || "auto",
     calleeIdentifier: params.calleeIdentifier,
     calleeLanguage: params.calleeLanguage || "auto",
+    translationEnabled: params.translationEnabled,
     callType: params.callType,
     enableLipsync: params.enableLipsync,
     enableRecording: params.enableRecording,
@@ -131,12 +266,13 @@ export async function initiateCall(params: InitiateCallParams): Promise<CallInit
         userId: String(callee.id),
         displayName: (callee as any).username || String(callee.id),
         language: params.calleeLanguage || (callee as any).preferredLanguage || "auto",
+        translationMode: params.calleeTranslationMode || (params.translationEnabled === false ? "off" : "subtitles"),
         role: "callee",
       });
-      queueIncomingCall(String(callee.id), {
+      await queueIncomingCall(String(callee.id), {
         callId: result.callId,
         callerId: params.callerId,
-        callerName: params.callerUsername,
+        callerName: params.callerDisplayName || params.callerUsername || params.callerId,
         callType: params.callType,
         livekitUrl: result.livekitUrl,
         livekitToken: calleeToken,
@@ -166,7 +302,7 @@ export async function initiateConference(params: InitiateConferenceParams) {
   for (const pid of params.participantIds) {
     const tok = result.participantTokens[pid];
     if (tok && result.livekitUrl) {
-      queueIncomingCall(pid, {
+      await queueIncomingCall(pid, {
         callId: result.callId,
         callerId: params.hostId,
         callerName: params.hostUsername,
@@ -216,6 +352,14 @@ export async function updateSmartCallStatus(
 }
 
 export type { SmartCallRecord } from "./smart-router";
+
+export async function isActiveSmartCall(callId: string): Promise<boolean> {
+  return routerIsActiveSmartCall(callId);
+}
+
+export async function resolveCalleeForTransfer(identifier: string) {
+  return routerResolveCalleeForTransfer(identifier);
+}
 
 // === DEVICE REGISTRATION ===
 

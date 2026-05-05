@@ -19,6 +19,7 @@ import { requireAuth, requireRole } from "./role-middleware";
 import { logger } from "./observability";
 import { AuditHelpers } from "./audit";
 import { configService } from "./config-service";
+import { normalizePhoneNumber } from "@shared/phone";
 
 const USER_ROLES = ["consumer", "agent", "company_admin", "investor", "super_admin"] as const;
 
@@ -167,6 +168,7 @@ export function registerAdminUserRoutes(app: Express) {
       }
 
       const data = validation.data;
+      const normalizedPhone = data.phone ? normalizePhoneNumber(data.phone) : undefined;
 
       if (data.email) {
         const [existing] = await db.select().from(users).where(eq(users.email, data.email));
@@ -175,8 +177,8 @@ export function registerAdminUserRoutes(app: Express) {
         }
       }
 
-      if (data.phone) {
-        const [existing] = await db.select().from(users).where(eq(users.phone, data.phone));
+      if (normalizedPhone) {
+        const [existing] = await db.select().from(users).where(eq(users.phone, normalizedPhone));
         if (existing) {
           return res.status(400).json({ success: false, message: "Phone already exists" });
         }
@@ -184,7 +186,7 @@ export function registerAdminUserRoutes(app: Express) {
 
       const [newUser] = await db.insert(users).values({
         email: data.email || null,
-        phone: data.phone,
+        phone: normalizedPhone,
         role: data.role,
         organizationId: data.organizationId,
         username: data.username || data.email?.split("@")[0] || `user_${Date.now()}`,
@@ -225,6 +227,7 @@ export function registerAdminUserRoutes(app: Express) {
 
       const updateData: any = {};
       const data = validation.data;
+      const normalizedPhone = data.phone !== undefined ? normalizePhoneNumber(data.phone) : undefined;
 
       // Check for duplicate email (if changing)
       if (data.email !== undefined && data.email !== existing.email) {
@@ -238,14 +241,17 @@ export function registerAdminUserRoutes(app: Express) {
       }
 
       // Check for duplicate phone (if changing)
-      if (data.phone !== undefined && data.phone !== existing.phone) {
+      if (data.phone !== undefined && normalizedPhone !== existing.phone) {
+        if (!normalizedPhone) {
+          return res.status(400).json({ success: false, message: "Invalid phone number" });
+        }
         const [phoneExists] = await db.select().from(users).where(
-          and(eq(users.phone, data.phone), sql`${users.id} != ${userId}`)
+          and(eq(users.phone, normalizedPhone), sql`${users.id} != ${userId}`)
         );
         if (phoneExists) {
           return res.status(400).json({ success: false, message: "Phone already exists" });
         }
-        updateData.phone = data.phone;
+        updateData.phone = normalizedPhone;
       }
 
       if (data.role !== undefined) updateData.role = data.role;
@@ -441,8 +447,15 @@ export function registerAdminUserRoutes(app: Express) {
           name: "MSG91",
           description: "India-first OTP, SMS, and PSTN calling",
           icon: "phone",
-          keys: ["MSG91_AUTH_KEY", "MSG91_VOICE_CALLER_ID", "MSG91_VOICE_URL"],
-          requiredKeys: ["MSG91_AUTH_KEY"],
+          keys: [
+            "MSG91_AUTH_KEY",
+            "APP_BASE_URL",
+            "MSG91_OTP_TEMPLATE_ID",
+            "MSG91_VOICE_CALLER_ID",
+            "MSG91_VOICE_URL",
+            "MSG91_WEBHOOK_SECRET",
+          ],
+          requiredKeys: ["MSG91_AUTH_KEY", "APP_BASE_URL"],
         },
         {
           id: "razorpay",

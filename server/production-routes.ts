@@ -28,6 +28,8 @@ import { z } from "zod";
 import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
 import { logger } from "./observability";
 import { getRedisClient } from "./redis";
+import { isMSG91Healthy } from "./msg91-service";
+import { hasWorkingOpenAIKey } from "./openai-config";
 
 // ============================================================================
 // RATE LIMITING MIDDLEWARE (In-memory with database-driven config)
@@ -328,6 +330,12 @@ export function registerProductionRoutes(app: Express): void {
   app.get("/readyz", async (req, res) => {
     const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
     let overallHealthy = true;
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs)),
+      ]);
+    };
 
     const dbStart = Date.now();
     try {
@@ -361,15 +369,30 @@ export function registerProductionRoutes(app: Express): void {
         "LIVEKIT_URL",
         "LIVEKIT_API_KEY",
         "LIVEKIT_API_SECRET",
+        "LIVEKIT_SIP_DOMAIN",
+        "APP_BASE_URL",
       ];
       const missing = requiredKeys.filter((k) => !process.env[k]);
-      const openai = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-      if (!openai) missing.push("OPENAI_API_KEY");
+      if (!hasWorkingOpenAIKey()) missing.push("OPENAI_API_KEY");
       if (missing.length === 0) {
         checks.providers = { status: "healthy" };
       } else {
         checks.providers = { status: "unhealthy", error: `missing: ${missing.join(",")}` };
         overallHealthy = false;
+      }
+
+      if (process.env.MSG91_AUTH_KEY) {
+        const msg91Start = Date.now();
+        try {
+          const healthy = await withTimeout(isMSG91Healthy(), 4_000, "msg91 health");
+          if (!healthy) {
+            throw new Error("provider reported unhealthy");
+          }
+          checks.msg91 = { status: "healthy", latencyMs: Date.now() - msg91Start };
+        } catch (err) {
+          checks.msg91 = { status: "unhealthy", error: (err as Error).message };
+          overallHealthy = false;
+        }
       }
     }
 

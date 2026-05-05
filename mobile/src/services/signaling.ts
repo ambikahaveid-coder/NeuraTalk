@@ -1,4 +1,4 @@
-import { SignalingMessage } from '../types';
+import { SignalingMessage, TranslationMode } from '../types';
 
 type MessageHandler = (message: SignalingMessage) => void;
 type ConnectionHandler = () => void;
@@ -6,11 +6,15 @@ type ConnectionHandler = () => void;
 class SignalingService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 3000;
+  private maxReconnectAttempts = 10;
+  private baseReconnectDelay = 1500;
+  private maxReconnectDelay = 30000;
   private messageHandlers: MessageHandler[] = [];
   private onConnectHandlers: ConnectionHandler[] = [];
   private onDisconnectHandlers: ConnectionHandler[] = [];
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionalDisconnect = false;
+  private pendingMessages: any[] = [];
   private serverUrl: string;
   private userId: number | null = null;
   private authToken: string | null = null;
@@ -26,8 +30,9 @@ class SignalingService {
     this.userId = userId;
     this.authToken = authToken;
     this.deviceId = deviceId;
+    this.intentionalDisconnect = false;
 
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
       return;
     }
 
@@ -37,7 +42,12 @@ class SignalingService {
       this.ws.onopen = () => {
         console.log('Signaling connected');
         this.reconnectAttempts = 0;
+        if (this.reconnectTimer) {
+          clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         this.register();
+        this.flushPendingMessages();
         this.onConnectHandlers.forEach(handler => handler());
       };
 
@@ -53,7 +63,10 @@ class SignalingService {
       this.ws.onclose = () => {
         console.log('Signaling disconnected');
         this.onDisconnectHandlers.forEach(handler => handler());
-        this.attemptReconnect();
+        this.ws = null;
+        if (!this.intentionalDisconnect) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
@@ -90,14 +103,26 @@ class SignalingService {
     }
 
     this.reconnectAttempts++;
-    setTimeout(() => {
+    const exponentialBackoff = Math.min(
+      this.maxReconnectDelay,
+      this.baseReconnectDelay * (2 ** (this.reconnectAttempts - 1)),
+    );
+    const jitterMs = Math.round(Math.random() * 500);
+    const delayMs = exponentialBackoff + jitterMs;
+
+    this.reconnectTimer = setTimeout(() => {
       if (this.userId && this.authToken && this.deviceId) {
         this.connect(this.userId, this.authToken, this.deviceId);
       }
-    }, this.reconnectDelay);
+    }, delayMs);
   }
 
   disconnect(): void {
+    this.intentionalDisconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -108,14 +133,39 @@ class SignalingService {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
     } else {
-      console.warn('Cannot send message: WebSocket not connected');
+      this.pendingMessages.push(message);
+      console.warn('Queueing signaling message until WebSocket reconnects');
     }
   }
 
+  reconnectNow(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.userId && this.authToken && this.deviceId) {
+      this.connect(this.userId, this.authToken, this.deviceId);
+    }
+  }
+
+  private flushPendingMessages(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.pendingMessages.length === 0) {
+      return;
+    }
+    const queue = [...this.pendingMessages];
+    this.pendingMessages = [];
+    queue.forEach((message) => {
+      this.ws?.send(JSON.stringify(message));
+    });
+  }
+
   initiateCall(targetPhoneNumber: string, options: {
+    callType?: 'voice' | 'video';
     myLanguage: string;
     theirLanguage: string;
     translationEnabled: boolean;
+    translationMode?: TranslationMode;
+    callExperience?: 'audio' | 'video' | 'face_to_face';
   }): string {
     const sessionId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
@@ -123,6 +173,7 @@ class SignalingService {
       type: 'initiate_call',
       sessionId,
       target: targetPhoneNumber,
+      callType: options.callType === 'video' ? 'video' : 'audio',
       ...options,
       timestamp: Date.now(),
     });
@@ -153,6 +204,20 @@ class SignalingService {
     this.send({
       type: 'end_call',
       sessionId,
+      timestamp: Date.now(),
+    });
+  }
+
+  updateTranslationMode(sessionId: string, options: {
+    myLanguage: string;
+    theirLanguage: string;
+    translationEnabled: boolean;
+    translationMode: TranslationMode;
+  }): void {
+    this.send({
+      type: 'update_translation_mode',
+      sessionId,
+      ...options,
       timestamp: Date.now(),
     });
   }

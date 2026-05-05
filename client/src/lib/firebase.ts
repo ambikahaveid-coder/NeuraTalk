@@ -8,6 +8,7 @@ import {
   PhoneAuthProvider,
   signInWithCredential
 } from "firebase/auth";
+import { normalizePhoneNumber } from "@shared/phone";
 
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
@@ -80,9 +81,7 @@ export async function sendOtpWithFirebase(
   }
 
   try {
-    const formattedPhone = phoneNumber.startsWith("+") 
-      ? phoneNumber 
-      : `+91${phoneNumber}`;
+    const formattedPhone = normalizePhoneNumber(phoneNumber);
     
     const confirmationResult = await signInWithPhoneNumber(
       auth, 

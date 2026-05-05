@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Emotion, EMOTION_COLORS } from '../types';
+import { premiumTheme } from '../theme/premium';
 
 interface EmotionIndicatorProps {
   emotion: Emotion | null | undefined;
@@ -19,9 +20,9 @@ const EMOTION_LABELS: Record<Emotion, string> = {
 };
 
 const SIZES = {
-  sm: { container: 24, dot: 12, fontSize: 10 },
-  md: { container: 36, dot: 18, fontSize: 12 },
-  lg: { container: 48, dot: 24, fontSize: 14 },
+  sm: { shell: 30, core: 12, fontSize: 10 },
+  md: { shell: 42, core: 16, fontSize: 12 },
+  lg: { shell: 56, core: 22, fontSize: 14 },
 };
 
 export function EmotionIndicator({ emotion, size = 'md', showLabel = true }: EmotionIndicatorProps) {
@@ -35,32 +36,34 @@ export function EmotionIndicator({ emotion, size = 'md', showLabel = true }: Emo
     <View style={styles.container}>
       <View
         style={[
-          styles.indicator,
+          styles.shell,
           {
-            width: dimensions.container,
-            height: dimensions.container,
-            backgroundColor: `${color}33`,
-            borderRadius: dimensions.container / 2,
+            width: dimensions.shell,
+            height: dimensions.shell,
+            borderRadius: dimensions.shell / 2,
+            borderColor: `${color}66`,
+            shadowColor: color,
           },
         ]}
       >
         <View
           style={[
-            styles.dot,
+            styles.core,
             {
-              width: dimensions.dot,
-              height: dimensions.dot,
+              width: dimensions.core,
+              height: dimensions.core,
+              borderRadius: dimensions.core / 2,
               backgroundColor: color,
-              borderRadius: dimensions.dot / 2,
+              shadowColor: color,
             },
           ]}
         />
       </View>
-      {showLabel && (
+      {showLabel ? (
         <Text style={[styles.label, { fontSize: dimensions.fontSize, color }]}>
           {label}
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -68,15 +71,26 @@ export function EmotionIndicator({ emotion, size = 'md', showLabel = true }: Emo
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
   },
-  indicator: {
-    justifyContent: 'center',
+  shell: {
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(248, 251, 255, 0.05)',
+    borderWidth: 1,
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  dot: {},
+  core: {
+    shadowOpacity: 0.7,
+    shadowRadius: 12,
+    elevation: 4,
+  },
   label: {
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
 });
 

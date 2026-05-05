@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import crypto from "crypto";
 import OpenAI from "openai";
 import { db } from "./db";
+import { getOpenAIKey } from "./openai-config";
 import { enterpriseApiKeys, organizations } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
 import { loadUser, requireSuperAdmin } from "./role-middleware";
@@ -15,7 +16,7 @@ import {
 } from "./api-key-auth";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+  apiKey: getOpenAIKey() || "placeholder",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 

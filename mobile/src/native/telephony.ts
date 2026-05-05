@@ -28,6 +28,14 @@ interface AudioRouteEvent {
   route: 'earpiece' | 'speaker' | 'bluetooth' | 'headset';
 }
 
+interface TelephonyCapabilities {
+  supportsIncomingCallUi: boolean;
+  supportsOutgoingCallUi: boolean;
+  supportsAudioRouteControl: boolean;
+  supportsBluetoothAudio: boolean;
+  supportsTranslatedAudioPlayback?: boolean;
+}
+
 class NativeTelephonyModule {
   private eventEmitter: NativeEventEmitter | null = null;
   private listeners: Map<TelephonyEventType, ((event: any) => void)[]> = new Map();
@@ -51,7 +59,7 @@ class NativeTelephonyModule {
     ];
 
     events.forEach(eventType => {
-      this.eventEmitter!.addListener(eventType, (event) => {
+      this.eventEmitter!.addListener(eventType, (event: unknown) => {
         const handlers = this.listeners.get(eventType) || [];
         handlers.forEach(handler => handler(event));
       });
@@ -112,6 +120,30 @@ class NativeTelephonyModule {
     return NeuraTalkTelephony.setAudioRoute(route);
   }
 
+  async getCurrentAudioRoute(): Promise<'earpiece' | 'speaker' | 'bluetooth' | 'headset' | 'unknown'> {
+    if (!this.isAvailable() || !NeuraTalkTelephony.getCurrentAudioRoute) {
+      return 'unknown';
+    }
+    return NeuraTalkTelephony.getCurrentAudioRoute();
+  }
+
+  async getCapabilities(): Promise<TelephonyCapabilities> {
+    if (!this.isAvailable() || !NeuraTalkTelephony.getCapabilities) {
+      return {
+        supportsIncomingCallUi: false,
+        supportsOutgoingCallUi: false,
+        supportsAudioRouteControl: true,
+        supportsBluetoothAudio: true,
+        supportsTranslatedAudioPlayback: false,
+      };
+    }
+    const capabilities = await NeuraTalkTelephony.getCapabilities();
+    return {
+      ...capabilities,
+      supportsTranslatedAudioPlayback: capabilities?.supportsTranslatedAudioPlayback === true,
+    };
+  }
+
   async isCallActive(): Promise<boolean> {
     if (!this.isAvailable()) return false;
     return NeuraTalkTelephony.isCallActive();
@@ -126,6 +158,20 @@ class NativeTelephonyModule {
   async requestPhonePermissions(): Promise<boolean> {
     if (!this.isAvailable()) return false;
     return NeuraTalkTelephony.requestPhonePermissions();
+  }
+
+  async playTranslatedAudio(audioUrl: string): Promise<boolean> {
+    if (!this.isAvailable() || !NeuraTalkTelephony.playTranslatedAudio) {
+      return false;
+    }
+    return Boolean(await NeuraTalkTelephony.playTranslatedAudio(audioUrl));
+  }
+
+  async stopTranslatedAudio(): Promise<void> {
+    if (!this.isAvailable() || !NeuraTalkTelephony.stopTranslatedAudio) {
+      return;
+    }
+    return NeuraTalkTelephony.stopTranslatedAudio();
   }
 
   onIncomingCall(handler: (event: IncomingCallEvent) => void): () => void {

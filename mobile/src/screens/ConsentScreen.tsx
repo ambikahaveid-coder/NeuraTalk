@@ -1,32 +1,56 @@
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  ActivityIndicator,
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   Switch,
-  ActivityIndicator,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { callApi } from '../services/api';
+import PremiumBackground from '../components/PremiumBackground';
+import NeuraTalkLogo from '../components/NeuraTalkLogo';
+import { glass, premiumTheme } from '../theme/premium';
+
+const CONSENT_ITEMS = [
+  {
+    key: 'translation',
+    icon: 'AI',
+    title: 'Realtime Translation',
+    description: 'NeuraTalk processes live speech to deliver translated conversations without blocking the call.',
+  },
+  {
+    key: 'privacy',
+    icon: 'SEC',
+    title: 'Private by Design',
+    description: 'Call flows use secure transport. Recording and retention only happen when the account policy allows it.',
+  },
+  {
+    key: 'quality',
+    icon: 'OPS',
+    title: 'Production Safety',
+    description: 'When translation is slow or unavailable, the voice call continues with honest fallback states.',
+  },
+];
 
 export function ConsentScreen() {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
-  
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [translationConsent, setTranslationConsent] = useState(false);
   const [recordingConsent, setRecordingConsent] = useState(false);
 
   const saveConsentMutation = useMutation({
-    mutationFn: () => callApi.grantConsent({
-      termsAccepted,
-      translationConsent,
-      recordingConsent,
-    }),
+    mutationFn: () =>
+      callApi.grantConsent({
+        termsAccepted,
+        translationConsent,
+        recordingConsent,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['callConsent'] });
       navigation.goBack();
@@ -36,299 +60,303 @@ export function ConsentScreen() {
   const canProceed = termsAccepted && translationConsent;
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Enable Calling</Text>
-        <View style={{ width: 50 }} />
-      </View>
-
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        <View style={styles.heroSection}>
-          <View style={styles.iconContainer}>
-            <Text style={styles.heroIcon}>📞</Text>
-          </View>
-          <Text style={styles.heroTitle}>Enable Calling Features</Text>
-          <Text style={styles.heroSubtitle}>
-            Before you make your first call, please review and accept our terms
-          </Text>
+    <PremiumBackground>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Call Consent</Text>
+          <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.featuresSection}>
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🌐</Text>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Real-Time Translation</Text>
-              <Text style={styles.featureDescription}>
-                Your voice is processed by AI to translate in real-time. 
-                The other person hears your voice in their language.
-              </Text>
-            </View>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={[styles.heroCard, glass]}>
+            <NeuraTalkLogo compact />
+            <Text style={styles.heroTitle}>Enable Premium AI Calling</Text>
+            <Text style={styles.heroSubtitle}>
+              Before your first audio, video, or face-to-face session, confirm how translation and privacy should work for this device.
+            </Text>
           </View>
 
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🎤</Text>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Voice Processing</Text>
-              <Text style={styles.featureDescription}>
-                Audio is processed in real-time for translation. 
-                We don't store call content without your explicit consent.
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.featureItem}>
-            <Text style={styles.featureIcon}>🔒</Text>
-            <View style={styles.featureContent}>
-              <Text style={styles.featureTitle}>Privacy First</Text>
-              <Text style={styles.featureDescription}>
-                All processing uses self-hosted, secure infrastructure. 
-                No third-party telecom services access your calls.
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.consentSection}>
-          <Text style={styles.sectionTitle}>Your Consent</Text>
-
-          <View style={styles.consentItem}>
-            <View style={styles.consentContent}>
-              <View style={styles.consentHeader}>
-                <Text style={styles.consentTitle}>Terms & Conditions</Text>
-                <View style={styles.requiredBadge}>
-                  <Text style={styles.requiredText}>Required</Text>
+          <View style={styles.infoStack}>
+            {CONSENT_ITEMS.map((item) => (
+              <View key={item.key} style={[styles.infoCard, glass]}>
+                <View style={styles.infoIcon}>
+                  <Text style={styles.infoIconText}>{item.icon}</Text>
+                </View>
+                <View style={styles.infoBody}>
+                  <Text style={styles.infoTitle}>{item.title}</Text>
+                  <Text style={styles.infoDescription}>{item.description}</Text>
                 </View>
               </View>
-              <Text style={styles.consentDescription}>
-                I have read and agree to the Terms of Service and Privacy Policy.
-              </Text>
-            </View>
-            <Switch
+            ))}
+          </View>
+
+          <View style={[styles.sectionCard, glass]}>
+            <Text style={styles.sectionEyebrow}>Required Permissions</Text>
+            <Text style={styles.sectionTitle}>Choose your consent preferences</Text>
+
+            <ConsentRow
+              title="Terms and Privacy"
+              description="Agree to the service terms and privacy policy for calling and verification."
+              badge="Required"
               value={termsAccepted}
               onValueChange={setTermsAccepted}
-              trackColor={{ false: '#374151', true: '#22d3ee' }}
-              thumbColor="#ffffff"
+              accent={premiumTheme.colors.red}
             />
-          </View>
-
-          <View style={styles.consentItem}>
-            <View style={styles.consentContent}>
-              <View style={styles.consentHeader}>
-                <Text style={styles.consentTitle}>Translation Processing</Text>
-                <View style={styles.requiredBadge}>
-                  <Text style={styles.requiredText}>Required</Text>
-                </View>
-              </View>
-              <Text style={styles.consentDescription}>
-                I consent to real-time voice translation during calls.
-              </Text>
-            </View>
-            <Switch
+            <ConsentRow
+              title="Voice Translation Processing"
+              description="Allow live speech processing for subtitles and translated voice when you enable it in a call."
+              badge="Required"
               value={translationConsent}
               onValueChange={setTranslationConsent}
-              trackColor={{ false: '#374151', true: '#22d3ee' }}
-              thumbColor="#ffffff"
+              accent={premiumTheme.colors.red}
             />
-          </View>
-
-          <View style={styles.consentItem}>
-            <View style={styles.consentContent}>
-              <View style={styles.consentHeader}>
-                <Text style={styles.consentTitle}>Call Recording</Text>
-                <View style={styles.optionalBadge}>
-                  <Text style={styles.optionalText}>Optional</Text>
-                </View>
-              </View>
-              <Text style={styles.consentDescription}>
-                Allow recording of calls for quality improvement.
-              </Text>
-            </View>
-            <Switch
+            <ConsentRow
+              title="Call Recording Controls"
+              description="Optional quality review and audit recording, subject to account policy and backend support."
+              badge="Optional"
               value={recordingConsent}
               onValueChange={setRecordingConsent}
-              trackColor={{ false: '#374151', true: '#22d3ee' }}
-              thumbColor="#ffffff"
+              accent={premiumTheme.colors.blue}
             />
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
 
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.proceedButton, !canProceed && styles.buttonDisabled]}
-          onPress={() => saveConsentMutation.mutate()}
-          disabled={!canProceed || saveConsentMutation.isPending}
-        >
-          {saveConsentMutation.isPending ? (
-            <ActivityIndicator color="#0f172a" />
-          ) : (
-            <Text style={styles.proceedButtonText}>Accept & Continue</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.footer}>
+          <Text style={styles.footerNote}>
+            Translation never blocks call audio. You can switch between original voice, subtitles, and voice translation inside the app.
+          </Text>
+          <TouchableOpacity
+            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
+            disabled={!canProceed || saveConsentMutation.isPending}
+            onPress={() => saveConsentMutation.mutate()}
+          >
+            {saveConsentMutation.isPending ? (
+              <ActivityIndicator color={premiumTheme.colors.text} />
+            ) : (
+              <Text style={styles.primaryButtonText}>Accept and Continue</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    </PremiumBackground>
+  );
+}
+
+interface ConsentRowProps {
+  title: string;
+  description: string;
+  badge: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  accent: string;
+}
+
+function ConsentRow({ title, description, badge, value, onValueChange, accent }: ConsentRowProps) {
+  return (
+    <View style={styles.consentRow}>
+      <View style={styles.consentTextWrap}>
+        <View style={styles.consentHeader}>
+          <Text style={styles.consentTitle}>{title}</Text>
+          <View style={[styles.badge, { backgroundColor: `${accent}22`, borderColor: `${accent}44` }]}>
+            <Text style={[styles.badgeText, { color: accent }]}>{badge}</Text>
+          </View>
+        </View>
+        <Text style={styles.consentDescription}>{description}</Text>
       </View>
-    </SafeAreaView>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        thumbColor={premiumTheme.colors.text}
+        trackColor={{ false: 'rgba(255,255,255,0.18)', true: premiumTheme.colors.blue }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
-  backText: {
-    color: '#22d3ee',
-    fontSize: 16,
+  backButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: premiumTheme.colors.border,
   },
-  title: {
-    color: '#ffffff',
-    fontSize: 18,
+  backButtonText: {
+    color: premiumTheme.colors.text,
     fontWeight: '600',
+  },
+  headerTitle: {
+    color: premiumTheme.colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  headerSpacer: {
+    width: 82,
   },
   content: {
-    flex: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    gap: 18,
   },
-  contentContainer: {
-    padding: 20,
-  },
-  heroSection: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(34, 211, 238, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  heroIcon: {
-    fontSize: 40,
+  heroCard: {
+    marginTop: 10,
+    borderRadius: 28,
+    padding: 24,
+    overflow: 'hidden',
   },
   heroTitle: {
+    marginTop: 18,
+    color: premiumTheme.colors.text,
     fontSize: 24,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
+    fontWeight: '800',
   },
   heroSubtitle: {
+    marginTop: 8,
+    color: premiumTheme.colors.textMuted,
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
-    textAlign: 'center',
+    lineHeight: 22,
   },
-  featuresSection: {
-    gap: 16,
-    marginBottom: 32,
+  infoStack: {
+    gap: 14,
   },
-  featureItem: {
+  infoCard: {
     flexDirection: 'row',
-    gap: 12,
-    padding: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
+    alignItems: 'flex-start',
+    gap: 14,
+    borderRadius: 24,
+    padding: 18,
   },
-  featureIcon: {
-    fontSize: 20,
+  infoIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(79,123,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(79,123,255,0.32)',
   },
-  featureContent: {
+  infoIconText: {
+    color: premiumTheme.colors.cyan,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  infoBody: {
     flex: 1,
   },
-  featureTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
-    marginBottom: 4,
+  infoTitle: {
+    color: premiumTheme.colors.text,
+    fontSize: 16,
+    fontWeight: '700',
   },
-  featureDescription: {
+  infoDescription: {
+    marginTop: 6,
+    color: premiumTheme.colors.textMuted,
+    lineHeight: 20,
+    fontSize: 13,
+  },
+  sectionCard: {
+    borderRadius: 28,
+    padding: 22,
+    gap: 18,
+  },
+  sectionEyebrow: {
+    color: premiumTheme.colors.cyan,
+    fontWeight: '700',
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
-    lineHeight: 18,
-  },
-  consentSection: {
-    gap: 16,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ffffff',
-    marginBottom: 8,
+    color: premiumTheme.colors.text,
+    fontSize: 22,
+    fontWeight: '800',
   },
-  consentItem: {
+  consentRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
+    paddingVertical: 10,
   },
-  consentContent: {
+  consentTextWrap: {
     flex: 1,
   },
   consentHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
-    marginBottom: 4,
   },
   consentTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
+    color: premiumTheme.colors.text,
+    fontSize: 15,
+    fontWeight: '700',
   },
-  requiredBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderRadius: 4,
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
   },
-  requiredText: {
-    fontSize: 10,
-    color: '#ef4444',
-  },
-  optionalBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(34, 211, 238, 0.2)',
-    borderRadius: 4,
-  },
-  optionalText: {
-    fontSize: 10,
-    color: '#22d3ee',
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   consentDescription: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+    marginTop: 6,
+    color: premiumTheme.colors.textMuted,
+    lineHeight: 19,
+    fontSize: 13,
   },
   footer: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(5,11,26,0.82)',
   },
-  proceedButton: {
-    backgroundColor: '#22d3ee',
-    borderRadius: 12,
+  footerNote: {
+    color: premiumTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  primaryButton: {
+    borderRadius: 22,
     paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: premiumTheme.colors.blue,
+    shadowColor: premiumTheme.colors.blue,
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  buttonDisabled: {
-    opacity: 0.5,
+  primaryButtonDisabled: {
+    opacity: 0.45,
   },
-  proceedButtonText: {
-    color: '#0f172a',
+  primaryButtonText: {
+    color: premiumTheme.colors.text,
+    fontWeight: '800',
     fontSize: 16,
-    fontWeight: '600',
+    letterSpacing: 0.4,
   },
 });
 

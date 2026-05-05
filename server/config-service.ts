@@ -123,8 +123,11 @@ export const PLATFORM_CONFIG_KEYS: ConfigKey[] = [
   { key: "AI_INTEGRATIONS_OPENAI_BASE_URL", category: "openai", description: "Optional OpenAI-compatible base URL" },
 
   { key: "MSG91_AUTH_KEY", category: "msg91", description: "MSG91 auth key for OTP and PSTN", requiredForStatus: true },
+  { key: "APP_BASE_URL", category: "msg91", description: "Public base URL used to build MSG91 callback URLs", requiredForStatus: true },
+  { key: "MSG91_OTP_TEMPLATE_ID", category: "msg91", description: "MSG91 OTP template ID for SMS verification" },
   { key: "MSG91_VOICE_CALLER_ID", category: "msg91", description: "Verified MSG91 caller ID" },
-  { key: "MSG91_VOICE_URL", category: "msg91", description: "MSG91 voice callback URL" },
+  { key: "MSG91_VOICE_URL", category: "msg91", description: "Optional legacy MSG91 voice callback URL alias" },
+  { key: "MSG91_WEBHOOK_SECRET", category: "msg91", description: "Optional MSG91 webhook signing secret" },
 
   { key: "RAZORPAY_KEY_ID", category: "razorpay", description: "Razorpay key ID", requiredForStatus: true },
   { key: "RAZORPAY_KEY_SECRET", category: "razorpay", description: "Razorpay key secret", requiredForStatus: true },

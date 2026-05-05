@@ -4,6 +4,7 @@ import { voiceSamples, voiceProfiles } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { ObjectStorageService } from "./replit_integrations/object_storage";
 import crypto from "crypto";
+import { loadUser, requireAuth } from "./role-middleware";
 
 const objectStorage = new ObjectStorageService();
 
@@ -40,13 +41,9 @@ function decrypt(encryptedText: string): string {
 }
 
 export function registerVoiceTrainingRoutes(app: Express): void {
-  app.post("/api/voice-training/request-upload", async (req: Request, res: Response) => {
+  app.post("/api/voice-training/request-upload", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, consent } = req.body;
-
-      if (!userId) {
-        return res.status(400).json({ error: "User ID is required" });
-      }
+      const { consent } = req.body;
 
       if (!consent) {
         return res.status(400).json({ error: "User consent is required for voice sample upload" });
@@ -67,12 +64,13 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/voice-training/samples", async (req: Request, res: Response) => {
+  app.post("/api/voice-training/samples", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, objectPath, transcript, duration, consent, metadata } = req.body;
+      const { objectPath, transcript, duration, consent, metadata } = req.body;
+      const userId = req.user!.id;
 
-      if (!userId || !objectPath) {
-        return res.status(400).json({ error: "User ID and object path are required" });
+      if (!objectPath) {
+        return res.status(400).json({ error: "Object path is required" });
       }
 
       if (!consent) {
@@ -100,9 +98,12 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/voice-training/samples/:userId", async (req: Request, res: Response) => {
+  app.get("/api/voice-training/samples/:userId", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);
+      if (req.user!.role !== "super_admin" && req.user!.id !== userId) {
+        return res.status(403).json({ error: "Unauthorized to view these voice samples" });
+      }
 
       const samples = await db.select({
         id: voiceSamples.id,
@@ -119,14 +120,10 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/voice-training/samples/:sampleId", async (req: Request, res: Response) => {
+  app.delete("/api/voice-training/samples/:sampleId", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const sampleId = parseInt(req.params.sampleId);
-      const { userId } = req.body;
-
-      if (!userId) {
-        return res.status(400).json({ error: "User ID is required for verification" });
-      }
+      const userId = req.user!.id;
 
       const sample = await db.select().from(voiceSamples)
         .where(and(eq(voiceSamples.id, sampleId), eq(voiceSamples.userId, userId)));
@@ -152,10 +149,13 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.delete("/api/voice-training/delete-all/:userId", async (req: Request, res: Response) => {
+  app.delete("/api/voice-training/delete-all/:userId", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);
       const { confirmDelete } = req.body;
+      if (req.user!.role !== "super_admin" && req.user!.id !== userId) {
+        return res.status(403).json({ error: "Unauthorized to delete this voice data" });
+      }
 
       if (!confirmDelete) {
         return res.status(400).json({ 
@@ -196,9 +196,12 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/voice-training/train/:userId", async (req: Request, res: Response) => {
+  app.post("/api/voice-training/train/:userId", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);
+      if (req.user!.role !== "super_admin" && req.user!.id !== userId) {
+        return res.status(403).json({ error: "Unauthorized to train this voice profile" });
+      }
 
       const samples = await db.select().from(voiceSamples)
         .where(and(eq(voiceSamples.userId, userId), eq(voiceSamples.consentGiven, true)));

@@ -10,6 +10,15 @@ import {
   Globe, Users, Shield, ExternalLink
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { countries, DEFAULT_COUNTRY_CODE, validatePhoneNumber, sanitizePhoneInput } from "@shared/countries";
+import { normalizePhoneForCountry } from "@shared/phone";
 import { ConfirmationResult } from "firebase/auth";
 import { 
   initializeFirebase, 
@@ -43,6 +52,10 @@ function clearSignupFlow() {
   sessionStorage.removeItem(SIGNUP_FLOW_KEY);
 }
 
+function normalizeIdentifierByChannel(identifier: string, channel: Channel, countryCode: string): string {
+  return channel === "mobile" ? normalizePhoneForCountry(identifier, countryCode) : identifier.trim();
+}
+
 export default function Landing() {
   const savedFlow = getSignupFlow();
   const [step, setStepState] = useState<Step>(savedFlow?.step || "choose");
@@ -53,6 +66,7 @@ export default function Landing() {
     setSignupFlow(newStep, accountType);
   };
   const [channel, setChannel] = useState<Channel>("email");
+  const [phoneCountryCode, setPhoneCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [identifier, setIdentifier] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [companyDetails, setCompanyDetails] = useState({
@@ -91,6 +105,15 @@ export default function Landing() {
   const { toast } = useToast();
 
   const handleRequestOtp = async () => {
+    if (channel === "mobile") {
+      const validation = validatePhoneNumber(identifier, phoneCountryCode);
+      if (!validation.valid) {
+        toast({ title: "Invalid phone number", description: validation.message, variant: "destructive" });
+        return;
+      }
+    }
+    const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
+
     try {
       // Mobile OTP is Firebase-only; do not silently fall back to SMS gateways.
       if (channel === "mobile") {
@@ -110,9 +133,10 @@ export default function Landing() {
             throw new Error("Firebase reCAPTCHA could not be initialized");
           }
           
-          const result = await sendOtpWithFirebase(identifier);
+          const result = await sendOtpWithFirebase(normalizedIdentifier);
           if (result) {
             setConfirmationResult(result);
+            setIdentifier(normalizedIdentifier);
             toast({ title: "OTP Sent", description: "Check your phone for the verification code" });
             setStep("otp");
           }
@@ -130,8 +154,9 @@ export default function Landing() {
         return;
       } else {
         // Email OTP still uses the server email provider.
-        await requestOtp({ identifier, channel });
+        await requestOtp({ identifier: normalizedIdentifier, channel });
         setConfirmationResult(null);
+        setIdentifier(normalizedIdentifier);
         toast({ title: "OTP Sent", description: `Check your ${channel} for the verification code` });
         setStep("otp");
       }
@@ -141,6 +166,8 @@ export default function Landing() {
   };
 
   const handleVerifyOtp = async () => {
+    const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
+
     try {
       // If we used Firebase, verify with Firebase first
       if (confirmationResult) {
@@ -149,7 +176,7 @@ export default function Landing() {
           const idToken = await verifyOtpWithFirebase(confirmationResult, otpCode);
           if (idToken) {
             // Verify with backend using Firebase token
-            const result = await verifyOtp({ identifier, channel, code: otpCode, firebaseToken: idToken });
+            const result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode, firebaseToken: idToken });
             handleVerifySuccess(result);
           }
         } catch (err: any) {
@@ -159,7 +186,7 @@ export default function Landing() {
         }
       } else {
         // Use server OTP verification
-        const result = await verifyOtp({ identifier, channel, code: otpCode });
+        const result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode });
         handleVerifySuccess(result);
       }
     } catch (err: any) {
@@ -221,15 +248,24 @@ export default function Landing() {
       toast({ title: "Error", description: "Please enter your email or phone number", variant: "destructive" });
       return;
     }
+    if (channel === "mobile") {
+      const validation = validatePhoneNumber(identifier, phoneCountryCode);
+      if (!validation.valid) {
+        toast({ title: "Invalid phone number", description: validation.message, variant: "destructive" });
+        return;
+      }
+    }
+    const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
     setIsForgotLoading(true);
     try {
       const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, channel }),
+        body: JSON.stringify({ identifier: normalizedIdentifier, channel }),
       });
       const data = await res.json();
       if (data.success) {
+        setIdentifier(normalizedIdentifier);
         toast({ title: "Code Sent", description: `Reset code sent to your ${channel}` });
         setStep("reset-password");
       } else {
@@ -247,12 +283,13 @@ export default function Landing() {
       toast({ title: "Error", description: "Enter both OTP code and new password", variant: "destructive" });
       return;
     }
+    const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
     setIsForgotLoading(true);
     try {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, channel, code: otpCode, newPassword }),
+        body: JSON.stringify({ identifier: normalizedIdentifier, channel, code: otpCode, newPassword }),
       });
       const data = await res.json();
       if (data.success) {
@@ -374,6 +411,8 @@ export default function Landing() {
                 <IdentifierStep
                   channel={channel}
                   setChannel={setChannel}
+                  phoneCountryCode={phoneCountryCode}
+                  setPhoneCountryCode={setPhoneCountryCode}
                   identifier={identifier}
                   setIdentifier={setIdentifier}
                   isLoading={isOtpLoading}
@@ -434,13 +473,45 @@ export default function Landing() {
                     <Phone className="w-4 h-4 inline mr-1" /> Mobile
                   </button>
                 </div>
-                <input
-                  type={channel === "email" ? "email" : "tel"}
-                  placeholder={channel === "email" ? "your@email.com" : "+91 phone number"}
-                  value={identifier}
-                  onChange={e => setIdentifier(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
-                />
+                {channel === "mobile" ? (
+                  <div className="grid grid-cols-[150px_1fr] gap-2 mb-4">
+                    <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+                      <SelectTrigger className="bg-white/5 border-white/10">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {countries.map((country) => (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.name} ({country.dialCode})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <input
+                      type="tel"
+                      placeholder="Phone number"
+                      value={identifier}
+                      onChange={e => {
+                        const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
+                        setIdentifier(sanitizePhoneInput(e.target.value, selectedCountry?.phoneLength || 15));
+                      }}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary/50"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={identifier}
+                    onChange={e => setIdentifier(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
+                  />
+                )}
+                {channel === "mobile" && (
+                  <p className="text-xs text-center text-muted-foreground mb-4">
+                    Country code is applied automatically for OTP and password reset.
+                  </p>
+                )}
                 <Button onClick={handleForgotPasswordRequest} disabled={isForgotLoading} className="w-full">
                   {isForgotLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   Send Reset Code
@@ -585,6 +656,8 @@ function ChooseAccountType({
 function IdentifierStep({
   channel,
   setChannel,
+  phoneCountryCode,
+  setPhoneCountryCode,
   identifier,
   setIdentifier,
   isLoading,
@@ -594,6 +667,8 @@ function IdentifierStep({
 }: {
   channel: Channel;
   setChannel: (c: Channel) => void;
+  phoneCountryCode: string;
+  setPhoneCountryCode: (value: string) => void;
   identifier: string;
   setIdentifier: (v: string) => void;
   isLoading: boolean;
@@ -643,22 +718,50 @@ function IdentifierStep({
         </button>
       </div>
 
-      <Input
-        type={channel === "email" ? "email" : "tel"}
-        placeholder={channel === "email" ? "you@example.com" : "+91 98765 43210"}
-        value={identifier}
-        onChange={(e) => setIdentifier(e.target.value)}
-        data-testid="input-identifier"
-        className="text-center text-lg"
-      />
+      {channel === "mobile" ? (
+        <div className="grid grid-cols-[150px_1fr] gap-2">
+          <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+            <SelectTrigger data-testid="select-identifier-country">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {countries.map((country) => (
+                <SelectItem key={country.code} value={country.code}>
+                  {country.name} ({country.dialCode})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            type="tel"
+            placeholder="Phone number"
+            value={identifier}
+            onChange={(e) => {
+              const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
+              setIdentifier(sanitizePhoneInput(e.target.value, selectedCountry?.phoneLength || 15));
+            }}
+            data-testid="input-identifier"
+            className="text-center text-lg"
+          />
+        </div>
+      ) : (
+        <Input
+          type="email"
+          placeholder="you@example.com"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          data-testid="input-identifier"
+          className="text-center text-lg"
+        />
+      )}
 
       {channel === "mobile" && firebaseEnabled ? (
         <p className="text-xs text-center text-muted-foreground">
-          OTP will be sent via Firebase Phone Auth
+          OTP will be sent via Firebase Phone Auth. The selected country code is applied automatically.
         </p>
       ) : channel === "mobile" ? (
         <p className="text-xs text-center text-muted-foreground">
-          Firebase Phone Auth config is required for mobile OTP
+          Firebase Phone Auth config is required for mobile OTP. The selected country code is applied automatically.
         </p>
       ) : (
         <p className="text-xs text-center text-muted-foreground">
@@ -828,11 +931,14 @@ function CompanyDetailsStep({
             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Phone</label>
             <Input
               type="tel"
-              placeholder="+1 234 567"
+              placeholder="98765 43210"
               value={details.contactPhone}
               onChange={(e) => update("contactPhone", e.target.value)}
               data-testid="input-contact-phone"
             />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Use full international number for non-default countries.
+            </p>
           </div>
         </div>
 

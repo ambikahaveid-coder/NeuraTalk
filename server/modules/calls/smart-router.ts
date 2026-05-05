@@ -12,11 +12,26 @@ import {
 } from "../../universal-language-runtime";
 import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken } from "../../livekit-service";
 import { bridgeCallToLiveKitRoom } from "../../msg91-service";
+import { db } from "../../db";
+import { eq } from "drizzle-orm";
+import { organizations } from "@shared/schema";
 import { logger } from "../../observability";
 import { persistCompletedCall } from "../../call-persistence";
 import { getRedisClient } from "../../redis";
 import { storage } from "../../storage";
 import type { StrictBillingPlanConfig } from "../../billing-config";
+import { normalizePhoneNumber } from "@shared/phone";
+import type { ListenerTranslationMode } from "../../translation/translation-service";
+import {
+  resolveEffectiveCallMode,
+  resolveTranslationEnabled,
+  type JoinMethod,
+} from "@shared/call-behavior";
+import {
+  resolveCallerIdentityMode,
+  resolveRequestedJoinMethod,
+  type CallerIdentityMode,
+} from "@shared/call-routing";
 import {
   assertSmartCallTransition,
   isActiveSmartCallState,
@@ -34,6 +49,7 @@ const SMART_CALL_TTL_SECONDS = 60 * 60 * 24;
 const PROVIDER_TIMEOUT_ACTIVE_MS = parsePositiveInt(process.env.SMART_CALL_PROVIDER_TIMEOUT_ACTIVE_MS, 60_000);
 const PROVIDER_TIMEOUT_RINGING_MS = parsePositiveInt(process.env.SMART_CALL_PROVIDER_TIMEOUT_RINGING_MS, 90_000);
 const MEDIA_HEARTBEAT_INTERVAL_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_HEARTBEAT_INTERVAL_MS, 1_000);
+const MEDIA_STALL_WARN_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_STALL_WARN_MS, 30_000);
 let billingTerminationBound = false;
 let watchdogStarted = false;
 
@@ -59,8 +75,6 @@ function logSetupLatency(callId: string, joinMethod: JoinMethod, stage: string, 
   }
 }
 
-export type JoinMethod = "app_to_app" | "app_to_pstn" | "conference";
-
 export interface CallInitiateRequest {
   sessionIdOverride?: string;
   callerId: string;
@@ -68,6 +82,9 @@ export interface CallInitiateRequest {
   callerLanguage?: string;
   calleeIdentifier: string;
   calleeLanguage?: string;
+  translationEnabled?: boolean;
+  callerTranslationMode?: ListenerTranslationMode;
+  calleeTranslationMode?: ListenerTranslationMode;
   callType: "voice" | "video";
   enableLipsync?: boolean;
   enableRecording?: boolean;
@@ -82,11 +99,15 @@ export interface CallInitiateRequest {
 export interface CallInitiateResponse {
   callId: string;
   joinMethod: JoinMethod;
+  effectiveCallType?: "voice" | "video";
+  callerIdentityMode?: "app_identity" | "organization_caller_id" | "user_verified_number" | "provider_caller_id";
+  callerIdentityDisclaimer?: string;
   livekitUrl?: string;
   livekitToken?: string;
   pstnCallId?: string;
   estimatedRateInrPerMin: number;
   languageDetectionActive: boolean;
+  operationalWarnings?: string[];
 }
 
 export interface SmartCallRecord {
@@ -148,6 +169,20 @@ function emitStructuredCallEvent(
   record: SmartCallRecord,
   metadata: Record<string, unknown> = {},
 ): void {
+  const recordMetadata = (record.metadata || {}) as Record<string, unknown>;
+  const callerIdentityMode = typeof recordMetadata.callerIdentityMode === "string"
+    ? recordMetadata.callerIdentityMode
+    : null;
+  const requestedCallType = typeof recordMetadata.requestedCallType === "string"
+    ? recordMetadata.requestedCallType
+    : record.callType;
+  const billingDurationSeconds = typeof recordMetadata.billingDurationSeconds === "number"
+    ? recordMetadata.billingDurationSeconds
+    : null;
+  const totalCostInr = typeof recordMetadata.totalCostInr === "number"
+    ? recordMetadata.totalCostInr
+    : null;
+
   const payload = {
     event,
     callId: record.callId,
@@ -157,6 +192,12 @@ function emitStructuredCallEvent(
     callerId: record.callerId,
     calleeIdentifier: record.calleeIdentifier,
     callType: record.callType,
+    requestedCallType,
+    callerIdentityMode,
+    languageDetectionActive: record.languageDetectionActive,
+    estimatedRateInrPerMin: record.estimatedRateInrPerMin,
+    billingDurationSeconds,
+    totalCostInr,
     ...metadata,
   };
 
@@ -172,6 +213,29 @@ function isActiveSmartCallStatus(status: string): boolean {
 function buildLiveKitSipUri(callId: string): string {
   const sipDomain = process.env.LIVEKIT_SIP_DOMAIN || "sip.livekit.local";
   return `sip:${callId}@${sipDomain}`;
+}
+
+function buildCallerIdentityDisclaimer(
+  callerIdentityMode: CallerIdentityMode,
+  joinMethod: JoinMethod,
+): string | undefined {
+  if (joinMethod !== "app_to_pstn") {
+    return undefined;
+  }
+
+  if (callerIdentityMode === "provider_caller_id") {
+    return "Carrier/provider caller ID may be shown instead of the user's number.";
+  }
+
+  if (callerIdentityMode === "user_verified_number") {
+    return "Verified personal number is best-effort only and may be overridden by carrier or compliance rules.";
+  }
+
+  if (callerIdentityMode === "organization_caller_id") {
+    return "Business caller ID depends on carrier acceptance and local telecom rules.";
+  }
+
+  return undefined;
 }
 
 async function resolveCallee(identifier: string): Promise<{
@@ -339,12 +403,13 @@ export async function recordSmartCallMediaActivity(
     return {
       ...current,
       lastMediaActivityAt: timestamp,
-      metadata: participantIdentity
-        ? {
-            ...(current.metadata || {}),
-            lastMediaParticipant: participantIdentity,
-          }
-        : current.metadata,
+      metadata: {
+        ...(current.metadata || {}),
+        ...(participantIdentity ? { lastMediaParticipant: participantIdentity } : {}),
+        mediaStallWarningAt: null,
+        mediaStallMs: null,
+        mediaStallStatus: "healthy",
+      },
     };
   }).catch(() => null);
 }
@@ -373,16 +438,50 @@ async function processSmartCallWatchdog(): Promise<void> {
   const nowMs = Date.now();
 
   await Promise.all(activeCalls.map(async (record) => {
+    const referenceMs = latestHeartbeat(record);
+    if (!Number.isFinite(referenceMs)) {
+      return;
+    }
+    const inactiveMs = nowMs - referenceMs;
+
+    if (
+      record.status === SMART_CALL_STATE.ACTIVE
+      && record.joinMethod !== "app_to_pstn"
+      && inactiveMs >= MEDIA_STALL_WARN_MS
+      && record.metadata?.mediaStallStatus !== "warning"
+    ) {
+      logger.warn("SmartCallRouter", `media stall detected for ${record.callId}`, {
+        callId: record.callId,
+        joinMethod: record.joinMethod,
+        inactiveMs,
+        lastProviderEventAt: record.lastProviderEventAt ?? null,
+        lastMediaActivityAt: record.lastMediaActivityAt ?? null,
+      });
+      await mutateSmartCall(record.callId, (current) => ({
+        ...current,
+        metadata: {
+          ...(current.metadata || {}),
+          mediaStallStatus: "warning",
+          mediaStallWarningAt: nowIso(),
+          mediaStallMs: inactiveMs,
+        },
+      })).catch((error) => {
+        logger.warn("SmartCallRouter", `media stall metadata update failed for ${record.callId}: ${String(error)}`);
+      });
+      emitStructuredCallEvent("call_media_stall_warning", record, {
+        inactiveMs,
+        joinMethod: record.joinMethod,
+      });
+    }
+
     if (record.joinMethod !== "app_to_pstn") {
       return;
     }
-
-    const referenceMs = latestHeartbeat(record);
     const timeoutMs = record.status === SMART_CALL_STATE.ACTIVE
       ? PROVIDER_TIMEOUT_ACTIVE_MS
       : PROVIDER_TIMEOUT_RINGING_MS;
 
-    if (!Number.isFinite(referenceMs) || nowMs - referenceMs < timeoutMs) {
+    if (inactiveMs < timeoutMs) {
       return;
     }
 
@@ -589,6 +688,8 @@ export async function updateSmartCallStatus(
         callId,
         activatedAt: updated.billingActivatedAt,
         estimatedRateInrPerMin: updated.estimatedRateInrPerMin,
+        joinMethod: updated.joinMethod,
+        callerIdentityMode: updated.metadata?.callerIdentityMode ?? null,
       });
       smartCallEvents.emit("billing_started", {
         callId,
@@ -628,7 +729,7 @@ export async function updateSmartCallStatus(
 
 async function sendIncomingCallPush(
   userId: string,
-  payload: { callId: string; callerId: string; callType: string },
+  payload: { callId: string; callerId: string; callType: string; callerName?: string },
 ): Promise<void> {
   try {
     const mod: any = await import("../../firebase-admin").catch(() => ({}));
@@ -637,6 +738,51 @@ async function sendIncomingCallPush(
     }
   } catch (error) {
     logger.warn("SmartCallRouter", `push failed for ${userId}: ${String(error)}`);
+  }
+}
+
+async function resolveOrgOutboundCallerId(orgId: number | null | undefined): Promise<string | null> {
+  if (!orgId) return null;
+  try {
+    const [org] = await db.select({ settings: organizations.settings })
+      .from(organizations).where(eq(organizations.id, orgId));
+    const callerId = (org?.settings as Record<string, unknown>)?.outboundCallerId;
+    return typeof callerId === "string" && callerId.length > 0 ? callerId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Skill-based routing: given an org and required skills, find the best available agent.
+ * Returns the userId of the chosen agent, or null if none available.
+ * Scoring: availability > priority > least-loaded (active calls count).
+ */
+export async function routeToSkillAgent(
+  organizationId: number,
+  requiredSkills: string[],
+): Promise<string | null> {
+  try {
+    const { agentSkills } = await import("@shared/schema");
+    const agents = await db.select().from(agentSkills)
+      .where(eq(agentSkills.organizationId, organizationId));
+
+    const available = agents.filter((a) => {
+      if (!a.isAvailable) return false;
+      if (requiredSkills.length === 0) return true;
+      const agentSkillList = Array.isArray(a.skills) ? (a.skills as string[]) : [];
+      return requiredSkills.every((s) => agentSkillList.includes(s));
+    });
+
+    if (available.length === 0) return null;
+
+    // Pick highest priority; break ties by id (FIFO)
+    available.sort((a, b) => b.priority - a.priority || a.id - b.id);
+
+    return String(available[0].userId);
+  } catch (error) {
+    logger.warn("SmartCallRouter", `skill routing failed: ${String(error)}`);
+    return null;
   }
 }
 
@@ -668,16 +814,29 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   const calleeUserId = callee.userId && Number.isFinite(Number(callee.userId)) ? Number(callee.userId) : null;
   const calleeUser = calleeUserId ? await storage.getUser(calleeUserId) : undefined;
   const effectiveCalleeLanguage = (req.calleeLanguage ?? callee.preferredLanguage ?? "auto")?.trim().toLowerCase() || "auto";
-  const requestedJoinMethod = req.transportPreference === "app_to_pstn"
-    ? "app_to_pstn"
-    : req.transportPreference === "app_to_app"
-      ? "app_to_app"
-      : callee.hasApp && callee.userId
-        ? "app_to_app"
-        : "app_to_pstn";
-  const translationEnabled = callerLanguage === "auto" || effectiveCalleeLanguage === "auto"
-    ? true
-    : effectiveCalleeLanguage !== callerLanguage;
+  const requestedJoinMethod = resolveRequestedJoinMethod({
+    transportPreference: req.transportPreference ?? "auto",
+    calleeHasApp: callee.hasApp,
+    calleeUserId: callee.userId,
+  });
+  const { effectiveCallType, effectiveLipsync } = resolveEffectiveCallMode(
+    requestedJoinMethod,
+    req.callType,
+    req.enableLipsync,
+  );
+  let callerIdentityMode: CallerIdentityMode = resolveCallerIdentityMode({
+    joinMethod: requestedJoinMethod,
+  });
+  let callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
+  const translationEnabled = resolveTranslationEnabled({
+    callerLanguage,
+    calleeLanguage: effectiveCalleeLanguage,
+    requestedTranslationEnabled: req.translationEnabled,
+  });
+  const operationalWarnings: string[] = [];
+  if (requestedJoinMethod === "app_to_pstn" && req.callType === "video") {
+    operationalWarnings.push("PSTN routes are audio-only. Video is downgraded to voice.");
+  }
   const billingOverride: Partial<StrictBillingPlanConfig> | null = req.pricingOverride
     ? JSON.parse(JSON.stringify(req.pricingOverride)) as Partial<StrictBillingPlanConfig>
     : null;
@@ -703,7 +862,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     sessionId: callId,
     userId: callerUserId,
     organizationId: req.callerOrganizationIdOverride ?? callerUser?.organizationId ?? null,
-    callType: req.callType,
+    callType: effectiveCallType,
     translationEnabled,
     recordingEnabled: !!req.enableRecording,
     joinMethod: requestedJoinMethod,
@@ -719,14 +878,15 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   let stageStartNs = process.hrtime.bigint();
   await createCallRoom({
     callId,
-    maxParticipants: req.callType === "video" ? 10 : 4,
+    maxParticipants: effectiveCallType === "video" ? 10 : 4,
     emptyTimeoutSec: 120,
     metadata: {
       callerId: req.callerId,
       calleeIdentifier: req.calleeIdentifier,
-      callType: req.callType,
-      lipsync: !!req.enableLipsync,
+      callType: effectiveCallType,
+      lipsync: effectiveLipsync,
       recording: !!req.enableRecording,
+      translationEnabled,
     },
   });
   logSetupLatency(callId, requestedJoinMethod, "create_room", elapsedMs(stageStartNs));
@@ -742,6 +902,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     userId: req.callerId,
     displayName: req.callerDisplayName || req.callerId,
     language: callerLanguage,
+    translationMode: translationEnabled ? (req.callerTranslationMode || "subtitles") : "off",
     role: "caller",
   });
   logSetupLatency(callId, requestedJoinMethod, "issue_caller_token", elapsedMs(stageStartNs));
@@ -766,21 +927,26 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     calleeIdentifier: callee.phoneNumber || req.calleeIdentifier,
     calleeUserId: requestedJoinMethod === "app_to_app" ? callee.userId ?? null : null,
     calleeOrganizationId: calleeUser?.organizationId ?? null,
-    callType: req.callType,
+    callType: effectiveCallType,
     callerLanguage,
     calleeLanguage: effectiveCalleeLanguage ?? null,
     livekitUrl: process.env.LIVEKIT_URL ?? null,
-    languageDetectionActive: true,
+    languageDetectionActive: translationEnabled,
     estimatedRateInrPerMin: planRateInrPerMin,
     createdAt: nowIso(),
     lastProviderEventAt: requestedJoinMethod === "app_to_pstn" ? nowIso() : null,
     lastMediaActivityAt: null,
     provider: requestedJoinMethod === "app_to_app" ? "livekit" : "msg91_sip",
     metadata: {
-      enableLipsync: !!req.enableLipsync,
+      enableLipsync: effectiveLipsync,
       enableRecording: !!req.enableRecording,
+      translationEnabled,
       calleeDisplayName: req.calleeDisplayName ?? null,
       transportPreference: req.transportPreference ?? "auto",
+      callerIdentityMode,
+      callerIdentityDisclaimer,
+      requestedCallType: req.callType,
+      pstnVideoDowngraded: requestedJoinMethod === "app_to_pstn" && req.callType === "video",
     },
   });
   const createdRecord = await getSmartCall(callId);
@@ -798,6 +964,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
           callId,
           callerId: req.callerId,
           callType: req.callType,
+          callerName: req.callerDisplayName || req.callerId,
         });
       }
 
@@ -808,15 +975,42 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
       return {
         callId,
         joinMethod: "app_to_app",
+        effectiveCallType,
+        callerIdentityMode: "app_identity",
+        callerIdentityDisclaimer: undefined,
         livekitUrl: process.env.LIVEKIT_URL,
         livekitToken: callerToken,
         estimatedRateInrPerMin: planRateInrPerMin,
-        languageDetectionActive: true,
+        languageDetectionActive: translationEnabled,
+        operationalWarnings,
       };
     }
 
     if (!callee.phoneNumber) {
       throw new Error("CALLEE_PHONE_REQUIRED_FOR_PSTN");
+    }
+    if (!process.env.APP_BASE_URL?.trim()) {
+      throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
+    }
+    if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
+      throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
+    }
+
+    // Per-org outbound caller ID: use org setting if set, else fall back to caller's verified number
+    const callerOrgId = req.callerOrganizationIdOverride ?? callerUser?.organizationId ?? null;
+    const orgOutboundCallerId = await resolveOrgOutboundCallerId(callerOrgId);
+    const normalizedCallerNumber = normalizePhoneNumber(req.callerNumber);
+    const callerOwnNumberAllowed = Boolean(callerUser?.phoneVerified && normalizedCallerNumber);
+    const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
+    callerIdentityMode = resolveCallerIdentityMode({
+      joinMethod: requestedJoinMethod,
+      organizationCallerId: orgOutboundCallerId,
+      callerVerifiedNumber: normalizedCallerNumber,
+      callerPhoneVerified: Boolean(callerUser?.phoneVerified),
+    });
+    callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
+    if (callerIdentityDisclaimer) {
+      operationalWarnings.push(callerIdentityDisclaimer);
     }
 
     let pstnResult: Awaited<ReturnType<typeof bridgeCallToLiveKitRoom>> | undefined;
@@ -826,7 +1020,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
         stageStartNs = process.hrtime.bigint();
         pstnResult = await bridgeCallToLiveKitRoom({
           to: callee.phoneNumber,
-          from: req.callerNumber,
+          from: effectiveCallerNumber,
           sipUri: buildLiveKitSipUri(callId),
           callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
           metadata: { internalCallId: callId, callerId: req.callerId },
@@ -858,11 +1052,15 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     return {
       callId,
       joinMethod: "app_to_pstn",
+      effectiveCallType,
+      callerIdentityMode,
+      callerIdentityDisclaimer,
       livekitUrl: process.env.LIVEKIT_URL,
       livekitToken: callerToken,
       pstnCallId: pstnResult!.callId,
       estimatedRateInrPerMin: planRateInrPerMin,
-      languageDetectionActive: true,
+      languageDetectionActive: translationEnabled,
+      operationalWarnings,
     };
   } catch (error) {
     await mutateSmartCall(callId, (current) => ({
@@ -996,10 +1194,11 @@ export async function initiateConference(params: {
   return {
     callId,
     joinMethod: "conference",
+    callerIdentityMode: "app_identity",
     livekitUrl: process.env.LIVEKIT_URL,
     livekitToken: hostToken,
     estimatedRateInrPerMin: planRateInrPerMin,
-    languageDetectionActive: true,
+    languageDetectionActive: false,
     participantTokens,
   };
 }
@@ -1021,9 +1220,25 @@ export async function activatePstnFallback(callId: string, input: {
     };
   }
 
+  const orgOutboundFallback = await resolveOrgOutboundCallerId(current.callerOrganizationId ?? null);
+  const normalizedCallerNumber = normalizePhoneNumber(input.callerNumber);
+  const callerOwnNumberAllowed = Boolean(normalizedCallerNumber);
+  const effectiveCallerNumber = orgOutboundFallback || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
+  const callerIdentityMode: CallerIdentityMode = resolveCallerIdentityMode({
+    joinMethod: "app_to_pstn",
+    organizationCallerId: orgOutboundFallback,
+    callerVerifiedNumber: normalizedCallerNumber,
+    callerPhoneVerified: callerOwnNumberAllowed,
+  });
+  if (!process.env.APP_BASE_URL?.trim()) {
+    throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
+  }
+  if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
+    throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
+  }
   const pstnResult = await bridgeCallToLiveKitRoom({
     to: input.calleePhoneNumber,
-    from: input.callerNumber,
+    from: effectiveCallerNumber,
     sipUri: buildLiveKitSipUri(callId),
     callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
     metadata: { internalCallId: callId, callerId: current.callerId },
@@ -1036,6 +1251,11 @@ export async function activatePstnFallback(callId: string, input: {
     calleeIdentifier: input.calleePhoneNumber,
     pstnCallId: pstnResult.callId,
     lastProviderEventAt: nowIso(),
+    metadata: {
+      ...(record.metadata || {}),
+      callerIdentityMode,
+      pstnFallbackActivated: true,
+    },
   }));
 
   await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
@@ -1057,6 +1277,14 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
   relayOnlyMinutes: number;
 }> {
   const existing = await getSmartCall(callId).catch(() => null);
+  if (existing && isTerminalSmartCallState(existing.status)) {
+    return {
+      totalCostInr: Number(existing.metadata?.totalCostInr || 0),
+      translationMinutes: Number(existing.metadata?.translationMinutes || 0),
+      relayOnlyMinutes: Number(existing.metadata?.relayOnlyMinutes || 0),
+    };
+  }
+
   try {
     const mod: any = await import("../../translator-bot").catch(() => ({}));
     if (typeof mod.stopBotWorker === "function") {
@@ -1114,6 +1342,7 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
     relayOnlyMinutes: billing.relayOnlyMinutes,
     prepaidDebitPaise: strictBilling?.prepaidDebitPaise ?? null,
     postpaidAccrualPaise: strictBilling?.postpaidAccrualPaise ?? null,
+    billingDurationSeconds: strictBilling?.durationSeconds ?? null,
   });
 
   // ── PERSIST TO POSTGRESQL (non-blocking, never fails call teardown) ──
@@ -1121,6 +1350,9 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
     logger.info("SmartCallBilling", "billing_stopped", {
       callId,
       reason,
+      joinMethod: updatedCall.joinMethod,
+      callerIdentityMode: updatedCall.metadata?.callerIdentityMode ?? null,
+      durationSeconds: strictBilling?.durationSeconds ?? null,
       totalCostInr,
       prepaidDebitPaise: strictBilling?.prepaidDebitPaise ?? null,
       postpaidAccrualPaise: strictBilling?.postpaidAccrualPaise ?? null,
@@ -1151,7 +1383,7 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
       callType: (updatedCall.callType as "voice" | "video") || "voice",
       callerLanguage: updatedCall.callerLanguage || "auto",
       calleeLanguage: updatedCall.calleeLanguage ?? null,
-      translationEnabled: updatedCall.callerLanguage !== updatedCall.calleeLanguage,
+      translationEnabled: updatedCall.languageDetectionActive,
       livekitUrl: updatedCall.livekitUrl ?? null,
       status: updatedCall.status,
       createdAt: updatedCall.createdAt,
@@ -1176,4 +1408,22 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Public alias for resolveCallee used by the transfer endpoint */
+export async function resolveCalleeForTransfer(identifier: string): Promise<{
+  hasApp: boolean;
+  userId?: string;
+  phoneNumber?: string;
+}> {
+  return resolveCallee(identifier);
+}
+
+/** Returns true when callId is a smart-call and its state is currently active/ringing/answered */
+export async function isActiveSmartCall(callId: string): Promise<boolean> {
+  if (!isSmartCallId(callId)) return false;
+  const record = await getSmartCall(callId);
+  if (!record) return false;
+  const state = normalizeSmartCallState(record.status);
+  return !!state && isActiveSmartCallState(state);
 }

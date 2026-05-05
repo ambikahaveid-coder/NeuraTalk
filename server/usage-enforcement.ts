@@ -4,16 +4,11 @@ import { db } from "./db";
 import { billingPlans, subscriptions } from "@shared/schema";
 import { logger } from "./observability";
 import { getOrganizationBillingSnapshot } from "./organization-billing";
-
-export interface BillingCheckResult {
-  allowed: boolean;
-  reason?: string;
-  remainingMinutes?: number;
-  remainingCredits?: number;
-  remainingWalletPaise?: number;
-  warningMessage?: string;
-  subscriptionStatus?: string;
-}
+import {
+  getBillingVerificationFailureResult,
+  isStrictBillingGuardEnabled,
+  type BillingCheckResult,
+} from "@shared/billing-guard";
 
 async function getActiveUserSubscription(userId: number) {
   const [subscription] = await db.select({
@@ -81,10 +76,7 @@ export async function checkUserBillingStatus(userId: number): Promise<BillingChe
     };
   } catch (error) {
     logger.error("UsageEnforcement", "Failed to check user billing", error as Error);
-    return {
-      allowed: true,
-      warningMessage: "Unable to verify billing status. Proceeding with caution.",
-    };
+    return getBillingVerificationFailureResult();
   }
 }
 
@@ -137,10 +129,7 @@ export async function checkOrgBillingStatus(organizationId: number): Promise<Bil
     };
   } catch (error) {
     logger.error("UsageEnforcement", "Failed to check org billing", error as Error);
-    return {
-      allowed: true,
-      warningMessage: "Unable to verify billing status. Proceeding with caution.",
-    };
+    return getBillingVerificationFailureResult();
   }
 }
 
@@ -199,7 +188,11 @@ export function requireActiveSubscription(
       next();
     } catch (error) {
       logger.error("UsageEnforcement", "Billing guard failed", error as Error);
-      next();
+      res.status(isStrictBillingGuardEnabled() ? 503 : 402).json({
+        success: false,
+        error: "Billing verification is temporarily unavailable",
+        code: "BILLING_UNAVAILABLE",
+      });
     }
   })();
 }

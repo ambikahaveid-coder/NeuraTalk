@@ -14,6 +14,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
+import { normalizePhoneNumber } from "@shared/phone";
 
 export interface IStorage {
   // User Auth
@@ -44,6 +45,15 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private normalizeInsertUser<T extends Partial<InsertUser>>(payload: T): T {
+    if (typeof payload.phone === "string") {
+      const normalized = normalizePhoneNumber(payload.phone);
+      return { ...payload, phone: normalized || null } as T;
+    }
+
+    return payload;
+  }
+
   // === USERS ===
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -56,18 +66,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByPhone(phone: string): Promise<User | undefined> {
-    const normalized = phone.replace(/\s+/g, "");
+    const normalized = normalizePhoneNumber(phone);
     const [user] = await db.select().from(users).where(eq(users.phone, normalized));
     return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    const [user] = await db.insert(users).values(this.normalizeInsertUser(insertUser)).returning();
     return user;
   }
 
   async updateUser(id: number, updates: Partial<InsertUser>): Promise<User | undefined> {
-    const [user] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
+    const [user] = await db.update(users).set(this.normalizeInsertUser(updates)).where(eq(users.id, id)).returning();
     return user;
   }
 

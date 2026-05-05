@@ -77,6 +77,7 @@ export interface CallParticipant {
   userId: string;
   displayName: string;
   language: string;   // Preferred speech language (te, en, hi, etc.)
+  translationMode?: "off" | "subtitles" | "voice";
   role?: "caller" | "callee" | "agent" | "bot";
 }
 
@@ -117,6 +118,7 @@ export async function issueAccessToken(
     ttl: ttlSeconds,
     metadata: JSON.stringify({
       language: participant.language,
+      translationMode: participant.translationMode ?? "subtitles",
       role: participant.role ?? "caller",
     }),
   });

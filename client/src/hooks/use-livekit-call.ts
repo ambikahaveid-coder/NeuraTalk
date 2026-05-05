@@ -33,22 +33,32 @@ export interface InitiateCallRequest {
   callType: CallType;
   myLanguage?: string;
   theirLanguage?: string;
+  translationEnabled?: boolean;
+  translationMode?: "off" | "subtitles" | "voice";
   enableLipsync?: boolean;
 }
 
 export interface InitiateCallResponse {
   callId: string;
   joinMethod: "app_to_app" | "app_to_pstn" | "conference";
+  effectiveCallType?: CallType;
+  callerIdentityMode?: "app_identity" | "organization_caller_id" | "user_verified_number" | "provider_caller_id";
+  callerIdentityDisclaimer?: string;
   livekitUrl: string;
   livekitToken: string;
   pstnCallId?: string;
   estimatedRateInrPerMin: number;
   languageDetectionActive: boolean;
+  operationalWarnings?: string[];
 }
 
 export interface CallPricingPreview {
   estimatedRateInrPerMin: number;
   estimatedRateInrPerSecond: number;
+  joinMethod?: "app_to_app" | "app_to_pstn" | "conference";
+  callerIdentityMode?: "app_identity" | "organization_caller_id" | "user_verified_number" | "provider_caller_id";
+  callerIdentityDisclaimer?: string;
+  operationalWarnings?: string[];
 }
 
 interface IncomingCallData {
@@ -61,7 +71,7 @@ interface IncomingCallData {
 }
 
 interface DataMessage {
-  type: "chat" | "translation" | "emotion" | "language-change";
+  type: "chat" | "translation" | "emotion" | "language-change" | "translation-mode";
   from: string;
   payload: any;
   ts: number;
@@ -86,7 +96,15 @@ export function useLiveKitCall() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const preferredLanguagesRef = useRef<{ local?: string; remote?: string }>({});
+  const translationSettingsRef = useRef<{
+    enabled: boolean;
+    mode: "off" | "subtitles" | "voice";
+  }>({
+    enabled: true,
+    mode: "subtitles",
+  });
   const activeMarkedRef = useRef(false);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const updateServerCallStatus = useCallback(async (activeCallId: string, nextStatus: "active" | "completed") => {
     const token = getAuthToken();
@@ -138,16 +156,33 @@ export function useLiveKitCall() {
     }
     if (track.kind === Track.Kind.Audio && remoteAudioRef.current) {
       remoteAudioRef.current.srcObject = ms;
-      remoteAudioRef.current.play().catch(() => {});
+      // Mobile browsers block autoplay without a user gesture.
+      // We use muted=false + play(). If it fails (autoplay policy), we set a
+      // flag so the UI can show an "Tap to hear audio" button.
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.play().catch(() => {
+        // Re-attempt on next user interaction
+        const unlock = () => {
+          remoteAudioRef.current?.play().catch(() => {});
+          document.removeEventListener("touchstart", unlock, true);
+          document.removeEventListener("click", unlock, true);
+        };
+        document.addEventListener("touchstart", unlock, { once: true, capture: true });
+        document.addEventListener("click", unlock, { once: true, capture: true });
+      });
     }
   }, []);
 
   const connectToRoom = useCallback(async (
-    url: string,
+    url: string | null | undefined,
     token: string,
     callType: CallType,
     activeCallId?: string,
   ): Promise<Room> => {
+    if (!url) {
+      throw new Error("Call service not configured — contact support (LIVEKIT_URL missing)");
+    }
+
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
@@ -155,6 +190,9 @@ export function useLiveKitCall() {
         videoSimulcastLayers: callType === "video"
           ? [VideoPresets.h180, VideoPresets.h360]
           : [],
+        audioPreset: {
+          maxBitrate: 32_000,
+        },
       },
     });
 
@@ -185,7 +223,14 @@ export function useLiveKitCall() {
       })
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, participant: RemoteParticipant) => {
         if (isTranslatorBotParticipant(participant)) {
-          if (track.kind === Track.Kind.Audio && shouldAttachBotTrack(pub.trackName, room.localParticipant.identity)) {
+          if (
+            track.kind === Track.Kind.Audio
+            && shouldAttachBotTrack(
+              pub.trackName,
+              room.localParticipant.identity,
+              translationSettingsRef.current,
+            )
+          ) {
             attachRemoteTrack(track);
           }
           return;
@@ -219,13 +264,39 @@ export function useLiveKitCall() {
 
     await room.connect(url, token);
 
-    const tracks = await createLocalTracks({
-      audio: true,
-      video: callType === "video",
-    });
+    let tracks: LocalTrack[] = [];
+    try {
+      tracks = await createLocalTracks({
+        audio: true,
+        video: callType === "video",
+      });
+    } catch (mediaErr: any) {
+      const name = mediaErr?.name ?? "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        throw new Error(
+          callType === "video"
+            ? "Camera/microphone permission denied — allow access in browser settings and try again."
+            : "Microphone permission denied — allow access in browser settings and try again.",
+        );
+      }
+      if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        throw new Error(
+          callType === "video"
+            ? "No camera or microphone found — check that they are connected."
+            : "No microphone found — check that it is connected.",
+        );
+      }
+      throw new Error(`Media device error: ${mediaErr?.message ?? String(mediaErr)}`);
+    }
+
     for (const t of tracks) {
-      await room.localParticipant.publishTrack(t);
-      attachLocalTrack(t);
+      try {
+        await room.localParticipant.publishTrack(t);
+        attachLocalTrack(t);
+      } catch (pubErr) {
+        // Non-fatal: track failed to publish but call can continue (other participant hears silence)
+        console.warn("[useLiveKitCall] Track publish failed", t.kind, pubErr);
+      }
     }
 
     roomRef.current = room;
@@ -240,10 +311,15 @@ export function useLiveKitCall() {
         local: req.myLanguage || "auto",
         remote: req.theirLanguage || "auto",
       };
+      translationSettingsRef.current = {
+        enabled: req.translationEnabled !== false,
+        mode: normalizeTranslationMode(req.translationMode, req.translationEnabled),
+      };
       const normalizedRequest = {
         ...req,
         myLanguage: req.myLanguage || "auto",
         theirLanguage: req.theirLanguage || "auto",
+        translationMode: normalizeTranslationMode(req.translationMode, req.translationEnabled),
       };
 
       const token = getAuthToken();
@@ -265,10 +341,16 @@ export function useLiveKitCall() {
       setPricingPreview({
         estimatedRateInrPerMin: data.estimatedRateInrPerMin,
         estimatedRateInrPerSecond: data.estimatedRateInrPerMin / 60,
+        joinMethod: data.joinMethod,
+        callerIdentityMode: data.callerIdentityMode,
+        callerIdentityDisclaimer: data.callerIdentityDisclaimer,
+        operationalWarnings: data.operationalWarnings,
       });
       setStatus("ringing");
 
-      await connectToRoom(data.livekitUrl, data.livekitToken, normalizedRequest.callType, data.callId);
+      const effectiveCallType = data.effectiveCallType || normalizedRequest.callType;
+      setIsVideoOn(effectiveCallType === "video");
+      await connectToRoom(data.livekitUrl, data.livekitToken, effectiveCallType, data.callId);
     } catch (e: any) {
       setError(e?.message ?? "Failed to start call");
       setStatus("error");
@@ -373,25 +455,143 @@ export function useLiveKitCall() {
     await sendDataMessage({ type: "language-change", payload: { language } });
   }, [sendDataMessage]);
 
-  // Poll /api/calls/incoming for incoming calls (fallback until FCM push wired)
+  const updateTranslationMode = useCallback(async (mode: "off" | "subtitles" | "voice") => {
+    const lp = roomRef.current?.localParticipant;
+    translationSettingsRef.current = {
+      enabled: mode !== "off",
+      mode,
+    };
+    if (!lp) return;
+    await lp.setMetadata(JSON.stringify({ ...safeParse(lp.metadata), translationMode: mode }));
+    await sendDataMessage({ type: "translation-mode", payload: { translationMode: mode } });
+  }, [sendDataMessage]);
+
+  // Wake Lock — keep screen on during active/ringing call so it doesn't drop
   useEffect(() => {
+    const active = status === "active" || status === "ringing" || status === "connecting";
+    if (active) {
+      navigator.wakeLock?.request("screen").then(lock => {
+        wakeLockRef.current = lock;
+      }).catch(() => {});
+    } else {
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+    return () => {
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, [status]);
+
+  // Re-acquire wake lock if page becomes visible again (e.g. user switches back)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && (status === "active" || status === "ringing")) {
+        if (!wakeLockRef.current || wakeLockRef.current.released) {
+          navigator.wakeLock?.request("screen").then(lock => {
+            wakeLockRef.current = lock;
+          }).catch(() => {});
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [status]);
+
+  // SSE — instant incoming call push (replaces 4s polling)
+  // Falls back to polling if SSE fails or auth token missing
+  useEffect(() => {
+    if (status !== "idle") return;
+
+    const token = getAuthToken();
+    if (!token) return;
+
+    let es: EventSource | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let sseWorking = false;
     let cancelled = false;
-    const poll = async () => {
-      if (status !== "idle" || cancelled) return;
+
+    const handleIncomingData = (data: { incoming?: IncomingCallData | null }) => {
+      if (data?.incoming && !cancelled) {
+        setIncomingCall(data.incoming);
+      }
+    };
+
+    // Try SSE first
+    try {
+      es = new EventSource(`/api/calls/incoming/stream?auth=${encodeURIComponent(token)}`);
+      es.onopen = () => { sseWorking = true; };
+      es.onmessage = (e) => {
+        try {
+          handleIncomingData(JSON.parse(e.data));
+        } catch {}
+      };
+      es.onerror = () => {
+        sseWorking = false;
+        es?.close();
+        es = null;
+        // fallback to polling if SSE fails
+        if (!pollInterval && !cancelled) {
+          pollInterval = setInterval(async () => {
+            if (cancelled) return;
+            try {
+              const res = await fetch("/api/calls/incoming", {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) handleIncomingData(await res.json());
+            } catch {}
+          }, 4000);
+        }
+      };
+    } catch {
+      // EventSource not supported — fall through to polling
+    }
+
+    // If SSE didn't connect within 3s, start polling as backup
+    const sseCheckTimer = setTimeout(() => {
+      if (!sseWorking && !pollInterval && !cancelled) {
+        pollInterval = setInterval(async () => {
+          if (cancelled) return;
+          try {
+            const res = await fetch("/api/calls/incoming", {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) handleIncomingData(await res.json());
+          } catch {}
+        }, 4000);
+      }
+    }, 3000);
+
+    // Also poll once immediately to catch any queued calls
+    void (async () => {
       try {
-        const token = getAuthToken();
-        if (!token) return;
         const res = await fetch("/api/calls/incoming", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (data?.incoming) setIncomingCall(data.incoming);
+        if (res.ok) handleIncomingData(await res.json());
       } catch {}
+    })();
+
+    return () => {
+      cancelled = true;
+      es?.close();
+      if (pollInterval) clearInterval(pollInterval);
+      clearTimeout(sseCheckTimer);
     };
-    const id = setInterval(poll, 4000);
-    return () => { cancelled = true; clearInterval(id); };
   }, [status]);
+
+  // Listen for SW messages (Answer/Reject from push notification)
+  useEffect(() => {
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === "REJECT_INCOMING_CALL") {
+        void rejectIncomingCall();
+      } else if (event.data?.type === "INCOMING_CALL_ANSWER") {
+        void acceptIncomingCall();
+      }
+    };
+    navigator.serviceWorker?.addEventListener("message", handleSwMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", handleSwMessage);
+  }, [rejectIncomingCall, acceptIncomingCall]);
 
   useEffect(() => () => { roomRef.current?.disconnect(); }, []);
 
@@ -417,6 +617,7 @@ export function useLiveKitCall() {
     toggleVideo,
     sendDataMessage,
     updateLanguage,
+    updateTranslationMode,
     room: roomRef.current,
   };
 }
@@ -430,7 +631,14 @@ function isTranslatorBotParticipant(participant: RemoteParticipant) {
   return participant.identity === "neuratalk-translator" || meta?.role === "bot";
 }
 
-function shouldAttachBotTrack(trackName: string | undefined, localIdentity: string) {
+function shouldAttachBotTrack(
+  trackName: string | undefined,
+  localIdentity: string,
+  translationSettings: { enabled: boolean; mode: "off" | "subtitles" | "voice" },
+) {
+  if (!translationSettings.enabled || translationSettings.mode !== "voice") {
+    return false;
+  }
   if (!trackName) return false;
   return trackName.includes(`translated-for-${encodeURIComponent(localIdentity)}-from-`);
 }
@@ -440,7 +648,21 @@ function shouldSuppressHumanAudio(
   remoteMetadata: string | undefined,
   preferred: { local?: string; remote?: string },
 ) {
+  const localMode = String((safeParse(localMetadata) as Record<string, any>)?.translationMode || "").toLowerCase();
+  if (localMode !== "voice") {
+    return false;
+  }
   const localLanguage = String(preferred.local || (safeParse(localMetadata) as Record<string, any>)?.language || "").toLowerCase();
   const remoteLanguage = String(preferred.remote || (safeParse(remoteMetadata) as Record<string, any>)?.language || "").toLowerCase();
   return Boolean(localLanguage && remoteLanguage && localLanguage !== remoteLanguage);
+}
+
+function normalizeTranslationMode(
+  translationMode: "off" | "subtitles" | "voice" | undefined,
+  translationEnabled: boolean | undefined,
+) {
+  if (translationEnabled === false) {
+    return "off";
+  }
+  return translationMode || "subtitles";
 }

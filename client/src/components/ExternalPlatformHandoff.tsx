@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { normalizePhoneNumber } from "@shared/phone";
 import { 
   ExternalLink, 
   Phone, 
@@ -109,7 +110,7 @@ export default function ExternalPlatformHandoff({
         return "https://zoom.us/join";
       case "whatsapp":
         if (phoneInput) {
-          const cleanPhone = phoneInput.replace(/[^0-9]/g, "");
+          const cleanPhone = normalizePhoneNumber(phoneInput).replace(/\D/g, "");
           return `https://wa.me/${cleanPhone}`;
         }
         return "https://wa.me/";
@@ -236,13 +237,13 @@ export default function ExternalPlatformHandoff({
                     <Label htmlFor="whatsapp-phone">Phone Number</Label>
                     <Input
                       id="whatsapp-phone"
-                      placeholder="+1234567890"
+                      placeholder="98765 43210"
                       value={phoneInput}
                       onChange={(e) => setPhoneInput(e.target.value)}
                       data-testid="input-whatsapp-phone"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Enter the phone number with country code
+                      Use full international number for non-default countries
                     </p>
                   </div>
                 ) : (

@@ -1,22 +1,24 @@
 import React, { useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
+  View,
 } from 'react-native';
 import { useAuth } from '../hooks/useAuth';
+import PremiumBackground from '../components/PremiumBackground';
+import NeuraTalkLogo from '../components/NeuraTalkLogo';
+import { glass, premiumTheme } from '../theme/premium';
 
 type Step = 'identifier' | 'otp';
 
 export function LoginScreen() {
   const { requestOtp, verifyOtp } = useAuth();
-  
   const [step, setStep] = useState<Step>('identifier');
   const [identifier, setIdentifier] = useState('');
   const [channel, setChannel] = useState<'email' | 'mobile'>('mobile');
@@ -28,7 +30,7 @@ export function LoginScreen() {
 
   const handleRequestOtp = async () => {
     if (!identifier.trim()) {
-      setError('Please enter your phone number or email');
+      setError('Enter your mobile number or work email');
       return;
     }
 
@@ -41,7 +43,7 @@ export function LoginScreen() {
       await requestOtp(identifier, detectedChannel);
       setStep('otp');
     } catch (err: any) {
-      setError(err.message || 'Failed to send OTP');
+      setError(err.message || 'Unable to send OTP right now');
     } finally {
       setIsLoading(false);
     }
@@ -49,7 +51,7 @@ export function LoginScreen() {
 
   const handleVerifyOtp = async () => {
     if (!otp.trim() || otp.length < 6) {
-      setError('Please enter the 6-digit code');
+      setError('Enter the 6-digit OTP');
       return;
     }
 
@@ -66,187 +68,196 @@ export function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.content}
-      >
-        <View style={styles.header}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>N</Text>
-          </View>
-          <Text style={styles.title}>NeuraTalk</Text>
-          <Text style={styles.subtitle}>
-            Voice AI Communication Platform
-          </Text>
-        </View>
-
-        {step === 'identifier' ? (
-          <View style={styles.form}>
-            <Text style={styles.label}>Phone Number or Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your phone or email"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={identifier}
-              onChangeText={setIdentifier}
-              keyboardType={isEmail ? 'email-address' : 'phone-pad'}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            {error && <Text style={styles.error}>{error}</Text>}
-
-            <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
-              onPress={handleRequestOtp}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Continue</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.form}>
-            <Text style={styles.label}>Enter Verification Code</Text>
-            <Text style={styles.hint}>
-              We sent a 6-digit code to {identifier}
+    <PremiumBackground>
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
+          <View style={styles.hero}>
+            <NeuraTalkLogo size={92} />
+            <Text style={styles.heroTitle}>Premium AI Calling</Text>
+            <Text style={styles.heroSubtitle}>
+              Secure voice, video, face-to-face interpretation, and multilingual relay from one futuristic identity layer.
             </Text>
-            
-            <TextInput
-              style={styles.input}
-              placeholder="000000"
-              placeholderTextColor="rgba(255,255,255,0.5)"
-              value={otp}
-              onChangeText={setOtp}
-              keyboardType="number-pad"
-              maxLength={6}
-              textContentType="oneTimeCode"
-            />
-
-            {error && <Text style={styles.error}>{error}</Text>}
-
-            <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
-              onPress={handleVerifyOtp}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Verify</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => {
-                setStep('identifier');
-                setOtp('');
-                setError(null);
-              }}
-            >
-              <Text style={styles.backButtonText}>Change {isEmail ? 'email' : 'phone'}</Text>
-            </TouchableOpacity>
           </View>
-        )}
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+          <View style={[styles.authCard, glass]}>
+            <Text style={styles.cardEyebrow}>{step === 'identifier' ? 'Sign in' : 'Verify access'}</Text>
+            <Text style={styles.cardTitle}>
+              {step === 'identifier' ? 'Start your NeuraTalk session' : 'Enter your secure OTP'}
+            </Text>
+            <Text style={styles.cardHint}>
+              {step === 'identifier'
+                ? 'Use mobile for telecom login or email for back-office access.'
+                : `Code sent to ${identifier}`}
+            </Text>
+
+            {step === 'identifier' ? (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Phone number or email"
+                  placeholderTextColor={premiumTheme.colors.textSoft}
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  keyboardType={isEmail ? 'email-address' : 'phone-pad'}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {!isEmail ? (
+                  <Text style={styles.helperText}>
+                    Default flow supports Indian numbers fast. International numbers should include full country code.
+                  </Text>
+                ) : null}
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                <TouchableOpacity
+                  style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+                  onPress={handleRequestOtp}
+                  disabled={isLoading}
+                >
+                  {isLoading ? <ActivityIndicator color={premiumTheme.colors.text} /> : <Text style={styles.primaryButtonText}>Send OTP</Text>}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="000000"
+                  placeholderTextColor={premiumTheme.colors.textSoft}
+                  value={otp}
+                  onChangeText={setOtp}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  textContentType="oneTimeCode"
+                />
+                <Text style={styles.helperText}>
+                  This OTP unlocks your encrypted call identity, translation settings, and device registration.
+                </Text>
+                {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                <TouchableOpacity
+                  style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+                  onPress={handleVerifyOtp}
+                  disabled={isLoading}
+                >
+                  {isLoading ? <ActivityIndicator color={premiumTheme.colors.text} /> : <Text style={styles.primaryButtonText}>Verify OTP</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    setStep('identifier');
+                    setOtp('');
+                    setError(null);
+                  }}
+                >
+                  <Text style={styles.secondaryButtonText}>Change identity</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </PremiumBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    justifyContent: 'space-between',
+    paddingHorizontal: 22,
+    paddingVertical: 26,
   },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  header: {
+  hero: {
     alignItems: 'center',
-    marginBottom: 48,
+    paddingTop: 24,
   },
-  logo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(34, 211, 238, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  logoText: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: '#22d3ee',
-  },
-  title: {
+  heroTitle: {
+    marginTop: 18,
+    color: premiumTheme.colors.text,
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
+    fontWeight: '800',
   },
-  subtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
+  heroSubtitle: {
+    color: premiumTheme.colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 12,
+    maxWidth: 320,
   },
-  form: {
-    gap: 16,
+  authCard: {
+    borderRadius: premiumTheme.radius.xl,
+    padding: 22,
+    marginBottom: 10,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ffffff',
-    marginBottom: 8,
-  },
-  hint: {
+  cardEyebrow: {
+    color: premiumTheme.colors.cyan,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
-    marginBottom: 8,
+    marginBottom: 10,
+  },
+  cardTitle: {
+    color: premiumTheme.colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  cardHint: {
+    color: premiumTheme.colors.textMuted,
+    marginTop: 10,
+    marginBottom: 18,
+    lineHeight: 20,
   },
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: '#ffffff',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: premiumTheme.radius.lg,
+    borderColor: premiumTheme.colors.borderStrong,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  button: {
-    backgroundColor: '#22d3ee',
-    borderRadius: 12,
+    paddingHorizontal: 18,
     paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonText: {
-    color: '#0f172a',
+    color: premiumTheme.colors.text,
     fontSize: 16,
     fontWeight: '600',
   },
-  error: {
-    color: '#ef4444',
-    fontSize: 14,
-    textAlign: 'center',
+  helperText: {
+    color: premiumTheme.colors.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 12,
   },
-  backButton: {
+  errorText: {
+    color: premiumTheme.colors.red,
+    marginTop: 14,
+    fontSize: 13,
+  },
+  primaryButton: {
+    backgroundColor: premiumTheme.colors.blue,
+    borderRadius: premiumTheme.radius.pill,
+    paddingVertical: 18,
     alignItems: 'center',
-    paddingVertical: 12,
+    marginTop: 18,
+    shadowColor: premiumTheme.colors.blue,
+    shadowOpacity: 0.42,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  backButtonText: {
-    color: '#22d3ee',
-    fontSize: 14,
+  primaryButtonText: {
+    color: premiumTheme.colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: 10,
+  },
+  secondaryButtonText: {
+    color: premiumTheme.colors.textMuted,
+    fontWeight: '700',
+  },
+  buttonDisabled: {
+    opacity: 0.72,
   },
 });
 

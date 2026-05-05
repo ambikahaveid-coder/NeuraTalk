@@ -1,5 +1,20 @@
 import type { Express } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { canAccessObject, ObjectPermission } from "./objectAcl";
+import { loadUser, requireAuth } from "../../role-middleware";
+
+const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+const ALLOWED_UPLOAD_CONTENT_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "text/csv",
+  "audio/wav",
+  "audio/mpeg",
+  "audio/webm",
+  "audio/mp4",
+];
 
 /**
  * Register object storage routes for file uploads.
@@ -35,14 +50,26 @@ export function registerObjectStorageRoutes(app: Express): void {
    * IMPORTANT: The client should NOT send the file to this endpoint.
    * Send JSON metadata only, then upload the file directly to uploadURL.
    */
-  app.post("/api/uploads/request-url", async (req, res) => {
+  app.post("/api/uploads/request-url", loadUser, requireAuth, async (req, res) => {
     try {
       const { name, size, contentType } = req.body;
 
-      if (!name) {
+      if (!name || typeof name !== "string") {
         return res.status(400).json({
           error: "Missing required field: name",
         });
+      }
+      if (!Number.isFinite(size) || size <= 0) {
+        return res.status(400).json({ error: "Missing or invalid required field: size" });
+      }
+      if (size > MAX_UPLOAD_SIZE_BYTES) {
+        return res.status(400).json({ error: `File exceeds maximum size of ${MAX_UPLOAD_SIZE_BYTES} bytes` });
+      }
+      if (!contentType || typeof contentType !== "string") {
+        return res.status(400).json({ error: "Missing required field: contentType" });
+      }
+      if (!ALLOWED_UPLOAD_CONTENT_TYPES.includes(contentType)) {
+        return res.status(400).json({ error: "Unsupported file type for upload" });
       }
 
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
@@ -70,9 +97,17 @@ export function registerObjectStorageRoutes(app: Express): void {
    * This serves files from object storage. For public files, no auth needed.
    * For protected files, add authentication middleware and ACL checks.
    */
-  app.get("/objects/:objectPath(*)", async (req, res) => {
+  app.get("/objects/:objectPath(*)", loadUser, async (req, res) => {
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const acl = await canAccessObject({
+        userId: req.user?.id ? String(req.user.id) : undefined,
+        objectFile,
+        requestedPermission: ObjectPermission.READ,
+      });
+      if (!acl) {
+        return res.status(403).json({ error: "You do not have access to this object" });
+      }
       await objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
       console.error("Error serving object:", error);

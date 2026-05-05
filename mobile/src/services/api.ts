@@ -39,11 +39,14 @@ export async function apiRequest<T = any>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || error.error || 'Request failed');
+    const errorPayload = await response.json().catch(() => ({ message: 'Request failed' })) as {
+      message?: string;
+      error?: string;
+    };
+    throw new Error(errorPayload.message || errorPayload.error || 'Request failed');
   }
 
-  return response.json();
+  return await response.json() as T;
 }
 
 export const authApi = {
@@ -66,6 +69,27 @@ export const callApi = {
   
   grantConsent: (consent: { termsAccepted: boolean; translationConsent: boolean; recordingConsent?: boolean }) =>
     apiRequest('POST', '/api/call/consent', consent),
+
+  getIncoming: () => apiRequest<{
+    incoming?: {
+      callId: string;
+      callerId: string;
+      callerName?: string;
+      callType: 'voice' | 'video';
+      livekitUrl?: string;
+      livekitToken?: string;
+    } | null;
+  }>('GET', '/api/calls/incoming'),
+
+  rejectIncoming: (callId: string) => apiRequest('POST', `/api/calls/${callId}/reject`),
+
+  updateStatus: (
+    callId: string,
+    status: string,
+    metadata?: Record<string, unknown>,
+  ) => apiRequest('PATCH', `/api/calls/${callId}/status`, { status, metadata }),
+
+  getLivekitConfig: () => apiRequest<{ url?: string | null }>('GET', '/api/livekit/config'),
 };
 
 export const deviceApi = {

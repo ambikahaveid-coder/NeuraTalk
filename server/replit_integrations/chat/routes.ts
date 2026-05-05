@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from "express";
 import OpenAI from "openai";
 import { chatStorage } from "./storage";
+import { getOpenAIKey, hasWorkingOpenAIKey } from "../../openai-config";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+  apiKey: getOpenAIKey() || "placeholder",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
@@ -80,8 +81,7 @@ export function registerChatRoutes(app: Express): void {
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      const isMockKey = !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-        process.env.AI_INTEGRATIONS_OPENAI_API_KEY.startsWith("sk-mock");
+      const isMockKey = !hasWorkingOpenAIKey();
 
       if (isMockKey) {
         // No real OpenAI key — return a helpful message via SSE

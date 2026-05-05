@@ -3,9 +3,10 @@ import { Buffer } from "node:buffer";
 import { spawn } from "child_process";
 import { elevenLabsTTS, elevenLabsSTT, ELEVENLABS_VOICES } from "../../elevenlabs-service";
 import { isAzureSpeechAvailable, azureTTS, azureSTT } from "../../azure-service";
+import { getOpenAIKey, hasWorkingOpenAIKey } from "../../openai-config";
 
 export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+  apiKey: getOpenAIKey() || "placeholder",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
@@ -65,8 +66,7 @@ export async function voiceChat(
   inputFormat: "wav" | "mp3" = "wav",
   outputFormat: "wav" | "mp3" = "mp3"
 ): Promise<{ transcript: string; audioResponse: Buffer }> {
-  const isMockKey = !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    process.env.AI_INTEGRATIONS_OPENAI_API_KEY.startsWith("sk-mock");
+  const isMockKey = !hasWorkingOpenAIKey();
 
   if (!isMockKey) {
     try {
@@ -121,8 +121,7 @@ export async function voiceChatStream(
   voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer" = "alloy",
   inputFormat: "wav" | "mp3" = "wav"
 ): Promise<AsyncIterable<{ type: "transcript" | "audio"; data: string }>> {
-  const isMockKey = !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-    process.env.AI_INTEGRATIONS_OPENAI_API_KEY.startsWith("sk-mock");
+  const isMockKey = !hasWorkingOpenAIKey();
 
   if (!isMockKey) {
     try {

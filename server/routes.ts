@@ -49,9 +49,12 @@ import { registerFaceToFaceRoutes } from "./face-to-face-routes";
 import complianceRoutes from "./compliance-routes";
 import { registerAuthRoutes } from "./modules/auth/routes";
 import { registerCallsRoutes } from "./modules/calls/routes";
+import { registerCallerIdRoutes } from "./modules/caller-id/routes";
+import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { loadUser } from "./role-middleware";
 import { loadTenantContext } from "./tenant-context";
 import { isLegacyTwilioBridgeEnabled } from "./call-platform-config";
+import { getOpenAIKey, hasWorkingOpenAIKey } from "./openai-config";
 
 // Simple slug generator
 function generateSlug(name: string): string {
@@ -122,6 +125,8 @@ export async function registerRoutes(
   registerObjectStorageRoutes(app); console.log("[Routes] ✓ Object storage routes");
   registerVoiceTrainingRoutes(app); console.log("[Routes] ✓ Voice training routes");
   registerCallsRoutes(app); console.log("[Routes] ✓ Calls module (LiveKit) routes");
+  registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
+  registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
   registerB2BRoutes(app); console.log("[Routes] ✓ B2B routes");
   registerLocationRoutes(app); console.log("[Routes] ✓ Location routes");
   registerAdminSettingsRoutes(app); console.log("[Routes] ✓ Admin settings routes");
@@ -241,7 +246,7 @@ export async function registerRoutes(
 
   // === WEBSITE CHATBOT ===
   const websiteOpenai = new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+    apiKey: getOpenAIKey() || "placeholder",
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
 
@@ -342,8 +347,7 @@ Your personality:
         return res.status(400).json({ error: "Message is required" });
       }
 
-      const isMockKey = !process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-        process.env.AI_INTEGRATIONS_OPENAI_API_KEY.startsWith("sk-mock");
+      const isMockKey = !hasWorkingOpenAIKey();
 
       if (!isMockKey) {
         // Try OpenAI first

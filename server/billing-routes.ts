@@ -1522,5 +1522,42 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
+  // Simple balance endpoint for ConsumerDashboard widget
+  app.get("/api/billing/balance", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const [sub] = await db.select({
+        minutesRemaining: subscriptions.minutesRemaining,
+        endDate: subscriptions.endDate,
+        plan: billingPlans,
+      })
+        .from(subscriptions)
+        .innerJoin(billingPlans, eq(subscriptions.planId, billingPlans.id))
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, "active")))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      if (!sub) {
+        return res.json({ balanceInr: 0, minutesRemaining: 0, hasActiveSubscription: false });
+      }
+
+      const minutesRemaining = sub.minutesRemaining ?? 0;
+      // Approximate balance = remaining minutes × per-minute rate
+      const ratePerSecondPaise = (sub.plan as any).ratePerSecondPaise ?? 0;
+      const balancePaise = minutesRemaining * 60 * ratePerSecondPaise;
+
+      res.json({
+        hasActiveSubscription: true,
+        minutesRemaining,
+        balanceInr: Number((balancePaise / 100).toFixed(2)),
+        planName: (sub.plan as any).name,
+        expiresAt: sub.endDate,
+      });
+    } catch (err) {
+      logger.error("Billing", "Failed to fetch balance", err as Error);
+      res.status(500).json({ success: false, message: "Failed to fetch balance" });
+    }
+  });
+
   logger.info("Billing", "Billing routes registered");
 }

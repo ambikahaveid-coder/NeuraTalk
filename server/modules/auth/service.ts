@@ -12,6 +12,8 @@ import { verifyFirebaseToken, isFirebaseAdminConfigured } from "../../firebase-a
 import { issueWsToken } from "../../signaling-server";
 import { AuditHelpers } from "../../audit";
 import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
+import { normalizePhoneNumber } from "@shared/phone";
+import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
 import { eq, and, or } from "drizzle-orm";
 
 function generateSlug(name: string): string {
@@ -60,25 +62,12 @@ interface AuthRequestContext {
   requestedTenantSlug?: string | null;
 }
 
-function normalizeTenantSlug(value?: string | null): string | null {
-  return value?.trim() ? value.trim().toLowerCase() : null;
-}
-
 function buildSessionBinding(organization?: { id: number; slug: string } | null) {
   return {
     organizationId: organization?.id ?? null,
     tenantSlug: organization?.slug ?? null,
     sessionScope: organization ? "tenant" : "platform",
   };
-}
-
-function usesFirebasePhoneOtp(): boolean {
-  const provider = (
-    process.env.PHONE_OTP_PROVIDER ||
-    process.env.VITE_PHONE_OTP_PROVIDER ||
-    "firebase"
-  ).toLowerCase();
-  return provider === "firebase";
 }
 
 export async function registerUser(input: RegisterInput, context?: AuthRequestContext) {
@@ -194,14 +183,15 @@ export async function forgotPassword(identifier: string, channel: "email" | "mob
     return { error: "PHONE_RESET_USES_FIREBASE" as const };
   }
 
+  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
   const whereClause = channel === "email"
-    ? eq(users.email, identifier)
-    : eq(users.phone, identifier);
+    ? eq(users.email, normalizedIdentifier)
+    : eq(users.phone, normalizedIdentifier);
   const user = await db.query.users.findFirst({ where: whereClause });
 
   // Silent success prevents user enumeration
   if (!user) return { success: true };
-  await requestOtp(identifier, channel);
+  await requestOtp(normalizedIdentifier, channel);
   return { success: true };
 }
 
@@ -211,14 +201,15 @@ export async function resetPassword(
   code: string,
   newPassword: string,
 ) {
-  const otpResult = await verifyOtp(identifier, channel, code);
+  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
+  const otpResult = await verifyOtp(normalizedIdentifier, channel, code);
   if (!otpResult.success) {
     return { error: "INVALID_OTP" as const, message: otpResult.message };
   }
 
   const whereClause = channel === "email"
-    ? eq(users.email, identifier)
-    : eq(users.phone, identifier);
+    ? eq(users.email, normalizedIdentifier)
+    : eq(users.phone, normalizedIdentifier);
   const user = await db.query.users.findFirst({ where: whereClause });
   if (!user) return { error: "USER_NOT_FOUND" as const };
 
@@ -354,7 +345,7 @@ export async function verifyAuthOtp(params: {
     const verifiedPhone = verifiedToken.phoneNumber;
 
     let user = await db.query.users.findFirst({
-      where: or(eq(users.phone, verifiedPhone), eq(users.phone, verifiedPhone.replace("+91", ""))),
+      where: or(eq(users.phone, verifiedPhone), eq(users.phone, verifiedPhone.replace(/^\+/, ""))),
     });
     if (!user) {
       const username = `user_${Date.now().toString(36)}`;

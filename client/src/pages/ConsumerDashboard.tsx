@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import AppNavigation from "@/components/AppNavigation";
+import PhoneIdentityCard from "@/components/PhoneIdentityCard";
 import {
   Phone, Video, Search, Clock, Star, Sparkles,
   CreditCard, Users, History, Mic, Globe,
@@ -162,6 +163,9 @@ export default function ConsumerDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Phone Identity — caller ID verify + call forwarding */}
+        <PhoneIdentityCard />
 
         {/* Favorites + Contacts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

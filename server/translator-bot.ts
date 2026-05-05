@@ -20,6 +20,16 @@ import { createLatencyTrace, type LatencyTrace } from "./latency-audit";
 import { recordStageLatency } from "./modules/calls/metrics";
 import { recordSmartCallMediaActivity } from "./modules/calls/smart-router";
 import { logger } from "./observability";
+import { buildTranscriptSignalEvent } from "./translation/stt-service";
+import {
+  buildTranslationFailedEvent,
+  buildTranslationReadyEvent,
+  resolveListenerTranslationMode,
+  shouldDeliverVoiceTranslation,
+  shouldTranslateForListener,
+  type ListenerTranslationMode,
+} from "./translation/translation-service";
+import { buildTtsFailedEvent, buildTtsReadyEvent } from "./translation/tts-service";
 import {
   registerParticipantTranscript,
   resolveDirectionalLanguages,
@@ -54,6 +64,7 @@ import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-str
 const BOT_DEFAULT_IDENTITY = "neuratalk-translator";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TARGET_LATENCY_MS, 800);
+const TTS_READY_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TTS_READY_TIMEOUT_MS, 3_000);
 const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.TRANSLATOR_BOT_MIN_PARTIAL_WORDS, 1);
 const RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.TRANSLATOR_BOT_RESTART_DELTA, 4);
 const VAD_THRESHOLD = parsePositiveFloat(process.env.TRANSLATOR_BOT_VAD_THRESHOLD, 0.018);
@@ -90,6 +101,7 @@ interface SpeakerPipeline {
   identity: string;
   name: string;
   preferredLanguage: string;
+  translationMode: ListenerTranslationMode;
   effectiveLanguage: string;
   detectedLanguage: string | null;
   metadataVersion: string;
@@ -413,12 +425,14 @@ class LiveKitRealtimeTranslatorBot {
   private async ensureSpeakerPipeline(participant: RemoteParticipant): Promise<SpeakerPipeline> {
     const metadata = readParticipantMetadata(participant);
     const preferredLanguage = normalizeLanguage(String(metadata.language || participant.attributes?.language || "auto"));
+    const translationMode = resolveListenerTranslationMode(metadata.translationMode);
     const existing = this.speakerPipelines.get(participant.identity);
 
     if (existing) {
       if (existing.metadataVersion !== participant.metadata) {
         existing.metadataVersion = participant.metadata;
         existing.preferredLanguage = preferredLanguage;
+        existing.translationMode = translationMode;
         void setParticipantLanguagePreference(this.callId, participant.identity, preferredLanguage).catch(() => undefined);
         if (preferredLanguage !== "auto") {
           existing.effectiveLanguage = preferredLanguage;
@@ -433,6 +447,7 @@ class LiveKitRealtimeTranslatorBot {
       identity: participant.identity,
       name: participant.name || participant.identity,
       preferredLanguage,
+      translationMode,
       effectiveLanguage: initialLanguage,
       detectedLanguage: null,
       metadataVersion: participant.metadata,
@@ -494,6 +509,20 @@ class LiveKitRealtimeTranslatorBot {
 
     const text = applySpokenCorrections(event.text, pipeline.effectiveLanguage);
     if (!text) return;
+
+    await this.publishTranslationMessage({
+      type: "translation",
+      from: this.botIdentity,
+      payload: buildTranscriptSignalEvent({
+        sourceIdentity: pipeline.identity,
+        text,
+        sourceLanguage: pipeline.effectiveLanguage,
+        turnId: pipeline.turnId,
+        isFinal: event.isFinal,
+        speechFinal: Boolean(event.speechFinal),
+      }),
+      ts: Date.now(),
+    });
 
     if (pipeline.turn && !pipeline.turn.firstTranscriptAt) {
       pipeline.turn.firstTranscriptAt = Date.now();
@@ -579,16 +608,17 @@ class LiveKitRealtimeTranslatorBot {
         sourceLanguage,
         targetLanguage: target.language,
         targetIdentity: target.identity,
+        targetMode: target.mode,
         generation,
         isFinal,
       });
     }
   }
 
-  private async listTargetsForSpeaker(sourceIdentity: string, sourceLanguage: string): Promise<Array<{ identity: string; language: string }>> {
+  private async listTargetsForSpeaker(sourceIdentity: string, sourceLanguage: string): Promise<Array<{ identity: string; language: string; mode: ListenerTranslationMode }>> {
     if (!this.room) return [];
 
-    const targets: Array<{ identity: string; language: string }> = [];
+    const targets: Array<{ identity: string; language: string; mode: ListenerTranslationMode }> = [];
 
     for (const participant of Array.from(this.room.remoteParticipants.values())) {
       if (participant.identity === sourceIdentity || isBotParticipant(participant)) {
@@ -596,6 +626,12 @@ class LiveKitRealtimeTranslatorBot {
       }
 
       const pipeline = this.speakerPipelines.get(participant.identity);
+      const mode = resolveListenerTranslationMode(
+        pipeline?.translationMode || readParticipantMetadata(participant).translationMode,
+      );
+      if (!shouldTranslateForListener(mode)) {
+        continue;
+      }
       const preferredLanguage = normalizeLanguage(
         String(pipeline?.preferredLanguage || readParticipantMetadata(participant).language || participant.attributes?.language || "auto"),
       );
@@ -615,6 +651,7 @@ class LiveKitRealtimeTranslatorBot {
       targets.push({
         identity: participant.identity,
         language: resolved.targetLanguage,
+        mode,
       });
     }
 
@@ -628,6 +665,7 @@ class LiveKitRealtimeTranslatorBot {
     sourceLanguage: string;
     targetLanguage: string;
     targetIdentity: string;
+    targetMode: ListenerTranslationMode;
     generation: number;
     isFinal: boolean;
   }): Promise<void> {
@@ -697,7 +735,7 @@ class LiveKitRealtimeTranslatorBot {
             void this.publishTranslationMessage({
               type: "translation",
               from: this.botIdentity,
-              payload: {
+              payload: buildTranslationReadyEvent({
                 sourceIdentity: opts.pipeline.identity,
                 sourceLanguage: opts.sourceLanguage,
                 targetIdentity: opts.targetIdentity,
@@ -705,7 +743,8 @@ class LiveKitRealtimeTranslatorBot {
                 original: opts.transcript,
                 translated,
                 partial: true,
-              },
+                mode: opts.targetMode,
+              }),
               ts: Date.now(),
             }, [opts.targetIdentity]);
           },
@@ -719,14 +758,17 @@ class LiveKitRealtimeTranslatorBot {
               }
             }
 
-            this.enqueueTtsSegment(
-              opts.channel,
-              segment,
-              opts.generation,
-              opts.pipeline,
-              opts.targetLanguage,
-              trace,
-            );
+            if (shouldDeliverVoiceTranslation(opts.targetMode)) {
+              this.enqueueTtsSegment(
+                opts.channel,
+                segment,
+                opts.generation,
+                opts.pipeline,
+                opts.targetLanguage,
+                opts.targetMode,
+                trace,
+              );
+            }
           },
           onFinal: (translatedText) => {
             if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
@@ -741,7 +783,7 @@ class LiveKitRealtimeTranslatorBot {
             void this.publishTranslationMessage({
               type: "translation",
               from: this.botIdentity,
-              payload: {
+              payload: buildTranslationReadyEvent({
                 sourceIdentity: opts.pipeline.identity,
                 sourceLanguage: opts.sourceLanguage,
                 targetIdentity: opts.targetIdentity,
@@ -749,7 +791,8 @@ class LiveKitRealtimeTranslatorBot {
                 original: opts.transcript,
                 translated,
                 partial: false,
-              },
+                mode: opts.targetMode,
+              }),
               ts: Date.now(),
             }, [opts.targetIdentity]);
           },
@@ -774,12 +817,13 @@ class LiveKitRealtimeTranslatorBot {
       await this.publishTranslationMessage({
         type: "translation-fallback",
         from: this.botIdentity,
-        payload: {
+        payload: buildTranslationFailedEvent({
           sourceIdentity: opts.pipeline.identity,
           targetIdentity: opts.targetIdentity,
           original: opts.transcript,
           reason: message,
-        },
+          mode: opts.targetMode,
+        }),
         ts: Date.now(),
       }, [opts.targetIdentity]);
       if (opts.isFinal) {
@@ -799,10 +843,11 @@ class LiveKitRealtimeTranslatorBot {
     generation: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
+    targetMode: ListenerTranslationMode,
     trace: LatencyTrace | null,
   ): void {
     channel.ttsChain = channel.ttsChain
-      .then(() => this.streamTtsSegment(channel, text, generation, pipeline, targetLanguage, trace))
+      .then(() => this.streamTtsSegment(channel, text, generation, pipeline, targetLanguage, targetMode, trace))
       .catch((error) => {
         logger.warn("TranslatorBot", `[${this.callId}] TTS chain failed for ${channel.key}: ${String(error)}`);
       });
@@ -814,6 +859,7 @@ class LiveKitRealtimeTranslatorBot {
     generation: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
+    targetMode: ListenerTranslationMode,
     trace: LatencyTrace | null,
   ): Promise<void> {
     if (this.closed || generation !== channel.currentGeneration) return;
@@ -827,6 +873,29 @@ class LiveKitRealtimeTranslatorBot {
     channel.ttsAbort = new AbortController();
     channel.speaking = true;
     let playbackMarked = false;
+    let firstByteObserved = false;
+    let timeoutFallbackTriggered = false;
+    const ttsReadyTimer = setTimeout(() => {
+      if (firstByteObserved || timeoutFallbackTriggered || this.closed || generation !== channel.currentGeneration) {
+        return;
+      }
+      timeoutFallbackTriggered = true;
+      trace?.markFallback(`tts_ready_timeout:${TTS_READY_TIMEOUT_MS}`);
+      logger.warn("TranslatorBot", `[${this.callId}] TTS readiness timeout for ${channel.key} after ${TTS_READY_TIMEOUT_MS}ms`);
+      channel.ttsAbort?.abort();
+      void this.publishTranslationMessage({
+        type: "translation-fallback",
+        from: this.botIdentity,
+        payload: buildTtsFailedEvent({
+          sourceIdentity: channel.sourceIdentity,
+          targetIdentity: channel.targetIdentity,
+          translatedText: text,
+          reason: `TTS readiness exceeded ${TTS_READY_TIMEOUT_MS}ms`,
+          translationMode: targetMode,
+        }),
+        ts: Date.now(),
+      }, [channel.targetIdentity]);
+    }, TTS_READY_TIMEOUT_MS);
 
     try {
       for await (const frame of streamAzureTtsFrames(
@@ -838,6 +907,7 @@ class LiveKitRealtimeTranslatorBot {
             trace?.addObservedNetworkLatency("azure_tts_headers", latencyMs);
           },
           onFirstByte: () => {
+            firstByteObserved = true;
             const firstAudioAt = Date.now();
             trace?.addProvider("azure-tts");
             trace?.mark("first_audio_frame");
@@ -852,6 +922,22 @@ class LiveKitRealtimeTranslatorBot {
                 recordStageLatency(this.callId, "ultra", firstAudioAt - pipeline.turn.speechStartedAt);
               }
             }
+            void this.publishTranslationMessage({
+              type: "translation",
+              from: this.botIdentity,
+              payload: buildTtsReadyEvent({
+                sourceIdentity: channel.sourceIdentity,
+                targetIdentity: channel.targetIdentity,
+                sourceLanguage: pipeline.effectiveLanguage,
+                targetLanguage,
+                translatedText: text,
+                latencyMs: pipeline.turn?.speechStartedAt ? Math.max(0, firstAudioAt - pipeline.turn.speechStartedAt) : undefined,
+                deliveryMode: "session_injected",
+                replaceOriginalVoice: true,
+                translationMode: targetMode,
+              }),
+              ts: Date.now(),
+            }, [channel.targetIdentity]);
           },
           emotion: pipeline.latestEmotion,
           userAgent: "NeuraTalk/TranslatorBot",
@@ -872,16 +958,20 @@ class LiveKitRealtimeTranslatorBot {
         await this.publishTranslationMessage({
           type: "translation-fallback",
           from: this.botIdentity,
-          payload: {
+          payload: buildTtsFailedEvent({
             sourceIdentity: channel.sourceIdentity,
             targetIdentity: channel.targetIdentity,
             translatedText: text,
             reason: message,
-          },
+            translationMode: targetMode,
+          }),
           ts: Date.now(),
         }, [channel.targetIdentity]);
+      } else if (!timeoutFallbackTriggered && !firstByteObserved) {
+        trace?.markFallback("tts_aborted_before_audio");
       }
     } finally {
+      clearTimeout(ttsReadyTimer);
       channel.speaking = false;
       if (pipeline.turn) {
         pipeline.turn.finalAudioAt = Date.now();
@@ -1075,11 +1165,13 @@ class LiveKitRealtimeTranslatorBot {
   private applyParticipantMetadata(identity: string, metadata: string | undefined): void {
     const parsed = safeJsonParse<Record<string, unknown>>(metadata);
     const language = normalizeLanguage(String(parsed?.language || "auto"));
+    const translationMode = resolveListenerTranslationMode(parsed?.translationMode);
     const pipeline = this.speakerPipelines.get(identity);
     if (!pipeline) return;
 
     pipeline.metadataVersion = metadata || "";
     pipeline.preferredLanguage = language;
+    pipeline.translationMode = translationMode;
     void setParticipantLanguagePreference(this.callId, identity, language).catch(() => undefined);
     if (language !== "auto") {
       pipeline.effectiveLanguage = language;
@@ -1090,9 +1182,23 @@ class LiveKitRealtimeTranslatorBot {
   private handleParticipantData(identity: string, payload: Uint8Array): void {
     try {
       const text = new TextDecoder().decode(payload);
-      const data = JSON.parse(text) as { type?: string; payload?: { language?: string } };
-      if (data.type !== "language-change" || !data.payload?.language) return;
-      this.applyParticipantMetadata(identity, JSON.stringify({ language: data.payload.language }));
+      const data = JSON.parse(text) as {
+        type?: string;
+        payload?: { language?: string; translationMode?: ListenerTranslationMode };
+      };
+      if (data.type === "language-change" && data.payload?.language) {
+        this.applyParticipantMetadata(identity, JSON.stringify({
+          language: data.payload.language,
+          translationMode: this.speakerPipelines.get(identity)?.translationMode,
+        }));
+        return;
+      }
+      if (data.type === "translation-mode" && data.payload?.translationMode) {
+        this.applyParticipantMetadata(identity, JSON.stringify({
+          language: this.speakerPipelines.get(identity)?.preferredLanguage || "auto",
+          translationMode: data.payload.translationMode,
+        }));
+      }
     } catch {
       // ignore malformed data messages
     }

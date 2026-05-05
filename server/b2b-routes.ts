@@ -22,9 +22,10 @@ import {
   bridgedCalls,
   billingLedgerEntries,
 } from "@shared/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { setDummyOtpMode } from "./otp-auth";
+import { storage } from "./storage";
 import {
   loadUser,
   requireAuth,
@@ -36,6 +37,8 @@ import { logger } from "./observability";
 import { AuditHelpers } from "./audit";
 import { BillingEngine } from "./billing-engine";
 import { getOrganizationBillingSnapshot } from "./organization-billing";
+import * as callService from "./modules/calls/service";
+import { routeToSkillAgent } from "./modules/calls/smart-router";
 
 // ============================================================================
 // SCHEMAS
@@ -72,6 +75,18 @@ const createCompanySchema = z.object({
   initialWalletRupees: z.number().min(0).default(0),
 }).refine(data => data.adminEmail || data.adminPhone, {
   message: "Admin email or phone required",
+});
+
+const b2bOutboundCallSchema = z.object({
+  calleeIdentifier: z.string().min(3, "Callee identifier required"),
+  callType: z.enum(["voice", "video"]).default("voice"),
+  agentUserId: z.number().int().positive().optional(),
+  myLanguage: z.string().min(2).max(16).optional().default("auto"),
+  theirLanguage: z.string().min(2).max(16).optional().default("auto"),
+  translationMode: z.enum(["off", "subtitles", "voice"]).optional().default("voice"),
+  transportPreference: z.enum(["app_to_app", "app_to_pstn", "auto"]).optional().default("auto"),
+  enableRecording: z.boolean().optional().default(false),
+  enableLipsync: z.boolean().optional().default(false),
 });
 
 function toOpeningBalancePaise(input: { initialWalletRupees?: number }): number {
@@ -179,6 +194,151 @@ async function getOrganizationWalletLedger(organizationId: number, limit = 50) {
     .where(eq(billingLedgerEntries.organizationId, organizationId))
     .orderBy(desc(billingLedgerEntries.createdAt))
     .limit(limit);
+}
+
+function safeAverageDuration(seconds: number, count: number): string {
+  if (!count || seconds <= 0) return "0:00";
+  const avg = Math.round(seconds / count);
+  const mins = Math.floor(avg / 60);
+  const secs = avg % 60;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+async function getAgentStatusRows(organizationId: number) {
+  const members = await db.query.orgMembers.findMany({
+    where: eq(orgMembers.organizationId, organizationId),
+    with: { user: true },
+  });
+
+  const activeSmartCalls = await callService.listSmartActiveCalls();
+  const activeOrgCalls = activeSmartCalls.filter((call) => {
+    const orgIds = [call.callerOrganizationId, call.calleeOrganizationId].filter(
+      (value): value is number => typeof value === "number" && Number.isFinite(value),
+    );
+    return orgIds.includes(organizationId);
+  });
+
+  const recentSmartCalls = await Promise.all(
+    members.map(async (member) => ({
+      member,
+      calls: await callService.listSmartCallsForUser(String(member.user.id)).catch(() => []),
+    })),
+  );
+
+  return members.map((member) => {
+    const userId = String(member.user.id);
+    const currentCall = activeOrgCalls.find((call) => call.callerId === userId || call.calleeUserId === userId);
+    const userRecentCalls = recentSmartCalls.find((entry) => entry.member.user.id === member.user.id)?.calls || [];
+    const completedToday = userRecentCalls.filter((call) => {
+      const endedAt = call.endedAt ? Date.parse(call.endedAt) : NaN;
+      if (!Number.isFinite(endedAt)) return false;
+      const ended = new Date(endedAt);
+      const now = new Date();
+      return ended.toDateString() === now.toDateString();
+    });
+    const totalDuration = completedToday.reduce((sum, call) => {
+      if (!call.connectedAt || !call.endedAt) return sum;
+      const startedAt = Date.parse(call.connectedAt);
+      const endedAt = Date.parse(call.endedAt);
+      if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt <= startedAt) return sum;
+      return sum + Math.round((endedAt - startedAt) / 1000);
+    }, 0);
+
+    return {
+      id: member.user.id,
+      username: member.user.username,
+      email: member.user.email,
+      phone: member.user.phone,
+      role: member.user.role,
+      memberRole: member.memberRole,
+      isActive: member.user.isActive,
+      isOnline: member.user.isActive,
+      isOnCall: !!currentCall,
+      callsToday: completedToday.length,
+      avgHandleTime: safeAverageDuration(totalDuration, completedToday.length),
+      currentCall: currentCall ? {
+        customer: currentCall.calleeUserId === userId ? (currentCall.callerNumber || currentCall.callerId) : currentCall.calleeIdentifier,
+        language: currentCall.calleeUserId === userId ? currentCall.callerLanguage : (currentCall.calleeLanguage || "auto"),
+        duration: currentCall.connectedAt
+          ? Math.max(0, Math.round((Date.now() - Date.parse(currentCall.connectedAt)) / 1000))
+          : 0,
+      } : null,
+    };
+  });
+}
+
+function buildTranslationRouteSnapshot() {
+  const azureKey = process.env.AZURE_SPEECH_KEY;
+  const azureRegion = process.env.AZURE_SPEECH_REGION;
+  const elevenLabsKey = process.env.ELEVEN_LABS_API_KEY || process.env.ELEVENLABS_API_KEY;
+  const livekitUrl = process.env.LIVEKIT_URL;
+  const livekitApiKey = process.env.LIVEKIT_API_KEY;
+  const msg91Key = process.env.MSG91_AUTH_KEY;
+
+  const routes = [
+    {
+      id: "azure",
+      name: "Azure Cognitive Services",
+      sourceLanguage: "Multi",
+      targetLanguage: "Multi",
+      status: azureKey && azureRegion ? "active" : "offline",
+      latency: azureKey && azureRegion ? 130 : 0,
+      issue: azureKey && azureRegion ? null : "Missing Azure speech credentials",
+    },
+    {
+      id: "elevenlabs",
+      name: "ElevenLabs TTS",
+      sourceLanguage: "Text",
+      targetLanguage: "Audio",
+      status: elevenLabsKey ? "active" : "offline",
+      latency: elevenLabsKey ? 900 : 0,
+      issue: elevenLabsKey ? null : "Missing ElevenLabs API key",
+    },
+    {
+      id: "lingva",
+      name: "Lingva Translation Fallback",
+      sourceLanguage: "Multi",
+      targetLanguage: "Multi",
+      status: azureKey && azureRegion ? "degraded" : "active",
+      latency: azureKey && azureRegion ? 2500 : 2300,
+      issue: azureKey && azureRegion
+        ? "Fallback-only route with higher latency"
+        : "Primary translation provider offline; fallback route carrying production load",
+    },
+    {
+      id: "webrtc",
+      name: "LiveKit WebRTC Gateway",
+      sourceLanguage: "Audio",
+      targetLanguage: "Audio",
+      status: livekitUrl && livekitApiKey ? "active" : "offline",
+      latency: livekitUrl && livekitApiKey ? 50 : 0,
+      issue: livekitUrl && livekitApiKey ? null : "Missing LiveKit signaling configuration",
+    },
+    {
+      id: "pstn",
+      name: "PSTN Bridge",
+      sourceLanguage: "Audio",
+      targetLanguage: "Phone",
+      status: msg91Key ? "active" : "offline",
+      latency: msg91Key ? 400 : 0,
+      issue: msg91Key ? null : "Missing PSTN bridge credentials",
+    },
+  ] as const;
+
+  const active = routes.filter((route) => route.status === "active").length;
+  const degraded = routes.filter((route) => route.status === "degraded").length;
+  const offline = routes.filter((route) => route.status === "offline").length;
+
+  return {
+    routes,
+    summary: {
+      total: routes.length,
+      active,
+      degraded,
+      offline,
+      status: offline > 0 ? (active > 0 ? "degraded" : "offline") : degraded > 0 ? "degraded" : "healthy",
+    },
+  };
 }
 
 // ============================================================================
@@ -669,23 +829,11 @@ export function registerB2BRoutes(app: Express): void {
       if (!req.user?.organizationId) {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
-
-      const members = await db.query.orgMembers.findMany({
-        where: eq(orgMembers.organizationId, req.user.organizationId),
-        with: { user: true },
-      });
+      const organizationId = req.user.organizationId;
 
       res.json({
         success: true,
-        agents: members.map(m => ({
-          id: m.user.id,
-          username: m.user.username,
-          email: m.user.email,
-          phone: m.user.phone,
-          role: m.user.role,
-          memberRole: m.memberRole,
-          isActive: m.user.isActive,
-        })),
+        agents: await getAgentStatusRows(req.user.organizationId),
       });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to fetch agents", err as Error);
@@ -700,22 +848,9 @@ export function registerB2BRoutes(app: Express): void {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
 
-      const members = await db.query.orgMembers.findMany({
-        where: eq(orgMembers.organizationId, req.user.organizationId),
-        with: { user: true },
-      });
-
       res.json({
         success: true,
-        agents: members.map(m => ({
-          id: m.user.id,
-          username: m.user.username,
-          email: m.user.email,
-          phone: m.user.phone,
-          role: m.user.role,
-          memberRole: m.memberRole,
-          isActive: m.user.isActive,
-        })),
+        agents: await getAgentStatusRows(req.user.organizationId),
       });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to fetch agents", err as Error);
@@ -927,18 +1062,61 @@ export function registerB2BRoutes(app: Express): void {
    */
   app.get("/api/b2b/call-queue", requireAuth, requireApprovedCompany, async (req, res) => {
     try {
-      // Return actually pending bridged calls as the queue
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ success: false, message: "No company associated" });
+      }
+      const organizationId = req.user.organizationId;
+
       const pendingCalls = await db.select().from(bridgedCalls)
         .where(eq(bridgedCalls.status, "pending"));
 
-      const queue = pendingCalls.map(call => ({
-        id: String(call.id),
-        customer: call.callerNumber,
-        language: call.callerLanguage || "auto",
-        waitTime: call.createdAt ? Math.round((Date.now() - new Date(call.createdAt).getTime()) / 1000) : 0,
-        priority: "normal" as const,
-        type: "inbound" as const,
-      }));
+      const participantIds = Array.from(new Set(
+        pendingCalls.flatMap((call) => [call.callerUserId, call.receiverUserId]).filter(
+          (value): value is number => typeof value === "number" && Number.isFinite(value),
+        ),
+      ));
+
+      const participants = participantIds.length > 0
+        ? await db.select({
+            id: users.id,
+            organizationId: users.organizationId,
+          }).from(users).where(inArray(users.id, participantIds))
+        : [];
+
+      const participantOrgMap = new Map(participants.map((participant) => [participant.id, participant.organizationId]));
+
+      const relevantPendingCalls = pendingCalls.filter((call) => {
+        const participantOrganizations = [call.callerUserId, call.receiverUserId]
+          .map((userId) => (typeof userId === "number" ? participantOrgMap.get(userId) : undefined))
+          .filter((organizationId): organizationId is number => typeof organizationId === "number");
+
+        if (participantOrganizations.includes(organizationId)) {
+          return true;
+        }
+
+        const metadata = (call.metadata as Record<string, unknown> | null) || {};
+        const orgCandidates = [
+          metadata.organizationId,
+          metadata.callerOrganizationId,
+          metadata.receiverOrganizationId,
+          metadata.companyOrganizationId,
+        ];
+        return orgCandidates.some((candidateOrganizationId) => Number(candidateOrganizationId) === organizationId);
+      });
+
+      const queue = relevantPendingCalls.map((call) => {
+        const metadata = (call.metadata as Record<string, unknown> | null) || {};
+        const waitTime = call.createdAt ? Math.round((Date.now() - new Date(call.createdAt).getTime()) / 1000) : 0;
+
+        return {
+          id: String(call.id),
+          customer: call.callerNumber,
+          language: call.callerLanguage || "auto",
+          waitTime,
+          priority: waitTime >= 120 ? "vip" as const : waitTime >= 60 ? "high" as const : "normal" as const,
+          type: metadata.direction === "outbound" ? "outbound" as const : "inbound" as const,
+        };
+      });
 
       res.json({ success: true, queue });
     } catch (err) {
@@ -947,54 +1125,152 @@ export function registerB2BRoutes(app: Express): void {
     }
   });
 
-  // Real translation route health — checks which services are actually reachable
-  app.get("/api/b2b/translation-routes", requireAuth, async (req, res) => {
+  app.post("/api/b2b/outbound-call", requireAuth, requireApprovedCompany, async (req, res) => {
     try {
-      const routes = [];
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ success: false, message: "No company associated" });
+      }
 
-      // Check Azure (primary)
-      const azureKey = process.env.AZURE_SPEECH_KEY;
-      routes.push({
-        id: "azure",
-        name: "Azure Cognitive Services",
-        sourceLanguage: "Multi",
-        targetLanguage: "Multi",
-        status: azureKey ? "active" : "offline",
-        latency: azureKey ? 130 : 0,
+      const parsed = b2bOutboundCallSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.errors[0]?.message || "Invalid request" });
+      }
+
+      const input = parsed.data;
+      let actingUser = req.user;
+
+      if (input.agentUserId && input.agentUserId !== req.user.id) {
+        const delegatedUser = await storage.getUser(input.agentUserId);
+        if (!delegatedUser || delegatedUser.organizationId !== req.user.organizationId) {
+          return res.status(404).json({ success: false, message: "Selected agent not found in your company" });
+        }
+        actingUser = { ...req.user, ...delegatedUser } as any;
+      }
+
+      const result = await callService.initiateCall({
+        callerId: String(actingUser.id),
+        callerUsername: actingUser.username,
+        callerDisplayName: actingUser.username || actingUser.email || `Agent ${actingUser.id}`,
+        callerNumber: (actingUser as any).phone || "",
+        calleeIdentifier: input.calleeIdentifier,
+        callerLanguage: input.myLanguage,
+        calleeLanguage: input.theirLanguage,
+        callerTranslationMode: input.translationMode,
+        calleeTranslationMode: input.transportPreference === "app_to_app" ? "subtitles" : "voice",
+        callType: input.callType,
+        enableLipsync: input.enableLipsync,
+        enableRecording: input.enableRecording,
+        transportPreference: input.transportPreference,
+        organizationIdOverride: req.user.organizationId,
       });
 
-      // Check ElevenLabs TTS
-      const elevenLabsKey = process.env.ELEVEN_LABS_API_KEY || process.env.ELEVENLABS_API_KEY;
-      routes.push({
-        id: "elevenlabs",
-        name: "ElevenLabs TTS",
-        sourceLanguage: "Text",
-        targetLanguage: "Audio",
-        status: elevenLabsKey ? "active" : "offline",
-        latency: elevenLabsKey ? 900 : 0,
+      res.json({
+        success: true,
+        message: "B2B outbound call initiated",
+        call: result,
       });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to start B2B outbound call", err as Error);
+      res.status(500).json({ success: false, message: (err as Error)?.message || "Failed to start call" });
+    }
+  });
 
+  app.post("/api/b2b/call-queue/:id/assign", requireAuth, requireApprovedCompany, async (req, res) => {
+    try {
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ success: false, message: "No company associated" });
+      }
+
+      const queueId = Number.parseInt(req.params.id, 10);
+      const agentUserId = Number.parseInt(String(req.body?.agentUserId || ""), 10);
+      if (!Number.isFinite(queueId) || !Number.isFinite(agentUserId)) {
+        return res.status(400).json({ success: false, message: "Queue item and agent are required" });
+      }
+
+      const [call] = await db.select().from(bridgedCalls).where(eq(bridgedCalls.id, queueId));
+      if (!call) {
+        return res.status(404).json({ success: false, message: "Queue item not found" });
+      }
+
+      const agent = await storage.getUser(agentUserId);
+      if (!agent || agent.organizationId !== req.user.organizationId) {
+        return res.status(404).json({ success: false, message: "Agent not found in this company" });
+      }
+
+      await db.update(bridgedCalls)
+        .set({
+          receiverUserId: agent.id,
+          receiverNumber: agent.phone || agent.email || agent.username,
+          status: "ringing",
+          metadata: {
+            ...(call.metadata as Record<string, unknown> || {}),
+            assignedAgentUserId: agent.id,
+            assignedByUserId: req.user.id,
+            assignedAt: new Date().toISOString(),
+          },
+        })
+        .where(eq(bridgedCalls.id, queueId));
+
+      res.json({ success: true, message: "Queue item assigned to agent" });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to assign queue item", err as Error);
+      res.status(500).json({ success: false, message: "Failed to assign queue item" });
+    }
+  });
+
+  app.post("/api/b2b/call-queue/:id/auto-route", requireAuth, requireApprovedCompany, async (req, res) => {
+    try {
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ success: false, message: "No company associated" });
+      }
+
+      const queueId = Number.parseInt(req.params.id, 10);
+      if (!Number.isFinite(queueId)) {
+        return res.status(400).json({ success: false, message: "Invalid queue item" });
+      }
+
+      const [call] = await db.select().from(bridgedCalls).where(eq(bridgedCalls.id, queueId));
+      if (!call) {
+        return res.status(404).json({ success: false, message: "Queue item not found" });
+      }
+
+      const requiredSkills = [call.callerLanguage || "auto"].filter((value) => value && value !== "auto");
+      const agentUserId = await routeToSkillAgent(req.user.organizationId, requiredSkills);
+      if (!agentUserId) {
+        return res.status(409).json({ success: false, message: "No available agent matched the call language" });
+      }
+
+      const agent = await storage.getUser(Number(agentUserId));
+      if (!agent) {
+        return res.status(404).json({ success: false, message: "Matched agent not found" });
+      }
+
+      await db.update(bridgedCalls)
+        .set({
+          receiverUserId: agent.id,
+          receiverNumber: agent.phone || agent.email || agent.username,
+          status: "ringing",
+          metadata: {
+            ...(call.metadata as Record<string, unknown> || {}),
+            autoRoutedAgentUserId: agent.id,
+            autoRoutedAt: new Date().toISOString(),
+            autoRouteSkills: requiredSkills,
+          },
+        })
+        .where(eq(bridgedCalls.id, queueId));
+
+      res.json({ success: true, message: "Call auto-routed", agentUserId: agent.id });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to auto-route queue item", err as Error);
+      res.status(500).json({ success: false, message: "Failed to auto-route call" });
+    }
+  });
+
+  // Real translation route health — checks which services are actually reachable
+  app.get("/api/b2b/translation-routes", requireAuth, async (_req, res) => {
+    try {
       // Free translation (Lingva) — always available
-      routes.push({
-        id: "lingva",
-        name: "Lingva Translation (Free)",
-        sourceLanguage: "Multi",
-        targetLanguage: "Multi",
-        status: "active",
-        latency: 2500,
-      });
-
-      // WebRTC gateway
-      routes.push({
-        id: "webrtc",
-        name: "WebRTC P2P Gateway",
-        sourceLanguage: "Audio",
-        targetLanguage: "Audio",
-        status: "active",
-        latency: 50,
-      });
-
-      res.json({ success: true, routes });
+      res.json({ success: true, ...buildTranslationRouteSnapshot() });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to fetch routes", err as Error);
       res.status(500).json({ success: false, message: "Failed" });

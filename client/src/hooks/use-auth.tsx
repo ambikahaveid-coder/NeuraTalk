@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type User, type Organization, USER_ROLES } from "@shared/schema";
+import { normalizePhoneNumber } from "@shared/phone";
 import { useLocation } from "wouter";
 
 export type UserWithOrg = User & {
@@ -57,6 +58,10 @@ export function getAuthToken(): string | null {
   return getStoredAuth().token;
 }
 
+function normalizeIdentifier(identifier: string, channel: "email" | "mobile"): string {
+  return channel === "mobile" ? normalizePhoneNumber(identifier) : identifier.trim();
+}
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -92,10 +97,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const requestOtpMutation = useMutation({
     mutationFn: async ({ identifier, channel }: { identifier: string; channel: "email" | "mobile" }) => {
+      const normalizedIdentifier = normalizeIdentifier(identifier, channel);
       const res = await fetch("/api/auth/otp/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, channel }),
+        body: JSON.stringify({ identifier: normalizedIdentifier, channel }),
       });
       
       if (!res.ok) {
@@ -109,10 +115,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyOtpMutation = useMutation({
     mutationFn: async ({ identifier, channel, code, firebaseToken }: { identifier: string; channel: "email" | "mobile"; code: string; firebaseToken?: string }) => {
+      const normalizedIdentifier = normalizeIdentifier(identifier, channel);
       const res = await fetch("/api/auth/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, channel, code, firebaseToken }),
+        body: JSON.stringify({ identifier: normalizedIdentifier, channel, code, firebaseToken }),
       });
       
       if (!res.ok) {
@@ -144,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: data.companyName,
         email: data.contactEmail,
         adminName: data.contactName,
-        phone: data.contactPhone,
+        phone: data.contactPhone ? normalizePhoneNumber(data.contactPhone) : undefined,
         industry: data.industry,
         website: data.website,
       };

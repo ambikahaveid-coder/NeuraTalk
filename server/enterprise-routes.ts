@@ -10,6 +10,45 @@ import {
 } from "./modules/calls/service";
 
 export function registerEnterpriseRoutes(app: Express): void {
+  app.get("/api/enterprise/settings", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
+    res.json({
+      readOnly: true,
+      message: "Enterprise settings are visible for operational awareness only in this environment.",
+      capabilities: {
+        canEditBranding: false,
+        canEditSecurity: false,
+        canEditNotifications: false,
+        canInviteMembersFromEnterpriseDashboard: false,
+        canExportAnalyticsFromEnterpriseDashboard: false,
+      },
+      lastUpdatedAt: null,
+      lastUpdatedBy: null,
+    });
+  });
+
+  const notWiredResponse = (res: Response, feature: string) =>
+    res.status(501).json({
+      success: false,
+      code: "NOT_WIRED",
+      message: `${feature} is not wired in this environment. Use the supported admin workflow instead.`,
+    });
+
+  app.put("/api/enterprise/settings", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
+    notWiredResponse(res, "Enterprise settings editing");
+  });
+
+  app.patch("/api/enterprise/settings", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
+    notWiredResponse(res, "Enterprise settings editing");
+  });
+
+  app.post("/api/enterprise/team/invite", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
+    notWiredResponse(res, "Enterprise dashboard team invite");
+  });
+
+  app.get("/api/enterprise/analytics/export", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
+    notWiredResponse(res, "Enterprise analytics export");
+  });
+
   
   app.get("/api/enterprise/analytics", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {

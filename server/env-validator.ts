@@ -92,6 +92,8 @@ export async function validateEnvironment() {
   const warnings: string[] = [];
 
   const isProduction = (process.env.NODE_ENV || "").toLowerCase() === "production";
+  const redisUrl = process.env.REDIS_URL || "";
+  const usesInMemoryRedis = redisUrl.startsWith("memory://");
 
   // Check required vars
   for (const key of REQUIRED_VARS) {
@@ -105,8 +107,7 @@ export async function validateEnvironment() {
 
   // ── Production hard blockers — prevent accidentally going live with broken state
   if (isProduction) {
-    const redisUrl = process.env.REDIS_URL || "";
-    if (redisUrl.startsWith("memory://")) {
+    if (usesInMemoryRedis) {
       errors.push("REDIS_URL=memory://... is a dev shim. Production requires a real Redis (Upstash/ElastiCache) with rediss:// TLS.");
     }
 
@@ -143,6 +144,10 @@ export async function validateEnvironment() {
         }
       }
     }
+  }
+
+  if (usesInMemoryRedis && !isProduction) {
+    warnings.push("REDIS_URL=memory://... local in-memory Redis shim active. Use a real Redis only for staging/production.");
   }
 
   // Check important vars

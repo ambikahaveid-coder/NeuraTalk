@@ -424,7 +424,11 @@ export async function loadUser(
       return;
     }
 
-    const authHeader = req.headers.authorization;
+    // Support ?auth= query param for SSE connections (EventSource can't set headers)
+    const queryAuth = typeof req.query?.auth === "string" ? req.query.auth : null;
+    const authHeader = queryAuth
+      ? `Bearer ${queryAuth}`
+      : req.headers.authorization;
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       next();
       return;

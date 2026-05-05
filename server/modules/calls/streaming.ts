@@ -12,6 +12,7 @@ import {
   preWarmCacheForCall,
   recordPipelineLatency,
 } from "../../ultra-pipeline";
+import { getOpenAIKey } from "../../openai-config";
 
 /**
  * Production-ready retry helper for critical AI and network calls.
@@ -1072,7 +1073,7 @@ async function quickTranslate(
   try {
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+      apiKey: getOpenAIKey() || "placeholder",
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
     });
     

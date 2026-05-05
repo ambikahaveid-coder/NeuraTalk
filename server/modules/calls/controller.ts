@@ -4,6 +4,7 @@
  */
 
 import type { Request, Response } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -60,9 +61,57 @@ const initiateSchema = z.object({
   callType: z.enum(["voice", "video"]),
   myLanguage: z.string().min(2).max(16).optional().default("auto"),
   theirLanguage: z.string().min(2).max(16).optional().default("auto"),
+  translationEnabled: z.boolean().optional(),
+  translationMode: z.enum(["off", "subtitles", "voice"]).optional().default("subtitles"),
   enableLipsync: z.boolean().optional(),
   enableRecording: z.boolean().optional(),
 });
+
+function mapMsg91StatusToSmartState(providerStatus: string): typeof SMART_CALL_STATE[keyof typeof SMART_CALL_STATE] | null {
+  const status = String(providerStatus || "").trim().toLowerCase();
+  if (!status) return null;
+
+  if (status.includes("answer") || status.includes("connect")) {
+    return SMART_CALL_STATE.ANSWERED;
+  }
+  if (status.includes("ring") || status.includes("queue")) {
+    return SMART_CALL_STATE.RINGING;
+  }
+  if (status.includes("busy")) {
+    return SMART_CALL_STATE.BUSY;
+  }
+  if (status.includes("no-answer") || status.includes("no answer") || status.includes("miss")) {
+    return SMART_CALL_STATE.MISSED;
+  }
+  if (status.includes("cancel") || status.includes("reject")) {
+    return SMART_CALL_STATE.CANCELLED;
+  }
+  if (status.includes("fail") || status.includes("unreachable") || status.includes("balance")) {
+    return SMART_CALL_STATE.FAILED;
+  }
+  if (status.includes("complete") || status.includes("end")) {
+    return SMART_CALL_STATE.ENDED;
+  }
+
+  return null;
+}
+
+function shouldIgnoreProviderTransition(
+  currentStatus: string | undefined,
+  nextStatus: typeof SMART_CALL_STATE[keyof typeof SMART_CALL_STATE],
+): boolean {
+  const current = normalizeSmartCallState(currentStatus);
+  if (!current) return false;
+  if (current === nextStatus) return true;
+  if (isTerminalSmartCallState(current)) return true;
+  if (current === SMART_CALL_STATE.ACTIVE && (nextStatus === SMART_CALL_STATE.ANSWERED || nextStatus === SMART_CALL_STATE.RINGING)) {
+    return true;
+  }
+  if (current === SMART_CALL_STATE.ANSWERED && nextStatus === SMART_CALL_STATE.RINGING) {
+    return true;
+  }
+  return false;
+}
 
 function hasPermission(user: AuthenticatedUser | undefined, permission: string): boolean {
   if (!user) {
@@ -282,6 +331,8 @@ export async function initiate(req: Request, res: Response) {
       calleeIdentifier: parsed.data.calleeIdentifier,
       callerLanguage: parsed.data.myLanguage,
       calleeLanguage: parsed.data.theirLanguage,
+      translationEnabled: parsed.data.translationEnabled,
+      callerTranslationMode: parsed.data.translationEnabled === false ? "off" : parsed.data.translationMode,
       callType: parsed.data.callType,
       enableLipsync: parsed.data.enableLipsync,
       enableRecording: parsed.data.enableRecording,
@@ -467,9 +518,9 @@ export async function statusUpdate(req: Request, res: Response) {
   }
 }
 
-export function reject(req: Request, res: Response) {
+export async function reject(req: Request, res: Response) {
   try {
-    svc.removeIncomingCall(String(req.user!.id), req.params.id);
+    await svc.removeIncomingCall(String(req.user!.id), req.params.id);
     if (svc.isSmartCallId(req.params.id)) {
       void svc.updateSmartCallStatus(req.params.id, CALL_STATUS.MISSED, {
         rejectedByUserId: req.user!.id,
@@ -481,13 +532,107 @@ export function reject(req: Request, res: Response) {
   }
 }
 
-export function incoming(req: Request, res: Response) {
-  const next = svc.popIncomingCall(String(req.user!.id));
+export async function incoming(req: Request, res: Response) {
+  const next = await svc.popIncomingCall(String(req.user!.id));
   res.json({ incoming: next });
 }
 
-export async function msg91Webhook(req: Request, res: Response) {
-  logger.info("MSG91Webhook", `call=${req.params.id}`, req.body);
+// SSE endpoint — client keeps this connection open, server pushes instantly when call arrives
+// Falls back to polling gracefully if SSE disconnects
+export async function incomingStream(req: Request, res: Response) {
+  const userId = String(req.user!.id);
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering
+  res.flushHeaders();
+
+  // Send any already-queued call immediately on connect
+  const pending = await svc.popIncomingCall(userId).catch(() => null);
+  if (pending) {
+    res.write(`data: ${JSON.stringify({ incoming: pending })}\n\n`);
+  } else {
+    res.write(`: connected\n\n`); // comment keeps connection alive
+  }
+
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(`: heartbeat\n\n`);
+  }, 25_000);
+
+  const onIncoming = (entry: unknown) => {
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ incoming: entry })}\n\n`);
+    }
+  };
+
+  svc.incomingCallBus.on(`incoming:${userId}`, onIncoming);
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    svc.incomingCallBus.off(`incoming:${userId}`, onIncoming);
+  };
+
+  req.on("close", cleanup);
+  req.on("error", cleanup);
+}
+
+function verifyMsg91WebhookSignature(req: Request): boolean {
+  const secret = process.env.MSG91_WEBHOOK_SECRET;
+  if (!secret) {
+    return (process.env.NODE_ENV || "").toLowerCase() !== "production";
+  }
+
+  const signature = req.headers["x-msg91-signature"] as string | undefined
+    ?? req.headers["x-webhook-signature"] as string | undefined;
+
+  if (!signature) {
+    logger.warn("MSG91Webhook", "Webhook received without signature header — rejected");
+    return false;
+  }
+
+  try {
+    const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const expected = createHmac("sha256", secret).update(body).digest("hex");
+    // Constant-time comparison to prevent timing attacks
+    const sigBuffer = Buffer.from(signature.replace(/^sha256=/, ""), "hex");
+    const expBuffer = Buffer.from(expected, "hex");
+    if (sigBuffer.length !== expBuffer.length) return false;
+    return timingSafeEqual(sigBuffer, expBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function resolveMsg91WebhookCallId(req: Request): string | null {
+  const candidates = [
+    req.params.id,
+    req.body?.metadata?.internalCallId,
+    req.body?.internalCallId,
+    req.body?.callId,
+    req.body?.call_id,
+    req.query?.callId,
+    req.query?.call_id,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const value = candidate.trim();
+    if (value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+async function handleMsg91Webhook(req: Request, res: Response, explicitCallId?: string | null) {
+  if (!verifyMsg91WebhookSignature(req)) {
+    return res.status(401).json({ error: "Invalid webhook signature" });
+  }
+
+  const callId = explicitCallId || resolveMsg91WebhookCallId(req);
+  logger.info("MSG91Webhook", `call=${callId || "unknown"}`, req.body);
 
   const providerStatus = String(
     req.body?.status
@@ -497,44 +642,54 @@ export async function msg91Webhook(req: Request, res: Response) {
       ?? "",
   ).toLowerCase();
 
-  const mappedStatus =
-    providerStatus.includes("answer") || providerStatus.includes("connect")
-      ? SMART_CALL_STATE.ANSWERED
-      : providerStatus.includes("ring")
-        ? SMART_CALL_STATE.RINGING
-        : providerStatus.includes("busy")
-          ? SMART_CALL_STATE.BUSY
-          : providerStatus.includes("fail") || providerStatus.includes("cancel") || providerStatus.includes("reject")
-            ? SMART_CALL_STATE.FAILED
-            : providerStatus.includes("complete") || providerStatus.includes("end")
-              ? SMART_CALL_STATE.ENDED
-              : null;
+  const mappedStatus = mapMsg91StatusToSmartState(providerStatus);
 
-  if (mappedStatus && svc.isSmartCallId(req.params.id)) {
+  if (mappedStatus && callId && svc.isSmartCallId(callId)) {
     try {
+      const current = await svc.getSmartCall(callId);
+      if (!current || shouldIgnoreProviderTransition(current.status, mappedStatus)) {
+        return res.json({ received: true, ignored: true });
+      }
+
+      const providerMetadata = {
+        providerStatus,
+        providerUuid: req.body?.uuid ?? null,
+        providerDirection: req.body?.direction ?? null,
+        providerFailureReason: req.body?.failureReason ?? null,
+        providerDurationSeconds: req.body?.duration ?? null,
+        webhookPayload: req.body,
+      };
+
       if (mappedStatus === SMART_CALL_STATE.ANSWERED) {
-        await svc.updateSmartCallStatus(req.params.id, SMART_CALL_STATE.ANSWERED, {
-          providerStatus,
-          webhookPayload: req.body,
+        await svc.updateSmartCallStatus(callId, SMART_CALL_STATE.ANSWERED, {
+          ...providerMetadata,
         });
-        await svc.updateSmartCallStatus(req.params.id, SMART_CALL_STATE.ACTIVE, {
-          providerStatus,
-          webhookPayload: req.body,
-        });
+        if (normalizeSmartCallState(current.status) !== SMART_CALL_STATE.ACTIVE) {
+          await svc.updateSmartCallStatus(callId, SMART_CALL_STATE.ACTIVE, {
+            ...providerMetadata,
+          });
+        }
       } else if (isTerminalSmartCallState(mappedStatus)) {
-        await svc.endCallById(req.params.id, mappedStatus);
+        await svc.endCallById(callId, mappedStatus);
       } else {
-        await svc.updateSmartCallStatus(req.params.id, mappedStatus, {
-          providerStatus,
-          webhookPayload: req.body,
+        await svc.updateSmartCallStatus(callId, mappedStatus, {
+          ...providerMetadata,
         });
       }
     } catch (error) {
-      logger.warn("MSG91Webhook", `state sync ignored for ${req.params.id}: ${String(error)}`);
+      logger.warn("MSG91Webhook", `state sync ignored for ${callId}: ${String(error)}`);
     }
   }
 
   res.json({ received: true });
+}
+
+export async function msg91Webhook(req: Request, res: Response) {
+  return handleMsg91Webhook(req, res, req.params.id);
+}
+
+export async function msg91VoiceWebhook(req: Request, res: Response) {
+  return handleMsg91Webhook(req, res, null);
 }
 
 // === CONSENT & PRIVACY ===
@@ -700,6 +855,46 @@ export async function activeCalls(req: Request, res: Response) {
   } catch (error) {
     console.error("Error getting active calls:", error);
     res.status(500).json({ error: "Failed to get active calls" });
+  }
+}
+
+// GET /api/calls/history?limit=N — recent calls for the currently logged-in user
+export async function callHistory(req: Request, res: Response) {
+  try {
+    const user = req.user!;
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const smartCalls = await svc.listSmartCallsForUser(String(user.id));
+    const sorted = smartCalls
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+
+    const calls = sorted.map(c => ({
+      callId: c.callId,
+      callType: c.callType,
+      status: c.status,
+      joinMethod: c.joinMethod,
+      callerId: c.callerId,
+      calleeIdentifier: c.calleeIdentifier,
+      callerLanguage: c.callerLanguage,
+      calleeLanguage: c.calleeLanguage ?? null,
+      durationSeconds: c.connectedAt && c.endedAt
+        ? Math.round((new Date(c.endedAt).getTime() - new Date(c.connectedAt).getTime()) / 1000)
+        : null,
+      costInr: c.estimatedRateInrPerMin > 0
+        ? Number(((c.estimatedRateInrPerMin / 60) * (
+            c.connectedAt && c.endedAt
+              ? (new Date(c.endedAt).getTime() - new Date(c.connectedAt).getTime()) / 1000
+              : 0
+          )).toFixed(2))
+        : 0,
+      createdAt: c.createdAt,
+      endedAt: c.endedAt ?? null,
+    }));
+
+    res.json({ calls });
+  } catch (error) {
+    logger.error("CallController", `callHistory failed: ${String(error)}`);
+    res.status(500).json({ error: "Failed to get call history" });
   }
 }
 
@@ -1710,4 +1905,100 @@ export async function resume(req: Request, res: Response) {
 
 export function callMetrics(_req: Request, res: Response) {
   res.json(getMetricsSnapshot());
+}
+
+// === CALL TRANSFER ===
+
+const transferSchema = z.object({
+  targetIdentifier: z.string().min(1),  // phone, userId, or email of transfer target
+  mode: z.enum(["blind", "attended"]).default("blind"),
+  reason: z.string().optional(),
+});
+
+export async function transferCall(req: Request, res: Response) {
+  try {
+    const callId = req.params.id;
+    const user = req.user!;
+    const parsed = transferSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.message });
+    }
+
+    const { targetIdentifier, mode, reason } = parsed.data;
+
+    // Only the caller or a company admin may transfer
+    const record = await svc.getSmartCall(callId);
+    if (!record) return res.status(404).json({ error: "Call not found" });
+
+    const userId = String(user.id);
+    const isParticipant = record.callerId === userId || record.calleeUserId === userId;
+    const isAdmin = (user as any).role === "super_admin"
+      || (user as any).role === "company_admin"
+      || (user as any).role === "org_admin";
+    if (!isParticipant && !isAdmin) {
+      return res.status(403).json({ error: "Not a participant in this call" });
+    }
+
+    if (!(await svc.isActiveSmartCall(callId))) {
+      return res.status(409).json({ error: "Call is not active" });
+    }
+
+    // Resolve target
+    const { resolveCalleeForTransfer } = await import("./smart-router");
+    const target = await resolveCalleeForTransfer(targetIdentifier);
+
+    if (!target.userId && !target.phoneNumber) {
+      return res.status(404).json({ error: "Transfer target not found" });
+    }
+
+    if (mode === "blind") {
+      if (target.userId) {
+        // Ring the transfer target as a new incoming call on the same room
+        const newCallResult = await svc.initiateCall({
+          callerId: record.callerId,
+          callerNumber: record.callerNumber ?? "",
+          callerDisplayName: `Transfer from call ${callId}`,
+          calleeIdentifier: target.userId,
+          callType: record.callType,
+          transportPreference: "app_to_app",
+          sessionIdOverride: `call_xfer_${callId}`,
+        });
+
+        await svc.updateSmartCallStatus(callId, "ended" as any, {
+          transferredTo: target.userId,
+          transferMode: mode,
+          transferReason: reason,
+        });
+
+        logger.info("CallController", "Blind transfer initiated", {
+          callId,
+          from: userId,
+          to: targetIdentifier,
+          newCallId: newCallResult.callId,
+        });
+
+        return res.json({
+          success: true,
+          originalCallId: callId,
+          newCallId: newCallResult.callId,
+          mode,
+          target: { userId: target.userId },
+        });
+      }
+
+      return res.status(400).json({ error: "Blind transfer to PSTN not yet supported" });
+    }
+
+    // Attended transfer — add target as participant, caller bridges intro
+    return res.json({
+      success: true,
+      callId,
+      mode,
+      message: "Attended transfer: connect target using /api/calls/:id/participants",
+      target: { userId: target.userId, phoneNumber: target.phoneNumber },
+    });
+  } catch (error) {
+    logger.error("CallController", `Transfer failed: ${String(error)}`);
+    res.status(500).json({ error: "Transfer failed" });
+  }
 }

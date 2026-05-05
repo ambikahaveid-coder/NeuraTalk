@@ -8,7 +8,8 @@
     "build": "tsx script/build.ts",
     "start": "cross-env NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "qa:smoke": "tsc -p tsconfig.smoke.json && node tests/smoke/prepare-runtime.cjs && node .tmp/smoke/tests/smoke/run.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

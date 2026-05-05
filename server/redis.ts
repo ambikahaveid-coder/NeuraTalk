@@ -1,4 +1,5 @@
 import Redis from "ioredis";
+import RedisMock from "ioredis-mock";
 import "./load-env";
 import { logger } from "./observability";
 
@@ -10,9 +11,45 @@ function isInMemoryUrl(url: string): boolean {
   return url.startsWith("memory://") || url === "mock" || url === "inmemory";
 }
 
-async function createInMemoryRedis(): Promise<Redis> {
-  const mod = await import("ioredis-mock");
-  const RedisMock = (mod as any).default || mod;
+function allowRedisFallback(): boolean {
+  const mode = (process.env.NODE_ENV || "").toLowerCase();
+  const explicit = (process.env.ALLOW_DEGRADED_STARTUP || "").toLowerCase();
+  return explicit === "true" || mode !== "production";
+}
+
+function shouldPreferInMemoryRedis(): boolean {
+  if (!allowRedisFallback()) {
+    return false;
+  }
+
+  const explicitRemote = (process.env.USE_REMOTE_REDIS || "").toLowerCase();
+  if (explicitRemote === "true") {
+    return false;
+  }
+
+  const rawUrl = (process.env.REDIS_URL || "").trim();
+  if (!rawUrl) {
+    return true;
+  }
+
+  if (isInMemoryUrl(rawUrl)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const host = (parsed.hostname || "").toLowerCase();
+    return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+  } catch {
+    return false;
+  }
+}
+
+if (shouldPreferInMemoryRedis()) {
+  process.env.REDIS_URL = "memory://local-dev";
+}
+
+function createInMemoryRedis(): Redis {
   const client = new RedisMock() as unknown as Redis;
   logger.warn("Redis", "Using in-memory Redis shim (ioredis-mock) — DO NOT use in production");
   return client;
@@ -45,7 +82,20 @@ function bindLifecycle(client: Redis) {
 }
 
 export function getRedisClient(): Redis {
+  if (shouldPreferInMemoryRedis()) {
+    if (!redisClient) {
+      redisClient = createInMemoryRedis();
+      lifecycleBound = false;
+      bindLifecycle(redisClient);
+    }
+
+    return redisClient;
+  }
+
   if (!process.env.REDIS_URL) {
+    if (allowRedisFallback()) {
+      throw new Error("REDIS_URL must be initialized via assertRedisReady() first");
+    }
     throw new Error("REDIS_URL must be set");
   }
 
@@ -69,9 +119,29 @@ export function getRedisClient(): Redis {
 export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
   const start = Date.now();
 
+  if (shouldPreferInMemoryRedis()) {
+    if (!redisClient) {
+      redisClient = createInMemoryRedis();
+      lifecycleBound = false;
+      bindLifecycle(redisClient);
+    }
+    await redisClient.ping();
+    logger.warn("Redis", `Using in-memory Redis shim for local startup in ${Date.now() - start}ms`);
+    return;
+  }
+
+  if (!process.env.REDIS_URL && allowRedisFallback()) {
+    if (!redisClient) {
+      redisClient = createInMemoryRedis();
+    }
+    await redisClient.ping();
+    logger.warn("Redis", `REDIS_URL missing; using in-memory Redis shim in ${Date.now() - start}ms`);
+    return;
+  }
+
   if (process.env.REDIS_URL && isInMemoryUrl(process.env.REDIS_URL)) {
     if (!redisClient) {
-      redisClient = await createInMemoryRedis();
+      redisClient = createInMemoryRedis();
     }
     await redisClient.ping();
     logger.info("Redis", `In-memory Redis ready in ${Date.now() - start}ms`);
@@ -80,23 +150,45 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
 
   const client = getRedisClient();
 
-  if (client.status !== "ready") {
+  try {
+    if (client.status !== "ready") {
+      await Promise.race([
+        client.connect(),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Redis connection timed out")), timeoutMs);
+        }),
+      ]);
+    }
+
     await Promise.race([
-      client.connect(),
+      client.ping(),
       new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Redis connection timed out")), timeoutMs);
+        setTimeout(() => reject(new Error("Redis ping timed out")), timeoutMs);
       }),
     ]);
+
+    logger.info("Redis", `Redis readiness check passed in ${Date.now() - start}ms`);
+  } catch (error) {
+    if (!allowRedisFallback()) {
+      throw error;
+    }
+
+    logger.warn(
+      "Redis",
+      `Redis unavailable in local/degraded mode; falling back to in-memory shim: ${error instanceof Error ? error.message : String(error)}`,
+    );
+
+    try {
+      client.disconnect();
+    } catch {
+      // ignore cleanup failures while swapping to in-memory mode
+    }
+
+    redisClient = createInMemoryRedis();
+    lifecycleBound = false;
+    bindLifecycle(redisClient);
+    await redisClient.ping();
   }
-
-  await Promise.race([
-    client.ping(),
-    new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Redis ping timed out")), timeoutMs);
-    }),
-  ]);
-
-  logger.info("Redis", `Redis readiness check passed in ${Date.now() - start}ms`);
 }
 
 export async function closeRedisClient(): Promise<void> {

@@ -571,6 +571,7 @@ export function SystemHealthSection() {
     { name: "TTS (Voice)", status: "offline", detail: "Requires GPU or OpenAI key" },
     { name: "Firebase Auth", status: configKeyMap.get("FIREBASE_SERVICE_ACCOUNT_JSON") ? "online" : "offline", detail: configKeyMap.get("FIREBASE_SERVICE_ACCOUNT_JSON") ? "Configured" : "Not configured" },
     { name: "Razorpay Payments", status: configKeyMap.get("RAZORPAY_KEY_ID") ? "online" : "offline", detail: configKeyMap.get("RAZORPAY_KEY_ID") ? "Configured" : "Not configured" },
+    { name: "MSG91 Callbacks", status: configKeyMap.get("APP_BASE_URL") ? "online" : "offline", detail: configKeyMap.get("APP_BASE_URL") ? "Public callback base configured" : "APP_BASE_URL missing" },
   ];
 
   const statusColor = (s: string) => s === "online" ? "bg-green-500" : s === "degraded" ? "bg-amber-500" : "bg-red-500";
@@ -616,7 +617,9 @@ export function SystemHealthSection() {
             {[
               { key: "DATABASE_URL", label: "Database (Neon)", required: true },
               { key: "OPENAI_API_KEY", label: "OpenAI (Translation/STT/TTS)", required: true },
-              { key: "MSG91_AUTH_KEY", label: "MSG91 (SMS/OTP)", required: false },
+              { key: "MSG91_AUTH_KEY", label: "MSG91 Auth", required: false },
+              { key: "APP_BASE_URL", label: "Public Callback Base URL", required: false },
+              { key: "MSG91_OTP_TEMPLATE_ID", label: "MSG91 OTP Template", required: false },
               { key: "LIVEKIT_URL", label: "LiveKit (WebRTC)", required: true },
               { key: "RAZORPAY_KEY_ID", label: "Razorpay (Payments)", required: false },
               { key: "FIREBASE_SERVICE_ACCOUNT_JSON", label: "Firebase", required: false },

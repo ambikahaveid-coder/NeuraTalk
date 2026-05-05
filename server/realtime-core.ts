@@ -23,6 +23,16 @@ import { randomUUID } from "crypto";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
 import { recordStageLatency } from "./modules/calls/metrics";
 import { logger } from "./observability";
+import { buildTranscriptSignalEvent } from "./translation/stt-service";
+import {
+  buildTranslationFailedEvent,
+  buildTranslationReadyEvent,
+  resolveListenerTranslationMode,
+  shouldDeliverVoiceTranslation,
+  shouldTranslateForListener,
+  type ListenerTranslationMode,
+} from "./translation/translation-service";
+import { buildTtsFailedEvent, buildTtsReadyEvent } from "./translation/tts-service";
 import {
   registerParticipantTranscript,
   resolveDirectionalLanguages,
@@ -49,6 +59,7 @@ export interface RealtimeSpeaker {
   id: string;
   name?: string;
   preferredLanguage: string; // "auto" | ISO code
+  translationMode?: ListenerTranslationMode;
 }
 
 export type RealtimeMessageType =
@@ -93,6 +104,7 @@ const DEFAULT_SILENCE_RESET_FRAMES = 6;
 const DEFAULT_PARTIAL_MIN_WORDS = 1;
 const DEFAULT_RESTART_MIN_CHAR_DELTA = 4;
 const DEFAULT_TARGET_LATENCY_MS = 800;
+const DEFAULT_TTS_READY_TIMEOUT_MS = 3_000;
 
 // ─── Internal Types ───────────────────────────────────────────────────────
 
@@ -117,6 +129,7 @@ interface SpeakerPipeline {
   identity: string;
   name: string;
   preferredLanguage: string;
+  translationMode: ListenerTranslationMode;
   effectiveLanguage: string;
   detectedLanguage: string | null;
   deepgram: DeepgramLiveTranscriber | null;
@@ -189,6 +202,7 @@ export class RealtimeTranslationCore {
     const existing = this.speakerPipelines.get(speaker.id);
     if (existing) {
       existing.preferredLanguage = preferredLanguage;
+      existing.translationMode = resolveListenerTranslationMode(speaker.translationMode);
       if (preferredLanguage !== "auto") {
         existing.effectiveLanguage = preferredLanguage;
         await this.reconnectDeepgram(existing, preferredLanguage);
@@ -202,6 +216,7 @@ export class RealtimeTranslationCore {
       identity: speaker.id,
       name: speaker.name || speaker.id,
       preferredLanguage,
+      translationMode: resolveListenerTranslationMode(speaker.translationMode),
       effectiveLanguage: initialLanguage,
       detectedLanguage: null,
       deepgram: null,
@@ -354,14 +369,14 @@ export class RealtimeTranslationCore {
 
     void this.transport.emitData(null, {
       type: "transcript",
-      payload: {
+      payload: buildTranscriptSignalEvent({
         sourceIdentity: pipeline.identity,
         text,
         isFinal: event.isFinal,
         speechFinal: Boolean(event.speechFinal),
         sourceLanguage: pipeline.effectiveLanguage,
         turnId: pipeline.turnId,
-      },
+      }),
     });
 
     if (!event.isFinal) {
@@ -433,6 +448,7 @@ export class RealtimeTranslationCore {
         sourceLanguage,
         targetLanguage: target.language,
         targetIdentity: target.identity,
+        targetMode: target.mode,
         generation,
         isFinal,
       });
@@ -481,11 +497,13 @@ export class RealtimeTranslationCore {
   private async listTargetsForSpeaker(
     sourceIdentity: string,
     sourceLanguage: string,
-  ): Promise<Array<{ identity: string; language: string }>> {
-    const targets: Array<{ identity: string; language: string }> = [];
+  ): Promise<Array<{ identity: string; language: string; mode: ListenerTranslationMode }>> {
+    const targets: Array<{ identity: string; language: string; mode: ListenerTranslationMode }> = [];
 
     for (const [listenerId, listenerPipeline] of Array.from(this.speakerPipelines.entries())) {
       if (listenerId === sourceIdentity) continue;
+      const mode = resolveListenerTranslationMode(listenerPipeline.translationMode);
+      if (!shouldTranslateForListener(mode)) continue;
 
       const preferred = listenerPipeline.preferredLanguage;
       const resolved = await resolveDirectionalLanguages(this.callId, sourceIdentity, listenerId, {
@@ -499,7 +517,7 @@ export class RealtimeTranslationCore {
 
       if (!resolved.translationActive) continue;
 
-      targets.push({ identity: listenerId, language: resolved.targetLanguage });
+      targets.push({ identity: listenerId, language: resolved.targetLanguage, mode });
     }
 
     return targets;
@@ -543,6 +561,7 @@ export class RealtimeTranslationCore {
     sourceLanguage: string;
     targetLanguage: string;
     targetIdentity: string;
+    targetMode: ListenerTranslationMode;
     generation: number;
     isFinal: boolean;
   }): Promise<void> {
@@ -593,7 +612,7 @@ export class RealtimeTranslationCore {
 
             void this.transport.emitData(opts.targetIdentity, {
               type: "translation",
-              payload: {
+              payload: buildTranslationReadyEvent({
                 sourceIdentity: opts.pipeline.identity,
                 sourceLanguage: opts.sourceLanguage,
                 targetIdentity: opts.targetIdentity,
@@ -601,7 +620,8 @@ export class RealtimeTranslationCore {
                 original: opts.transcript,
                 translated,
                 partial: true,
-              },
+                mode: opts.targetMode,
+              }),
             });
           },
           onSegment: (segment, fullTranslatedText) => {
@@ -611,7 +631,9 @@ export class RealtimeTranslationCore {
               opts.channel.lastRenderedTranslation = translated;
               if (opts.pipeline.turn) opts.pipeline.turn.translatedText = translated;
             }
-            this.enqueueTtsSegment(opts.channel, segment, opts.generation, opts.pipeline, opts.targetLanguage);
+            if (shouldDeliverVoiceTranslation(opts.targetMode)) {
+              this.enqueueTtsSegment(opts.channel, segment, opts.generation, opts.pipeline, opts.targetLanguage, opts.targetMode);
+            }
           },
           onFinal: (translatedText) => {
             if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
@@ -623,7 +645,7 @@ export class RealtimeTranslationCore {
 
             void this.transport.emitData(opts.targetIdentity, {
               type: "translation",
-              payload: {
+              payload: buildTranslationReadyEvent({
                 sourceIdentity: opts.pipeline.identity,
                 sourceLanguage: opts.sourceLanguage,
                 targetIdentity: opts.targetIdentity,
@@ -631,7 +653,8 @@ export class RealtimeTranslationCore {
                 original: opts.transcript,
                 translated,
                 partial: false,
-              },
+                mode: opts.targetMode,
+              }),
             });
           },
         },
@@ -655,12 +678,13 @@ export class RealtimeTranslationCore {
       );
       await this.transport.emitData(opts.targetIdentity, {
         type: "translation-fallback",
-        payload: {
+        payload: buildTranslationFailedEvent({
           sourceIdentity: opts.pipeline.identity,
           targetIdentity: opts.targetIdentity,
           original: opts.transcript,
           reason: message,
-        },
+          mode: opts.targetMode,
+        }),
       });
     } finally {
       if (translationAbort && opts.channel.translationAbort === translationAbort) {
@@ -675,9 +699,10 @@ export class RealtimeTranslationCore {
     generation: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
+    targetMode: ListenerTranslationMode,
   ): void {
     channel.ttsChain = channel.ttsChain
-      .then(() => this.streamTtsSegment(channel, text, generation, pipeline, targetLanguage))
+      .then(() => this.streamTtsSegment(channel, text, generation, pipeline, targetLanguage, targetMode))
       .catch((error) => {
         logger.warn("RealtimeCore", `[${this.callId}] TTS chain failed for ${channel.key}: ${String(error)}`);
       });
@@ -689,6 +714,7 @@ export class RealtimeTranslationCore {
     generation: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
+    targetMode: ListenerTranslationMode,
   ): Promise<void> {
     if (this.closed || generation !== channel.currentGeneration) return;
 
@@ -699,6 +725,25 @@ export class RealtimeTranslationCore {
 
     channel.ttsAbort = new AbortController();
     channel.speaking = true;
+    let firstByteObserved = false;
+    let timeoutFallbackTriggered = false;
+    const ttsReadyTimer = setTimeout(() => {
+      if (firstByteObserved || timeoutFallbackTriggered || this.closed || generation !== channel.currentGeneration) {
+        return;
+      }
+      timeoutFallbackTriggered = true;
+      channel.ttsAbort?.abort();
+      void this.transport.emitData(channel.targetIdentity, {
+        type: "translation-fallback",
+        payload: buildTtsFailedEvent({
+          sourceIdentity: channel.sourceIdentity,
+          targetIdentity: channel.targetIdentity,
+          translatedText: text,
+          reason: `TTS readiness exceeded ${DEFAULT_TTS_READY_TIMEOUT_MS}ms`,
+          translationMode: targetMode,
+        }),
+      });
+    }, DEFAULT_TTS_READY_TIMEOUT_MS);
 
     try {
       for await (const frame of streamAzureTtsFrames(
@@ -707,6 +752,7 @@ export class RealtimeTranslationCore {
         channel.ttsAbort.signal,
         {
           onFirstByte: () => {
+            firstByteObserved = true;
             const firstAudioAt = Date.now();
             if (pipeline.turn && !pipeline.turn.ttsLogged && pipeline.turn.ttsStartedAt) {
               pipeline.turn.ttsLogged = true;
@@ -731,6 +777,20 @@ export class RealtimeTranslationCore {
                   perceivedLatencyMs: diffMs(pipeline.turn.speechStartedAt, pipeline.turn.firstAudioAt),
                 },
               });
+              void this.transport.emitData(channel.targetIdentity, {
+                type: "translation",
+                payload: buildTtsReadyEvent({
+                  sourceIdentity: channel.sourceIdentity,
+                  targetIdentity: channel.targetIdentity,
+                  sourceLanguage: pipeline.effectiveLanguage,
+                  targetLanguage,
+                  translatedText: text,
+                  latencyMs: diffMs(pipeline.turn.speechStartedAt, pipeline.turn.firstAudioAt) ?? undefined,
+                  deliveryMode: "remote_only",
+                  replaceOriginalVoice: true,
+                  translationMode: targetMode,
+                }),
+              });
             }
           },
           emotion: pipeline.latestEmotion,
@@ -746,15 +806,17 @@ export class RealtimeTranslationCore {
         logger.warn("RealtimeCore", `[${this.callId}] Azure TTS failed for ${channel.key}: ${message}`);
         await this.transport.emitData(channel.targetIdentity, {
           type: "translation-fallback",
-          payload: {
+          payload: buildTtsFailedEvent({
             sourceIdentity: channel.sourceIdentity,
             targetIdentity: channel.targetIdentity,
             translatedText: text,
             reason: message,
-          },
+            translationMode: targetMode,
+          }),
         });
       }
     } finally {
+      clearTimeout(ttsReadyTimer);
       channel.speaking = false;
       if (pipeline.turn) pipeline.turn.finalAudioAt = Date.now();
     }

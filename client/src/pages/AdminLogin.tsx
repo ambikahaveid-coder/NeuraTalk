@@ -6,9 +6,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Shield, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { countries, DEFAULT_COUNTRY_CODE, sanitizePhoneInput, validatePhoneNumber } from "@shared/countries";
+import { normalizePhoneForCountry } from "@shared/phone";
 
 export default function AdminLogin() {
   const [step, setStep] = useState<"identifier" | "otp">("identifier");
+  const [phoneCountryCode, setPhoneCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [identifier, setIdentifier] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const { requestOtp, verifyOtp, isRequestingOtp, isVerifyingOtp } = useAuth();
@@ -18,7 +28,16 @@ export default function AdminLogin() {
   const handleRequestOtp = async () => {
     try {
       const channel = identifier.includes("@") ? "email" : "mobile";
-      await requestOtp({ identifier, channel });
+      if (channel === "mobile") {
+        const validation = validatePhoneNumber(identifier, phoneCountryCode);
+        if (!validation.valid) {
+          toast({ title: "Invalid phone number", description: validation.message, variant: "destructive" });
+          return;
+        }
+      }
+      const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
+      await requestOtp({ identifier: normalizedIdentifier, channel });
+      setIdentifier(normalizedIdentifier);
       toast({ title: "Code Sent", description: "Check your email or phone" });
       setStep("otp");
     } catch {
@@ -29,7 +48,8 @@ export default function AdminLogin() {
   const handleVerifyOtp = async () => {
     try {
       const channel = identifier.includes("@") ? "email" : "mobile";
-      const result = await verifyOtp({ identifier, channel, code: otpCode });
+      const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
+      const result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode });
       
       if (result.success && result.user?.role === "super_admin") {
         toast({ title: "Welcome", description: "Admin access granted" });
@@ -59,14 +79,41 @@ export default function AdminLogin() {
           {step === "identifier" ? (
             <>
               <div className="space-y-2">
+                {!identifier.includes("@") && (
+                  <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+                    <SelectTrigger data-testid="select-admin-country">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {countries.map((country) => (
+                        <SelectItem key={country.code} value={country.code}>
+                          {country.name} ({country.dialCode})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Input
                   data-testid="input-admin-identifier"
                   type="text"
-                  placeholder="Email or Phone"
+                  placeholder={!identifier.includes("@") ? "Phone number or admin@company.com" : "admin@company.com"}
                   value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    if (nextValue.includes("@")) {
+                      setIdentifier(nextValue);
+                      return;
+                    }
+                    const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
+                    setIdentifier(sanitizePhoneInput(nextValue, selectedCountry?.phoneLength || 15));
+                  }}
                   onKeyDown={(e) => e.key === "Enter" && handleRequestOtp()}
                 />
+                {!identifier.includes("@") && (
+                  <p className="text-xs text-muted-foreground">
+                    The selected country code is applied automatically for admin OTP.
+                  </p>
+                )}
               </div>
               <Button 
                 data-testid="button-admin-continue"

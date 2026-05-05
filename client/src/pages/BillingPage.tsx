@@ -9,8 +9,9 @@ import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, LogOut, ArrowLeft, Check, Loader2, CreditCard,
-  Clock, Zap, Star, Receipt
+  Clock, Zap, Star, Receipt, AlertTriangle, RefreshCw
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 interface BillingPlan {
@@ -248,6 +249,16 @@ export default function BillingPage() {
   const usageSummary = dashboard?.data?.usageSummary;
   const recentInvoices = dashboard?.data?.recentInvoices || [];
 
+  const totalMinutes = currentSubscription?.plan?.includedMinutes ?? 0;
+  const remainingMinutes = currentSubscription?.remainingMinutes ?? 0;
+  const usedMinutes = Math.max(0, totalMinutes - remainingMinutes);
+  const minutesPct = totalMinutes > 0 ? Math.round((usedMinutes / totalMinutes) * 100) : 0;
+  const daysLeft = currentSubscription
+    ? Math.max(0, Math.ceil((new Date(currentSubscription.endDate).getTime() - Date.now()) / 86_400_000))
+    : 0;
+  const isExpiringSoon = daysLeft > 0 && daysLeft <= 5;
+  const isLowMinutes = totalMinutes > 0 && remainingMinutes / totalMinutes < 0.15;
+
   const isLoading = dashboardLoading || plansLoading;
 
   return (
@@ -294,37 +305,82 @@ export default function BillingPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
               >
-                <Card className="border-primary/20 bg-primary/5">
-                  <CardHeader>
+                <Card className={`border-2 ${isExpiringSoon || isLowMinutes ? "border-amber-400/60 bg-amber-50/5" : "border-primary/20 bg-primary/5"}`}>
+                  <CardHeader className="pb-2">
                     <CardTitle className="flex items-center gap-2">
                       <Star className="w-5 h-5 text-primary" />
                       Current Plan
+                      {(isExpiringSoon || isLowMinutes) && (
+                        <Badge className="bg-amber-100 text-amber-700 border-amber-300 gap-1 ml-auto">
+                          <AlertTriangle className="w-3 h-3" />
+                          {isLowMinutes ? "Low minutes" : `Expires in ${daysLeft}d`}
+                        </Badge>
+                      )}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap items-center justify-between gap-4">
+                  <CardContent className="space-y-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
                       <div>
                         <h3 className="text-xl font-bold">{currentSubscription.planName}</h3>
                         <p className="text-sm text-muted-foreground">
-                          Valid until {formatDate(currentSubscription.endDate)}
+                          Valid until {formatDate(currentSubscription.endDate)} · {daysLeft} day{daysLeft !== 1 ? "s" : ""} left
                         </p>
                         {currentSubscription.plan?.ratePerSecondFormatted ? (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Effective usage rate: {currentSubscription.plan.ratePerSecondFormatted}
+                            Rate: {currentSubscription.plan.ratePerSecondFormatted}
                           </p>
                         ) : null}
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-bold text-primary">
-                          {currentSubscription.remainingMinutes}
+                        <p className={`text-2xl font-bold ${isLowMinutes ? "text-amber-500" : "text-primary"}`}>
+                          {remainingMinutes}
                         </p>
-                        <p className="text-sm text-muted-foreground">Minutes remaining</p>
+                        <p className="text-sm text-muted-foreground">of {totalMinutes} minutes</p>
                       </div>
                     </div>
+
+                    {/* Minutes progress bar */}
+                    {totalMinutes > 0 && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{usedMinutes} used</span>
+                          <span>{minutesPct}%</span>
+                        </div>
+                        <Progress
+                          value={minutesPct}
+                          className={`h-2 ${minutesPct >= 85 ? "[&>div]:bg-amber-500" : "[&>div]:bg-primary"}`}
+                        />
+                      </div>
+                    )}
+
+                    {/* Quick renew button when low */}
+                    {(isExpiringSoon || isLowMinutes) && availablePlans.length > 0 && (
+                      <div className="flex items-center gap-2 text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 rounded-lg px-3 py-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                        <span className="flex-1 text-amber-700 dark:text-amber-300">
+                          {isLowMinutes ? "Minutes running low — renew before calls fail." : `Subscription expiring in ${daysLeft} days.`}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-400 text-amber-700 hover:bg-amber-100 gap-1 shrink-0"
+                          onClick={() => {
+                            const samePlan = availablePlans.find(p => p.id === currentSubscription.planId);
+                            const plan = samePlan ?? availablePlans[0];
+                            setSelectedPlan(plan);
+                            setShowConfirmDialog(true);
+                          }}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Renew
+                        </Button>
+                      </div>
+                    )}
+
                     {usageSummary && (
-                      <div className="mt-4 pt-4 border-t border-border/50">
-                        <p className="text-sm text-muted-foreground">
-                          Used {usageSummary.totalMinutes} minutes in the last 30 days
+                      <div className="pt-2 border-t border-border/40">
+                        <p className="text-xs text-muted-foreground">
+                          Used {usageSummary.totalMinutes} translation-minutes in the last 30 days
                         </p>
                       </div>
                     )}

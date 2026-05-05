@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { TranslationEntry, Emotion, EMOTION_COLORS, LANGUAGES } from '../types';
+import { TranslationEntry, Emotion, EMOTION_COLORS, CallState } from '../types';
+import { getLanguageName } from '../config/languages';
+import { glass, premiumTheme } from '../theme/premium';
 
 interface TranslationSubtitlesProps {
   entries: TranslationEntry[];
@@ -8,11 +10,38 @@ interface TranslationSubtitlesProps {
   myLanguage: string;
   theirLanguage: string;
   isListening?: boolean;
+  translationStatus?: CallState['translationStatus'];
+  translationWarning?: string;
+  translationLatencyMs?: number;
+  translationConfidence?: number;
 }
 
-const getLanguageName = (code: string): string => {
-  const lang = LANGUAGES.find(l => l.code === code);
-  return lang?.name || code;
+const statusTitle = (status?: CallState['translationStatus']): string => {
+  switch (status) {
+    case 'listening':
+      return 'Listening...';
+    case 'translating':
+      return 'Translating...';
+    case 'unavailable':
+      return 'Translation unavailable';
+    case 'disabled':
+      return 'Translation paused';
+    default:
+      return 'Live Translation';
+  }
+};
+
+const placeholderText = (status?: CallState['translationStatus']): string => {
+  switch (status) {
+    case 'unavailable':
+      return 'Translation is unavailable right now. Audio call continues normally.';
+    case 'disabled':
+      return 'Translation is paused for this language pair.';
+    case 'translating':
+      return 'Translating the latest stable phrase...';
+    default:
+      return 'Waiting for a clear phrase...';
+  }
 };
 
 export function TranslationSubtitles({
@@ -21,6 +50,10 @@ export function TranslationSubtitles({
   myLanguage,
   theirLanguage,
   isListening = false,
+  translationStatus = 'idle',
+  translationWarning,
+  translationLatencyMs,
+  translationConfidence,
 }: TranslationSubtitlesProps) {
   const recentEntries = entries.slice(-5);
   const emotionColor = currentEmotion ? EMOTION_COLORS[currentEmotion] : undefined;
@@ -29,27 +62,38 @@ export function TranslationSubtitles({
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Live Translation</Text>
+          <Text style={styles.headerTitle}>{statusTitle(translationStatus)}</Text>
           {isListening && <View style={styles.listeningDot} />}
         </View>
-        {currentEmotion && (
+        {currentEmotion ? (
           <View style={[styles.emotionBadge, { backgroundColor: `${emotionColor}33` }]}>
             <Text style={[styles.emotionText, { color: emotionColor }]}>
               {currentEmotion}
             </Text>
           </View>
-        )}
+        ) : null}
       </View>
 
       <View style={styles.languageRow}>
         <Text style={styles.languageText}>You: {getLanguageName(myLanguage)}</Text>
-        <Text style={styles.arrow}>→</Text>
+        <Text style={styles.arrow}>to</Text>
         <Text style={styles.languageText}>Them: {getLanguageName(theirLanguage)}</Text>
       </View>
 
+      {translationWarning ? (
+        <Text style={styles.warningText}>{translationWarning}</Text>
+      ) : null}
+
+      {(translationLatencyMs || translationConfidence != null) ? (
+        <Text style={styles.metaText}>
+          {translationLatencyMs ? `Latency ${translationLatencyMs}ms` : 'Latency n/a'}
+          {translationConfidence != null ? `  |  Confidence ${Math.round(translationConfidence * 100)}%` : ''}
+        </Text>
+      ) : null}
+
       <ScrollView style={styles.entriesList} showsVerticalScrollIndicator={false}>
         {recentEntries.length === 0 ? (
-          <Text style={styles.placeholder}>Waiting for speech...</Text>
+          <Text style={styles.placeholder}>{placeholderText(translationStatus)}</Text>
         ) : (
           recentEntries.map((entry) => (
             <View
@@ -64,7 +108,14 @@ export function TranslationSubtitles({
               </Text>
               <Text style={styles.originalText}>{entry.originalText}</Text>
               <Text style={styles.translatedText}>{entry.translatedText}</Text>
-              {entry.emotion && (
+              {(entry.latencyMs || entry.confidence != null || entry.mixedLanguage) ? (
+                <Text style={styles.entryMeta}>
+                  {entry.latencyMs ? `${entry.latencyMs}ms` : 'n/a'}
+                  {entry.confidence != null ? `  |  ${Math.round(entry.confidence * 100)}% confidence` : ''}
+                  {entry.mixedLanguage ? '  |  mixed language' : ''}
+                </Text>
+              ) : null}
+              {entry.emotion ? (
                 <View
                   style={[
                     styles.entryEmotion,
@@ -77,7 +128,7 @@ export function TranslationSubtitles({
                     {entry.emotion}
                   </Text>
                 </View>
-              )}
+              ) : null}
             </View>
           ))
         )}
@@ -88,8 +139,9 @@ export function TranslationSubtitles({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    borderRadius: 16,
+    ...glass,
+    backgroundColor: 'rgba(7, 14, 28, 0.68)',
+    borderRadius: 22,
     padding: 16,
   },
   header: {
@@ -104,7 +156,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerTitle: {
-    color: '#22d3ee',
+    color: premiumTheme.colors.cyan,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -130,18 +182,28 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   languageText: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: premiumTheme.colors.textMuted,
     fontSize: 12,
   },
   arrow: {
-    color: '#22d3ee',
+    color: premiumTheme.colors.cyan,
     fontSize: 12,
+  },
+  warningText: {
+    color: premiumTheme.colors.amber,
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  metaText: {
+    color: premiumTheme.colors.textSoft,
+    fontSize: 11,
+    marginBottom: 10,
   },
   entriesList: {
     maxHeight: 150,
   },
   placeholder: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: premiumTheme.colors.textSoft,
     textAlign: 'center',
     paddingVertical: 16,
   },
@@ -151,29 +213,34 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   entryMe: {
-    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    backgroundColor: 'rgba(79,123,255,0.22)',
     alignSelf: 'flex-end',
     maxWidth: '80%',
   },
   entryThem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignSelf: 'flex-start',
     maxWidth: '80%',
   },
   speakerLabel: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: premiumTheme.colors.textSoft,
     fontSize: 10,
     marginBottom: 4,
   },
   originalText: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: premiumTheme.colors.textMuted,
     fontSize: 12,
     marginBottom: 2,
   },
   translatedText: {
-    color: '#ffffff',
+    color: premiumTheme.colors.text,
     fontSize: 14,
     fontWeight: '500',
+  },
+  entryMeta: {
+    color: premiumTheme.colors.textSoft,
+    fontSize: 10,
+    marginTop: 4,
   },
   entryEmotion: {
     marginTop: 6,

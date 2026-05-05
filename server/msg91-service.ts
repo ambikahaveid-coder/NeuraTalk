@@ -5,7 +5,7 @@
  * Why MSG91 over Twilio:
  *   - ₹0.45/min vs Twilio's ₹3.82/min (87% cheaper for India)
  *   - Indian company (RBI data localization compliance)
- *   - No public URL required (works from RunPod pod directly)
+ *   - Simpler India-focused OTP and PSTN flows
  *   - DLT registration helpdesk included
  *
  * Env vars required:
@@ -20,6 +20,48 @@ function authKey(): string {
   const key = process.env.MSG91_AUTH_KEY;
   if (!key) throw new Error("MSG91_AUTH_KEY not configured");
   return key;
+}
+
+function normalizePhoneNumber(value: string | undefined | null): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = raw.startsWith("+")
+    ? `+${raw.slice(1).replace(/\D/g, "")}`
+    : raw.replace(/\D/g, "");
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) {
+    return null;
+  }
+  return normalized.startsWith("+") ? normalized : `+${digits}`;
+}
+
+function isIndianNumber(value: string | null): boolean {
+  if (!value) return false;
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 10 || digits.startsWith("91");
+}
+
+function resolveCallerId(to: string, requestedFrom: string): string {
+  const normalizedTo = normalizePhoneNumber(to);
+  const normalizedRequestedFrom = normalizePhoneNumber(requestedFrom);
+  const configuredCallerId = normalizePhoneNumber(process.env.MSG91_VOICE_CALLER_ID);
+
+  if (isIndianNumber(normalizedTo)) {
+    if (configuredCallerId) {
+      return configuredCallerId;
+    }
+    throw new Error("MSG91_VOICE_CALLER_ID must be configured for India PSTN calls");
+  }
+
+  if (normalizedRequestedFrom) {
+    return normalizedRequestedFrom;
+  }
+
+  if (configuredCallerId) {
+    return configuredCallerId;
+  }
+
+  throw new Error("No valid outbound caller ID is configured for MSG91");
 }
 
 export interface OutboundCallOptions {
@@ -46,6 +88,12 @@ export interface MSG91CallResult {
  * The callee's phone rings with `from` as Caller ID.
  */
 export async function initiateOutboundCall(opts: OutboundCallOptions): Promise<MSG91CallResult> {
+  const to = normalizePhoneNumber(opts.to);
+  if (!to) {
+    throw new Error("MSG91 outbound call failed: invalid destination number");
+  }
+  const from = resolveCallerId(to, opts.from);
+
   const response = await fetch(`${MSG91_BASE}/v5/voice/call/outbound`, {
     method: "POST",
     headers: {
@@ -53,8 +101,8 @@ export async function initiateOutboundCall(opts: OutboundCallOptions): Promise<M
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      to: opts.to,
-      from: opts.from,
+      to,
+      from,
       callback_url: opts.callbackUrl,
       fallback_message: opts.fallbackMessage,
       metadata: opts.metadata,

@@ -105,7 +105,7 @@ export function isFirebaseAdminConfigured(): boolean {
 
 export async function sendVoIPPush(
   userId: string,
-  payload: { callId: string; callerId: string; callType: string },
+  payload: { callId: string; callerId: string; callType: string; callerName?: string },
 ): Promise<{ sent: number; failed: number }> {
   if (!firebaseAdminApp) {
     logger.warn("FirebaseAdmin", "Skipping call push - Firebase Admin not initialized", {
@@ -160,31 +160,44 @@ export async function sendVoIPPush(
       callId: payload.callId,
       callerId: payload.callerId,
       callType: payload.callType,
+      callerName: payload.callerName || payload.callerId,
     },
     android: {
       priority: "high",
       ttl: 30000,
+      notification: {
+        title: `📲 Incoming ${payload.callType} call`,
+        body: `${payload.callerName || payload.callerId} is calling`,
+        sound: "default",
+        channelId: "incoming_calls",
+      },
     },
     apns: {
       headers: {
         "apns-priority": "10",
-        "apns-push-type": "alert",
+        "apns-push-type": "voip",
       },
       payload: {
         aps: {
           sound: "default",
           contentAvailable: true,
+          alert: {
+            title: `📲 Incoming ${payload.callType} call`,
+            body: `${payload.callerName || payload.callerId} is calling`,
+          },
         },
       },
     },
+    // Web: data-only so Service Worker fully controls notification display
+    // (allows Answer/Reject action buttons)
     webpush: {
-      headers: {
-        Urgency: "high",
-      },
-      notification: {
-        title: "Incoming NeuraTalk call",
-        body: `Incoming ${payload.callType} call`,
-        tag: payload.callId,
+      headers: { Urgency: "high" },
+      data: {
+        type: "incoming_call",
+        callId: payload.callId,
+        callerId: payload.callerId,
+        callerName: payload.callerName || payload.callerId,
+        callType: payload.callType,
       },
     },
   });

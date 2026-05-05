@@ -26,6 +26,7 @@ import {
   type StrictBillingPlanConfig,
   type StrictBillingType,
 } from "./billing-config";
+import { calculateBillableSecondsForBudget, calculateChargeIncrement } from "@shared/billing-math";
 import { logger } from "./observability";
 import { getRedisClient, withRedisLock } from "./redis";
 
@@ -279,9 +280,11 @@ function getMaxDurationSeconds(runtime: CallRuntimeState): number {
     + Math.max(0, runtime.walletBalancePaise - runtime.lockedBalancePaise)
     + runtime.reservedAvailablePaise;
   const postpaidBudgetPaise = runtime.billingType === "prepaid" ? 0 : getRemainingPostpaidCapacity(runtime);
-  const billableSeconds = Math.floor(
-    ((prepaidBudgetPaise + postpaidBudgetPaise) * 60) / runtime.estimatedRatePerMinutePaise,
-  );
+  const billableSeconds = calculateBillableSecondsForBudget({
+    budgetPaise: prepaidBudgetPaise + postpaidBudgetPaise,
+    ratePerMinutePaise: runtime.estimatedRatePerMinutePaise,
+    perSecondBilling: runtime.config.perSecondBilling,
+  });
 
   return Math.max(0, runtime.freeSecondsRemaining + billableSeconds);
 }
@@ -302,16 +305,23 @@ function incrementFeatureSeconds(runtime: CallRuntimeState, seconds: number) {
   }
 }
 
-function billFeature(counter: FeatureCounter, ratePerMinutePaise: number, seconds: number): number {
-  if (ratePerMinutePaise <= 0 || seconds <= 0) {
-    return 0;
-  }
-
-  counter.remainder += ratePerMinutePaise * seconds;
-  const wholePaise = Math.floor(counter.remainder / 60);
-  counter.remainder -= wholePaise * 60;
-  counter.paise += wholePaise;
-  return wholePaise;
+function billFeature(
+  counter: FeatureCounter,
+  ratePerMinutePaise: number,
+  seconds: number,
+  elapsedPaidSeconds: number,
+  perSecondBilling: boolean,
+): number {
+  const { deltaPaise, nextRemainder } = calculateChargeIncrement({
+    elapsedPaidSeconds,
+    ratePerMinutePaise,
+    billedRemainder: counter.remainder,
+    perSecondBilling,
+    seconds,
+  });
+  counter.remainder = nextRemainder;
+  counter.paise += deltaPaise;
+  return deltaPaise;
 }
 
 async function getGlobalBillingDefaults(): Promise<Partial<StrictBillingPlanConfig>> {
@@ -627,26 +637,35 @@ async function applySecond(runtime: CallRuntimeState) {
     return;
   }
 
+  const elapsedPaidSeconds = Math.max(0, runtime.durationSeconds - runtime.includedFreeSecondsUsed);
   let deltaCostPaise = 0;
   deltaCostPaise += billFeature(
     runtime.features.voice,
     runtime.callType === "voice" ? runtime.config.rates.voicePerMinutePaise : 0,
     1,
+    elapsedPaidSeconds,
+    runtime.config.perSecondBilling,
   );
   deltaCostPaise += billFeature(
     runtime.features.video,
     runtime.callType === "video" ? runtime.config.rates.videoPerMinutePaise : 0,
     1,
+    elapsedPaidSeconds,
+    runtime.config.perSecondBilling,
   );
   deltaCostPaise += billFeature(
     runtime.features.translation,
     runtime.translationEnabled ? runtime.config.rates.translationPerMinutePaise : 0,
     1,
+    elapsedPaidSeconds,
+    runtime.config.perSecondBilling,
   );
   deltaCostPaise += billFeature(
     runtime.features.recording,
     runtime.recordingEnabled ? runtime.config.rates.recordingPerMinutePaise : 0,
     1,
+    elapsedPaidSeconds,
+    runtime.config.perSecondBilling,
   );
 
   if (deltaCostPaise <= 0) {

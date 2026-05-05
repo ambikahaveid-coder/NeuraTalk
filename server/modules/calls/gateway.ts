@@ -140,9 +140,9 @@ interface TelecomProvider {
 }
 
 const providerRegistry: TelecomProvider[] = [
-  { id: "msg91", priority: 1, isHealthy: true, latency: 999 },
-  { id: "twilio", priority: 2, isHealthy: true, latency: 999 },
-  { id: "local-sip", priority: 3, isHealthy: true, latency: 999 },
+  { id: "msg91", priority: 1, isHealthy: false, latency: 999 },
+  { id: "twilio", priority: 2, isHealthy: false, latency: 999 },
+  { id: "local-sip", priority: 3, isHealthy: false, latency: 999 },
 ];
 
 /**
@@ -162,10 +162,28 @@ async function getBestProvider(): Promise<string> {
   return healthyProviders[0].id;
 }
 
-async function checkProviderHeartbeat(_providerId: string): Promise<boolean> {
+function isProviderConfigured(providerId: string): boolean {
+  switch (providerId) {
+    case "msg91":
+      return Boolean(process.env.MSG91_AUTH_KEY?.trim());
+    case "twilio":
+      return Boolean(
+        process.env.ENABLE_LEGACY_TWILIO_BRIDGE === "true"
+        && process.env.TWILIO_ACCOUNT_SID?.trim()
+        && process.env.TWILIO_AUTH_TOKEN?.trim()
+        && process.env.TWILIO_PHONE_NUMBER?.trim(),
+      );
+    case "local-sip":
+      return Boolean(process.env.LIVEKIT_SIP_DOMAIN?.trim());
+    default:
+      return false;
+  }
+}
+
+async function checkProviderHeartbeat(providerId: string): Promise<boolean> {
   // TODO(infra): wire real provider ping (msg91/twilio/local-sip). For now
   // assume healthy — failover is still driven by actual send failures.
-  return true;
+  return isProviderConfigured(providerId);
 }
 
 setInterval(async () => {

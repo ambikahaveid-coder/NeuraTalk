@@ -121,18 +121,36 @@ async function staleWhileRevalidate(request) {
 }
 
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push received');
-  
-  let data = { title: 'NeuraTalk', body: 'New notification' };
-  
+  let data = { type: 'generic', title: 'NeuraTalk', body: 'New notification' };
+
   if (event.data) {
-    try {
-      data = event.data.json();
-    } catch (e) {
-      data.body = event.data.text();
-    }
+    try { data = { ...data, ...event.data.json() }; }
+    catch (e) { data.body = event.data.text(); }
   }
 
+  // Incoming call — show with Answer + Reject buttons
+  if (data.type === 'incoming_call') {
+    const callerName = data.callerName || data.callerId || 'Unknown';
+    const callType = data.callType === 'video' ? '📹 Video' : '📞 Voice';
+    const options = {
+      body: `${callType} call — tap to answer`,
+      icon: '/icons/icon-192x192.png',
+      badge: '/icons/icon-72x72.png',
+      vibrate: [200, 100, 200, 100, 200],
+      tag: `incoming-call-${data.callId}`,
+      renotify: true,
+      requireInteraction: true,          // stays on screen until user acts
+      data: { callId: data.callId, url: `/calls/c2c?incoming=1` },
+      actions: [
+        { action: 'answer', title: '✅ Answer' },
+        { action: 'reject', title: '❌ Reject' },
+      ],
+    };
+    event.waitUntil(self.registration.showNotification(`📲 ${callerName}`, options));
+    return;
+  }
+
+  // Generic notification
   const options = {
     body: data.body,
     icon: '/icons/icon-192x192.png',
@@ -141,34 +159,42 @@ self.addEventListener('push', (event) => {
     data: data.data || {},
     actions: data.actions || [
       { action: 'open', title: 'Open' },
-      { action: 'dismiss', title: 'Dismiss' }
-    ]
+      { action: 'dismiss', title: 'Dismiss' },
+    ],
   };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Notification clicked');
   event.notification.close();
+  const notifData = event.notification.data || {};
 
-  if (event.action === 'dismiss') return;
+  if (event.action === 'reject') {
+    // Tell the app to reject this call if it's running
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+        for (const client of clientList) {
+          client.postMessage({ type: 'REJECT_INCOMING_CALL', callId: notifData.callId });
+        }
+      })
+    );
+    return;
+  }
 
-  const urlToOpen = event.notification.data?.url || '/';
+  const urlToOpen = notifData.url || '/';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(clientList => {
-        for (const client of clientList) {
-          if (client.url.includes(self.location.origin) && 'focus' in client) {
-            client.navigate(urlToOpen);
-            return client.focus();
-          }
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      // If app is already open, focus it and navigate
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.postMessage({ type: 'INCOMING_CALL_ANSWER', callId: notifData.callId });
+          return client.navigate(urlToOpen).then(() => client.focus());
         }
-        return clients.openWindow(urlToOpen);
-      })
+      }
+      // App not open — open it
+      return clients.openWindow(urlToOpen);
+    })
   );
 });
 

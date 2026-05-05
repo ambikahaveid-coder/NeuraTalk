@@ -19,6 +19,7 @@ import { createHash, randomInt } from "crypto";
 import { logger } from "./observability";
 import { sendOTP as sendMsg91Otp } from "./msg91-service";
 import twilio from "twilio";
+import { normalizePhoneNumber } from "@shared/phone";
 
 const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN 
   ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
@@ -28,16 +29,6 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_T
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
-
-/**
- * WORLD-CLASS HELPER: Normalizes phone numbers to E.164 format
- * Automatically adds +91 if no country code is provided (Default for India)
- */
-function normalizePhoneNumber(phone: string): string {
-  const cleaned = phone.replace(/\D/g, "");
-  if (phone.startsWith("+")) return phone;
-  return cleaned.length === 10 ? `+91${cleaned}` : `+${cleaned}`;
-}
 
 const OTP_LENGTH = 6;
 const OTP_EXPIRY_MINUTES = 10;

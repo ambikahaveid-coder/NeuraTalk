@@ -1,8 +1,9 @@
 import OpenAI from "openai";
 import { cache } from "./cache";
+import { getOpenAIKey } from "./openai-config";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "placeholder",
+  apiKey: getOpenAIKey() || "placeholder",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 

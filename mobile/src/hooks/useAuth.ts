@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '../types';
 import { authApi, setAuthToken, initializeAuth } from '../services/api';
+import { normalizePhoneNumber } from '../utils/phone';
 
 interface AuthState {
   user: User | null;
@@ -52,12 +53,14 @@ export function useAuth() {
   };
 
   const requestOtp = useCallback(async (identifier: string, channel: 'email' | 'mobile') => {
-    const result = await authApi.requestOtp(identifier, channel);
+    const normalizedIdentifier = channel === 'mobile' ? normalizePhoneNumber(identifier) : identifier.trim();
+    const result = await authApi.requestOtp(normalizedIdentifier, channel);
     return result;
   }, []);
 
   const verifyOtp = useCallback(async (identifier: string, code: string, channel: 'email' | 'mobile') => {
-    const result = await authApi.verifyOtp(identifier, code, channel);
+    const normalizedIdentifier = channel === 'mobile' ? normalizePhoneNumber(identifier) : identifier.trim();
+    const result = await authApi.verifyOtp(normalizedIdentifier, code, channel);
     
     if (result.token) {
       await AsyncStorage.setItem('authToken', result.token);

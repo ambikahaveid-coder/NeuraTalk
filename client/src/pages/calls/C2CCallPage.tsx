@@ -42,6 +42,7 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
   const [myLanguage, setMyLanguage] = useState("auto");
   const [theirLanguage, setTheirLanguage] = useState("auto");
   const [translationEnabled, setTranslationEnabled] = useState(true);
+  const [translationMode, setTranslationMode] = useState<"off" | "subtitles" | "voice">("voice");
   const [emotionPreservation, setEmotionPreservation] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -64,10 +65,16 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
     if (call.error) toast({ title: "Call failed", description: call.error, variant: "destructive" });
   }, [call.error, toast]);
 
-  // When translation toggle or language changes mid-call, push to room metadata
+  // Mid-call language updates are propagated, but route/translation mode is chosen at call start.
   useEffect(() => {
     if (isActive) call.updateLanguage(myLanguage).catch(() => {});
   }, [myLanguage, isActive]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    const nextMode = translationEnabled ? translationMode : "off";
+    call.updateTranslationMode(nextMode).catch(() => {});
+  }, [translationEnabled, translationMode, isActive]);
 
   const startCallWith = async (identifier: string, contact?: Contact) => {
     if (!identifier) {
@@ -84,6 +91,9 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
         callType: isVideoMode ? "video" : "voice",
         myLanguage,
         theirLanguage,
+        translationEnabled,
+        translationMode: translationEnabled ? translationMode : "off",
+        enableLipsync: emotionPreservation,
       });
     } catch {
       // error toasted via effect
@@ -102,6 +112,17 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
   };
 
   const formatRate = (value: number) => (value < 1 ? value.toFixed(3) : value.toFixed(2));
+  const callerIdentityLabel = call.pricingPreview?.callerIdentityMode === "organization_caller_id"
+    ? "Business caller ID"
+    : call.pricingPreview?.callerIdentityMode === "user_verified_number"
+      ? "Verified number attempt"
+      : call.pricingPreview?.callerIdentityMode === "provider_caller_id"
+        ? "Provider caller ID"
+        : "App identity";
+  const identityDescription = call.pricingPreview?.joinMethod === "app_to_pstn"
+    ? call.pricingPreview?.callerIdentityDisclaimer || `${callerIdentityLabel} on PSTN. Exact personal-number display depends on provider/compliance.`
+    : "App-to-app calls use in-app identity, not carrier caller ID.";
+  const operationalWarnings = call.pricingPreview?.operationalWarnings || [];
 
   const filteredContacts = useMemo(
     () => contacts.filter(c =>
@@ -134,7 +155,7 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
               <Users className="w-4 h-4 text-blue-500" />
             </div>
-            <p className="text-xs text-muted-foreground">Connect with friends & family · Your number as caller ID</p>
+            <p className="text-xs text-muted-foreground">Connect with friends & family · Caller identity depends on route and verification</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">
@@ -150,6 +171,12 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
               <Badge variant="outline" className="gap-1">
                 <Sparkles className="w-3 h-3" />
                 ~Rs {formatRate(call.pricingPreview.estimatedRateInrPerSecond)}/sec
+              </Badge>
+            )}
+            {call.pricingPreview && (
+              <Badge variant="outline" className="gap-1">
+                <Users className="w-3 h-3" />
+                {callerIdentityLabel}
               </Badge>
             )}
           </div>
@@ -297,6 +324,31 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                     data-testid="switch-translation"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Translation Output</Label>
+                  <Select
+                    value={translationEnabled ? translationMode : "off"}
+                    onValueChange={(value: "off" | "subtitles" | "voice") => {
+                      if (value === "off") {
+                        setTranslationEnabled(false);
+                        setTranslationMode("subtitles");
+                        return;
+                      }
+                      setTranslationEnabled(true);
+                      setTranslationMode(value);
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-translation-mode"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="off">Original voice only</SelectItem>
+                      <SelectItem value="subtitles">Subtitles only</SelectItem>
+                      <SelectItem value="voice">Translated voice</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Voice mode suppresses original foreign-language audio only after translated voice is confirmed.
+                  </p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>I speak</Label>
@@ -328,6 +380,21 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                     data-testid="switch-emotion"
                   />
                 </div>
+                {call.pricingPreview && (
+                  <p className="text-xs text-muted-foreground">
+                    {identityDescription}
+                  </p>
+                )}
+                {operationalWarnings.length > 0 && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                    {operationalWarnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Translation and route selection are locked when the call starts. Change them before dialing for guaranteed behavior.
+                </p>
               </CardContent>
             </Card>
           </div>
