@@ -48,11 +48,14 @@ dev_error.log
 server_err.txt
 server_out.txt
 /tmp/
+.tmp/
 
 # Gradle home caches (local build tool cache, not source code)
 .gradle-home/
 mobile/android/.gradle-home/
 mobile/android/.gradle/
+mobile/node_modules/
+mobile/android/app/debug.keystore
 
 # Build outputs and local crash artifacts
 build/

@@ -1,0 +1,65 @@
+name: neuratalk
+region: blr
+services:
+  - name: web
+    github:
+      repo: liftmateapp/Neuratalk-
+      branch: neuratalk-clean-release
+      deploy_on_push: true
+    build_command: npm install && npm run build
+    run_command: npm start
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    http_port: 5000
+    health_check:
+      http_path: /api/health
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: PORT
+        value: "5000"
+        scope: RUN_TIME
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: LIVEKIT_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: LIVEKIT_API_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: LIVEKIT_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: FIREBASE_PROJECT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: FIREBASE_PRIVATE_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: FIREBASE_CLIENT_EMAIL
+        scope: RUN_TIME
+        type: SECRET
+      - key: OPENAI_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: STRIPE_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: STRIPE_WEBHOOK_SECRET
+        scope: RUN_TIME
+        type: SECRET
+      - key: MSG91_AUTH_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: MSG91_TEMPLATE_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: REDIS_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: SESSION_SECRET
+        scope: RUN_TIME
+        type: SECRET

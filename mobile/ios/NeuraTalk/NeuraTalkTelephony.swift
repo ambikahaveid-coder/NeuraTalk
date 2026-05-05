@@ -226,6 +226,34 @@ class NeuraTalkTelephony: RCTEventEmitter {
             reject("AUDIO_ROUTE_ERROR", error.localizedDescription, error)
         }
     }
+
+    @objc
+    func getCurrentAudioRoute(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        let currentOutputs = audioSession.currentRoute.outputs
+        let route: String
+
+        if currentOutputs.contains(where: { $0.portType == .bluetoothA2DP || $0.portType == .bluetoothHFP || $0.portType == .bluetoothLE }) {
+            route = "bluetooth"
+        } else if currentOutputs.contains(where: { $0.portType == .builtInSpeaker }) {
+            route = "speaker"
+        } else if currentOutputs.contains(where: { $0.portType == .headphones || $0.portType == .headsetMic }) {
+            route = "headset"
+        } else {
+            route = "earpiece"
+        }
+
+        resolve(route)
+    }
+
+    @objc
+    func getCapabilities(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {
+        resolve([
+            "supportsIncomingCallUi": true,
+            "supportsOutgoingCallUi": true,
+            "supportsAudioRouteControl": true,
+            "supportsBluetoothAudio": true,
+        ])
+    }
     
     @objc
     func isCallActive(_ resolve: @escaping RCTPromiseResolveBlock, reject: @escaping RCTPromiseRejectBlock) {

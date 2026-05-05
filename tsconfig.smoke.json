@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "tests/smoke/run.ts",
+    "shared/phone.ts",
+    "shared/countries.ts",
+    "shared/call-behavior.ts",
+    "shared/call-routing.ts",
+    "shared/billing-guard.ts",
+    "shared/billing-math.ts",
+    "shared/auth-runtime.ts"
+  ],
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./.tmp/smoke",
+    "rootDir": ".",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "allowImportingTsExtensions": false,
+    "incremental": false,
+    "tsBuildInfoFile": "./.tmp/smoke.tsbuildinfo"
+  }
+}

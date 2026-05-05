@@ -2399,3 +2399,62 @@ export const insertUserContactSchema = createInsertSchema(userContacts).omit({
 
 export type UserContact = typeof userContacts.$inferSelect;
 export type InsertUserContact = z.infer<typeof insertUserContactSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// AGENT SKILLS — B2B skill-based routing
+// ═══════════════════════════════════════════════════════════════════════
+
+export const agentSkills = pgTable("agent_skills", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  skills: jsonb("skills").notNull().default([]),           // string[] e.g. ["en", "te", "hi", "sales", "support"]
+  maxConcurrentCalls: integer("max_concurrent_calls").notNull().default(3),
+  isAvailable: boolean("is_available").notNull().default(true),
+  priority: integer("priority").notNull().default(1),      // higher = preferred
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("agent_skills_org_idx").on(table.organizationId),
+  index("agent_skills_user_idx").on(table.userId),
+  index("agent_skills_available_idx").on(table.isAvailable),
+]);
+
+export const insertAgentSkillSchema = createInsertSchema(agentSkills).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AgentSkill = typeof agentSkills.$inferSelect;
+export type InsertAgentSkill = z.infer<typeof insertAgentSkillSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// ORG DID NUMBERS — per-org outbound caller ID + inbound routing
+// ═══════════════════════════════════════════════════════════════════════
+
+export const orgDIDNumbers = pgTable("org_did_numbers", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  phoneNumber: text("phone_number").notNull(),             // E.164 e.g. +911800XXXXXX
+  label: text("label"),                                    // e.g. "Sales", "Support"
+  type: text("type").notNull().default("inbound"),         // inbound, outbound, both
+  provider: text("provider").notNull().default("msg91"),
+  isActive: boolean("is_active").notNull().default(true),
+  ivrEnabled: boolean("ivr_enabled").notNull().default(false),
+  ivrConfig: jsonb("ivr_config").default({}),              // { greeting, menuOptions: [{digit, action, targetSkill}] }
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("org_did_numbers_org_idx").on(table.organizationId),
+  index("org_did_numbers_phone_idx").on(table.phoneNumber),
+]);
+
+export const insertOrgDIDNumberSchema = createInsertSchema(orgDIDNumbers).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type OrgDIDNumber = typeof orgDIDNumbers.$inferSelect;
+export type InsertOrgDIDNumber = z.infer<typeof insertOrgDIDNumberSchema>;

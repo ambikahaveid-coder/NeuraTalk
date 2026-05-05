@@ -255,6 +255,36 @@ public class NeuraTalkTelephonyModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void getCurrentAudioRoute(Promise promise) {
+        try {
+            String route = "earpiece";
+            if (audioManager.isBluetoothScoOn()) {
+                route = "bluetooth";
+            } else if (audioManager.isSpeakerphoneOn()) {
+                route = "speaker";
+            }
+
+            promise.resolve(route);
+        } catch (Exception e) {
+            promise.reject("AUDIO_ROUTE_STATE_ERROR", "Failed to determine audio route", e);
+        }
+    }
+
+    @ReactMethod
+    public void getCapabilities(Promise promise) {
+        try {
+            WritableMap result = Arguments.createMap();
+            result.putBoolean("supportsIncomingCallUi", false);
+            result.putBoolean("supportsOutgoingCallUi", telecomManager != null);
+            result.putBoolean("supportsAudioRouteControl", audioManager != null);
+            result.putBoolean("supportsBluetoothAudio", audioManager != null);
+            promise.resolve(result);
+        } catch (Exception e) {
+            promise.reject("CAPABILITIES_ERROR", "Failed to get telephony capabilities", e);
+        }
+    }
+
+    @ReactMethod
     public void isCallActive(Promise promise) {
         try {
             boolean hasActiveCall = false;

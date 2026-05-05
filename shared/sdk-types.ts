@@ -159,6 +159,7 @@ export interface CallTranslationConfig {
   enabled: boolean;
   sourceLanguage: string;
   targetLanguage: string;
+  translationMode?: "off" | "subtitles" | "voice";
   preserveEmotion: boolean;
   showSubtitles: boolean;
   lipSyncEnabled: boolean;
@@ -337,12 +338,30 @@ export interface SignalingMessage {
 }
 
 export interface TranslationEvent {
-  type: "transcription" | "translation" | "tts_ready" | "error";
+  type:
+    | "transcription"
+    | "translation"
+    | "translation.partial"
+    | "translation.ready"
+    | "tts_ready"
+    | "tts_failed"
+    | "error";
   original?: string;
   translated?: string;
   language?: string;
   emotion?: EmotionType;
   audioUrl?: string;
+  sourceIdentity?: string;
+  targetIdentity?: string;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  partial?: boolean;
+  latencyMs?: number;
+  confidence?: number;
+  translationMode?: "off" | "subtitles" | "voice";
+  replaceOriginalVoice?: boolean;
+  deliveryMode?: "session_injected" | "remote_only" | "local_playback";
+  reason?: string;
 }
 
 // === SDK CLIENT CLASS (USAGE EXAMPLE) ===
