@@ -18,6 +18,7 @@ import { normalizePhoneForCountry } from "@shared/phone";
 import { ConfirmationResult } from "firebase/auth";
 import {
   clearRecaptcha,
+  getFirebasePhoneAuthErrorMessage,
   initializeFirebase,
   sendOtpWithFirebase,
   setupRecaptcha,
@@ -57,30 +58,41 @@ export default function AdminLogin() {
       const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
 
       if (channel === "mobile") {
-        if (!firebaseEnabled) {
-          toast({
-            title: "Firebase OTP not configured",
-            description: "Add Firebase web keys and enable Phone Auth before sending admin mobile OTP.",
-            variant: "destructive",
-          });
-          return;
+        let otpSent = false;
+
+        if (firebaseEnabled) {
+          setIsSendingFirebaseOtp(true);
+          try {
+            const verifier = setupRecaptcha("admin-recaptcha-container");
+            if (!verifier) {
+              throw new Error("Firebase reCAPTCHA could not be initialized");
+            }
+
+            const result = await sendOtpWithFirebase(normalizedIdentifier);
+            if (!result) {
+              throw new Error("Failed to start Firebase phone verification");
+            }
+
+            setConfirmationResult(result);
+            otpSent = true;
+          } catch (firebaseError) {
+            setConfirmationResult(null);
+            await requestOtp({ identifier: normalizedIdentifier, channel });
+            otpSent = true;
+            toast({
+              title: "Using SMS fallback",
+              description: getFirebasePhoneAuthErrorMessage(firebaseError),
+            });
+          } finally {
+            setIsSendingFirebaseOtp(false);
+          }
+        } else {
+          await requestOtp({ identifier: normalizedIdentifier, channel });
+          otpSent = true;
         }
 
-        setIsSendingFirebaseOtp(true);
-        try {
-          const verifier = setupRecaptcha("admin-recaptcha-container");
-          if (!verifier) {
-            throw new Error("Firebase reCAPTCHA could not be initialized");
-          }
-
-          const result = await sendOtpWithFirebase(normalizedIdentifier);
-          if (!result) {
-            throw new Error("Failed to start Firebase phone verification");
-          }
-
-          setConfirmationResult(result);
-        } finally {
-          setIsSendingFirebaseOtp(false);
+        if (!otpSent) {
+          throw new Error("Failed to send mobile OTP");
         }
       } else {
         setConfirmationResult(null);

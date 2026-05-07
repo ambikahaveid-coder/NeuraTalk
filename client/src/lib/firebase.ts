@@ -1,4 +1,4 @@
-import { initializeApp, FirebaseApp } from "firebase/app";
+import { getApp, getApps, initializeApp, FirebaseApp } from "firebase/app";
 import { 
   getAuth, 
   RecaptchaVerifier, 
@@ -39,7 +39,7 @@ export function initializeFirebase(): boolean {
       measurementId,
     };
 
-    app = initializeApp(firebaseConfig);
+    app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     auth = getAuth(app);
     return true;
   } catch (error) {
@@ -92,6 +92,27 @@ export async function sendOtpWithFirebase(
   } catch (error) {
     console.error("Firebase OTP send failed:", error);
     throw error;
+  }
+}
+
+export function getFirebasePhoneAuthErrorMessage(error: unknown): string {
+  const code = typeof error === "object" && error && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+
+  switch (code) {
+    case "auth/invalid-phone-number":
+      return "Phone number format is invalid.";
+    case "auth/too-many-requests":
+      return "Too many OTP attempts. Please wait a few minutes and try again.";
+    case "auth/captcha-check-failed":
+      return "Security verification failed. Please refresh and try again.";
+    case "auth/app-not-authorized":
+    case "auth/invalid-app-credential":
+    case "auth/internal-error":
+      return "Firebase phone auth is not fully configured for this live domain yet. Trying SMS fallback.";
+    default:
+      return code ? `Phone verification failed (${code}).` : "Phone verification failed.";
   }
 }
 

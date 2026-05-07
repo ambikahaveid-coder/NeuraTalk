@@ -23,6 +23,7 @@ import { ConfirmationResult } from "firebase/auth";
 import { 
   initializeFirebase, 
   isFirebaseAvailable, 
+  getFirebasePhoneAuthErrorMessage,
   setupRecaptcha, 
   sendOtpWithFirebase, 
   verifyOtpWithFirebase,
@@ -115,41 +116,43 @@ export default function Landing() {
     const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
 
     try {
-      // Mobile OTP is Firebase-only; do not silently fall back to SMS gateways.
       if (channel === "mobile") {
-        if (!firebaseEnabled) {
-          toast({
-            title: "Firebase OTP not configured",
-            description: "Add Firebase web keys and enable Phone Auth before sending mobile OTP.",
-            variant: "destructive",
-          });
-          return;
+        let otpSent = false;
+
+        if (firebaseEnabled) {
+          setIsSendingFirebaseOtp(true);
+          try {
+            const verifier = setupRecaptcha("recaptcha-container");
+            if (!verifier) {
+              throw new Error("Firebase reCAPTCHA could not be initialized");
+            }
+            
+            const result = await sendOtpWithFirebase(normalizedIdentifier);
+            if (result) {
+              setConfirmationResult(result);
+              otpSent = true;
+            }
+          } catch (err: any) {
+            console.error("Firebase OTP error:", err);
+            setConfirmationResult(null);
+            await requestOtp({ identifier: normalizedIdentifier, channel });
+            otpSent = true;
+            toast({
+              title: "Using SMS fallback",
+              description: getFirebasePhoneAuthErrorMessage(err),
+            });
+          } finally {
+            setIsSendingFirebaseOtp(false);
+          }
+        } else {
+          await requestOtp({ identifier: normalizedIdentifier, channel });
+          otpSent = true;
         }
 
-        setIsSendingFirebaseOtp(true);
-        try {
-          const verifier = setupRecaptcha("recaptcha-container");
-          if (!verifier) {
-            throw new Error("Firebase reCAPTCHA could not be initialized");
-          }
-          
-          const result = await sendOtpWithFirebase(normalizedIdentifier);
-          if (result) {
-            setConfirmationResult(result);
-            setIdentifier(normalizedIdentifier);
-            toast({ title: "OTP Sent", description: "Check your phone for the verification code" });
-            setStep("otp");
-          }
-        } catch (err: any) {
-          console.error("Firebase OTP error:", err);
-          toast({
-            title: "Firebase OTP failed",
-            description: err?.message || "Please check Firebase Phone Auth configuration.",
-            variant: "destructive",
-          });
-          setConfirmationResult(null);
-        } finally {
-          setIsSendingFirebaseOtp(false);
+        if (otpSent) {
+          setIdentifier(normalizedIdentifier);
+          toast({ title: "OTP Sent", description: "Check your phone for the verification code" });
+          setStep("otp");
         }
         return;
       } else {

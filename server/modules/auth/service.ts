@@ -299,13 +299,6 @@ export async function firebaseVerify(idToken: string) {
 }
 
 export async function requestAuthOtp(identifier: string, channel: "email" | "mobile") {
-  if (channel === "mobile" && usesFirebasePhoneOtp()) {
-    return {
-      success: false,
-      message: "Mobile OTP is handled by Firebase Phone Auth. Please use Firebase phone verification.",
-    };
-  }
-
   return await requestOtp(identifier, channel);
 }
 
