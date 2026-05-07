@@ -1,18 +1,12 @@
-const CACHE_NAME = 'neuratalk-v1';
-const STATIC_CACHE = 'neuratalk-static-v1';
-const DYNAMIC_CACHE = 'neuratalk-dynamic-v1';
+const CACHE_NAME = 'neuratalk-v2';
+const STATIC_CACHE = 'neuratalk-static-v2';
+const DYNAMIC_CACHE = 'neuratalk-dynamic-v2';
 
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/favicon.png'
 ];
-
-const CACHE_STRATEGIES = {
-  cacheFirst: ['fonts.googleapis.com', 'fonts.gstatic.com'],
-  networkFirst: ['/api/'],
-  staleWhileRevalidate: ['.js', '.css', '.png', '.jpg', '.svg']
-};
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker...');
@@ -59,12 +53,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (CACHE_STRATEGIES.cacheFirst.some(domain => url.hostname.includes(domain))) {
+  if (url.hostname.includes('fonts.googleapis.com') || url.hostname.includes('fonts.gstatic.com')) {
     event.respondWith(cacheFirst(request));
     return;
   }
 
-  if (url.pathname.endsWith('.html') || url.pathname === '/') {
+  if (request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/') {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  // Never serve stale Vite chunks first. This avoids route/page breakage after deploys.
+  if (url.origin === self.location.origin && (url.pathname.startsWith('/assets/') || url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
     event.respondWith(networkFirst(request));
     return;
   }
