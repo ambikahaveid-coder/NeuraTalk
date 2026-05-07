@@ -14,7 +14,20 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 
+export function getPhoneOtpProvider(): "firebase" | "sms" {
+  const provider = String(import.meta.env.VITE_PHONE_OTP_PROVIDER || "sms").trim().toLowerCase();
+  return provider === "firebase" ? "firebase" : "sms";
+}
+
+export function shouldUseFirebasePhoneOtp(): boolean {
+  return getPhoneOtpProvider() === "firebase";
+}
+
 export function initializeFirebase(): boolean {
+  if (!shouldUseFirebasePhoneOtp()) {
+    return false;
+  }
+
   const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
   const appId = import.meta.env.VITE_FIREBASE_APP_ID;
@@ -110,7 +123,7 @@ export function getFirebasePhoneAuthErrorMessage(error: unknown): string {
     case "auth/app-not-authorized":
     case "auth/invalid-app-credential":
     case "auth/internal-error":
-      return "Firebase phone auth is not fully configured for this live domain yet. Trying SMS fallback.";
+      return "Firebase accepted the request, but delivery is not reliable on this domain. Switching to direct SMS OTP.";
     default:
       return code ? `Phone verification failed (${code}).` : "Phone verification failed.";
   }

@@ -21,8 +21,8 @@ import { countries, DEFAULT_COUNTRY_CODE, validatePhoneNumber, sanitizePhoneInpu
 import { normalizePhoneForCountry } from "@shared/phone";
 import { ConfirmationResult } from "firebase/auth";
 import { 
+  getPhoneOtpProvider,
   initializeFirebase, 
-  isFirebaseAvailable, 
   getFirebasePhoneAuthErrorMessage,
   setupRecaptcha, 
   sendOtpWithFirebase, 
@@ -98,6 +98,8 @@ export default function Landing() {
     return () => clearRecaptcha();
   }, []);
 
+  const phoneOtpProvider = getPhoneOtpProvider();
+
   const { 
     requestOtp, isRequestingOtp,
     verifyOtp, isVerifyingOtp,
@@ -114,12 +116,13 @@ export default function Landing() {
       }
     }
     const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
+    let usedFirebaseFlow = false;
 
     try {
       if (channel === "mobile") {
         let otpSent = false;
 
-        if (firebaseEnabled) {
+        if (firebaseEnabled && !confirmationResult) {
           setIsSendingFirebaseOtp(true);
           try {
             const verifier = setupRecaptcha("recaptcha-container");
@@ -130,6 +133,7 @@ export default function Landing() {
             const result = await sendOtpWithFirebase(normalizedIdentifier);
             if (result) {
               setConfirmationResult(result);
+              usedFirebaseFlow = true;
               otpSent = true;
             }
           } catch (err: any) {
@@ -145,13 +149,19 @@ export default function Landing() {
             setIsSendingFirebaseOtp(false);
           }
         } else {
+          setConfirmationResult(null);
           await requestOtp({ identifier: normalizedIdentifier, channel });
           otpSent = true;
         }
 
         if (otpSent) {
           setIdentifier(normalizedIdentifier);
-          toast({ title: "OTP Sent", description: "Check your phone for the verification code" });
+          toast({
+            title: "OTP Sent",
+            description: usedFirebaseFlow
+              ? "If the Firebase SMS does not arrive, tap Resend and the app will switch to direct SMS."
+              : "Direct SMS OTP sent. Check your phone for the verification code.",
+          });
           setStep("otp");
         }
         return;
@@ -441,7 +451,10 @@ export default function Landing() {
                 otpCode={otpCode}
                 setOtpCode={setOtpCode}
                 isLoading={isVerifying}
-                onBack={() => setStep("identifier")}
+                onBack={() => {
+                  setConfirmationResult(null);
+                  setStep("identifier");
+                }}
                 onContinue={handleVerifyOtp}
                 onResend={handleRequestOtp}
               />
@@ -760,11 +773,11 @@ function IdentifierStep({
 
       {channel === "mobile" && firebaseEnabled ? (
         <p className="text-xs text-center text-muted-foreground">
-          OTP will be sent via Firebase Phone Auth. The selected country code is applied automatically.
+          Firebase phone OTP is enabled. If delivery fails, resend will switch to direct SMS OTP.
         </p>
       ) : channel === "mobile" ? (
         <p className="text-xs text-center text-muted-foreground">
-          Firebase Phone Auth config is required for mobile OTP. The selected country code is applied automatically.
+          Direct SMS OTP is enabled. The selected country code is applied automatically.
         </p>
       ) : (
         <p className="text-xs text-center text-muted-foreground">

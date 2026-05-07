@@ -18,6 +18,7 @@ import { normalizePhoneForCountry } from "@shared/phone";
 import { ConfirmationResult } from "firebase/auth";
 import {
   clearRecaptcha,
+  getPhoneOtpProvider,
   getFirebasePhoneAuthErrorMessage,
   initializeFirebase,
   sendOtpWithFirebase,
@@ -45,6 +46,8 @@ export default function AdminLogin() {
     return () => clearRecaptcha();
   }, []);
 
+  const phoneOtpProvider = getPhoneOtpProvider();
+
   const handleRequestOtp = async () => {
     try {
       const channel = identifier.includes("@") ? "email" : "mobile";
@@ -56,11 +59,12 @@ export default function AdminLogin() {
         }
       }
       const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
+      let usedFirebaseFlow = false;
 
       if (channel === "mobile") {
         let otpSent = false;
 
-        if (firebaseEnabled) {
+        if (firebaseEnabled && !confirmationResult) {
           setIsSendingFirebaseOtp(true);
           try {
             const verifier = setupRecaptcha("admin-recaptcha-container");
@@ -74,6 +78,7 @@ export default function AdminLogin() {
             }
 
             setConfirmationResult(result);
+            usedFirebaseFlow = true;
             otpSent = true;
           } catch (firebaseError) {
             setConfirmationResult(null);
@@ -87,6 +92,7 @@ export default function AdminLogin() {
             setIsSendingFirebaseOtp(false);
           }
         } else {
+          setConfirmationResult(null);
           await requestOtp({ identifier: normalizedIdentifier, channel });
           otpSent = true;
         }
@@ -100,7 +106,12 @@ export default function AdminLogin() {
       }
 
       setIdentifier(normalizedIdentifier);
-      toast({ title: "Code Sent", description: "Check your email or phone" });
+      const deliveryMessage = channel === "mobile"
+        ? usedFirebaseFlow
+          ? "Firebase accepted the request. If the SMS does not arrive, tap Back and try again to use SMS fallback."
+          : "SMS OTP sent. Check your phone."
+        : "Check your email for the verification code.";
+      toast({ title: "Code Sent", description: deliveryMessage });
       setStep("otp");
     } catch (error: any) {
       setConfirmationResult(null);
@@ -201,7 +212,9 @@ export default function AdminLogin() {
                 />
                 {!identifier.includes("@") && (
                   <p className="text-xs text-muted-foreground">
-                    The selected country code is applied automatically for admin OTP.
+                    {phoneOtpProvider === "firebase"
+                      ? "Firebase phone OTP is enabled for this screen. If delivery fails, the flow will fall back to direct SMS."
+                      : "Direct SMS OTP is enabled for admin login. The selected country code is applied automatically."}
                   </p>
                 )}
               </div>
