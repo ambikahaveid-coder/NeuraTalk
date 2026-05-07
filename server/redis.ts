@@ -1,11 +1,11 @@
 import Redis from "ioredis";
-import RedisMock from "ioredis-mock";
 import "./load-env";
 import { logger } from "./observability";
 
 let redisClient: Redis | null = null;
 let lifecycleBound = false;
 let shutdownBound = false;
+let redisMockCtor: ((...args: any[]) => unknown) | null = null;
 
 function isInMemoryUrl(url: string): boolean {
   return url.startsWith("memory://") || url === "mock" || url === "inmemory";
@@ -49,8 +49,19 @@ if (shouldPreferInMemoryRedis()) {
   process.env.REDIS_URL = "memory://local-dev";
 }
 
-function createInMemoryRedis(): Redis {
-  const client = new RedisMock() as unknown as Redis;
+async function getRedisMockCtor(): Promise<(...args: any[]) => unknown> {
+  if (redisMockCtor) {
+    return redisMockCtor;
+  }
+
+  const mod = await import("ioredis-mock");
+  redisMockCtor = (mod.default ?? mod) as (...args: any[]) => unknown;
+  return redisMockCtor;
+}
+
+async function createInMemoryRedis(): Promise<Redis> {
+  const RedisMock = await getRedisMockCtor();
+  const client = new RedisMock() as Redis;
   logger.warn("Redis", "Using in-memory Redis shim (ioredis-mock) — DO NOT use in production");
   return client;
 }
@@ -84,9 +95,7 @@ function bindLifecycle(client: Redis) {
 export function getRedisClient(): Redis {
   if (shouldPreferInMemoryRedis()) {
     if (!redisClient) {
-      redisClient = createInMemoryRedis();
-      lifecycleBound = false;
-      bindLifecycle(redisClient);
+      throw new Error("In-memory Redis must be initialized via assertRedisReady() first");
     }
 
     return redisClient;
@@ -121,7 +130,7 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
 
   if (shouldPreferInMemoryRedis()) {
     if (!redisClient) {
-      redisClient = createInMemoryRedis();
+      redisClient = await createInMemoryRedis();
       lifecycleBound = false;
       bindLifecycle(redisClient);
     }
@@ -132,7 +141,9 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
 
   if (!process.env.REDIS_URL && allowRedisFallback()) {
     if (!redisClient) {
-      redisClient = createInMemoryRedis();
+      redisClient = await createInMemoryRedis();
+      lifecycleBound = false;
+      bindLifecycle(redisClient);
     }
     await redisClient.ping();
     logger.warn("Redis", `REDIS_URL missing; using in-memory Redis shim in ${Date.now() - start}ms`);
@@ -141,7 +152,9 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
 
   if (process.env.REDIS_URL && isInMemoryUrl(process.env.REDIS_URL)) {
     if (!redisClient) {
-      redisClient = createInMemoryRedis();
+      redisClient = await createInMemoryRedis();
+      lifecycleBound = false;
+      bindLifecycle(redisClient);
     }
     await redisClient.ping();
     logger.info("Redis", `In-memory Redis ready in ${Date.now() - start}ms`);
@@ -184,7 +197,7 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
       // ignore cleanup failures while swapping to in-memory mode
     }
 
-    redisClient = createInMemoryRedis();
+    redisClient = await createInMemoryRedis();
     lifecycleBound = false;
     bindLifecycle(redisClient);
     await redisClient.ping();
