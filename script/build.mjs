@@ -20,6 +20,7 @@ const externalPackages = [
   "express-rate-limit",
   "firebase-admin",
   "helmet",
+  "ioredis-mock",
   "jsonwebtoken",
   "memorystore",
   "multer",
