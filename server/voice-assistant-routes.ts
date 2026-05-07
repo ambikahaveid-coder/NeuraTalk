@@ -2,13 +2,6 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
 import { requireActiveSubscription, warnLowBalance } from "./usage-enforcement";
-import {
-  createVoiceAssistantSession,
-  endVoiceAssistantSession,
-  getVoiceAssistantHealth,
-  getVoiceAssistantSession,
-  listVoiceAssistantSessions,
-} from "./voice-assistant-service";
 
 const createSessionSchema = z.object({
   language: z.string().min(2).max(8).default("en"),
@@ -16,9 +9,32 @@ const createSessionSchema = z.object({
   systemPrompt: z.string().min(1).max(2_000).optional(),
 });
 
+async function loadVoiceAssistantService() {
+  return import("./voice-assistant-service");
+}
+
 export function registerVoiceAssistantRoutes(app: Express): void {
-  app.get("/api/voice-assistant/health", loadUser, requireAuth, (_req: Request, res: Response) => {
-    res.json(getVoiceAssistantHealth());
+  app.get("/api/voice-assistant/health", loadUser, requireAuth, async (_req: Request, res: Response) => {
+    try {
+      const { getVoiceAssistantHealth } = await loadVoiceAssistantService();
+      res.json(getVoiceAssistantHealth());
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Voice assistant unavailable";
+      res.status(503).json({
+        configured: false,
+        livekit: false,
+        deepgram: false,
+        openai: false,
+        azure: false,
+        targetLatencyMs: 0,
+        model: {
+          deepgram: "",
+          openai: "",
+          azureRegion: "",
+        },
+        message,
+      });
+    }
   });
 
   app.get(
@@ -26,8 +42,14 @@ export function registerVoiceAssistantRoutes(app: Express): void {
     loadUser,
     requireAuth,
     requireSuperAdmin,
-    (_req: Request, res: Response) => {
-      res.json({ sessions: listVoiceAssistantSessions() });
+    async (_req: Request, res: Response) => {
+      try {
+        const { listVoiceAssistantSessions } = await loadVoiceAssistantService();
+        res.json({ sessions: listVoiceAssistantSessions() });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Voice assistant unavailable";
+        res.status(503).json({ success: false, message });
+      }
     },
   );
 
@@ -48,6 +70,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
       }
 
       try {
+        const { createVoiceAssistantSession } = await loadVoiceAssistantService();
         const session = await createVoiceAssistantSession({
           userId: req.user!.id,
           displayName: req.user!.username || `user-${req.user!.id}`,
@@ -68,7 +91,15 @@ export function registerVoiceAssistantRoutes(app: Express): void {
     loadUser,
     requireAuth,
     async (req: Request, res: Response) => {
-      const session = getVoiceAssistantSession(req.params.sessionId);
+      let session;
+      try {
+        const { getVoiceAssistantSession } = await loadVoiceAssistantService();
+        session = getVoiceAssistantSession(req.params.sessionId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Voice assistant unavailable";
+        return res.status(503).json({ success: false, message });
+      }
+
       if (!session) {
         return res.status(404).json({ success: false, message: "Session not found" });
       }
@@ -77,6 +108,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
         return res.status(403).json({ success: false, message: "You cannot close this session" });
       }
 
+      const { endVoiceAssistantSession } = await loadVoiceAssistantService();
       await endVoiceAssistantSession(req.params.sessionId);
       res.status(204).send();
     },
