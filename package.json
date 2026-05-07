@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx --env-file=.env server/index.ts",
     "build": "node script/build.mjs",
-    "start": "cross-env NODE_ENV=production node dist/index.cjs",
+    "start": "node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "qa:smoke": "tsc -p tsconfig.smoke.json && node tests/smoke/prepare-runtime.cjs && node .tmp/smoke/tests/smoke/run.js"
