@@ -27,21 +27,29 @@ export function shouldUseFirebasePhoneOtp(): boolean {
   return true;
 }
 
+// Firebase Web config is public-facing (used in client-side JS bundle).
+// Fallbacks ensure the app works even when VITE_ env vars aren't set at build time.
+const FB_DEFAULTS = {
+  apiKey: "AIzaSyDMn1dPIAAAdYiFSiAzUG65dg1o85w_A7Q",
+  projectId: "neuratalk-c6683",
+  appId: "1:612487293092:web:2aa2cf6d2c33e74b335e31",
+  authDomain: "neuratalk-c6683.firebaseapp.com",
+  storageBucket: "neuratalk-c6683.firebasestorage.app",
+  messagingSenderId: "612487293092",
+  measurementId: "G-71G09M618D",
+};
+
 export function initializeFirebase(): boolean {
-  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
-  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  const appId = import.meta.env.VITE_FIREBASE_APP_ID;
-  const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`;
-  const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || `${projectId}.firebasestorage.app`;
-  const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID;
-  const measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY || FB_DEFAULTS.apiKey;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || FB_DEFAULTS.projectId;
+  const appId = import.meta.env.VITE_FIREBASE_APP_ID || FB_DEFAULTS.appId;
+  const authDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || FB_DEFAULTS.authDomain;
+  const storageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || FB_DEFAULTS.storageBucket;
+  const messagingSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || FB_DEFAULTS.messagingSenderId;
+  const measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || FB_DEFAULTS.measurementId;
 
   if (!apiKey || !projectId || !appId) {
-    console.error(
-      "[NeuraTalk] Firebase is not configured. " +
-      "Set VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID. " +
-      "Phone login will not work until these are provided.",
-    );
+    console.error("[NeuraTalk] Firebase config missing — phone OTP will not work.");
     return false;
   }
 
