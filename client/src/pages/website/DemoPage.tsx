@@ -880,7 +880,7 @@ function SimCallDemo({ soundEnabled }: { soundEnabled: boolean }) {
                 </div>
               )}
               <div className="text-center bg-muted/50 rounded-lg px-3 py-1 border">
-                <p className="text-[10px] text-muted-foreground">Calling via Twilio PSTN</p>
+                <p className="text-[10px] text-muted-foreground">Calling through the PSTN bridge</p>
                 <p className="font-mono text-xs font-semibold">+1 (555) 987-6543</p>
               </div>
             </div>
@@ -900,7 +900,7 @@ function SimCallDemo({ soundEnabled }: { soundEnabled: boolean }) {
                 <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center">
                   <Phone className="w-7 h-7 text-blue-500 animate-pulse" />
                 </div>
-                <p className="text-sm mt-4 text-muted-foreground font-medium">Connecting through Twilio PSTN...</p>
+                <p className="text-sm mt-4 text-muted-foreground font-medium">Connecting through the PSTN bridge...</p>
                 <div className="flex gap-1.5 mt-3">
                   {[0, 0.3, 0.6].map((d) => (
                     <motion.div key={d} className="w-2 h-2 rounded-full bg-blue-500" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: d }} />

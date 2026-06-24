@@ -15,7 +15,11 @@ export type AuditAction =
   | "consent_updated" | "settings_updated"
   | "payment_processed" | "subscription_changed"
   | "api_key_created" | "api_key_revoked"
-  | "admin_action";
+  | "admin_action"
+  | "billing_wallet_credit" | "billing_wallet_debit"
+  | "billing_recharge" | "billing_refund"
+  | "billing_subscription_purchase" | "billing_adjustment"
+  | "otp_abuse_lockout";
 
 export interface AuditLogEntry {
   action: AuditAction;
@@ -231,6 +235,13 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       api_key_created: "info",
       api_key_revoked: "warning",
       admin_action: "info",
+      billing_wallet_credit: "info",
+      billing_wallet_debit: "info",
+      billing_recharge: "info",
+      billing_refund: "warning",
+      billing_subscription_purchase: "info",
+      billing_adjustment: "warning",
+      otp_abuse_lockout: "critical",
     };
 
     await db.insert(auditLogs).values({

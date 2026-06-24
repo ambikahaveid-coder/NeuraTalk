@@ -30,6 +30,98 @@ const LANGUAGES = [
   { code: "zh", name: "Chinese" }, { code: "ar", name: "Arabic" },
 ];
 
+function looksLikePhoneTarget(identifier: string) {
+  return /^\+?\d{10,15}$/.test(String(identifier || "").replace(/\s+/g, ""));
+}
+
+function formatCallTimelineValue(value?: string | number | null) {
+  if (!value) return null;
+  const date = typeof value === "number" ? new Date(value) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+}
+
+function readSessionMetadataValue(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "string" || typeof value === "number" ? value : null;
+}
+
+function getPstnRetryGuidance(error?: string | null) {
+  const message = String(error || "").toLowerCase();
+  if (!message) return null;
+
+  if (message.includes("authentication failed") || message.includes("credentials")) {
+    return {
+      reason: "PSTN bridge credentials are failing.",
+      action: "Ask the admin to verify MSG91 auth settings before retrying this mobile call.",
+    };
+  }
+  if (message.includes("invalid phone number")) {
+    return {
+      reason: "The mobile number format was rejected.",
+      action: "Retry with a valid mobile number and include country code when needed.",
+    };
+  }
+  if (message.includes("caller identity")) {
+    return {
+      reason: "Caller ID is not ready for this PSTN route.",
+      action: "Verify the caller number first, or retry using app-to-app calling.",
+    };
+  }
+  if (message.includes("callback base url") || message.includes("sip domain")) {
+    return {
+      reason: "The PSTN bridge setup is incomplete.",
+      action: "Admin should finish callback/SIP configuration before retrying.",
+    };
+  }
+  if (message.includes("timeout") || message.includes("network") || message.includes("503")) {
+    return {
+      reason: "The PSTN provider or network timed out.",
+      action: "Wait a few seconds, then retry voice mode. If it repeats, use app-to-app instead.",
+    };
+  }
+
+  return {
+    reason: "The PSTN bridge could not finish this call.",
+    action: "Retry in voice mode after checking the number and provider readiness.",
+  };
+}
+
+function getVideoSetupGuidance(error?: string | null) {
+  const message = String(error || "").toLowerCase();
+  if (!message) return null;
+
+  if (message.includes("camera/microphone permission denied")) {
+    return {
+      title: "Camera or microphone permission is blocked",
+      action: "Allow camera and microphone access in browser settings, then retry the app-to-app video call.",
+    };
+  }
+  if (message.includes("microphone permission denied")) {
+    return {
+      title: "Microphone permission is blocked",
+      action: "Allow microphone access in browser settings, then retry the call.",
+    };
+  }
+  if (message.includes("no camera or microphone found")) {
+    return {
+      title: "Camera or microphone device is missing",
+      action: "Connect a working camera/mic, or switch to voice mode if video hardware is unavailable.",
+    };
+  }
+  if (message.includes("no microphone found")) {
+    return {
+      title: "Microphone device is missing",
+      action: "Connect a working microphone, or verify OS/browser input device settings.",
+    };
+  }
+
+  return null;
+}
+
 interface C2CCallPageProps {
   defaultMode?: "voice" | "video";
 }
@@ -65,6 +157,32 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
     if (call.error) toast({ title: "Call failed", description: call.error, variant: "destructive" });
   }, [call.error, toast]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const identifier = params.get("identifier");
+    const targetLanguage = params.get("theirLanguage");
+    const mode = params.get("mode");
+
+    if (identifier) {
+      setDialNumber(identifier);
+      const matchingContact = contacts.find((contact) => contact.identifier === identifier);
+      if (matchingContact) {
+        setSelectedContact(matchingContact);
+        if (matchingContact.language) {
+          setTheirLanguage(matchingContact.language);
+        }
+      }
+    }
+
+    if (targetLanguage) {
+      setTheirLanguage(targetLanguage);
+    }
+
+    if (mode === "voice" || mode === "video") {
+      setIsVideoMode(mode === "video");
+    }
+  }, [contacts]);
+
   // Mid-call language updates are propagated, but route/translation mode is chosen at call start.
   useEffect(() => {
     if (isActive) call.updateLanguage(myLanguage).catch(() => {});
@@ -81,14 +199,29 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
       toast({ title: "Enter number or pick a contact", variant: "destructive" });
       return;
     }
+    const linkedContact = contact || contacts.find((entry) => entry.identifier === identifier) || null;
+    const effectiveIdentifier = linkedContact?.hasApp ? (linkedContact.appPreferredIdentifier || linkedContact.identifier) : identifier;
+    const isLikelyPstnTarget = linkedContact?.hasApp === false || (!linkedContact && looksLikePhoneTarget(identifier));
     if (contact) {
       setSelectedContact(contact);
       recordCall(contact.id);
     }
+    const effectiveCallType = isVideoMode && isLikelyPstnTarget
+      ? "voice"
+      : isVideoMode
+        ? "video"
+        : "voice";
+    if (isVideoMode && isLikelyPstnTarget) {
+      toast({
+        title: "Video needs app-to-app",
+        description: "This target looks like a mobile/PSTN route. Switching to voice calling for a reliable connection.",
+      });
+      setIsVideoMode(false);
+    }
     try {
       await call.startCall({
-        calleeIdentifier: identifier,
-        callType: isVideoMode ? "video" : "voice",
+        calleeIdentifier: effectiveIdentifier,
+        callType: effectiveCallType,
         myLanguage,
         theirLanguage,
         translationEnabled,
@@ -112,17 +245,76 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
   };
 
   const formatRate = (value: number) => (value < 1 ? value.toFixed(3) : value.toFixed(2));
-  const callerIdentityLabel = call.pricingPreview?.callerIdentityMode === "organization_caller_id"
+  const effectiveCallerIdentityMode = call.session?.callerIdentityMode || call.pricingPreview?.callerIdentityMode;
+  const effectiveRouteType = call.session?.routeType || call.pricingPreview?.joinMethod;
+  const effectiveProvider = call.session?.provider || null;
+  const currentTargetLabel = selectedContact?.name
+    || call.incomingCall?.callerName
+    || call.session?.callee?.displayName
+    || call.session?.callee?.externalId
+    || call.session?.callee?.phoneNumber
+    || call.session?.caller?.displayName
+    || call.session?.caller?.externalId
+    || call.session?.caller?.phoneNumber
+    || dialNumber
+    || "Unknown contact";
+  const currentCallStatusLabel = call.status === "connecting"
+    ? "Preparing secure call connection"
+    : call.status === "ringing"
+      ? "Waiting for the other side to answer"
+      : call.status === "active"
+        ? "Call is live"
+        : call.status === "ended"
+          ? "Call ended cleanly"
+          : call.status === "error"
+            ? "Call could not continue"
+            : "Ready to start";
+  const statusToneClass = call.status === "error"
+    ? "border-red-500/40 bg-red-500/10 text-red-200"
+    : call.status === "ended"
+      ? "border-white/10 bg-muted/20 text-muted-foreground"
+      : isInCall
+        ? "border-primary/30 bg-primary/10 text-foreground"
+        : "border-white/10 bg-muted/20 text-muted-foreground";
+  const effectiveCallerIdentityDisclaimer = call.session?.callerIdentityDisclaimer || call.pricingPreview?.callerIdentityDisclaimer;
+  const callerIdentityLabel = effectiveCallerIdentityMode === "organization_caller_id"
     ? "Business caller ID"
-    : call.pricingPreview?.callerIdentityMode === "user_verified_number"
+    : effectiveCallerIdentityMode === "user_verified_number"
       ? "Verified number attempt"
-      : call.pricingPreview?.callerIdentityMode === "provider_caller_id"
+      : effectiveCallerIdentityMode === "provider_caller_id"
         ? "Provider caller ID"
         : "App identity";
-  const identityDescription = call.pricingPreview?.joinMethod === "app_to_pstn"
-    ? call.pricingPreview?.callerIdentityDisclaimer || `${callerIdentityLabel} on PSTN. Exact personal-number display depends on provider/compliance.`
+  const identityDescription = effectiveRouteType === "app_to_pstn"
+    ? effectiveCallerIdentityDisclaimer || `${callerIdentityLabel} on PSTN. Exact personal-number display depends on provider/compliance.`
     : "App-to-app calls use in-app identity, not carrier caller ID.";
   const operationalWarnings = call.pricingPreview?.operationalWarnings || [];
+  const isPstnRoute = effectiveRouteType === "app_to_pstn" || call.pricingPreview?.joinMethod === "app_to_pstn";
+  const pstnRetryGuidance = isPstnRoute || looksLikePhoneTarget(dialNumber) ? getPstnRetryGuidance(call.error) : null;
+  const videoSetupGuidance = isVideoMode || call.isVideoOn ? getVideoSetupGuidance(call.error) : null;
+  const showRemoteVideoWaiting = isActive
+    && effectiveRouteType === "app_to_app"
+    && call.isVideoOn
+    && !call.hasRemoteVideoTrack;
+  const remoteParticipantCount = call.participants.filter((participant) => participant.identity !== "neuratalk-translator").length;
+  const remoteVideoWaitingTitle = remoteParticipantCount === 0
+    ? "Remote app user is reconnecting"
+    : call.hasRemoteAudioTrack
+      ? "Remote camera is not available yet"
+      : "Remote media is still connecting";
+  const remoteVideoWaitingDescription = remoteParticipantCount === 0
+    ? "The other app user disconnected and may be rejoining. Video will resume automatically when they return."
+    : call.hasRemoteAudioTrack
+      ? "Audio is connected, but the other user may have camera off or may need to allow camera permission."
+      : "The other app user may still be joining, may have camera off, or may need to grant camera permission.";
+  const sessionMetadata = call.session?.metadata as Record<string, unknown> | undefined;
+  const providerAnsweredAt = formatCallTimelineValue(readSessionMetadataValue(sessionMetadata, "providerAnsweredAt"));
+  const providerEndedAt = formatCallTimelineValue(readSessionMetadataValue(sessionMetadata, "providerEndedAt"));
+  const providerDurationSeconds = Number(
+    readSessionMetadataValue(sessionMetadata, "providerDurationSeconds")
+    ?? call.session?.durationSeconds
+    ?? 0,
+  );
+  const providerDurationLabel = providerDurationSeconds > 0 ? formatDuration(providerDurationSeconds) : null;
 
   const filteredContacts = useMemo(
     () => contacts.filter(c =>
@@ -155,12 +347,24 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
             <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
               <Users className="w-4 h-4 text-blue-500" />
             </div>
-            <p className="text-xs text-muted-foreground">Connect with friends & family · Caller identity depends on route and verification</p>
+            <p className="text-xs text-muted-foreground">PSTN caller identity is best-effort and depends on provider/compliance</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="gap-1">
               <Sparkles className="w-3 h-3" /> LiveKit
             </Badge>
+            {effectiveRouteType && (
+              <Badge variant={effectiveRouteType === "app_to_app" ? "secondary" : "outline"} className="gap-1">
+                <Users className="w-3 h-3" />
+                {effectiveRouteType === "app_to_app" ? "App" : effectiveRouteType === "app_to_pstn" ? "PSTN" : "Conference"}
+              </Badge>
+            )}
+            {effectiveProvider && (
+              <Badge variant="outline" className="gap-1">
+                <Signal className="w-3 h-3" />
+                {effectiveProvider}
+              </Badge>
+            )}
             {isActive && (
               <Badge className="gap-1">
                 <Signal className={`w-3 h-3 ${qualityColor[call.connectionQuality]}`} />
@@ -186,6 +390,30 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
+            <div className={`rounded-xl border px-4 py-3 ${statusToneClass}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">{currentCallStatusLabel}</p>
+                  <p className="text-xs opacity-80">
+                    {isInCall ? `Target: ${currentTargetLabel}` : "Pick an app contact for app-to-app, or use voice for PSTN/mobile numbers."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  {effectiveRouteType ? (
+                    <Badge variant={effectiveRouteType === "app_to_app" ? "secondary" : "outline"}>
+                      {effectiveRouteType === "app_to_app" ? "App-to-app" : effectiveRouteType === "app_to_pstn" ? "PSTN/mobile" : "Conference"}
+                    </Badge>
+                  ) : null}
+                  {effectiveProvider ? (
+                    <Badge variant="outline">{effectiveProvider}</Badge>
+                  ) : null}
+                  {call.status === "active" ? (
+                    <Badge>{call.connectionQuality}</Badge>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
             <Card className="overflow-hidden">
               <div className="relative aspect-video bg-muted">
                 {isInCall ? (
@@ -196,6 +424,17 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                       className="w-full h-full object-cover"
                       data-testid="video-remote"
                     />
+                    {showRemoteVideoWaiting && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white">
+                        <div className="text-center px-6">
+                          <VideoOff className="w-10 h-10 mx-auto mb-3 opacity-80" />
+                          <p className="text-sm font-medium">{remoteVideoWaitingTitle}</p>
+                          <p className="text-xs text-white/75 mt-2">
+                            {remoteVideoWaitingDescription}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     <div className="absolute bottom-4 right-4 w-32 aspect-video rounded-lg overflow-hidden border-2 border-background shadow-lg">
                       <video
                         ref={call.localVideoRef}
@@ -238,15 +477,16 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                 >
                   {call.isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                 </Button>
-                <Button
-                  variant={call.isVideoOn ? "secondary" : "destructive"}
-                  size="icon"
-                  onClick={call.toggleVideo}
-                  disabled={!isActive}
-                  data-testid="button-video"
-                >
-                  {call.isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                </Button>
+                    <Button
+                      variant={call.isVideoOn ? "secondary" : "destructive"}
+                      size="icon"
+                      onClick={call.toggleVideo}
+                      disabled={!isActive || isPstnRoute}
+                      data-testid="button-video"
+                      title={isPstnRoute ? "PSTN/mobile routes are voice-only." : undefined}
+                    >
+                      {call.isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                    </Button>
 
                 {isInCall ? (
                   <Button
@@ -277,20 +517,25 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
               </div>
 
               {!isInCall && (
-                <div className="px-4 pb-4 flex items-center gap-2">
-                  <Input
-                    placeholder="Dial a number (e.g. +919876543210)"
-                    value={dialNumber}
-                    onChange={(e) => setDialNumber(e.target.value)}
-                    data-testid="input-dial-number"
-                  />
-                  <Button
-                    onClick={() => startCallWith(dialNumber)}
-                    disabled={!dialNumber || isInCall}
-                    data-testid="button-dial"
-                  >
-                    <Phone className="w-4 h-4 mr-2" /> Call
-                  </Button>
+                <div className="px-4 pb-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Dial a number (e.g. +919876543210)"
+                      value={dialNumber}
+                      onChange={(e) => setDialNumber(e.target.value)}
+                      data-testid="input-dial-number"
+                    />
+                    <Button
+                      onClick={() => startCallWith(dialNumber)}
+                      disabled={!dialNumber || isInCall}
+                      data-testid="button-dial"
+                    >
+                      <Phone className="w-4 h-4 mr-2" /> Call
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Direct mobile numbers use the PSTN bridge and are voice-only. Video is available for app-to-app contacts.
+                  </p>
                 </div>
               )}
             </Card>
@@ -397,6 +642,78 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                 </p>
               </CardContent>
             </Card>
+
+            {isPstnRoute && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Signal className="w-5 h-5" /> PSTN Bridge Diagnostics
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Provider</p>
+                      <p className="font-medium">{effectiveProvider || "Pending provider sync"}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Bridge status</p>
+                      <p className="font-medium">{call.session?.status || call.status}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">PSTN call ID</p>
+                      <p className="font-medium break-all">{call.session?.pstnCallId || "Not issued yet"}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Target number</p>
+                      <p className="font-medium">{call.session?.callee?.phoneNumber || dialNumber || "Unknown number"}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Answered at</p>
+                      <p className="font-medium">{providerAnsweredAt || "Waiting for provider answer"}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">Ended at</p>
+                      <p className="font-medium">{providerEndedAt || "Active or not ended yet"}</p>
+                    </div>
+                  </div>
+                  {(providerAnsweredAt || providerEndedAt || providerDurationLabel) && (
+                    <div className="flex flex-wrap gap-2">
+                      {providerAnsweredAt ? <Badge variant="secondary">Answered: {providerAnsweredAt}</Badge> : null}
+                      {providerEndedAt ? <Badge variant="outline">Ended: {providerEndedAt}</Badge> : null}
+                      {providerDurationLabel ? <Badge variant="outline">Duration: {providerDurationLabel}</Badge> : null}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    PSTN/mobile calls are voice-only. Caller ID display and answer timing still depend on provider and carrier behavior.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {pstnRetryGuidance && call.status === "error" && (
+              <Card className="border-red-500/30">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base text-red-300">PSTN Retry Guidance</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <p>{pstnRetryGuidance.reason}</p>
+                  <p className="text-muted-foreground">{pstnRetryGuidance.action}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {videoSetupGuidance && call.status === "error" && (
+              <Card className="border-amber-500/30">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base text-amber-200">Video Setup Guidance</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <p>{videoSetupGuidance.title}</p>
+                  <p className="text-muted-foreground">{videoSetupGuidance.action}</p>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div className="space-y-6">
@@ -439,9 +756,11 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Languages className="w-3 h-3" />
                         <span>{contact.language || "en"}</span>
+                        <span>·</span>
+                        <span>{contact.hasApp ? "App-to-app" : "PSTN/mobile"}</span>
                         {contact.lastCalledAt && (
                           <>
-                            <span>·</span>
+                            <span>Â·</span>
                             <Clock className="w-3 h-3" />
                             <span>{new Date(contact.lastCalledAt).toLocaleDateString()}</span>
                           </>
@@ -454,7 +773,7 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                     <Button
                       size="icon" variant="ghost"
                       disabled={isInCall}
-                      onClick={() => startCallWith(contact.identifier || String(contact.id), contact)}
+                      onClick={() => startCallWith(contact.appPreferredIdentifier || contact.identifier || String(contact.id), contact)}
                       data-testid={`call-${contact.id}`}
                     >
                       <Phone className="w-4 h-4" />

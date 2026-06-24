@@ -8,7 +8,22 @@
  * - Free translation fallback via MyMemory
  */
 
+import { logger } from "./observability";
+
 const API_BASE = "https://api.elevenlabs.io/v1";
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+    logger.warn("ElevenLabs", `Request timed out after ${timeoutMs}ms`, { url: url.split("?")[0] });
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function apiKey(): string {
   const key = process.env.ELEVEN_LABS_API_KEY || process.env.ELEVENLABS_API_KEY;
@@ -60,7 +75,7 @@ export async function elevenLabsTTS(
     outputFormat = "mp3_44100_128",
   } = options;
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `${API_BASE}/text-to-speech/${voiceId}?output_format=${outputFormat}`,
     {
       method: "POST",
@@ -79,7 +94,8 @@ export async function elevenLabsTTS(
           use_speaker_boost: true,
         },
       }),
-    }
+    },
+    20_000
   );
 
   if (!response.ok) {
@@ -102,11 +118,11 @@ export async function elevenLabsSTT(
   form.append("file", blob, `audio.${format}`);
   form.append("model_id", "scribe_v1");
 
-  const response = await fetch(`${API_BASE}/speech-to-text`, {
+  const response = await fetchWithTimeout(`${API_BASE}/speech-to-text`, {
     method: "POST",
     headers: { "xi-api-key": apiKey() },
     body: form,
-  });
+  }, 20_000);
 
   if (!response.ok) {
     const err = await response.text().catch(() => response.status.toString());
@@ -121,9 +137,9 @@ export async function elevenLabsSTT(
  * List all available voices (built-in + cloned)
  */
 export async function elevenLabsListVoices(): Promise<ElevenLabsVoice[]> {
-  const response = await fetch(`${API_BASE}/voices`, {
+  const response = await fetchWithTimeout(`${API_BASE}/voices`, {
     headers: { "xi-api-key": apiKey() },
-  });
+  }, 10_000);
 
   if (!response.ok) throw new Error(`ElevenLabs list voices (${response.status})`);
 
@@ -149,11 +165,11 @@ export async function elevenLabsCreateVoice(
     form.append("files", blob, s.filename);
   }
 
-  const response = await fetch(`${API_BASE}/voices/add`, {
+  const response = await fetchWithTimeout(`${API_BASE}/voices/add`, {
     method: "POST",
     headers: { "xi-api-key": apiKey() },
     body: form,
-  });
+  }, 30_000);
 
   if (!response.ok) {
     const err = await response.text().catch(() => response.status.toString());
@@ -167,10 +183,10 @@ export async function elevenLabsCreateVoice(
  * Delete a cloned voice by ID
  */
 export async function elevenLabsDeleteVoice(voiceId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/voices/${voiceId}`, {
+  const response = await fetchWithTimeout(`${API_BASE}/voices/${voiceId}`, {
     method: "DELETE",
     headers: { "xi-api-key": apiKey() },
-  });
+  }, 10_000);
 
   if (!response.ok) throw new Error(`ElevenLabs delete voice (${response.status})`);
 }
@@ -183,9 +199,9 @@ export async function elevenLabsGetSubscription(): Promise<{
   character_limit: number;
   voice_limit: number;
 }> {
-  const response = await fetch(`${API_BASE}/user/subscription`, {
+  const response = await fetchWithTimeout(`${API_BASE}/user/subscription`, {
     headers: { "xi-api-key": apiKey() },
-  });
+  }, 10_000);
 
   if (!response.ok) throw new Error(`ElevenLabs subscription (${response.status})`);
   return (await response.json()) as {
@@ -202,7 +218,7 @@ export async function isElevenLabsAvailable(): Promise<boolean> {
   const key = process.env.ELEVEN_LABS_API_KEY || process.env.ELEVENLABS_API_KEY;
   if (!key) return false;
   try {
-    const r = await fetch(`${API_BASE}/user`, { headers: { "xi-api-key": key } });
+    const r = await fetchWithTimeout(`${API_BASE}/user`, { headers: { "xi-api-key": key } }, 5_000);
     return r.ok;
   } catch {
     return false;

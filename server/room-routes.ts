@@ -23,6 +23,10 @@ export interface CallRoom {
 const rooms = new Map<string, CallRoom>();
 const tokenToRoom = new Map<string, string>();
 
+function isLegacyMeetingTransportEnabled(): boolean {
+  return (process.env.ENABLE_LEGACY_SIGNALING_WS || "").toLowerCase() === "true";
+}
+
 function generateToken(): string {
   return crypto.randomBytes(4).toString("hex");
 }
@@ -48,6 +52,16 @@ export function registerRoomRoutes(app: Express) {
 
       if (!callType || !hostLanguage || !guestLanguage) {
         res.status(400).json({ error: "callType, hostLanguage, guestLanguage required" });
+        return;
+      }
+
+      if (callType !== "f2f" && !isLegacyMeetingTransportEnabled()) {
+        res.status(409).json({
+          error: "Legacy meeting transport is disabled for video/audio rooms",
+          legacyTransportRequired: true,
+          legacyTransportEnabled: false,
+          recommendedRoute: "/calls/face-to-face",
+        });
         return;
       }
 
@@ -78,6 +92,8 @@ export function registerRoomRoutes(app: Express) {
 
       res.json({
         success: true,
+        legacyTransportRequired: room.callType !== "f2f",
+        legacyTransportEnabled: room.callType === "f2f" ? true : isLegacyMeetingTransportEnabled(),
         room: {
           id: room.id,
           token: room.token,
@@ -117,6 +133,16 @@ export function registerRoomRoutes(app: Express) {
         return;
       }
 
+      if (room.callType !== "f2f" && !isLegacyMeetingTransportEnabled()) {
+        res.status(409).json({
+          error: "Legacy meeting transport is disabled for this room type",
+          legacyTransportRequired: true,
+          legacyTransportEnabled: false,
+          callType: room.callType,
+        });
+        return;
+      }
+
       res.json({
         id: room.id,
         token: room.token,
@@ -128,6 +154,8 @@ export function registerRoomRoutes(app: Express) {
         voicePreservation: room.voicePreservation,
         emotionPreservation: room.emotionPreservation,
         status: room.status,
+        legacyTransportRequired: room.callType !== "f2f",
+        legacyTransportEnabled: room.callType === "f2f" ? true : isLegacyMeetingTransportEnabled(),
       });
     } catch (error) {
       console.error("Room lookup error:", error);
@@ -157,6 +185,16 @@ export function registerRoomRoutes(app: Express) {
         return;
       }
 
+      if (room.callType !== "f2f" && !isLegacyMeetingTransportEnabled()) {
+        res.status(409).json({
+          error: "Legacy meeting transport is disabled for this room type",
+          legacyTransportRequired: true,
+          legacyTransportEnabled: false,
+          callType: room.callType,
+        });
+        return;
+      }
+
       room.guestName = guestName || "Guest";
       if (guestLanguage) {
         room.guestLanguage = guestLanguage;
@@ -173,6 +211,8 @@ export function registerRoomRoutes(app: Express) {
         voicePreservation: room.voicePreservation,
         emotionPreservation: room.emotionPreservation,
         hostName: room.hostName,
+        legacyTransportRequired: room.callType !== "f2f",
+        legacyTransportEnabled: room.callType === "f2f" ? true : isLegacyMeetingTransportEnabled(),
       });
     } catch (error) {
       console.error("Room join error:", error);

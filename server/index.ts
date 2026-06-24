@@ -1,31 +1,29 @@
 import "./load-env";
+import fs from "fs";
+import path from "path";
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { serveStatic } from "./static";
 import { createServer } from "http";
-import { createFastifyServer } from "./fastify-server";
-import { featureFlags } from "./feature-flags";
-import { seed } from "./seed";
-import { signalingServer } from "./signaling-server";
-import { setupTwilioMediaWebSocket, setupAppWebSocket } from "./legacy/twilio-sim-bridge";
-import { setupAdminMonitor } from "./admin-monitor";
-import { setupCommunicationApiWebSocket } from "./communication-api-ws";
-import { setupFaceToFaceRealtimeWebSocket } from "./face-to-face-stream-ws";
-import { startCleanupScheduler } from "./cleanup-job";
 import { WebSocketServer } from "ws";
-import { securityHeaders, httpsRedirect } from "./security-middleware";
+import { corsMiddleware, httpsRedirect, securityHeaders } from "./security-middleware";
 import { logger } from "./observability";
 import { validateEnvironment } from "./env-validator";
 import { assertDatabaseReady, shutdownPool } from "./db";
-import { assertRedisReady, closeRedisClient } from "./redis";
+import { assertRedisReady, closeRedisClient, getRedisRuntimeStatus } from "./redis";
 import { BillingEngine } from "./billing-engine";
 import { startCommunicationBillingLoop } from "./communication-api-service";
 import { isLegacyTwilioBridgeEnabled } from "./call-platform-config";
+import { configService } from "./config-service";
+import { startSmartCallWatchdog } from "./modules/calls/smart-router";
 
 const app = express();
 const httpServer = createServer(app);
 let processHandlersBound = false;
 let shuttingDown = false;
+const startupPhaseState = new Map<string, { startedAt: number; status: "running" | "completed" | "failed"; durationMs?: number; error?: string }>();
+const STARTUP_PHASE_TIMEOUT_MS = Number.parseInt(process.env.STARTUP_PHASE_TIMEOUT_MS || "15000", 10);
+const STARTUP_GLOBAL_TIMEOUT_MS = Number.parseInt(process.env.STARTUP_GLOBAL_TIMEOUT_MS || "60000", 10);
+const STARTUP_TRACE_FILE = path.resolve(process.cwd(), ".tmp", "startup-phase-trace.log");
+let startupTimeoutHandle: NodeJS.Timeout | null = null;
 
 httpServer.on("error", (error) => {
   logger.error("Server", "HTTP server emitted an error", error instanceof Error ? error : new Error(String(error)));
@@ -38,7 +36,6 @@ declare module "http" {
   }
 }
 
-// Apply JSON middleware for all routes
 app.use(
   express.json({
     limit: "50mb",
@@ -47,15 +44,146 @@ app.use(
     },
   }),
 );
-
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
-
-// Security middleware - HTTPS redirect (production) and security headers
+app.use(corsMiddleware);
 app.use(httpsRedirect);
 app.use(securityHeaders);
 
 export function log(message: string, source = "Express") {
   logger.info(source, message);
+}
+
+function writeStartupTrace(message: string, metadata?: Record<string, unknown>): void {
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    pid: process.pid,
+    message,
+    metadata: metadata || {},
+  });
+
+  try {
+    fs.mkdirSync(path.dirname(STARTUP_TRACE_FILE), { recursive: true });
+    fs.appendFileSync(STARTUP_TRACE_FILE, `${line}\n`, "utf8");
+  } catch {
+    // Best-effort only. Do not break startup diagnostics if file writes fail.
+  }
+}
+
+function isStartupSubsystemDisabled(name: string): boolean {
+  return (process.env[`DISABLE_${name.toUpperCase()}_STARTUP`] || "").toLowerCase() === "true";
+}
+
+function summarizeHandle(handle: unknown): Record<string, unknown> {
+  const candidate = handle as {
+    constructor?: { name?: string };
+    fd?: number;
+    localAddress?: string;
+    localPort?: number;
+    remoteAddress?: string;
+    remotePort?: number;
+    hasRef?: () => boolean;
+    _idleTimeout?: number;
+    _onTimeout?: unknown;
+  };
+
+  return {
+    type: candidate?.constructor?.name || typeof handle,
+    fd: candidate?.fd,
+    localAddress: candidate?.localAddress,
+    localPort: candidate?.localPort,
+    remoteAddress: candidate?.remoteAddress,
+    remotePort: candidate?.remotePort,
+    hasRef: typeof candidate?.hasRef === "function" ? candidate.hasRef() : undefined,
+    idleTimeout: candidate?._idleTimeout,
+    hasOnTimeout: typeof candidate?._onTimeout === "function",
+  };
+}
+
+function dumpStartupDiagnostics(reason: string): void {
+  const getActiveHandles = (process as NodeJS.Process & { _getActiveHandles?: () => unknown[] })._getActiveHandles;
+  const getActiveRequests = (process as NodeJS.Process & { _getActiveRequests?: () => unknown[] })._getActiveRequests;
+  const handles = typeof getActiveHandles === "function" ? getActiveHandles.call(process) : [];
+  const requests = typeof getActiveRequests === "function" ? getActiveRequests.call(process) : [];
+
+  logger.error("Startup", `Startup diagnostics dump: ${reason}`, new Error(reason), {
+    phases: Array.from(startupPhaseState.entries()).map(([name, state]) => ({ name, ...state })),
+    activeHandles: handles.map(summarizeHandle),
+    activeRequests: requests.map(summarizeHandle),
+  });
+  writeStartupTrace(`diagnostics:${reason}`, {
+    phases: Array.from(startupPhaseState.entries()).map(([name, state]) => ({ name, ...state })),
+    activeHandles: handles.map(summarizeHandle),
+    activeRequests: requests.map(summarizeHandle),
+  });
+}
+
+async function runStartupPhase<T>(
+  name: string,
+  action: () => Promise<T>,
+  options?: { timeoutMs?: number; optional?: boolean; skip?: boolean },
+): Promise<T | undefined> {
+  if (options?.skip) {
+    logger.warn("Startup", `${name} skipped by startup isolation flag`);
+    return undefined;
+  }
+
+  const startedAt = Date.now();
+  startupPhaseState.set(name, { startedAt, status: "running" });
+  logger.warn("Startup", `${name} starting`, { startedAt, timeoutMs: options?.timeoutMs ?? STARTUP_PHASE_TIMEOUT_MS });
+  writeStartupTrace(`${name}:starting`, {
+    startedAt,
+    timeoutMs: options?.timeoutMs ?? STARTUP_PHASE_TIMEOUT_MS,
+  });
+
+  let phaseTimer: NodeJS.Timeout | null = null;
+  try {
+    const result = await Promise.race([
+      action(),
+      new Promise<never>((_, reject) => {
+        phaseTimer = setTimeout(() => {
+          dumpStartupDiagnostics(`${name} exceeded timeout`);
+          reject(new Error(`${name} exceeded timeout of ${options?.timeoutMs ?? STARTUP_PHASE_TIMEOUT_MS}ms`));
+        }, options?.timeoutMs ?? STARTUP_PHASE_TIMEOUT_MS);
+        phaseTimer.unref?.();
+      }),
+    ]);
+
+    const durationMs = Date.now() - startedAt;
+    startupPhaseState.set(name, { startedAt, status: "completed", durationMs });
+    logger.warn("Startup", `${name} completed`, { durationMs });
+    writeStartupTrace(`${name}:completed`, { durationMs });
+    return result;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    startupPhaseState.set(name, {
+      startedAt,
+      status: "failed",
+      durationMs,
+      error: error instanceof Error ? error.message : String(error),
+    });
+
+    if (options?.optional) {
+      logger.warn("Startup", `${name} failed but marked optional`, {
+        durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      writeStartupTrace(`${name}:optional-failed`, {
+        durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+
+    writeStartupTrace(`${name}:failed`, {
+      durationMs,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    if (phaseTimer) {
+      clearTimeout(phaseTimer);
+    }
+  }
 }
 
 async function shutdownServer(exitCode = 0) {
@@ -65,6 +193,13 @@ async function shutdownServer(exitCode = 0) {
 
   shuttingDown = true;
   logger.warn("Server", `Shutting down server with exit code ${exitCode}`);
+
+  // Hard kill-switch: if cleanup hangs, force-exit after 15 seconds.
+  const forceExit = setTimeout(() => {
+    logger.error("Server", "Graceful shutdown timed out — forcing exit");
+    process.exit(exitCode);
+  }, 15_000);
+  forceExit.unref?.();
 
   await new Promise<void>((resolve) => {
     httpServer.close(() => resolve());
@@ -76,7 +211,48 @@ async function shutdownServer(exitCode = 0) {
     closeRedisClient(),
   ]);
 
+  clearTimeout(forceExit);
   process.exit(exitCode);
+}
+
+async function retryCriticalStartupStep(
+  label: string,
+  action: () => Promise<void>,
+  attempts = (process.env.NODE_ENV || "").toLowerCase() === "production" ? 3 : 1,
+): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await action();
+      if (attempt > 1) {
+        logger.info("Startup", `${label} succeeded on retry ${attempt}/${attempts}`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      logger.warn("Startup", `${label} failed`, {
+        attempt,
+        attempts,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function isRedisStrictStartupRequired(): boolean {
+  return (process.env.REDIS_REQUIRED_STARTUP || "").toLowerCase() === "true";
+}
+
+function startRedisDependentRuntime(): void {
+  BillingEngine.startRuntimeSupervisor();
+  startCommunicationBillingLoop();
+  startSmartCallWatchdog();
 }
 
 function bindProcessHandlers() {
@@ -110,15 +286,12 @@ function bindProcessHandlers() {
   });
 }
 
-// Performance logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
   const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
+
+  res.json = function patchedJson(bodyJson, ...args) {
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
 
@@ -138,90 +311,162 @@ app.use((req, res, next) => {
 
 (async () => {
   bindProcessHandlers();
+  writeStartupTrace("startup:begin", {
+    startupPhaseTimeoutMs: STARTUP_PHASE_TIMEOUT_MS,
+    startupGlobalTimeoutMs: STARTUP_GLOBAL_TIMEOUT_MS,
+    nodeEnv: process.env.NODE_ENV,
+  });
+  startupTimeoutHandle = setTimeout(() => {
+    dumpStartupDiagnostics(`global startup exceeded ${STARTUP_GLOBAL_TIMEOUT_MS}ms`);
+  }, STARTUP_GLOBAL_TIMEOUT_MS);
+  startupTimeoutHandle.unref?.();
 
-  await validateEnvironment();
-  await assertDatabaseReady();
-  await assertRedisReady();
-  BillingEngine.startRuntimeSupervisor();
-  startCommunicationBillingLoop();
-
-  // Run seed to initialize default data
+  await runStartupPhase("bootstrap validation", () => validateEnvironment({ stage: "bootstrap" }));
+  await runStartupPhase("database readiness", () => retryCriticalStartupStep("database readiness", () => assertDatabaseReady()), { timeoutMs: 30000 });
+  let redisOperational = false;
   try {
-    await seed();
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.warn("⚠️  Seed failed (will continue):", errMsg);
-    logger.warn("Server", "Failed to run seed - continuing startup", { err: errMsg });
-    // Don't block server startup if database is slow/offline
-  }
+    await runStartupPhase("redis readiness", () => retryCriticalStartupStep("redis readiness", () => assertRedisReady()), { timeoutMs: 30000 });
+    const redisStatus = getRedisRuntimeStatus();
+    redisOperational = redisStatus.ready && !redisStatus.degraded;
+  } catch (error) {
+    const redisStatus = getRedisRuntimeStatus();
+    logger.error(
+      "Startup",
+      "Redis readiness failed - continuing with core API only",
+      error instanceof Error ? error : new Error(String(error)),
+      {
+        strictStartup: isRedisStrictStartupRequired(),
+        redisMode: redisStatus.mode,
+        redisReady: redisStatus.ready,
+        redisDegraded: redisStatus.degraded,
+        redisLastError: redisStatus.lastError,
+      },
+    );
 
-  // Compliance & Data Retention (Founder's Roadmap)
-  startCleanupScheduler();
-
-  // Load feature flags from database on startup (non-blocking)
-  try {
-    await featureFlags.loadFromDatabase();
-  } catch (err) {
-    console.warn("⚠️  Feature flags load failed (continuing with defaults):", err instanceof Error ? err.message : String(err));
-    // Use default feature flags - don't crash
-  }
-
-  // Start Fastify server for WebSocket routes on a different internal port
-  // In production, this would be behind a reverse proxy
-  try {
-    const fastify = await createFastifyServer();
-    
-    // Run Fastify on internal port for WebSocket handling
-    // The main Express server handles HTTP, Fastify handles WebSockets
-    const wsPort = parseInt(process.env.WS_PORT || "5001", 10);
-    
-    // For development, we'll proxy WebSocket requests through Express
-    // In production, use a proper reverse proxy setup
-    if (process.env.NODE_ENV !== "production") {
-      await fastify.listen({ port: wsPort, host: "0.0.0.0" });
-      log(`WebSocket server running on port ${wsPort}`, "fastify");
+    if (isRedisStrictStartupRequired()) {
+      throw error;
     }
-  } catch (err) {
-    console.error("Failed to start Fastify WebSocket server:", err);
+  }
+  await runStartupPhase("config service initialization", () => retryCriticalStartupStep("config service initialization", () => configService.initialize()), { timeoutMs: 10000 });
+  await runStartupPhase("runtime validation", () => validateEnvironment({ stage: "runtime" }));
+
+  if (redisOperational) {
+    await runStartupPhase("redis-dependent supervisor startup", async () => {
+      startRedisDependentRuntime();
+    }, { optional: true, skip: isStartupSubsystemDisabled("redis_supervisors") });
+  } else {
+    logger.warn("Startup", "Skipping Redis-dependent realtime supervisors because Redis is unavailable");
   }
 
-  // Attach WebRTC signaling server to main HTTP server for peer-to-peer calls
-  // Uses path-based routing so it works on port 5000 (the only externally accessible port)
-  try {
-    signalingServer.attachToServer(httpServer, "/ws/signaling");
-    log(`Signaling server attached to /ws/signaling`, "signaling");
-  } catch (err) {
-    console.error("Failed to attach signaling server:", err);
+  const allowStartupSeeding = (process.env.ENABLE_STARTUP_SEEDING || "").toLowerCase() === "true";
+  if (allowStartupSeeding || process.env.NODE_ENV !== "production") {
+    await runStartupPhase("startup seeding", async () => {
+      const { seed } = await import("./seed");
+      await seed();
+    }, { optional: true, skip: isStartupSubsystemDisabled("seed") });
+  } else {
+    logger.info("Server", "Skipping startup seeding in production");
   }
 
-  // Attach SIM-to-SIM call bridge WebSocket servers + Admin Monitor
+  await runStartupPhase("cleanup scheduler startup", async () => {
+    const { startCleanupScheduler } = await import("./cleanup-job");
+    startCleanupScheduler();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
+  await runStartupPhase("feature flags module import", async () => import("./feature-flags"), {
+    optional: true,
+    skip: isStartupSubsystemDisabled("feature_flags"),
+  }).then((featureFlagsModule) =>
+    runStartupPhase("feature flags database load", async () => {
+      await featureFlagsModule?.featureFlags.loadFromDatabase();
+    }, { optional: true, skip: isStartupSubsystemDisabled("feature_flags") }),
+  );
+
   try {
+    const fastifyModule = await runStartupPhase("fastify module import", async () => import("./fastify-server"), {
+      optional: true,
+      skip: isStartupSubsystemDisabled("fastify"),
+    });
+    const fastify = await runStartupPhase("fastify server creation", async () => fastifyModule!.createFastifyServer(), {
+      optional: true,
+      skip: isStartupSubsystemDisabled("fastify"),
+      timeoutMs: 20000,
+    });
+    const wsPort = parseInt(process.env.WS_PORT || "5001", 10);
+
+    if (fastify && process.env.NODE_ENV !== "production") {
+      await fastify.listen({ port: wsPort, host: "0.0.0.0" });
+      log(`WebSocket server running on port ${wsPort}`, "Fastify");
+    }
+  } catch (error) {
+    logger.error("Server", "Failed to start Fastify WebSocket server", error instanceof Error ? error : new Error(String(error)));
+  }
+
+  try {
+    const enableLegacySignaling = (process.env.ENABLE_LEGACY_SIGNALING_WS || "").toLowerCase() === "true";
+    const signalingModule = await runStartupPhase("signaling module import", async () => import("./signaling-server"), {
+      optional: true,
+      skip: isStartupSubsystemDisabled("signaling") || (!enableLegacySignaling && process.env.NODE_ENV === "production"),
+    });
+    await runStartupPhase("signaling server attachment", async () => {
+      signalingModule!.signalingServer.attachToServer(httpServer, "/ws/signaling");
+    }, {
+      optional: true,
+      skip: isStartupSubsystemDisabled("signaling") || (!enableLegacySignaling && process.env.NODE_ENV === "production"),
+    });
+    if (enableLegacySignaling || process.env.NODE_ENV !== "production") {
+      log("Signaling server attached to /ws/signaling", "Signaling");
+    } else {
+      log("Legacy signaling disabled in production; LiveKit remains authoritative transport", "Signaling");
+    }
+  } catch (error) {
+    logger.error("Server", "Failed to attach signaling server", error instanceof Error ? error : new Error(String(error)));
+  }
+
+  try {
+    const [
+      twilioBridgeModule,
+      adminMonitorModule,
+      communicationApiModule,
+      faceToFaceModule,
+    ] = await runStartupPhase("auxiliary websocket module imports", async () => Promise.all([
+      import("./legacy/twilio-sim-bridge"),
+      import("./admin-monitor"),
+      import("./communication-api-ws"),
+      import("./face-to-face-stream-ws"),
+    ]), {
+      optional: true,
+      skip: isStartupSubsystemDisabled("auxiliary_websockets"),
+      timeoutMs: 20000,
+    }) || [];
+
     const twilioMediaWss = new WebSocketServer({ noServer: true });
     const appSimWss = new WebSocketServer({ noServer: true });
     const adminMonitorWss = new WebSocketServer({ noServer: true });
     const communicationApiWss = new WebSocketServer({ noServer: true });
     const faceToFaceWss = new WebSocketServer({ noServer: true });
-    setupAdminMonitor(adminMonitorWss);
-    setupCommunicationApiWebSocket(communicationApiWss);
-    setupFaceToFaceRealtimeWebSocket(faceToFaceWss);
+    await runStartupPhase("auxiliary websocket attachment", async () => {
+      adminMonitorModule?.setupAdminMonitor(adminMonitorWss);
+      communicationApiModule?.setupCommunicationApiWebSocket(communicationApiWss);
+      faceToFaceModule?.setupFaceToFaceRealtimeWebSocket(faceToFaceWss);
+    }, {
+      optional: true,
+      skip: isStartupSubsystemDisabled("auxiliary_websockets"),
+    });
 
     const legacyTwilioBridgeEnabled = isLegacyTwilioBridgeEnabled();
     if (legacyTwilioBridgeEnabled) {
-      setupTwilioMediaWebSocket(twilioMediaWss);
-      setupAppWebSocket(appSimWss);
+      twilioBridgeModule?.setupTwilioMediaWebSocket(twilioMediaWss);
+      twilioBridgeModule?.setupAppWebSocket(appSimWss);
     }
 
     httpServer.on("upgrade", (request, socket, head) => {
       const url = new URL(request.url || "", `http://${request.headers.host}`);
-      console.log(`[WS-Upgrade] ${url.pathname} from ${request.headers.host}`);
       if (legacyTwilioBridgeEnabled && url.pathname.startsWith("/ws/twilio-media/")) {
-        console.log(`[WS-Upgrade] Routing to Twilio media handler`);
         twilioMediaWss.handleUpgrade(request, socket, head, (ws) => {
-          console.log(`[WS-Upgrade] Twilio media WebSocket upgraded successfully`);
           twilioMediaWss.emit("connection", ws, request);
         });
       } else if (legacyTwilioBridgeEnabled && url.pathname.startsWith("/ws/sim-call/")) {
-        console.log(`[WS-Upgrade] Routing to app sim-call handler`);
         appSimWss.handleUpgrade(request, socket, head, (ws) => {
           appSimWss.emit("connection", ws, request);
         });
@@ -239,51 +484,77 @@ app.use((req, res, next) => {
         });
       }
     });
+
     log(
       legacyTwilioBridgeEnabled
-        ? "Legacy SIM bridge + Admin monitor WebSocket servers attached"
+        ? "Legacy SIM bridge + admin monitor WebSocket servers attached"
         : "Unified call WebSocket servers attached (legacy SIM bridge disabled)",
-      "sim-bridge",
+      "Server",
     );
-  } catch (err) {
-    console.error("Failed to attach WebSocket servers:", err);
+  } catch (error) {
+    logger.error("Server", "Failed to attach WebSocket servers", error instanceof Error ? error : new Error(String(error)));
   }
 
-  console.log("[Server] Calling registerRoutes...");
-  await registerRoutes(httpServer, app);
-  console.log("[Server] ✅ registerRoutes completed");
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Express error handler:", err);
-    res.status(status).json({ message });
-    // Don't re-throw - log only to prevent crashes
+  const routesModule = await runStartupPhase("routes module import", async () => import("./routes"), {
+    timeoutMs: 20000,
+    skip: isStartupSubsystemDisabled("routes"),
+  });
+  await runStartupPhase("route registration", async () => {
+    await routesModule!.registerRoutes(httpServer, app);
+  }, {
+    timeoutMs: 30000,
+    skip: isStartupSubsystemDisabled("routes"),
   });
 
-  console.log("[Server] Setting up Vite/StaticFiles...");
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const error = err instanceof Error ? err : new Error(String(err));
+    const status = (error as Error & { status?: number; statusCode?: number }).status
+      || (error as Error & { status?: number; statusCode?: number }).statusCode
+      || 500;
+
+    logger.error("Express", "Unhandled route error", error);
+    res.status(status).json({ message: error.message || "Internal Server Error" });
+  });
+
   if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
+    const staticModule = await runStartupPhase("static module import", async () => import("./static"), {
+      optional: true,
+      skip: isStartupSubsystemDisabled("static"),
+    });
+    await runStartupPhase("static asset registration", async () => {
+      staticModule?.serveStatic(app);
+    }, { optional: true, skip: isStartupSubsystemDisabled("static") });
   } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+    const viteModule = await runStartupPhase("vite module import", async () => import("./vite"), { timeoutMs: 20000 });
+    await runStartupPhase("vite dev server setup", async () => viteModule!.setupVite(httpServer, app), { timeoutMs: 30000 });
   }
 
   const port = parseInt(process.env.PORT || "5000", 10);
-  console.log(`[Server] Starting HTTP server on port ${port}...`);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-    },
-    () => {
-      log(`✅ serving on port ${port}`);
-      log(`✅ WebSocket signaling on ws://localhost:${port}/ws/signaling`);
-      log(`✅ API health check: http://localhost:${port}/api/health`);
-    },
-  );
+  await runStartupPhase("http listener bind", () => new Promise<void>((resolve, reject) => {
+    logger.warn("Startup", `HTTP listener binding on port ${port}`);
+    writeStartupTrace("http listener bind:listen-call", { port, host: "0.0.0.0" });
+    httpServer.listen(
+      {
+        port,
+        host: "0.0.0.0",
+      },
+      () => {
+        const publicBaseUrl = process.env.APP_BASE_URL || `http://localhost:${port}`;
+        log(`Serving on port ${port}`);
+        log(`Health check available at ${publicBaseUrl}/api/health`);
+        writeStartupTrace("http listener bind:callback", { port, publicBaseUrl });
+        resolve();
+      },
+    );
+    httpServer.once("error", reject);
+  }), { timeoutMs: 10000 });
+
+  if (startupTimeoutHandle) {
+    clearTimeout(startupTimeoutHandle);
+    startupTimeoutHandle = null;
+  }
 })().catch(async (error) => {
+  dumpStartupDiagnostics("startup failed");
   logger.error("Server", "Server failed to start", error instanceof Error ? error : new Error(String(error)));
   await shutdownServer(1);
 });

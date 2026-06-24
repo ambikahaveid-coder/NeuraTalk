@@ -19,6 +19,8 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const InvestorDashboard = lazy(() => import("@/pages/InvestorDashboard"));
 const InvestorAuth = lazy(() => import("@/pages/InvestorAuth"));
 const EnterpriseDashboard = lazy(() => import("@/pages/EnterpriseDashboard"));
+const NumberHub = lazy(() => import("@/pages/enterprise/NumberHub"));
+const NumberRegistration = lazy(() => import("@/pages/enterprise/NumberRegistration"));
 const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const C2CCallPage = lazy(() => import("@/pages/calls/C2CCallPage"));
 const B2BCallPage = lazy(() => import("@/pages/calls/B2BCallPage"));
@@ -34,11 +36,13 @@ const VideoCallLegacy = lazy(async () => {
 });
 const PlatformConfigPage = lazy(() => import("@/pages/admin/PlatformConfigPage"));
 const LiveMonitor = lazy(() => import("@/pages/admin/LiveMonitor"));
+// Legacy meeting/video room flow. Keep isolated from primary LiveKit calling stack.
 const VideoCall = lazy(() => import("@/pages/VideoCall"));
 const CallHistory = lazy(() => import("@/pages/CallHistory"));
 const AIPersonas = lazy(() => import("@/pages/AIPersonas"));
 const AdminLogin = lazy(() => import("@/pages/AdminLogin"));
 const CallDiagnostics = lazy(() => import("@/pages/CallDiagnostics"));
+// Legacy join-token meeting flow. Primary app/app and app/PSTN calling should not depend on this path.
 const JoinCall = lazy(() => import("@/pages/JoinCall"));
 const MeetingsPage = lazy(() => import("@/pages/MeetingsPage"));
 const VoiceAssistantPage = lazy(() => import("@/pages/VoiceAssistantPage"));
@@ -63,6 +67,8 @@ import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { MobileNav } from "@/components/MobileNav";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
 
+const legacyMeetingTransportEnabled = (import.meta.env.VITE_ENABLE_LEGACY_MEETING_TRANSPORT || "").toLowerCase() === "true";
+
 function PageLoader() {
   return (
     <div className="fixed inset-0 flex items-center justify-center mesh-bg z-[100]" data-testid="page-loader">
@@ -78,6 +84,24 @@ function PageLoader() {
         <div className="text-center">
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-primary mb-1">Neural Linking</p>
           <p className="text-[10px] text-muted-foreground/60 tracking-wider">Initializing secure translation channel...</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LegacyTransportUnavailable() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-6">
+      <div className="max-w-md text-center space-y-3">
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-500">Legacy Route Disabled</p>
+        <h1 className="text-2xl font-bold">This meeting transport is not part of the primary calling stack.</h1>
+        <p className="text-sm text-muted-foreground">
+          Use the main LiveKit calling flows instead. Re-enable this route only for controlled legacy meeting support.
+        </p>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <a href="/meetings" className="text-sm text-primary underline underline-offset-4">Go to Meetings</a>
+          <a href="/calls/c2c" className="text-sm text-primary underline underline-offset-4">Go to Calls</a>
         </div>
       </div>
     </div>
@@ -266,14 +290,28 @@ function Router() {
       </Route>
 
       <Route path="/enterprise">
-        <ProtectedRoute 
-          component={EnterpriseDashboard} 
+        <ProtectedRoute
+          component={EnterpriseDashboard}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
+        />
+      </Route>
+
+      <Route path="/enterprise/hub">
+        <ProtectedRoute
+          component={NumberHub}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
+        />
+      </Route>
+
+      <Route path="/enterprise/hub/register">
+        <ProtectedRoute
+          component={NumberRegistration}
           allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
         />
       </Route>
 
       <Route path="/video/:roomCode">
-        <ProtectedRoute component={VideoCall} />
+        {legacyMeetingTransportEnabled ? <ProtectedRoute component={VideoCall} /> : <LegacyTransportUnavailable />}
       </Route>
 
       <Route path="/call-history">
@@ -293,7 +331,7 @@ function Router() {
       </Route>
 
       <Route path="/join/:token">
-        <Suspense fallback={<PageLoader />}><JoinCall /></Suspense>
+        {legacyMeetingTransportEnabled ? <Suspense fallback={<PageLoader />}><JoinCall /></Suspense> : <LegacyTransportUnavailable />}
       </Route>
 
       <Route path="/about">

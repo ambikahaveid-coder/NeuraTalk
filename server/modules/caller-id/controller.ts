@@ -91,13 +91,16 @@ export async function confirmVerification(req: Request, res: Response) {
       return res.status(400).json({ error: "Incorrect OTP — try again" });
     }
 
-    await storage.updateUser(user.id, { phoneVerified: true });
+    await storage.updateUser(user.id, {
+      callerIdVerified: true,
+      callerIdVerifiedAt: new Date(),
+    });
     clearVerificationId(user.id);
 
     logger.info("CallerID", `Number verified for user ${user.id}`);
     res.json({
       success: true,
-      message: "Number ownership verified. Outbound caller identity will follow provider and regulatory rules.",
+      message: "Number ownership verified. Caller identity eligibility is updated, but final PSTN number display remains provider/compliance dependent.",
     });
   } catch (e: any) {
     logger.error("CallerID", `OTP confirm failed for user ${user.id}: ${e.message}`);
@@ -109,11 +112,15 @@ export async function getStatus(req: Request, res: Response) {
   const user = req.user!;
   const phone = (user as any).phone as string | null | undefined;
   const phoneVerified = (user as any).phoneVerified as boolean | undefined;
+  const callerIdVerified = (user as any).callerIdVerified as boolean | undefined;
+  const callerIdVerifiedAt = (user as any).callerIdVerifiedAt as Date | string | null | undefined;
   const inboundNumber = process.env.NEURATALK_INBOUND_NUMBER || null;
 
   res.json({
     phone: phone || null,
     phoneVerified: !!phoneVerified,
+    callerIdVerified: !!callerIdVerified,
+    callerIdVerifiedAt: callerIdVerifiedAt || null,
     inboundNumber,
     forwardingInstructions: inboundNumber
       ? getCallForwardingInstructions(inboundNumber)

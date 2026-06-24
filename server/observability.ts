@@ -37,23 +37,22 @@ if (process.env.POSTHOG_API_KEY) {
   posthog = new PostHog(process.env.POSTHOG_API_KEY, {
     host: process.env.POSTHOG_HOST || 'https://app.posthog.com',
   });
-  console.log("PostHog analytics initialized successfully.");
 }
 
 // Initialize Sentry for production monitoring (Founder's Roadmap)
 if (process.env.SENTRY_DSN) {
+  const isProduction = (process.env.NODE_ENV || "development") === "production";
+  // Default: 5% traces in production to avoid cost blowup and alert floods.
+  // Override with SENTRY_TRACES_SAMPLE_RATE and SENTRY_PROFILES_SAMPLE_RATE env vars.
+  const tracesSampleRate = parseFloat(process.env.SENTRY_TRACES_SAMPLE_RATE ?? (isProduction ? "0.05" : "1.0"));
+  const profilesSampleRate = parseFloat(process.env.SENTRY_PROFILES_SAMPLE_RATE ?? (isProduction ? "0.05" : "1.0"));
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    integrations: [
-      nodeProfilingIntegration(),
-    ],
-    // Performance Monitoring
-    tracesSampleRate: 1.0, 
-    // Set sampling rate for profiling - 1.0 to profile 100% of sampled transactions
-    profilesSampleRate: 1.0,
+    integrations: [nodeProfilingIntegration()],
+    tracesSampleRate: Number.isFinite(tracesSampleRate) ? Math.min(Math.max(tracesSampleRate, 0), 1) : 0.05,
+    profilesSampleRate: Number.isFinite(profilesSampleRate) ? Math.min(Math.max(profilesSampleRate, 0), 1) : 0.05,
     environment: process.env.NODE_ENV || "development",
   });
-  console.log("Sentry monitoring initialized successfully.");
 }
 
 // ============================================================================
@@ -418,6 +417,17 @@ class PrivacySafeLogger extends EventEmitter { // Extended EventEmitter
     }
     if (error) {
       errorMetadata.err = error; // Store error object for Sentry
+      if (Sentry.getClient()) {
+        Sentry.withScope((scope) => {
+          scope.setTag("component", component);
+          for (const [key, value] of Object.entries(metadata || {})) {
+            scope.setContext(key, { value });
+          }
+          Sentry.captureException(error);
+        });
+      }
+    } else if (Sentry.getClient()) {
+      Sentry.captureMessage(`[${component}] ${message}`, "error");
     }
     this.log("error", component, message, errorMetadata);
   }
@@ -445,15 +455,20 @@ class PrivacySafeLogger extends EventEmitter { // Extended EventEmitter
       metadata,
     };
     
-    // Product Analytics & QoS (Founder's Roadmap)
+    // Product Analytics & QoS — non-PII aggregated call metrics only.
+    // distinctId is an anonymous session hash, never a userId or phone number.
+    // Only whitelisted metric fields are forwarded — no raw metadata spread.
     if (posthog && level === "info" && component === "CallStreaming") {
       posthog.capture({
-        distinctId: (metadata?.userId as string) || "system",
+        distinctId: "system",
         event: "call_telemetry",
         properties: {
           component,
           message,
-          ...metadata,
+          latencyMs: typeof metadata?.latencyMs === "number" ? metadata.latencyMs : undefined,
+          provider: typeof metadata?.provider === "string" ? metadata.provider : undefined,
+          callMode: typeof metadata?.callMode === "string" ? metadata.callMode : undefined,
+          errorCode: typeof metadata?.errorCode === "string" ? metadata.errorCode : undefined,
         },
       });
     }
@@ -547,7 +562,7 @@ export const logger = new PrivacySafeLogger();
 // Periodic cleanup every 5 minutes
 setInterval(() => {
   metrics.cleanup();
-}, 300000);
+}, 300000).unref?.();
 
 // ============================================================================
 // TESTING HELPERS

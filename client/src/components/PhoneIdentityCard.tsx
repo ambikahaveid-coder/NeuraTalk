@@ -1,5 +1,5 @@
 /**
- * PhoneIdentityCard — lets the user verify their number as outbound caller ID
+ * PhoneIdentityCard — lets the user verify their number for eligible outbound caller identity
  * and shows SIM call-forwarding instructions so inbound calls reach the app.
  */
 
@@ -73,7 +73,7 @@ export default function PhoneIdentityCard() {
     onSuccess: () => {
       setStep("idle");
       setOtp("");
-      showToast("Number ownership verified. Outbound caller identity eligibility updated.", true);
+      showToast("Number ownership verified. Caller identity eligibility updated. Final number display still depends on provider and compliance rules.", true);
       qc.invalidateQueries({ queryKey: ["/api/caller-id/status"] });
     },
     onError: (e: any) => {
@@ -114,8 +114,8 @@ export default function PhoneIdentityCard() {
         </CardTitle>
         <CardDescription className="text-xs">
           {verified
-            ? "Your line ownership is verified. Outbound caller identity follows provider and compliance rules."
-            : "Verify your line ownership for eligible caller identity and forwarding features."}
+            ? "Your line ownership is verified. Caller identity remains best-effort and follows provider/compliance rules."
+            : "Verify your line ownership for eligible caller identity and forwarding features. Exact PSTN number display is not guaranteed."}
         </CardDescription>
       </CardHeader>
 

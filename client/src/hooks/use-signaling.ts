@@ -1,39 +1,10 @@
 import { useRef, useCallback, useState, useEffect } from "react";
-
-export type SignalingMessageType =
-  | "register"
-  | "unregister"
-  | "call_initiate"
-  | "call_offer"
-  | "call_answer"
-  | "call_ice"
-  | "call_ringing"
-  | "call_accept"
-  | "call_reject"
-  | "call_busy"
-  | "call_end"
-  | "call_hold"
-  | "call_resume"
-  | "call_mute"
-  | "call_unmute"
-  | "media_ready"
-  | "error"
-  | "heartbeat"
-  | "ack"
-  | "video_enable"
-  | "video_disable"
-  | "translation_subtitle"
-  | "app_metadata";
-
-export interface SignalingMessage {
-  type: SignalingMessageType;
-  callId?: string;
-  sessionId?: string;
-  from?: string;
-  to?: string;
-  payload?: Record<string, unknown>;
-  timestamp: number;
-}
+import {
+  SIGNALING_MESSAGE,
+  normalizeSignalingMessage,
+  type SignalingMessage,
+} from "@shared/signaling-protocol";
+import { getAuthToken } from "./use-auth";
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "error";
 
@@ -50,23 +21,57 @@ export interface UseSignalingOptions {
 }
 
 const SIGNALING_URL = (() => {
-  // In development: connect to backend on port 5000
+  const explicitUrl = import.meta.env.VITE_SIGNALING_URL?.trim();
+  if (explicitUrl) {
+    return explicitUrl.replace(/\/+$/, "");
+  }
+
   if (import.meta.env.DEV) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     return `${protocol}//localhost:5000/ws/signaling`;
   }
-  // In production: use the same host
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/signaling`;
 })();
+
 const HEARTBEAT_INTERVAL = 30000;
 const RECONNECT_DELAY = 3000;
 
-export function useSignaling(options: UseSignalingOptions = {}) {
+async function fetchSignalingToken(): Promise<string> {
+  const authToken = getAuthToken();
+  if (!authToken) {
+    throw new Error("Authentication required before opening signaling connection");
+  }
+
+  const response = await fetch("/api/auth/ws-token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: "{}",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to mint signaling token (${response.status})`);
+  }
+
+  const payload = await response.json() as { token?: string };
+  if (!payload.token) {
+    throw new Error("Signaling token missing in server response");
+  }
+
+  return payload.token;
+}
+
+// Legacy signaling transport used only by older meeting/join flows.
+// Primary production calling should use the LiveKit/Azure-first call stack.
+export function useLegacySignaling(options: UseSignalingOptions = {}) {
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const heartbeatRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectRef = useRef<NodeJS.Timeout | null>(null);
+  const heartbeatRef = useRef<number | null>(null);
+  const reconnectRef = useRef<number | null>(null);
   const intentionalDisconnectRef = useRef(false);
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null);
   const optionsRef = useRef(options);
@@ -83,26 +88,31 @@ export function useSignaling(options: UseSignalingOptions = {}) {
   }, []);
 
   const startHeartbeat = useCallback(() => {
-    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
-    heartbeatRef.current = setInterval(() => {
-      send({ type: "heartbeat" });
+    if (heartbeatRef.current) {
+      window.clearInterval(heartbeatRef.current);
+    }
+    heartbeatRef.current = window.setInterval(() => {
+      send({ type: SIGNALING_MESSAGE.HEARTBEAT });
     }, HEARTBEAT_INTERVAL);
   }, [send]);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
-      clearInterval(heartbeatRef.current);
+      window.clearInterval(heartbeatRef.current);
       heartbeatRef.current = null;
     }
   }, []);
 
   const handleMessage = useCallback((event: MessageEvent) => {
     try {
-      const message: SignalingMessage = JSON.parse(event.data);
-      const opts = optionsRef.current;
+      const message = normalizeSignalingMessage(JSON.parse(event.data));
+      if (!message) {
+        throw new Error("Unsupported signaling message");
+      }
 
+      const opts = optionsRef.current;
       switch (message.type) {
-        case "ack":
+        case SIGNALING_MESSAGE.ACK:
           if (message.sessionId) {
             sessionIdRef.current = message.sessionId;
             setSessionId(message.sessionId);
@@ -111,7 +121,7 @@ export function useSignaling(options: UseSignalingOptions = {}) {
             setCurrentCallId(message.callId);
             if (pendingOfferRef.current) {
               send({
-                type: "call_offer",
+                type: SIGNALING_MESSAGE.CALL_OFFER,
                 callId: message.callId,
                 payload: { offer: pendingOfferRef.current },
               });
@@ -120,37 +130,37 @@ export function useSignaling(options: UseSignalingOptions = {}) {
           }
           break;
 
-        case "call_ringing":
+        case SIGNALING_MESSAGE.CALL_RINGING:
           if (message.callId && message.from) {
             setCurrentCallId(message.callId);
             opts.onCallRinging?.(message.callId, message.from);
           }
           break;
 
-        case "call_offer":
+        case SIGNALING_MESSAGE.CALL_OFFER:
           if (message.callId && message.payload?.offer) {
             opts.onCallOffer?.(message.callId, message.payload.offer as RTCSessionDescriptionInit);
           }
           break;
 
-        case "call_answer":
+        case SIGNALING_MESSAGE.CALL_ANSWER:
           if (message.callId && message.payload?.answer) {
             opts.onCallAnswer?.(message.callId, message.payload.answer as RTCSessionDescriptionInit);
           }
           break;
 
-        case "call_ice":
+        case SIGNALING_MESSAGE.CALL_ICE:
           if (message.callId && message.payload?.candidate) {
             opts.onIceCandidate?.(message.callId, message.payload.candidate as RTCIceCandidateInit);
           }
           break;
 
-        case "call_end":
+        case SIGNALING_MESSAGE.CALL_END:
           setCurrentCallId(null);
-          opts.onCallEnd?.(message.callId || "", message.payload?.reason as string);
+          opts.onCallEnd?.(message.callId || "", message.payload?.reason as string | undefined);
           break;
 
-        case "translation_subtitle":
+        case SIGNALING_MESSAGE.TRANSLATION_SUBTITLE:
           if (message.payload) {
             opts.onTranslationSubtitle?.({
               subtitle: message.payload.subtitle as string,
@@ -160,85 +170,100 @@ export function useSignaling(options: UseSignalingOptions = {}) {
           }
           break;
 
-        case "app_metadata":
-          if (message.payload && (message.payload as any).type === "request_translation_setup") {
-            // Auto-acknowledge translation parameters for B2B App-to-Web sync
+        case SIGNALING_MESSAGE.APP_METADATA:
+          if (message.payload?.type === "request_translation_setup") {
             send({
-              type: "app_metadata",
+              type: SIGNALING_MESSAGE.APP_METADATA,
               callId: message.callId,
-              payload: { type: "translation_setup_ack", status: "ready" }
+              payload: { type: "translation_setup_ack", status: "ready" },
             });
           }
           break;
 
-        case "error":
-          opts.onError?.(message.payload?.message as string || "Unknown error");
+        case SIGNALING_MESSAGE.ERROR:
+          opts.onError?.(
+            (message.payload?.message as string) ||
+              (message.payload?.error as string) ||
+              "Unknown error",
+          );
           break;
       }
     } catch (error) {
       console.error("[Signaling] Failed to parse message:", error);
     }
-  }, []);
+  }, [send]);
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+  const connect = useCallback(async () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
 
     intentionalDisconnectRef.current = false;
     setConnectionState("connecting");
-    console.log(`[Signaling] Connecting to ${SIGNALING_URL}`);
-    const ws = new WebSocket(SIGNALING_URL);
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log("[Signaling] ✅ Connected to signaling server");
-      setConnectionState("connected");
-      send({
-        type: "register",
-        payload: {
-          userId: optionsRef.current.userId,
-          phoneNumber: optionsRef.current.phoneNumber,
-          supportsWebRTC: true,
-          supportsVideo: true,
-          audioCodecs: ["opus"],
-          videoCodecs: ["vp8", "vp9", "h264"],
-        },
-      });
-      startHeartbeat();
-    };
+    try {
+      const wsToken = await fetchSignalingToken();
+      const wsUrl = `${SIGNALING_URL}?token=${encodeURIComponent(wsToken)}`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = handleMessage;
+      ws.onopen = () => {
+        setConnectionState("connected");
+        send({
+          type: SIGNALING_MESSAGE.REGISTER,
+          payload: {
+            userId: optionsRef.current.userId,
+            phoneNumber: optionsRef.current.phoneNumber,
+            supportsWebRTC: true,
+            supportsVideo: true,
+            audioCodecs: ["opus"],
+            videoCodecs: ["vp8", "vp9", "h264"],
+          },
+        });
+        startHeartbeat();
+      };
 
-    ws.onerror = (event) => {
-      console.error("[Signaling] ❌ WebSocket error:", event);
+      ws.onmessage = handleMessage;
+
+      ws.onerror = (event) => {
+        console.error("[Signaling] WebSocket error:", event);
+        setConnectionState("error");
+        optionsRef.current.onError?.("Failed to connect to signaling server.");
+      };
+
+      ws.onclose = (event) => {
+        setConnectionState("disconnected");
+        stopHeartbeat();
+        sessionIdRef.current = null;
+        setSessionId(null);
+
+        if (!intentionalDisconnectRef.current) {
+          reconnectRef.current = window.setTimeout(() => {
+            void connect();
+          }, RECONNECT_DELAY);
+        }
+
+        if (event.reason) {
+          optionsRef.current.onError?.(event.reason);
+        }
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to open signaling connection";
+      console.error("[Signaling] Failed before WebSocket connect:", error);
       setConnectionState("error");
-      optionsRef.current.onError?.("Failed to connect to signaling server. Check if backend is running on port 5000.");
-    };
-
-    ws.onclose = (event) => {
-      console.warn(`[Signaling] ⚠️ Disconnected (code: ${event.code}, reason: ${event.reason})`);
-      setConnectionState("disconnected");
-      stopHeartbeat();
-      sessionIdRef.current = null;
-      setSessionId(null);
-
-      if (!intentionalDisconnectRef.current) {
-        console.log(`[Signaling] Reconnecting in ${RECONNECT_DELAY}ms...`);
-        reconnectRef.current = setTimeout(() => {
-          connect();
-        }, RECONNECT_DELAY);
-      }
-    };
-  }, [send, startHeartbeat, stopHeartbeat, handleMessage]);
+      optionsRef.current.onError?.(message);
+    }
+  }, [handleMessage, send, startHeartbeat, stopHeartbeat]);
 
   const disconnect = useCallback(() => {
     intentionalDisconnectRef.current = true;
     if (reconnectRef.current) {
-      clearTimeout(reconnectRef.current);
+      window.clearTimeout(reconnectRef.current);
       reconnectRef.current = null;
     }
     stopHeartbeat();
     if (wsRef.current) {
-      send({ type: "unregister" });
+      send({ type: SIGNALING_MESSAGE.UNREGISTER });
       wsRef.current.close();
       wsRef.current = null;
     }
@@ -249,40 +274,40 @@ export function useSignaling(options: UseSignalingOptions = {}) {
 
   const initiateCall = useCallback((to: string, callType: "audio" | "video" = "video", metadata?: Record<string, unknown>) => {
     send({
-      type: "call_initiate",
+      type: SIGNALING_MESSAGE.CALL_INITIATE,
       to,
       payload: { callType, videoEnabled: callType === "video", metadata },
     });
   }, [send]);
 
   const acceptCall = useCallback((callId: string) => {
-    send({ type: "call_accept", callId });
+    send({ type: SIGNALING_MESSAGE.CALL_ACCEPT, callId });
   }, [send]);
 
   const rejectCall = useCallback((callId: string) => {
-    send({ type: "call_reject", callId });
+    send({ type: SIGNALING_MESSAGE.CALL_REJECT, callId });
   }, [send]);
 
   const sendOffer = useCallback((callId: string, offer: RTCSessionDescriptionInit) => {
-    send({ type: "call_offer", callId, payload: { offer } });
+    send({ type: SIGNALING_MESSAGE.CALL_OFFER, callId, payload: { offer } });
   }, [send]);
 
   const sendAnswer = useCallback((callId: string, answer: RTCSessionDescriptionInit) => {
-    send({ type: "call_answer", callId, payload: { answer } });
+    send({ type: SIGNALING_MESSAGE.CALL_ANSWER, callId, payload: { answer } });
   }, [send]);
 
   const sendIceCandidate = useCallback((callId: string, candidate: RTCIceCandidateInit) => {
-    send({ type: "call_ice", callId, payload: { candidate } });
+    send({ type: SIGNALING_MESSAGE.CALL_ICE, callId, payload: { candidate } });
   }, [send]);
 
   const endCall = useCallback((callId: string, reason?: string) => {
-    send({ type: "call_end", callId, payload: { reason } });
+    send({ type: SIGNALING_MESSAGE.CALL_END, callId, payload: { reason } });
     setCurrentCallId(null);
   }, [send]);
 
   const sendTranslationSubtitle = useCallback((callId: string, subtitle: string, language: string, emotion?: string) => {
     send({
-      type: "translation_subtitle",
+      type: SIGNALING_MESSAGE.TRANSLATION_SUBTITLE,
       callId,
       payload: { subtitle, language, emotion },
     });
@@ -292,10 +317,8 @@ export function useSignaling(options: UseSignalingOptions = {}) {
     pendingOfferRef.current = offer;
   }, []);
 
-  useEffect(() => {
-    return () => {
-      disconnect();
-    };
+  useEffect(() => () => {
+    disconnect();
   }, [disconnect]);
 
   return {
@@ -315,3 +338,5 @@ export function useSignaling(options: UseSignalingOptions = {}) {
     setPendingOffer,
   };
 }
+
+export const useSignaling = useLegacySignaling;

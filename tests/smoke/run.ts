@@ -5,8 +5,9 @@ import { normalizeTenantSlug, usesFirebasePhoneOtp } from "../../shared/auth-run
 import { calculateBillableSecondsForBudget, simulateChargeForDuration } from "../../shared/billing-math";
 import { resolveCallerIdentityMode, resolveRequestedJoinMethod } from "../../shared/call-routing";
 import { normalizePhoneNumber } from "../../shared/phone";
+import { createLinkedAbortController, getProviderHealthSnapshot, runWithResilience } from "../../server/voice-resilience";
 
-function run() {
+async function run() {
   const appToAppVideo = resolveEffectiveCallMode("app_to_app", "video", true);
   assert.deepEqual(appToAppVideo, { effectiveCallType: "video", effectiveLipsync: true });
 
@@ -98,6 +99,34 @@ function run() {
     callerPhoneVerified: false,
   }), "provider_caller_id");
 
+  const linkedAbort = createLinkedAbortController({
+    timeoutMs: 25,
+    label: "smoke-timeout",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert.equal(linkedAbort.controller.signal.aborted, true);
+  linkedAbort.cleanup();
+
+  let attempts = 0;
+  const resilientResult = await runWithResilience(async () => {
+    attempts += 1;
+    if (attempts < 2) {
+      throw new Error("first-attempt-failure");
+    }
+    return "ok";
+  }, {
+    provider: "smoke-provider",
+    operation: "retry",
+    timeoutMs: 200,
+    retries: 1,
+  });
+  assert.equal(resilientResult, "ok");
+  assert.equal(attempts, 2);
+
+  const providerHealth = getProviderHealthSnapshot().find((entry) => entry.provider === "smoke-provider");
+  assert.equal(Boolean(providerHealth), true);
+  assert.equal(providerHealth?.state === "healthy" || providerHealth?.state === "degraded", true);
+
   const originalNodeEnv = process.env.NODE_ENV;
   const originalStrict = process.env.STRICT_BILLING_GUARD;
 
@@ -129,4 +158,7 @@ function run() {
   console.log("qa:smoke passed");
 }
 
-run();
+run().catch((error) => {
+  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  process.exitCode = 1;
+});

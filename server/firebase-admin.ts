@@ -32,28 +32,44 @@ export function initializeFirebaseAdmin(): boolean {
   firebaseAdminInitialized = true;
   
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  
+  const isProduction = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+
   if (!serviceAccountJson) {
-    logger.warn(
-      "FirebaseAdmin",
-      "FIREBASE_SERVICE_ACCOUNT_JSON not set - Firebase Phone Auth will not be available. " +
-      "To enable, download service account JSON from Firebase Console and set as secret."
-    );
+    const message =
+      "FIREBASE_SERVICE_ACCOUNT_JSON is not set. " +
+      "Firebase Phone Auth is the sole mobile authentication method. " +
+      "Download the service account JSON from Firebase Console → Project Settings → Service Accounts.";
+
+    if (isProduction) {
+      logger.error("FirebaseAdmin", message);
+      throw new Error(`[FATAL] ${message}`);
+    }
+
+    logger.warn("FirebaseAdmin", message + " (non-production: continuing without Firebase Phone Auth)");
     return false;
   }
-  
+
   try {
     const serviceAccount = JSON.parse(serviceAccountJson);
-    
+
+    if (!serviceAccount.project_id || !serviceAccount.private_key || !serviceAccount.client_email) {
+      throw new Error("Service account JSON is missing required fields (project_id, private_key, client_email)");
+    }
+
     firebaseAdminApp = admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
-    
-    logger.info("FirebaseAdmin", "Firebase Admin SDK initialized successfully");
+
+    logger.info("FirebaseAdmin", `Firebase Admin SDK initialized for project: ${serviceAccount.project_id}`);
     return true;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error("FirebaseAdmin", `Failed to initialize Firebase Admin SDK: ${errorMessage}`);
+
+    if (isProduction) {
+      throw new Error(`[FATAL] Firebase Admin SDK initialization failed: ${errorMessage}`);
+    }
+
     return false;
   }
 }
@@ -66,7 +82,7 @@ export async function verifyFirebaseToken(
   idToken: string
 ): Promise<{ phoneNumber: string; uid: string } | null> {
   if (!firebaseAdminApp) {
-    logger.warn("FirebaseAdmin", "Cannot verify token - Firebase Admin not initialized");
+    logger.error("FirebaseAdmin", "Cannot verify Firebase ID token — Firebase Admin SDK is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_JSON is set.");
     return null;
   }
   

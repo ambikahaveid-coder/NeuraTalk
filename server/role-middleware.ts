@@ -391,6 +391,15 @@ export async function invalidateSession(token: string): Promise<void> {
   }
 }
 
+export async function invalidateAllSessionsForUser(userId: number): Promise<void> {
+  try {
+    await db.delete(userSessions).where(eq(userSessions.userId, userId));
+    logger.warn("Session", "All sessions invalidated for user", { userId });
+  } catch (error) {
+    logger.error("Session", "Failed to invalidate all user sessions", error as Error, { userId });
+  }
+}
+
 /**
  * Cleanup expired sessions (call periodically)
  */

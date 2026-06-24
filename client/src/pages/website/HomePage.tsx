@@ -101,7 +101,7 @@ export default function HomePage() {
             </div>
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-              <span>100% self-hosted & secure</span>
+              <span>Security-first, reliability-focused</span>
             </div>
           </motion.div>
         </div>

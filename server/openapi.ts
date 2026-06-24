@@ -31,7 +31,7 @@ Authorization: Bearer <your-token>
 - Voice/Video: 60 requests/minute
 
 ## WebSocket Endpoints
-- Signaling: /ws/signaling
+- Signaling: /ws/signaling (legacy meeting transport, disabled by default in primary production)
 - Voice AI: /ws/voice-ai
 - Lip-sync realtime: /ws/lipsync (future)
     `,

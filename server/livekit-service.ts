@@ -15,6 +15,23 @@
 
 import { AccessToken, RoomServiceClient, WebhookReceiver } from "livekit-server-sdk";
 import type { Room, ParticipantInfo } from "livekit-server-sdk";
+import { runWithResilience } from "./voice-resilience";
+import { logger } from "./observability";
+
+const LIVEKIT_TOKEN_MIN_TTL = 3600;   // 1 hour minimum
+const LIVEKIT_TOKEN_MAX_TTL = 86400;  // 24 hour maximum
+const LIVEKIT_BOT_TOKEN_TTL = 14400;  // 4 hours for server-side bots
+
+function getLiveKitTokenTtl(): number {
+  const raw = process.env.LIVEKIT_TOKEN_TTL_SECONDS;
+  if (!raw) return LIVEKIT_TOKEN_MIN_TTL;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < LIVEKIT_TOKEN_MIN_TTL || parsed > LIVEKIT_TOKEN_MAX_TTL) {
+    logger.warn("LiveKit", `LIVEKIT_TOKEN_TTL_SECONDS="${raw}" is outside valid range [${LIVEKIT_TOKEN_MIN_TTL}–${LIVEKIT_TOKEN_MAX_TTL}] — using ${LIVEKIT_TOKEN_MIN_TTL}s`);
+    return LIVEKIT_TOKEN_MIN_TTL;
+  }
+  return parsed;
+}
 
 type LiveKitConfig = {
   url: string;
@@ -109,13 +126,15 @@ export async function createCallRoom(opts: CreateCallRoomOptions): Promise<Room>
 export async function issueAccessToken(
   roomName: string,
   participant: CallParticipant,
-  ttlSeconds = 3600
+  ttlSeconds?: number
 ): Promise<string> {
   const config = requireLiveKitConfig();
+  const resolvedTtl = ttlSeconds ?? getLiveKitTokenTtl();
+
   const at = new AccessToken(config.apiKey, config.apiSecret, {
     identity: participant.userId,
     name: participant.displayName,
-    ttl: ttlSeconds,
+    ttl: resolvedTtl,
     metadata: JSON.stringify({
       language: participant.language,
       translationMode: participant.translationMode ?? "subtitles",
@@ -128,11 +147,13 @@ export async function issueAccessToken(
     roomJoin: true,
     canPublish: true,
     canSubscribe: true,
-    canPublishData: true,       // For chat messages in-call
-    canUpdateOwnMetadata: true, // Language switch mid-call
+    canPublishData: true,
+    canUpdateOwnMetadata: true,
   });
 
-  return at.toJwt();
+  const token = at.toJwt();
+  logger.info("LiveKit", `Token issued identity=${participant.userId} room=${roomName} role=${participant.role ?? "caller"} ttl=${resolvedTtl}s`);
+  return token;
 }
 
 /**
@@ -145,7 +166,7 @@ export async function issueBotToken(roomName: string, botName = "neuratalk-trans
   const at = new AccessToken(config.apiKey, config.apiSecret, {
     identity: botName,
     name: "NeuraTalk Translator",
-    ttl: 7200,
+    ttl: LIVEKIT_BOT_TOKEN_TTL,
     metadata: JSON.stringify({ role: "bot" }),
   });
 
@@ -155,11 +176,13 @@ export async function issueBotToken(roomName: string, botName = "neuratalk-trans
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
-    hidden: true,           // Bot doesn't show in participant list UI
+    hidden: true,
     recorder: false,
   });
 
-  return at.toJwt();
+  const token = at.toJwt();
+  logger.info("LiveKit", `Bot token issued identity=${botName} room=${roomName} ttl=${LIVEKIT_BOT_TOKEN_TTL}s`);
+  return token;
 }
 
 /**
@@ -231,7 +254,15 @@ export async function isLiveKitHealthy(): Promise<boolean> {
     return false;
   }
   try {
-    await getRoomService().listRooms();
+    await runWithResilience(
+      async () => getRoomService().listRooms(),
+      {
+        provider: "livekit-control-plane",
+        operation: "healthcheck",
+        timeoutMs: 3_000,
+        retries: 0,
+      },
+    );
     return true;
   } catch {
     return false;

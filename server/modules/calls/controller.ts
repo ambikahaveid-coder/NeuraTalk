@@ -4,11 +4,12 @@
  */
 
 import type { Request, Response } from "express";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
 import { db } from "../../db";
+import { getRedisClient } from "../../redis";
 import type { AuthenticatedUser } from "../../role-middleware";
 import {
   grantConsent,
@@ -49,12 +50,17 @@ import {
 import { hasValidConsent } from "../../call-privacy";
 import { CALL_STATUS, PERMISSIONS, users } from "@shared/schema";
 import * as svc from "./service";
-import { getMetricsSnapshot } from "./metrics";
+import { getMetricsSnapshot, getVoiceMetricsSnapshot } from "./metrics";
 import {
   isTerminalSmartCallState,
   normalizeSmartCallState,
   SMART_CALL_STATE,
 } from "./lifecycle";
+import {
+  buildUnifiedSessionFromLegacyCall,
+  buildUnifiedSessionFromInitiateResponse,
+  buildUnifiedSessionFromSmartCall,
+} from "./session-view";
 
 const initiateSchema = z.object({
   calleeIdentifier: z.string().min(1),
@@ -71,8 +77,14 @@ function mapMsg91StatusToSmartState(providerStatus: string): typeof SMART_CALL_S
   const status = String(providerStatus || "").trim().toLowerCase();
   if (!status) return null;
 
+  if (status.includes("queue") || status.includes("queued") || status.includes("initiat")) {
+    return SMART_CALL_STATE.CREATED;
+  }
   if (status.includes("answer") || status.includes("connect")) {
     return SMART_CALL_STATE.ANSWERED;
+  }
+  if (status.includes("progress") || status.includes("bridged") || status.includes("in-progress")) {
+    return SMART_CALL_STATE.ACTIVE;
   }
   if (status.includes("ring") || status.includes("queue")) {
     return SMART_CALL_STATE.RINGING;
@@ -313,6 +325,52 @@ function sendAccessDenied(res: Response) {
   return res.status(403).json({ error: "Access denied" });
 }
 
+function respondWithInitiateError(res: Response, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "Call initiate failed");
+
+  if (message.includes("CALLEE_PHONE_REQUIRED_FOR_PSTN")) {
+    return res.status(400).json({ message: "Phone number is required for PSTN calling." });
+  }
+
+  if (message.includes("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS")) {
+    return res.status(503).json({
+      message: "PSTN bridge is not ready. Configure a public callback base URL before calling mobile numbers.",
+    });
+  }
+
+  if (message.includes("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN")) {
+    return res.status(503).json({
+      message: "PSTN bridge is not ready. LiveKit SIP domain is missing.",
+    });
+  }
+
+  if (message.includes("MSG91 outbound call failed: 401")) {
+    return res.status(503).json({
+      message: "PSTN bridge authentication failed. Check MSG91 credentials before calling mobile numbers.",
+    });
+  }
+
+  if (message.includes("MSG91 outbound call failed: invalid destination number")) {
+    return res.status(400).json({
+      message: "Invalid phone number for PSTN calling. Use a valid mobile number with country code if needed.",
+    });
+  }
+
+  if (message.includes("MSG91_VOICE_CALLER_ID must be configured")) {
+    return res.status(503).json({
+      message: "PSTN caller identity is not configured. Set a verified MSG91 caller ID first.",
+    });
+  }
+
+  if (message.includes("MSG91_AUTH_KEY not configured")) {
+    return res.status(503).json({
+      message: "PSTN bridge credentials are missing. Configure MSG91 before calling mobile numbers.",
+    });
+  }
+
+  return res.status(500).json({ message });
+}
+
 export function livekitConfig(_req: Request, res: Response) {
   res.json(svc.getLivekitClientConfig());
 }
@@ -337,10 +395,22 @@ export async function initiate(req: Request, res: Response) {
       enableLipsync: parsed.data.enableLipsync,
       enableRecording: parsed.data.enableRecording,
     });
-    res.json(result);
+    res.json({
+      ...result,
+      session: buildUnifiedSessionFromInitiateResponse(result, {
+        callerId: String(user.id),
+        callerNumber: (user as any).phone || "",
+        callerDisplayName: user.username || null,
+        calleeIdentifier: parsed.data.calleeIdentifier,
+        callerLanguage: parsed.data.myLanguage,
+        calleeLanguage: parsed.data.theirLanguage,
+        translationMode: parsed.data.translationEnabled === false ? "off" : parsed.data.translationMode,
+        translationEnabled: parsed.data.translationEnabled ?? true,
+      }),
+    });
   } catch (e: any) {
     logger.error("CallInitiate", `Failed: ${e?.message}`, e);
-    res.status(500).json({ message: e?.message ?? "Call initiate failed" });
+    return respondWithInitiateError(res, e);
   }
 }
 
@@ -362,7 +432,49 @@ export async function conference(req: Request, res: Response) {
       participantIds,
       title,
     });
-    res.json(result);
+    res.json({
+      ...result,
+      session: {
+        id: result.callId,
+        callId: result.callId,
+        sessionId: result.callId,
+        status: "created",
+        routeType: "conference",
+        transport: "livekit",
+        provider: "conference",
+        callType: "voice",
+        sourceLanguage: hostLanguage || "auto",
+        targetLanguage: "multi",
+        translationEnabled: true,
+        translationMode: "subtitles",
+        callerIdentityMode: "app_identity",
+        callerIdentityDisclaimer: null,
+        caller: {
+          userId: String(user.id),
+          externalId: String(user.id),
+          phoneNumber: null,
+          displayName: user.username || null,
+        },
+        callee: {
+          userId: null,
+          externalId: participantIds.join(","),
+          phoneNumber: null,
+          displayName: title || null,
+        },
+        maskedNumber: null,
+        livekitUrl: result.livekitUrl ?? null,
+        pstnCallId: null,
+        createdAt: new Date().toISOString(),
+        connectedAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        statusSource: "smart-router" as const,
+        metadata: {
+          participantIds,
+          title: title || null,
+        },
+      },
+    });
   } catch (e: any) {
     logger.error("CallConference", `Failed: ${e?.message}`, e);
     res.status(500).json({ message: e?.message ?? "Conference failed" });
@@ -626,13 +738,67 @@ function resolveMsg91WebhookCallId(req: Request): string | null {
   return null;
 }
 
+function mapMsg91FailureReasonToSmartState(reason: unknown): typeof SMART_CALL_STATE[keyof typeof SMART_CALL_STATE] | null {
+  const normalized = String(reason || "").trim().toLowerCase();
+  if (!normalized) return null;
+
+  if (normalized.includes("busy")) return SMART_CALL_STATE.BUSY;
+  if (normalized.includes("no answer") || normalized.includes("no-answer") || normalized.includes("miss")) {
+    return SMART_CALL_STATE.MISSED;
+  }
+  if (normalized.includes("reject") || normalized.includes("declin") || normalized.includes("cancel")) {
+    return SMART_CALL_STATE.CANCELLED;
+  }
+  if (
+    normalized.includes("fail")
+    || normalized.includes("timeout")
+    || normalized.includes("unreachable")
+    || normalized.includes("not reachable")
+    || normalized.includes("network")
+    || normalized.includes("disconnected")
+  ) {
+    return SMART_CALL_STATE.FAILED;
+  }
+
+  return null;
+}
+
+function buildMsg91WebhookFingerprint(callId: string | null, body: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      callId: callId || "unknown",
+      providerCallId: (body as any)?.uuid ?? (body as any)?.call_id ?? null,
+      providerStatus: (body as any)?.status ?? (body as any)?.event ?? (body as any)?.call_status ?? null,
+      body,
+    }))
+    .digest("hex");
+}
+
+async function shouldProcessMsg91Webhook(callId: string | null, body: unknown): Promise<boolean> {
+  const fingerprint = buildMsg91WebhookFingerprint(callId, body);
+  const key = `msg91:webhook:${fingerprint}`;
+  const result = await getRedisClient().set(key, "1", "EX", 60 * 60 * 24, "NX");
+  return result === "OK";
+}
+
 async function handleMsg91Webhook(req: Request, res: Response, explicitCallId?: string | null) {
   if (!verifyMsg91WebhookSignature(req)) {
     return res.status(401).json({ error: "Invalid webhook signature" });
   }
 
   const callId = explicitCallId || resolveMsg91WebhookCallId(req);
-  logger.info("MSG91Webhook", `call=${callId || "unknown"}`, req.body);
+  if (!(await shouldProcessMsg91Webhook(callId, req.body).catch(() => true))) {
+    logger.info("MSG91Webhook", "Duplicate webhook ignored", {
+      callId: callId || "unknown",
+    });
+    return res.json({ received: true, duplicate: true });
+  }
+
+  logger.info("MSG91Webhook", `call=${callId || "unknown"}`, {
+    callId: callId || "unknown",
+    providerCallId: req.body?.uuid ?? req.body?.call_id ?? null,
+    providerStatus: req.body?.status ?? req.body?.event ?? req.body?.call_status ?? null,
+  });
 
   const providerStatus = String(
     req.body?.status
@@ -641,8 +807,14 @@ async function handleMsg91Webhook(req: Request, res: Response, explicitCallId?: 
       ?? req.body?.data?.status
       ?? "",
   ).toLowerCase();
+  const providerFailureReason = req.body?.failureReason
+    ?? req.body?.failure_reason
+    ?? req.body?.hangup_cause
+    ?? req.body?.reason
+    ?? req.body?.data?.failureReason
+    ?? null;
 
-  const mappedStatus = mapMsg91StatusToSmartState(providerStatus);
+  const mappedStatus = mapMsg91StatusToSmartState(providerStatus) || mapMsg91FailureReasonToSmartState(providerFailureReason);
 
   if (mappedStatus && callId && svc.isSmartCallId(callId)) {
     try {
@@ -655,8 +827,10 @@ async function handleMsg91Webhook(req: Request, res: Response, explicitCallId?: 
         providerStatus,
         providerUuid: req.body?.uuid ?? null,
         providerDirection: req.body?.direction ?? null,
-        providerFailureReason: req.body?.failureReason ?? null,
-        providerDurationSeconds: req.body?.duration ?? null,
+        providerFailureReason,
+        providerDurationSeconds: req.body?.duration ?? req.body?.bill_duration ?? req.body?.data?.duration ?? null,
+        providerAnsweredAt: req.body?.answered_at ?? req.body?.answer_time ?? null,
+        providerEndedAt: req.body?.ended_at ?? req.body?.end_time ?? null,
         webhookPayload: req.body,
       };
 
@@ -836,9 +1010,17 @@ export async function activeCalls(req: Request, res: Response) {
 
       const scopedSmart = smartCalls
         .filter((call) => canAccessSmartCall(user, call))
-        .map(serializeSmartCall);
+        .map((call) => ({
+          ...serializeSmartCall(call),
+          session: buildUnifiedSessionFromSmartCall(call),
+        }));
 
-      return res.json([...scopedLegacy, ...scopedSmart]);
+      const normalizedLegacy = scopedLegacy.map((call) => ({
+        ...call,
+        session: buildUnifiedSessionFromLegacyCall(call as unknown as Record<string, unknown>),
+      }));
+
+      return res.json([...normalizedLegacy, ...scopedSmart]);
     }
 
     const [legacyCalls, smartCalls] = await Promise.all([
@@ -849,9 +1031,18 @@ export async function activeCalls(req: Request, res: Response) {
     const activeLegacy = legacyCalls.filter((call) => isActiveStatus(call.status));
     const activeSmart = smartCalls
       .filter((call) => isActiveStatus(call.status))
-      .map(serializeSmartCall);
+      .map((call) => ({
+        ...serializeSmartCall(call),
+        session: buildUnifiedSessionFromSmartCall(call),
+      }));
 
-    res.json([...activeLegacy, ...activeSmart]);
+    res.json([
+      ...activeLegacy.map((call) => ({
+        ...call,
+        session: buildUnifiedSessionFromLegacyCall(call as unknown as Record<string, unknown>),
+      })),
+      ...activeSmart,
+    ]);
   } catch (error) {
     console.error("Error getting active calls:", error);
     res.status(500).json({ error: "Failed to get active calls" });
@@ -889,6 +1080,7 @@ export async function callHistory(req: Request, res: Response) {
         : 0,
       createdAt: c.createdAt,
       endedAt: c.endedAt ?? null,
+      session: buildUnifiedSessionFromSmartCall(c),
     }));
 
     res.json({ calls });
@@ -909,7 +1101,16 @@ export async function userCalls(req: Request, res: Response) {
       svc.listSmartCallsForUser(String(userId)),
     ]);
 
-    res.json([...legacyCalls, ...smartCalls.map(serializeSmartCall)]);
+    res.json([
+      ...legacyCalls.map((call) => ({
+        ...call,
+        session: buildUnifiedSessionFromLegacyCall(call as unknown as Record<string, unknown>),
+      })),
+      ...smartCalls.map((call) => ({
+        ...serializeSmartCall(call),
+        session: buildUnifiedSessionFromSmartCall(call),
+      })),
+    ]);
   } catch (error) {
     console.error("Error getting user calls:", error);
     res.status(500).json({ error: "Failed to get user calls" });
@@ -925,7 +1126,10 @@ export async function callById(req: Request, res: Response) {
       const call = await svc.getSmartCall(rawCallId);
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
-      return res.json(serializeSmartCall(call));
+      return res.json({
+        ...serializeSmartCall(call),
+        session: buildUnifiedSessionFromSmartCall(call),
+      });
     }
 
     const callId = parseNumericCallId(rawCallId);
@@ -934,7 +1138,10 @@ export async function callById(req: Request, res: Response) {
     const call = await getCall(callId);
     if (!call) return res.status(404).json({ error: "Call not found" });
     if (!(await canAccessLegacyCall(user, call))) return sendAccessDenied(res);
-    res.json(call);
+    res.json({
+      ...call,
+      session: buildUnifiedSessionFromLegacyCall(call as unknown as Record<string, unknown>),
+    });
   } catch (error) {
     console.error("Error getting call:", error);
     res.status(500).json({ error: "Failed to get call" });
@@ -950,7 +1157,10 @@ export async function callDetails(req: Request, res: Response) {
       const call = await svc.getSmartCall(rawCallId);
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
-      return res.json(serializeSmartCall(call));
+      return res.json({
+        ...serializeSmartCall(call),
+        session: buildUnifiedSessionFromSmartCall(call),
+      });
     }
 
     const callId = parseNumericCallId(rawCallId);
@@ -959,7 +1169,10 @@ export async function callDetails(req: Request, res: Response) {
     const call = await getCallWithDetails(callId);
     if (!call) return res.status(404).json({ error: "Call not found" });
     if (!(await canAccessLegacyCall(user, call))) return sendAccessDenied(res);
-    res.json(call);
+    res.json({
+      ...call,
+      session: buildUnifiedSessionFromLegacyCall(call as unknown as Record<string, unknown>),
+    });
   } catch (error) {
     console.error("Error getting call details:", error);
     res.status(500).json({ error: "Failed to get call details" });
@@ -980,10 +1193,13 @@ export function signalingInfo(_req: Request, res: Response) {
   try {
     const status = getGatewayStatus();
     res.json({
-      signalingUrl: `ws://localhost:${status.signalingPort}`,
+      signalingUrl: null,
+      legacySignalingUrl: process.env.ENABLE_LEGACY_SIGNALING_WS === "true" ? `ws://localhost:${status.signalingPort}` : null,
       infrastructure: status.infrastructure,
       connectedClients: status.connectedClients,
       activeCalls: status.activeCalls,
+      authoritativeTransport: "livekit",
+      legacySignalingEnabled: process.env.ENABLE_LEGACY_SIGNALING_WS === "true",
     });
   } catch (error) {
     console.error("Error getting signaling info:", error);
@@ -1904,7 +2120,13 @@ export async function resume(req: Request, res: Response) {
 // === ADMIN METRICS ===
 
 export function callMetrics(_req: Request, res: Response) {
-  res.json(getMetricsSnapshot());
+  const pipeline = getMetricsSnapshot();
+  const voice = getVoiceMetricsSnapshot();
+  res.json({
+    ...pipeline,
+    pipeline,
+    voice,
+  });
 }
 
 // === CALL TRANSFER ===

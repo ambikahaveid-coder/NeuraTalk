@@ -6,6 +6,11 @@ export interface Contact {
   name: string;
   identifier: string;
   language?: string;
+  hasApp?: boolean;
+  appUserId?: number | null;
+  appUsername?: string | null;
+  appDisplayIdentifier?: string | null;
+  appPreferredIdentifier?: string | null;
   isFavorite?: boolean;
   lastCalledAt?: string | null;
   avatarUrl?: string | null;

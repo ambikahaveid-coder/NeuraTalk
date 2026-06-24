@@ -54,20 +54,47 @@ const API_ENDPOINTS = [
         path: "/api/calls/create",
         description: "Initiate a new translated call",
         body: { 
-          callerNumber: "+1234567890", 
-          receiverNumber: "+0987654321",
-          callerLanguage: "en",
-          receiverLanguage: "es",
+          calleeIdentifier: "+919876543210",
+          callType: "voice",
+          myLanguage: "en",
+          theirLanguage: "bn",
           translationEnabled: true,
-          emotionPreservation: true
+          translationMode: "voice"
         },
-        response: { callId: "call_123", status: "created" },
+        response: {
+          callId: "call_123",
+          joinMethod: "app_to_pstn",
+          livekitUrl: "wss://media.neuratalk.io",
+          livekitToken: "lk_token",
+          session: {
+            callId: "call_123",
+            routeType: "app_to_pstn",
+            sourceLanguage: "en",
+            targetLanguage: "bn",
+            translationEnabled: true,
+            translationMode: "voice",
+            callerIdentityMode: "organization_caller_id",
+          },
+        },
       },
       {
         method: "GET",
         path: "/api/calls/:callId",
         description: "Get call details and status",
-        response: { id: 1, status: "active", duration: 120 },
+        response: {
+          id: "call_123",
+          status: "active",
+          session: {
+            callId: "call_123",
+            routeType: "app_to_pstn",
+            provider: "msg91_sip",
+            sourceLanguage: "en",
+            targetLanguage: "bn",
+            durationSeconds: 120,
+            caller: { externalId: "user_42", phoneNumber: "+919999999999" },
+            callee: { externalId: "+919876543210", phoneNumber: "+919876543210" },
+          },
+        },
       },
       {
         method: "POST",
@@ -160,15 +187,16 @@ const client = new NeuraTalk({
 
 // Initialize a call with real-time translation
 const call = await client.calls.create({
-  to: '+1234567890',
+  calleeIdentifier: '+919876543210',
+  callType: 'voice',
   myLanguage: 'en',
-  theirLanguage: 'es',
-  options: {
-    translationEnabled: true,
-    emotionPreservation: true,
-    voiceIdentityPreserved: true
-  }
+  theirLanguage: 'bn',
+  translationEnabled: true,
+  translationMode: 'voice'
 });
+
+console.log(call.session.routeType);
+console.log(call.session.callerIdentityMode);
 
 // Listen for events
 call.on('connected', () => console.log('Call connected'));
@@ -189,12 +217,16 @@ client = NeuraTalk(
 
 # Initialize a call with real-time translation
 call = client.calls.create(
-    to='+1234567890',
+    callee_identifier='+919876543210',
+    call_type='voice',
     my_language='en',
-    their_language='es',
+    their_language='bn',
     translation_enabled=True,
-    emotion_preservation=True
+    translation_mode='voice'
 )
+
+print(call.session["routeType"])
+print(call.session["callerIdentityMode"])
 
 # Listen for translations
 for event in call.stream():
@@ -220,14 +252,15 @@ curl -X POST https://api.neuratalk.io/api/calls/create \\
   -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "callerNumber": "+1234567890",
-    "receiverNumber": "+0987654321",
-    "callerLanguage": "en",
-    "receiverLanguage": "es",
-    "translationEnabled": true
+    "calleeIdentifier": "+919876543210",
+    "callType": "voice",
+    "myLanguage": "en",
+    "theirLanguage": "bn",
+    "translationEnabled": true,
+    "translationMode": "voice"
   }'`,
 
-  websocket: `// WebSocket Signaling for Real-time Calls
+  websocket: `// Legacy meeting signaling example (not the primary LiveKit calling path)
 const ws = new WebSocket('wss://api.neuratalk.io/signaling');
 
 // Register client
@@ -246,7 +279,7 @@ ws.send(JSON.stringify({
   to: 'user@example.com',
   metadata: {
     myLanguage: 'en',
-    theirLanguage: 'es',
+    theirLanguage: 'bn',
     translationEnabled: true
   }
 }));

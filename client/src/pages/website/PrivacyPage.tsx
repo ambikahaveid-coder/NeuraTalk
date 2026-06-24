@@ -154,10 +154,11 @@ export default function PrivacyPage() {
 
           <h2>6. Data Storage and Security</h2>
           <p>
-            All data is stored on our self-hosted, secure infrastructure following our 
-            "Dependency Zero Policy." We do NOT use third-party telecom services 
-            (like Twilio, Agora, or similar) for call handling. Your voice data never 
-            leaves our controlled infrastructure.
+            Core account and application data is stored on secure infrastructure we control.
+            To deliver realtime calling, translation, and phone-bridge features, NeuraTalk may
+            use vetted provider infrastructure as part of the live service path. We apply access
+            controls, encryption, and operational safeguards across both our systems and those
+            integrated service layers.
           </p>
           
           <h3>6.1 Security Measures</h3>

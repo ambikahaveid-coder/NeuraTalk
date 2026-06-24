@@ -61,9 +61,8 @@ interface TranslationRoute {
 
 type RouteSummaryStatus = "healthy" | "degraded" | "offline" | "unknown";
 
-const API_BASE = import.meta.env.DEV 
-  ? "http://localhost:5000" 
-  : (import.meta.env.VITE_API_URL || "https://neuratalk.in");
+const API_BASE = import.meta.env.VITE_API_URL?.trim()
+  || (import.meta.env.DEV ? "http://localhost:5000" : window.location.origin);
 
 export default function B2BCallPage() {
   const { user } = useAuth();
@@ -162,9 +161,10 @@ export default function B2BCallPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      const routeType = data.call?.session?.routeType || data.call?.joinMethod;
       toast({
         title: "Call Started",
-        description: `${data.call.joinMethod === "app_to_pstn" ? "Phone bridge" : "App call"} initiated successfully.`,
+        description: `${routeType === "app_to_pstn" ? "Phone bridge" : "App call"} initiated successfully.`,
       });
     },
     onError: (error: any) => {
@@ -724,7 +724,7 @@ export default function B2BCallPage() {
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    PSTN listeners need voice mode for translated audio. App users can still override after they join.
+                    PSTN listeners need voice mode for translated audio. Caller ID and final number display remain provider/compliance dependent.
                   </p>
                 </div>
                 <Separator />

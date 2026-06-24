@@ -8,6 +8,7 @@ import {
   getSmartCall,
   initiateCall as initiateUnifiedCall,
 } from "./modules/calls/service";
+import { buildUnifiedSessionFromSmartCall } from "./modules/calls/session-view";
 
 export function registerEnterpriseRoutes(app: Express): void {
   app.get("/api/enterprise/settings", loadUser, requireCompanyAdminOrAbove, async (_req: Request, res: Response) => {
@@ -451,6 +452,49 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
         ? Math.floor((Date.now() - (effectiveStart?.getTime() || Date.now())) / 1000)
         : 0;
 
+      const session = smartCall
+        ? buildUnifiedSessionFromSmartCall(smartCall)
+        : {
+            id: call!.callId,
+            callId: call!.callId,
+            sessionId: call!.callId,
+            status: effectiveStatus,
+            routeType: "enterprise_memory",
+            transport: "livekit",
+            provider: null,
+            callType: "voice",
+            sourceLanguage: call!.sourceLanguage,
+            targetLanguage: call!.targetLanguage,
+            translationEnabled: call?.translationEnabled ?? true,
+            translationMode: "voice",
+            callerIdentityMode: null,
+            callerIdentityDisclaimer: null,
+            caller: {
+              userId: call?.agentId ? String(call.agentId) : null,
+              externalId: call?.agentId ? String(call.agentId) : null,
+              phoneNumber: null,
+              displayName: null,
+            },
+            callee: {
+              userId: null,
+              externalId: call!.destination,
+              phoneNumber: call!.destination,
+              displayName: null,
+            },
+            maskedNumber: null,
+            livekitUrl: null,
+            pstnCallId: null,
+            createdAt: call!.startTime.toISOString(),
+            connectedAt: effectiveStart?.toISOString() ?? null,
+            endedAt: call?.endTime?.toISOString() ?? null,
+            durationSeconds: duration,
+            statusSource: "enterprise-memory" as const,
+            metadata: {
+              tenantId: call!.tenantId,
+              emotionDetectionEnabled: call?.emotionDetectionEnabled ?? true,
+            },
+          };
+
       res.json({
         callId: smartCall?.callId || call!.callId,
         status: effectiveStatus,
@@ -460,6 +504,7 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
         targetLanguage: smartCall?.calleeLanguage || call!.targetLanguage,
         translationEnabled: call?.translationEnabled ?? true,
         emotionDetectionEnabled: call?.emotionDetectionEnabled ?? true,
+        session,
       });
     } catch (error) {
       console.error("Failed to get call status:", error);

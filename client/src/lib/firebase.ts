@@ -14,20 +14,20 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let recaptchaVerifier: RecaptchaVerifier | null = null;
 
-export function getPhoneOtpProvider(): "firebase" | "sms" {
-  const provider = String(import.meta.env.VITE_PHONE_OTP_PROVIDER || "sms").trim().toLowerCase();
-  return provider === "firebase" ? "firebase" : "sms";
+/**
+ * Firebase Phone Auth is the sole mobile OTP provider.
+ * There is no SMS fallback — if Firebase is not configured the login screen
+ * will show an error and the user must contact support.
+ */
+export function getPhoneOtpProvider(): "firebase" {
+  return "firebase";
 }
 
 export function shouldUseFirebasePhoneOtp(): boolean {
-  return getPhoneOtpProvider() === "firebase";
+  return true;
 }
 
 export function initializeFirebase(): boolean {
-  if (!shouldUseFirebasePhoneOtp()) {
-    return false;
-  }
-
   const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
   const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
   const appId = import.meta.env.VITE_FIREBASE_APP_ID;
@@ -37,7 +37,11 @@ export function initializeFirebase(): boolean {
   const measurementId = import.meta.env.VITE_FIREBASE_MEASUREMENT_ID;
 
   if (!apiKey || !projectId || !appId) {
-    console.warn("Firebase config not available - using fallback OTP");
+    console.error(
+      "[NeuraTalk] Firebase is not configured. " +
+      "Set VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_APP_ID. " +
+      "Phone login will not work until these are provided.",
+    );
     return false;
   }
 
@@ -56,7 +60,7 @@ export function initializeFirebase(): boolean {
     auth = getAuth(app);
     return true;
   } catch (error) {
-    console.error("Firebase initialization failed:", error);
+    console.error("[NeuraTalk] Firebase initialization failed:", error);
     return false;
   }
 }
@@ -121,9 +125,10 @@ export function getFirebasePhoneAuthErrorMessage(error: unknown): string {
     case "auth/captcha-check-failed":
       return "Security verification failed. Please refresh and try again.";
     case "auth/app-not-authorized":
+      return "This app is not authorized for Firebase Phone Auth. Check Firebase Console → Authentication → Sign-in providers → Phone.";
     case "auth/invalid-app-credential":
     case "auth/internal-error":
-      return "Firebase accepted the request, but delivery is not reliable on this domain. Switching to direct SMS OTP.";
+      return "Firebase configuration error. Contact support if this persists.";
     default:
       return code ? `Phone verification failed (${code}).` : "Phone verification failed.";
   }

@@ -17,11 +17,12 @@
 
 import type { Express, Request, Response } from "express";
 import { metrics, logger } from "./observability";
-import { getMetricsSnapshot } from "./modules/calls/metrics";
+import { getMetricsSnapshot, getVoiceMetricsSnapshot } from "./modules/calls/metrics";
 import { getPipelineMetrics } from "./ultra-pipeline";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { callBillingRecords } from "@shared/schema";
+import { getProviderHealthSnapshot } from "./voice-resilience";
 
 // ─── Event Loop Lag Measurement ───────────────────────────────────
 let eventLoopLagMs = 0;
@@ -82,9 +83,12 @@ export function registerProductionMetrics(app: Express): void {
       }).from(callBillingRecords);
 
       let pipelineSnapshot: any = {};
+      let voiceSnapshot: any = {};
       try {
         pipelineSnapshot = getMetricsSnapshot();
+        voiceSnapshot = getVoiceMetricsSnapshot();
       } catch { /* metrics module may not be initialized */ }
+      const providerHealth = getProviderHealthSnapshot();
 
       // ── Process Metrics ──
       lines.push(prometheusHeader("neuratalk_process_heap_bytes", "Heap memory used in bytes", "gauge"));
@@ -188,6 +192,43 @@ export function registerProductionMetrics(app: Express): void {
         lines.push(prometheusLine("neuratalk_active_translator_bots", 0));
       }
 
+      if (voiceSnapshot?.transcriptConfidence) {
+        lines.push(prometheusHeader("neuratalk_transcript_confidence_p50_pct", "Transcript confidence p50 percent", "gauge"));
+        lines.push(prometheusLine("neuratalk_transcript_confidence_p50_pct", voiceSnapshot.transcriptConfidence.p50 || 0));
+        lines.push(prometheusLine("neuratalk_transcript_confidence_p95_pct", voiceSnapshot.transcriptConfidence.p95 || 0));
+        lines.push(prometheusLine("neuratalk_transcript_confidence_p99_pct", voiceSnapshot.transcriptConfidence.p99 || 0));
+
+        lines.push(prometheusHeader("neuratalk_reconnect_recovery_p50_ms", "Reconnect recovery p50 latency", "gauge"));
+        lines.push(prometheusLine("neuratalk_reconnect_recovery_p50_ms", voiceSnapshot.reconnectRecoveryMs?.p50 || 0));
+        lines.push(prometheusLine("neuratalk_reconnect_recovery_p95_ms", voiceSnapshot.reconnectRecoveryMs?.p95 || 0));
+        lines.push(prometheusLine("neuratalk_reconnect_recovery_p99_ms", voiceSnapshot.reconnectRecoveryMs?.p99 || 0));
+
+        lines.push(prometheusHeader("neuratalk_interruption_recovery_p50_ms", "Interruption recovery p50 latency", "gauge"));
+        lines.push(prometheusLine("neuratalk_interruption_recovery_p50_ms", voiceSnapshot.interruptionRecoveryMs?.p50 || 0));
+        lines.push(prometheusLine("neuratalk_interruption_recovery_p95_ms", voiceSnapshot.interruptionRecoveryMs?.p95 || 0));
+        lines.push(prometheusLine("neuratalk_interruption_recovery_p99_ms", voiceSnapshot.interruptionRecoveryMs?.p99 || 0));
+
+        lines.push(prometheusHeader("neuratalk_voice_signal_rate", "Derived realtime voice signal rates", "gauge"));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.duplicateTurnRate || 0, { metric: "duplicate_turn" }));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.staleTranscriptRate || 0, { metric: "stale_transcript" }));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.transcriptRegressionRate || 0, { metric: "transcript_regression" }));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.overlapRate || 0, { metric: "overlap" }));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.reconnectRecoveryRate || 0, { metric: "reconnect_recovery" }));
+        lines.push(prometheusLine("neuratalk_voice_signal_rate", voiceSnapshot.rates?.confidenceCoverageRate || 0, { metric: "confidence_coverage" }));
+
+        lines.push(prometheusHeader("neuratalk_voice_signal_total", "Realtime voice signal counters", "counter"));
+        for (const [metric, count] of Object.entries(voiceSnapshot.counters || {})) {
+          lines.push(prometheusLine("neuratalk_voice_signal_total", Number(count || 0), { metric }));
+        }
+      }
+
+      lines.push(prometheusHeader("neuratalk_provider_health_score", "Provider health score (0-100)", "gauge"));
+      lines.push(prometheusHeader("neuratalk_provider_circuit_open", "Provider circuit breaker open state", "gauge"));
+      for (const provider of providerHealth) {
+        lines.push(prometheusLine("neuratalk_provider_health_score", provider.score, { provider: provider.provider, state: provider.state }));
+        lines.push(prometheusLine("neuratalk_provider_circuit_open", provider.state === "open" ? 1 : 0, { provider: provider.provider }));
+      }
+
       res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
       res.send(lines.join("\n") + "\n");
     } catch (error) {
@@ -196,5 +237,5 @@ export function registerProductionMetrics(app: Express): void {
     }
   });
 
-  console.log("[ProductionMetrics] /metrics registered (/healthz, /readyz handled by production-routes)");
+  logger.info("ProductionMetrics", "/metrics registered (/healthz, /readyz handled by production-routes)");
 }

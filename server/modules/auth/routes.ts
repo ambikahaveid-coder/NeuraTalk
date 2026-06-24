@@ -7,9 +7,11 @@ import type { Express } from "express";
 import { api } from "@shared/routes";
 import {
   authLimiter,
+  otpPhoneRequestLimiter,
   otpRequestLimiter,
   otpRequestDailyLimiter,
   otpVerifyLimiter,
+  otpVerifyLockoutCheck,
   wsTokenLimiter,
 } from "../../rate-limit";
 import { loadUser, requireAuth } from "../../role-middleware";
@@ -35,8 +37,8 @@ export function registerAuthRoutes(app: Express): void {
   app.get(api.auth.me.path, loadUser, ctrl.me);
 
   // OTP (generic — used by B2C + B2B)
-  app.post("/api/auth/otp/request", otpRequestLimiter, otpRequestDailyLimiter, ctrl.otpRequest);
-  app.post("/api/auth/otp/verify", otpVerifyLimiter, ctrl.otpVerify);
+  app.post("/api/auth/otp/request", otpRequestLimiter, otpPhoneRequestLimiter, otpRequestDailyLimiter, ctrl.otpRequest);
+  app.post("/api/auth/otp/verify", otpVerifyLimiter, otpVerifyLockoutCheck(), ctrl.otpVerify);
 
   // Logout
   app.post("/api/auth/logout", loadUser, ctrl.logout);

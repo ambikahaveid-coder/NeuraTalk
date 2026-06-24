@@ -1,198 +1,227 @@
 import { logger } from "./observability";
 
-/**
- * ENVIRONMENT VALIDATOR
- *
- * Checks for missing AND mock/placeholder environment variables.
- * Mock values are just as broken as missing ones — they cause 401/auth errors at runtime.
- */
-
-// Values that look set but are actually placeholder mocks
 const MOCK_PATTERNS = [
-  /^sk-mock-/,
+  /^sk-mock-/i,
   /^mock_/i,
   /^AC_mock_/i,
   /^rzp_test_mock/i,
+  /^rzp_(?:test|live)_[x]+$/i,
   /^super-secret-session-key/i,
   /^your[-_]/i,
+  /^example$/i,
+  /^example[_-]/i,
   /placeholder/i,
   /^changeme$/i,
   /^REPLACE_ME$/,
+  /^https?:\/\/(?:localhost|127\.0\.0\.1)/i,
 ];
 
-function isMockValue(value: string): boolean {
-  return MOCK_PATTERNS.some((p) => p.test(value));
-}
+const BOOTSTRAP_REQUIRED_VARS = ["DATABASE_URL", "REDIS_URL", "SESSION_SECRET"];
 
-// Absolutely required — server won't function without these
-const REQUIRED_VARS = ["DATABASE_URL", "REDIS_URL", "SESSION_SECRET"];
-
-// Hard-required in production mode only. Missing any of these with
-// NODE_ENV=production will refuse to start — no silent degradation.
 const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
-  DEEPGRAM_API_KEY: "Streaming STT mandatory — batch fallback is disabled",
-  AZURE_SPEECH_KEY: "Streaming TTS mandatory — batch fallback is disabled",
-  AZURE_SPEECH_REGION: "Azure region must be explicit (e.g. centralindia)",
-  LIVEKIT_URL: "Realtime transport mandatory for calls",
-  LIVEKIT_API_KEY: "LiveKit tokens cannot be issued without this",
-  LIVEKIT_API_SECRET: "LiveKit tokens cannot be issued without this",
-  OPENAI_API_KEY: "Streaming translation mandatory — core throws without this",
-};
-
-// Important — features degrade without these (warn, don't exit)
-const FIREBASE_PHONE_OTP_REQUIRED_VARS: Record<string, string> = {
-  FIREBASE_SERVICE_ACCOUNT_JSON: "Firebase Admin SDK must verify phone-auth ID tokens",
-  VITE_FIREBASE_API_KEY: "Firebase client SDK cannot send phone OTP without this",
+  STT_PROVIDER: "STT provider selection must be explicit for production",
+  AZURE_SPEECH_KEY: "Streaming TTS is required for production voice paths",
+  AZURE_SPEECH_REGION: "Azure speech region must be explicitly configured",
+  LIVEKIT_URL: "Realtime media transport depends on LiveKit",
+  LIVEKIT_API_KEY: "LiveKit token issuance depends on this key",
+  LIVEKIT_API_SECRET: "LiveKit token issuance depends on this secret",
+  OPENAI_API_KEY: "Core realtime translation paths depend on OpenAI",
+  APP_BASE_URL: "External callbacks and provider webhooks require a stable public base URL",
+  FIREBASE_SERVICE_ACCOUNT_JSON: "Firebase Phone Auth is the sole mobile OTP method — Admin SDK must be able to verify tokens",
+  VITE_FIREBASE_API_KEY: "Firebase client SDK cannot request phone OTP without this",
   VITE_FIREBASE_PROJECT_ID: "Firebase client SDK needs the project ID",
   VITE_FIREBASE_APP_ID: "Firebase client SDK needs the app ID",
 };
 
-function usesFirebasePhoneOtp(): boolean {
-  const provider = (
-    process.env.PHONE_OTP_PROVIDER ||
-    process.env.VITE_PHONE_OTP_PROVIDER ||
-    "firebase"
-  ).toLowerCase();
-  return provider === "firebase";
-}
 
 const IMPORTANT_VARS: Record<string, string> = {
-  // Core call infrastructure (new stack)
-  LIVEKIT_URL: "WebRTC calls unavailable — self-hosted LiveKit on RunPod required",
-  LIVEKIT_API_KEY: "LiveKit tokens cannot be issued — calls will fail",
-  LIVEKIT_API_SECRET: "LiveKit tokens cannot be issued — calls will fail",
-  DEEPGRAM_API_KEY: "Streaming STT unavailable for the voice assistant",
-  AZURE_SPEECH_KEY: "Azure Neural TTS unavailable for the voice assistant",
-  AZURE_SPEECH_REGION: "Azure Neural TTS region missing — voice assistant will fail",
-
-  // PSTN (India-first)
-  MSG91_AUTH_KEY: "Outbound PSTN calls to phones unavailable (India)",
-
-  // Local AI services on RunPod
-  LOCAL_WHISPER_URL: "STT will fall back to Azure/ElevenLabs (slower, paid)",
-  LOCAL_TRANSLATION_URL: "Translation will fall back to Azure/free APIs",
-  LOCAL_TTS_URL: "TTS will fall back to ElevenLabs (paid)",
-
-  // Legacy fallbacks (optional once LiveKit + MSG91 are live)
-  ELEVEN_LABS_API_KEY: "Premium TTS fallback unavailable",
-  RAZORPAY_KEY_ID: "Payments will be unavailable",
-  RAZORPAY_KEY_SECRET: "Payments will be unavailable",
-  AI_INTEGRATIONS_OPENAI_API_KEY: "OpenAI features will use local/free fallbacks",
+  MSG91_AUTH_KEY: "Outbound PSTN calls to phones remain unavailable",
+  MSG91_VOICE_CALLER_ID: "Verified PSTN caller identity will be unavailable",
+  MSG91_WEBHOOK_SECRET: "Inbound telephony webhooks will not be authenticated",
+  LOCAL_WHISPER_URL: "Local STT acceleration is unavailable",
+  LOCAL_TRANSLATION_URL: "Local translation acceleration is unavailable",
+  LOCAL_TTS_URL: "Local TTS acceleration is unavailable",
+  ELEVEN_LABS_API_KEY: "Premium TTS fallback is unavailable",
+  RAZORPAY_KEY_ID: "Payments are unavailable",
+  RAZORPAY_KEY_SECRET: "Payments are unavailable",
+  RAZORPAY_WEBHOOK_SECRET: "Payment webhook authenticity cannot be verified",
+  AI_INTEGRATIONS_OPENAI_API_KEY: "Some AI integration paths will fall back or fail",
+  PLATFORM_SECRET_KEY: "Database-stored secrets will be encrypted with SESSION_SECRET instead",
+  SENTRY_DSN: "Crash monitoring is disabled",
+  POSTHOG_API_KEY: "Product analytics and QoS instrumentation are disabled",
 };
 
-// Deprecated vars — warn if still set (user should migrate)
 const DEPRECATED_VARS: Record<string, string> = {
-  TWILIO_ACCOUNT_SID: "Twilio replaced by MSG91 for India (87% cheaper) — migrate to MSG91_AUTH_KEY",
-  TWILIO_AUTH_TOKEN: "Twilio replaced by MSG91 — see msg91-service.ts",
-  TWILIO_PHONE_NUMBER: "Twilio replaced by MSG91_VOICE_CALLER_ID",
+  TWILIO_ACCOUNT_SID: "Twilio is legacy here and should not be part of the primary production path",
+  TWILIO_AUTH_TOKEN: "Twilio is legacy here and should not be part of the primary production path",
+  TWILIO_PHONE_NUMBER: "Twilio is legacy here and should not be part of the primary production path",
 };
 
-export async function validateEnvironment() {
+export type EnvironmentValidationStage = "bootstrap" | "runtime";
+
+interface ValidationOptions {
+  stage?: EnvironmentValidationStage;
+}
+
+function isMockValue(value: string): boolean {
+  return MOCK_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+function getEnvValue(key: string): string {
+  return String(process.env[key] || "").trim();
+}
+
+function parseOrigins(rawValue: string): string[] {
+  return rawValue
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function isSecurePublicUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    return !["localhost", "127.0.0.1", "::1"].includes(host);
+  } catch {
+    return false;
+  }
+}
+
+export async function validateEnvironment(options: ValidationOptions = {}) {
+  const stage = options.stage ?? "runtime";
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const isProduction = (process.env.NODE_ENV || "").toLowerCase() === "production";
-  const redisUrl = process.env.REDIS_URL || "";
+  const isProduction = getEnvValue("NODE_ENV").toLowerCase() === "production";
+  const redisUrl = getEnvValue("REDIS_URL");
   const usesInMemoryRedis = redisUrl.startsWith("memory://");
+  const appBaseUrl = getEnvValue("APP_BASE_URL");
+  const frontendUrl = getEnvValue("FRONTEND_URL");
+  const allowedOrigins = parseOrigins(getEnvValue("ALLOWED_ORIGINS"));
 
-  // Check required vars
-  for (const key of REQUIRED_VARS) {
-    const val = process.env[key];
-    if (!val) {
+  for (const key of BOOTSTRAP_REQUIRED_VARS) {
+    const value = getEnvValue(key);
+    if (!value) {
       errors.push(`${key} is missing`);
-    } else if (isMockValue(val)) {
-      errors.push(`${key} is set to a placeholder/mock value — replace with a real value`);
+    } else if (isMockValue(value)) {
+      errors.push(`${key} is set to a placeholder/mock value and must be replaced`);
     }
   }
 
-  // ── Production hard blockers — prevent accidentally going live with broken state
+  const sessionSecret = getEnvValue("SESSION_SECRET");
+  if (sessionSecret && sessionSecret.length < 32) {
+    warnings.push("SESSION_SECRET is too short; use at least 32 random characters");
+  }
+
+  const platformSecretKey = getEnvValue("PLATFORM_SECRET_KEY");
+  if (platformSecretKey && platformSecretKey.length < 32) {
+    warnings.push("PLATFORM_SECRET_KEY is too short; use at least 32 random characters");
+  }
+
+  if (stage === "bootstrap") {
+    if (isProduction && appBaseUrl && !isSecurePublicUrl(appBaseUrl)) {
+      errors.push("APP_BASE_URL must be a public https URL in production");
+    }
+
+    if (warnings.length > 0) {
+      logger.warn("EnvValidator", `Bootstrap environment warnings:\n  - ${warnings.join("\n  - ")}`);
+    }
+
+    if (errors.length > 0) {
+      const message = `Critical bootstrap environment errors:\n  - ${errors.join("\n  - ")}`;
+      logger.error("EnvValidator", message);
+      throw new Error(message);
+    }
+
+    logger.info("EnvValidator", "Bootstrap environment validation passed.");
+    return { errors, warnings };
+  }
+
   if (isProduction) {
     if (usesInMemoryRedis) {
-      errors.push("REDIS_URL=memory://... is a dev shim. Production requires a real Redis (Upstash/ElastiCache) with rediss:// TLS.");
+      errors.push("REDIS_URL uses the in-memory development shim; production requires a real Redis instance");
     }
 
-    if ((process.env.FORCE_DUMMY_OTP || "").toLowerCase() === "true") {
-      errors.push("FORCE_DUMMY_OTP=true in production is a security hole — anyone can login with 123456. Must be false.");
-    }
+    for (const [key, reason] of Object.entries(PRODUCTION_REQUIRED_VARS)) {
+      const value = key === "OPENAI_API_KEY"
+        ? (getEnvValue("OPENAI_API_KEY") || getEnvValue("AI_INTEGRATIONS_OPENAI_API_KEY"))
+        : getEnvValue(key);
 
-    for (const [key, impact] of Object.entries(PRODUCTION_REQUIRED_VARS)) {
-      // OPENAI_API_KEY is also accepted via AI_INTEGRATIONS_OPENAI_API_KEY alias
-      if (key === "OPENAI_API_KEY") {
-        const val = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "";
-        if (!val) {
-          errors.push(`${key} is missing — ${impact}`);
-        } else if (isMockValue(val)) {
-          errors.push(`${key} is a placeholder — ${impact}`);
-        }
-        continue;
-      }
-      const val = process.env[key];
-      if (!val) {
-        errors.push(`${key} is missing — ${impact}`);
-      } else if (isMockValue(val)) {
-        errors.push(`${key} is a placeholder — ${impact}`);
+      if (!value) {
+        errors.push(`${key} is missing - ${reason}`);
+      } else if (isMockValue(value)) {
+        errors.push(`${key} is using a placeholder value - ${reason}`);
       }
     }
 
-    if (usesFirebasePhoneOtp()) {
-      for (const [key, impact] of Object.entries(FIREBASE_PHONE_OTP_REQUIRED_VARS)) {
-        const val = process.env[key];
-        if (!val) {
-          errors.push(`${key} is missing - ${impact}`);
-        } else if (isMockValue(val)) {
-          errors.push(`${key} is a placeholder - ${impact}`);
-        }
+    // If Razorpay is configured, webhook secret is required — without it any POST to the webhook
+    // URL bypasses signature verification and can fraudulently provision subscriptions/wallet credits
+    const razorpayKeyId = getEnvValue("RAZORPAY_KEY_ID");
+    if (razorpayKeyId && !isMockValue(razorpayKeyId)) {
+      const webhookSecret = getEnvValue("RAZORPAY_WEBHOOK_SECRET");
+      if (!webhookSecret) {
+        errors.push("RAZORPAY_WEBHOOK_SECRET is missing — required when RAZORPAY_KEY_ID is set to prevent unauthenticated payment webhooks");
+      } else if (isMockValue(webhookSecret)) {
+        errors.push("RAZORPAY_WEBHOOK_SECRET is using a placeholder value");
       }
     }
+
+    if (appBaseUrl && !isSecurePublicUrl(appBaseUrl)) {
+      errors.push("APP_BASE_URL must be a public https URL in production");
+    }
+
+    if (frontendUrl && !isSecurePublicUrl(frontendUrl)) {
+      errors.push("FRONTEND_URL must be a public https URL in production");
+    }
+
+    const invalidOrigins = allowedOrigins.filter((origin) => !isSecurePublicUrl(origin));
+    if (invalidOrigins.length > 0) {
+      errors.push(`ALLOWED_ORIGINS contains non-production origins: ${invalidOrigins.join(", ")}`);
+    }
+  } else if (usesInMemoryRedis) {
+    warnings.push("In-memory Redis shim is active; do not use this mode outside local development");
   }
 
-  if (usesInMemoryRedis && !isProduction) {
-    warnings.push("REDIS_URL=memory://... local in-memory Redis shim active. Use a real Redis only for staging/production.");
-  }
-
-  // Check important vars
-  for (const [key, impact] of Object.entries(IMPORTANT_VARS)) {
-    const val = process.env[key];
-    if (!val) {
-      warnings.push(`${key} not set — ${impact}`);
-    } else if (isMockValue(val)) {
-      warnings.push(`${key} is a mock/placeholder — ${impact}`);
+  for (const [key, reason] of Object.entries(IMPORTANT_VARS)) {
+    const value = getEnvValue(key);
+    if (!value) {
+      warnings.push(`${key} not set - ${reason}`);
+    } else if (isMockValue(value)) {
+      warnings.push(`${key} looks like a placeholder - ${reason}`);
     }
   }
 
-  // Warn about deprecated vars still in use
   for (const [key, note] of Object.entries(DEPRECATED_VARS)) {
-    if (process.env[key]) {
-      warnings.push(`${key} is DEPRECATED — ${note}`);
+    if (getEnvValue(key)) {
+      warnings.push(`${key} is deprecated - ${note}`);
     }
   }
 
-  if ((process.env.ENABLE_LEGACY_TWILIO_BRIDGE || "").toLowerCase() === "true") {
-    warnings.push("ENABLE_LEGACY_TWILIO_BRIDGE=true — legacy Twilio bridge is enabled. Production phone traffic should stay on calls module → smart-router → MSG91 SIP.");
+  if (getEnvValue("ENABLE_LEGACY_TWILIO_BRIDGE").toLowerCase() === "true") {
+    warnings.push("ENABLE_LEGACY_TWILIO_BRIDGE=true keeps a legacy call path enabled");
   }
 
-  // Warn if SESSION_SECRET is too short/weak
-  const sessionSecret = process.env.SESSION_SECRET || "";
-  if (sessionSecret && sessionSecret.length < 32 && !errors.some(e => e.includes("SESSION_SECRET"))) {
-    warnings.push("SESSION_SECRET is too short — use at least 32 random characters for security");
+  if (appBaseUrl && !/^https?:\/\//i.test(appBaseUrl)) {
+    warnings.push("APP_BASE_URL should be an absolute URL");
   }
 
-  // Log warnings
   if (warnings.length > 0) {
-    const msg = `Environment warnings:\n  - ${warnings.join("\n  - ")}`;
-    logger.warn("EnvValidator", msg);
-    console.warn("\x1b[33m[EnvValidator]\x1b[0m", "\n  - " + warnings.join("\n  - "));
+    logger.warn("EnvValidator", `Environment warnings:\n  - ${warnings.join("\n  - ")}`);
   }
 
-  // Handle errors
   if (errors.length > 0) {
-    const msg = `CRITICAL: Environment errors:\n  - ${errors.join("\n  - ")}`;
-    logger.error("EnvValidator", msg);
-    console.error("\x1b[31m[EnvValidator CRITICAL]\x1b[0m", "\n  - " + errors.join("\n  - "));
-    throw new Error(msg);
-  } else if (warnings.length === 0) {
+    const message = `Critical environment errors:\n  - ${errors.join("\n  - ")}`;
+    logger.error("EnvValidator", message);
+    throw new Error(message);
+  }
+
+  if (warnings.length === 0) {
     logger.info("EnvValidator", "All environment variables are configured correctly.");
-    console.log("\x1b[32m[EnvValidator]\x1b[0m All environment variables are configured correctly.");
   }
 
   return { errors, warnings };

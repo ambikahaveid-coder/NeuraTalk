@@ -11,6 +11,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { platformSecrets } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "./observability";
 
 const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32;
@@ -51,8 +52,7 @@ function getEncryptionKey(): Buffer {
     throw new Error("[ConfigService] PLATFORM_SECRET_KEY or SESSION_SECRET must be set for encrypted storage");
   }
   
-  // Use deployment-specific salt including REPL_ID for uniqueness
-  const salt = `neuratalk-${process.env.REPL_ID || "local"}-platform`;
+  const salt = "neuratalk-platform-v1";
   return crypto.scryptSync(keyEnv, salt, KEY_LENGTH);
 }
 
@@ -143,7 +143,8 @@ export const PLATFORM_CONFIG_KEYS: ConfigKey[] = [
   { key: "LIVEKIT_API_SECRET", category: "livekit", description: "LiveKit server API secret", requiredForStatus: true },
   { key: "LIVEKIT_SIP_DOMAIN", category: "livekit", description: "LiveKit SIP domain" },
 
-  { key: "DEEPGRAM_API_KEY", category: "deepgram", description: "Deepgram API key", requiredForStatus: true },
+  { key: "STT_PROVIDER", category: "azure", description: "Primary STT provider selector", requiredForStatus: true },
+  { key: "DEEPGRAM_API_KEY", category: "deepgram", description: "Deepgram API key for fallback STT only" },
 
   { key: "AGORA_APP_ID", category: "agora", description: "Agora App ID", requiredForStatus: true },
   { key: "AGORA_APP_CERTIFICATE", category: "agora", description: "Agora App certificate", requiredForStatus: true },
@@ -158,47 +159,66 @@ export class ConfigService {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
-    try {
-      // Timeout after 3 seconds to prevent hanging if database is slow
-      const initializePromise = (async () => {
-        const secrets = await db.select().from(platformSecrets).where(eq(platformSecrets.isSet, true));
-        
-        for (const secret of secrets) {
-          try {
-            const value = decrypt(secret.encryptedValue, secret.iv);
-            this.cache.set(secret.key, value);
-            
-            if (secret.key.startsWith("VITE_")) {
-              process.env[secret.key] = value;
-            } else {
-              process.env[secret.key] = value;
-            }
-            syncLegacyAliases(secret.key, value);
-          } catch (err) {
-            console.error(`[ConfigService] Failed to decrypt ${secret.key}:`, err);
+
+    const isProduction = process.env.NODE_ENV === "production";
+    // Neon serverless cold-starts can take 5–10s; allow 15s before giving up
+    const TIMEOUT_MS = isProduction ? 15_000 : 5_000;
+    const MAX_ATTEMPTS = 2;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const loadPromise = this.loadSecretsFromDb();
+        const timeoutPromise = new Promise<number>((resolve) => {
+          setTimeout(() => resolve(0), TIMEOUT_MS);
+        });
+
+        const count = await Promise.race([loadPromise, timeoutPromise]);
+
+        if (count > 0) {
+          this.initialized = true;
+          return;
+        }
+
+        if (attempt < MAX_ATTEMPTS) {
+          logger.warn("ConfigService", `Attempt ${attempt}/${MAX_ATTEMPTS}: timed out loading secrets — retrying`, {
+            timeoutMs: TIMEOUT_MS,
+          });
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } else {
+          const meta = { timeoutMs: TIMEOUT_MS, nodeEnv: process.env.NODE_ENV };
+          if (isProduction) {
+            logger.error("ConfigService", `All ${MAX_ATTEMPTS} attempts timed out loading platform secrets — running with env-only config`, undefined, meta);
+          } else {
+            logger.warn("ConfigService", `All ${MAX_ATTEMPTS} attempts timed out loading platform secrets — running with env-only config`, meta);
           }
         }
-        
-        console.log(`[ConfigService] Loaded ${secrets.length} platform secrets`);
-        return secrets.length;
-      })();
-
-      const timeoutPromise = new Promise<number>((resolve) => {
-        setTimeout(() => resolve(0), 3000);
-      });
-
-      const count = await Promise.race([initializePromise, timeoutPromise]);
-      
-      if (count === 0) {
-        console.warn("[ConfigService] Timeout loading secrets from database - continuing with defaults");
+      } catch (err) {
+        logger.error("ConfigService", `Attempt ${attempt}/${MAX_ATTEMPTS}: error loading secrets`, err as Error);
+        if (attempt < MAX_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
       }
-      
-      this.initialized = true;
-    } catch (err) {
-      console.warn("[ConfigService] Failed to load secrets:", err instanceof Error ? err.message : String(err));
-      this.initialized = true; // Mark as initialized anyway to prevent retries
     }
+
+    this.initialized = true;
+  }
+
+  private async loadSecretsFromDb(): Promise<number> {
+    const secrets = await db.select().from(platformSecrets).where(eq(platformSecrets.isSet, true));
+
+    for (const secret of secrets) {
+      try {
+        const value = decrypt(secret.encryptedValue, secret.iv);
+        this.cache.set(secret.key, value);
+        process.env[secret.key] = value;
+        syncLegacyAliases(secret.key, value);
+      } catch (err) {
+        logger.error("ConfigService", `Failed to decrypt ${secret.key}`, err as Error);
+      }
+    }
+
+    logger.info("ConfigService", `Loaded ${secrets.length} platform secrets from database`);
+    return secrets.length;
   }
 
   async setSecret(key: string, value: string, userId: number): Promise<void> {
@@ -237,7 +257,7 @@ export class ConfigService {
     process.env[key] = value;
     syncLegacyAliases(key, value);
 
-    console.log(`[ConfigService] Secret ${key} updated by user ${userId}`);
+    logger.info("ConfigService", `Secret ${key} updated`, { userId });
   }
 
   async deleteSecret(key: string, userId: number): Promise<void> {
@@ -250,7 +270,7 @@ export class ConfigService {
     delete process.env[key];
     syncLegacyAliases(key, undefined);
 
-    console.log(`[ConfigService] Secret ${key} permanently deleted by user ${userId}`);
+    logger.info("ConfigService", `Secret ${key} permanently deleted`, { userId });
   }
 
   getSecret(key: string): string | undefined {

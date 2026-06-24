@@ -59,6 +59,12 @@ export default function EnterpriseDashboard() {
                   Call Center
                 </Button>
               </Link>
+              <Link href="/enterprise/hub">
+                <Button variant="ghost" size="sm" className="gap-1">
+                  <Phone className="w-4 h-4" />
+                  Number Hub
+                </Button>
+              </Link>
               <Link href="/api-docs">
                 <Button variant="ghost" size="sm" className="gap-1" data-testid="link-api-docs">
                   <FileText className="w-4 h-4" />

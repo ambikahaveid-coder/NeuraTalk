@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useWebRTC } from "@/hooks/use-webrtc";
-import { useSignaling } from "@/hooks/use-signaling";
+import { useLegacySignaling } from "@/hooks/use-signaling";
 import { useAuth } from "@/hooks/use-auth";
 
 interface Participant {
@@ -73,7 +73,7 @@ export default function VideoCall() {
   });
 
   // ── Signaling server connection ──
-  const signaling = useSignaling({
+  const signaling = useLegacySignaling({
     userId: user?.id,
     // When we receive an offer (we are the callee)
     onCallOffer: async (callId, offer) => {

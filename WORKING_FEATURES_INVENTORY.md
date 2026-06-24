@@ -438,7 +438,7 @@
 - [x] `/api/voice/*` - Voice training
 - [x] `/api/twilio/*` - Twilio integration
 - [x] `/api/rtc/*` - WebRTC/ICE servers
-- [x] `/api/rooms/*` - Meeting rooms
+- [x] `/api/rooms/*` - Meeting rooms (legacy video/audio transport guarded; f2f remains primary-safe)
 - [x] `/api/meetings/*` - Meeting links
 - And 20+ more...
 

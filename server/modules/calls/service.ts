@@ -30,8 +30,8 @@ import { storage } from "../../storage";
 import { db } from "../../db";
 import { getRedisClient } from "../../redis";
 import { logger } from "../../observability";
-import { registeredDevices, auditLogs } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { registeredDevices, auditLogs, users } from "@shared/schema";
+import { eq, and, or, sql } from "drizzle-orm";
 import type { StrictBillingPlanConfig } from "../../billing-config";
 import type { ListenerTranslationMode } from "../../translation/translation-service";
 
@@ -60,7 +60,7 @@ function incomingQueueKey(userId: string): string {
 }
 
 function queueIncomingCallInMemory(userId: string, entry: IncomingCallEntry): void {
-  const list = incomingQueue.get(userId) ?? [];
+  const list = (incomingQueue.get(userId) ?? []).filter((existing) => existing.callId !== entry.callId);
   list.push(entry);
   incomingQueue.set(userId, list);
 }
@@ -113,7 +113,13 @@ async function queueIncomingCallInRedis(userId: string, entry: IncomingCallEntry
   try {
     const queueKey = incomingQueueKey(userId);
     const client = getRedisClient();
-    await client.multi()
+    const members = await client.zrange(queueKey, 0, -1);
+    const toRemove = members.filter((member) => parseIncomingCallEntry(member)?.callId === entry.callId);
+    const multi = client.multi();
+    if (toRemove.length > 0) {
+      multi.zrem(queueKey, ...toRemove);
+    }
+    await multi
       .zadd(queueKey, entry.expiresAt, JSON.stringify(entry))
       .expire(queueKey, INCOMING_QUEUE_TTL_SECONDS)
       .exec();
@@ -200,18 +206,38 @@ export function getLivekitClientConfig() {
 }
 
 /**
- * Resolve a callee identifier (phone or numeric user id) to a stored user, if any.
+ * Resolve a callee identifier (phone, email, username, or numeric user id) to a stored user, if any.
  */
 async function resolveCalleeUser(identifier: string) {
-  const normalized = identifier.replace(/\s+/g, "");
+  const rawIdentifier = (identifier ?? "").trim();
+  const normalized = rawIdentifier.replace(/\s+/g, "");
   if (/^\+?\d{10,15}$/.test(normalized)) {
-    return await storage.getUserByPhone(identifier);
+    return (
+      (await storage.getUserByPhone(normalized)) ??
+      (normalized.startsWith("+")
+        ? await storage.getUserByPhone(normalized.slice(1))
+        : await storage.getUserByPhone(`+${normalized}`))
+    );
   }
-  const asNum = Number(identifier);
+  const asNum = Number(rawIdentifier);
   if (Number.isFinite(asNum)) {
-    return await storage.getUser(asNum);
+    const byId = await storage.getUser(asNum);
+    if (byId) {
+      return byId;
+    }
   }
-  return undefined;
+
+  const loweredIdentifier = rawIdentifier.toLowerCase();
+  return await db.query.users.findFirst({
+    where: and(
+      eq(users.isActive, true),
+      or(
+        eq(users.username, rawIdentifier),
+        sql`LOWER(${users.email}) = ${loweredIdentifier}`,
+        sql`REPLACE(COALESCE(${users.phone}, ''), ' ', '') = ${normalized}`,
+      ),
+    ),
+  });
 }
 
 export interface InitiateCallParams {
@@ -352,6 +378,7 @@ export async function updateSmartCallStatus(
 }
 
 export type { SmartCallRecord } from "./smart-router";
+export type { CallInitiateResponse } from "./smart-router";
 
 export async function isActiveSmartCall(callId: string): Promise<boolean> {
   return routerIsActiveSmartCall(callId);

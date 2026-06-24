@@ -2,6 +2,11 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "./role-middleware";
 import {
+  paymentCreateLimiter,
+  paymentVerifyLimiter,
+  paymentWebhookLimiter,
+} from "./rate-limit";
+import {
   cancelViewerSubscription,
   confirmCheckoutPayment,
   createCheckoutOrder,
@@ -153,7 +158,7 @@ export function registerPaymentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/payments/create-order", requireAuth, async (req, res) => {
+  app.post("/api/payments/create-order", requireAuth, paymentCreateLimiter, async (req, res) => {
     try {
       const validation = createOrderSchema.safeParse(req.body);
       if (!validation.success) {
@@ -184,9 +189,9 @@ export function registerPaymentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/payments/verify", requireAuth, verifyCheckoutHandler);
-  app.post("/api/payments/confirm", requireAuth, verifyCheckoutHandler);
-  app.post("/api/payments/verify-payment", requireAuth, verifyCheckoutHandler);
+  app.post("/api/payments/verify", requireAuth, paymentVerifyLimiter, verifyCheckoutHandler);
+  app.post("/api/payments/confirm", requireAuth, paymentVerifyLimiter, verifyCheckoutHandler);
+  app.post("/api/payments/verify-payment", requireAuth, paymentVerifyLimiter, verifyCheckoutHandler);
 
   app.get("/api/payments/history", requireAuth, async (req, res) => {
     try {
@@ -217,7 +222,7 @@ export function registerPaymentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/payments/webhook/razorpay", async (req, res) => {
+  app.post("/api/payments/webhook/razorpay", paymentWebhookLimiter, async (req, res) => {
     try {
       const raw = (req as typeof req & { rawBody?: unknown }).rawBody;
       const rawBody = Buffer.isBuffer(raw)
@@ -234,8 +239,12 @@ export function registerPaymentRoutes(app: Express) {
 
       res.status(200).json({ success: true });
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Razorpay webhook failed";
       logger.error("PaymentRoutes", "Razorpay webhook failed", error as Error);
-      res.status(200).json({ success: true });
+      const status = message === "WEBHOOK_SIGNATURE_REQUIRED" || message === "INVALID_WEBHOOK_SIGNATURE"
+        ? 401
+        : 500;
+      res.status(status).json({ success: false, message });
     }
   });
 

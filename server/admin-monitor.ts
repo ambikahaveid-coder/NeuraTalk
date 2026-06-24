@@ -2,7 +2,8 @@ import { WebSocket, WebSocketServer } from "ws";
 import { IncomingMessage } from "http";
 import { signalingServer } from "./signaling-server";
 import { getGatewayStatus } from "./modules/calls/gateway";
-import { metricsEmitter, getMetricsSnapshot, type StageLatencyEvent } from "./modules/calls/metrics";
+import { metricsEmitter, getMetricsSnapshot, getVoiceMetricsSnapshot, type StageLatencyEvent } from "./modules/calls/metrics";
+import { buildUnifiedSessionFromLegacyCall } from "./modules/calls/session-view";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -149,6 +150,23 @@ function getSnapshot() {
     connectedAt: call.connectedAt,
     metadata: call.metadata,
     durationMs: call.connectedAt ? Date.now() - call.connectedAt : Date.now() - call.startedAt,
+    session: buildUnifiedSessionFromLegacyCall({
+      id: call.callId,
+      callId: call.callId,
+      status: call.status,
+      callType: call.callType,
+      callerUserId: Number.isFinite(Number(call.callerId)) ? Number(call.callerId) : null,
+      receiverUserId: Number.isFinite(Number(call.calleeId)) ? Number(call.calleeId) : null,
+      callerLanguage: typeof call.metadata?.callerLanguage === "string" ? call.metadata.callerLanguage : null,
+      receiverLanguage: typeof call.metadata?.calleeLanguage === "string" ? call.metadata.calleeLanguage : null,
+      translationEnabled: typeof call.metadata?.translationEnabled === "boolean" ? call.metadata.translationEnabled : null,
+      createdAt: new Date(call.startedAt),
+      connectedAt: call.connectedAt ? new Date(call.connectedAt) : null,
+      endedAt: null,
+      metadata: call.metadata ?? {},
+      livekitUrl: null,
+      pstnCallId: typeof call.metadata?.pstnCallId === "string" ? call.metadata.pstnCallId : null,
+    }),
   }));
 
   const clients = signalingServer.getRegisteredClients().map((c) => ({
@@ -180,6 +198,7 @@ function getSnapshot() {
     },
     gateway: gatewayStatus,
     pipelineMetrics: getMetricsSnapshot(),
+    voiceMetrics: getVoiceMetricsSnapshot(),
     currentSeqId: globalSeqId,
     timestamp: Date.now(),
   };

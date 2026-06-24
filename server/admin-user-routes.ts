@@ -491,7 +491,7 @@ export function registerAdminUserRoutes(app: Express) {
           description: "Optional speech recognition provider",
           icon: "headphones",
           keys: ["DEEPGRAM_API_KEY"],
-          requiredKeys: ["DEEPGRAM_API_KEY"],
+          requiredKeys: [],
         },
         {
           id: "agora",

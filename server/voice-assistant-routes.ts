@@ -23,6 +23,7 @@ export function registerVoiceAssistantRoutes(app: Express): void {
       res.status(503).json({
         configured: false,
         livekit: false,
+        deepgramFallback: false,
         deepgram: false,
         openai: false,
         azure: false,

@@ -1,8 +1,8 @@
 /**
  * RealtimeTranslationCore — transport-agnostic streaming translation orchestrator.
  *
- * Owns the full pipeline: VAD → Deepgram streaming STT → OpenAI streaming
- * translation → Azure streaming TTS → per-listener PCM16 frames, with
+ * Owns the full pipeline: VAD -> managed streaming STT -> OpenAI streaming
+ * translation -> Azure streaming TTS -> per-listener PCM16 frames, with
  * per-source barge-in and per-speaker language detection via the shared
  * universal-language-runtime (Redis).
  *
@@ -21,7 +21,12 @@
 
 import { randomUUID } from "crypto";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
-import { recordStageLatency } from "./modules/calls/metrics";
+import {
+  recordStageLatency,
+  recordTranscriptObservation,
+  recordVoiceCounter,
+  recordVoiceLatency,
+} from "./modules/calls/metrics";
 import { logger } from "./observability";
 import { buildTranscriptSignalEvent } from "./translation/stt-service";
 import {
@@ -39,8 +44,6 @@ import {
   setParticipantLanguagePreference,
 } from "./universal-language-runtime";
 import {
-  DeepgramLiveTranscriber,
-  type DeepgramTranscriptEvent,
   PCM_SAMPLE_RATE,
   applySpokenCorrections,
   computeRms,
@@ -48,9 +51,23 @@ import {
   normalizeSpaces,
   normalizeTranscript,
   streamAzureTtsFrames,
-  toDeepgramLanguage,
   wordCount,
 } from "./realtime-translation-core";
+import {
+  appendFinalTranscriptSegment,
+  clearFinalizedTranscriptSegments,
+  isDuplicateFinalTranslation,
+  isStaleFinalTranscript,
+  isTranscriptRegression,
+  isTurnOrderMismatch,
+  markStartedTranslation,
+  recordDeliveredFinalTranslation,
+  recordRenderedTranslation,
+  resetTranscriptMemory,
+  shouldStartTranslationFromTranscript,
+} from "./conversation-engine";
+import { createManagedStreamingSttSession } from "./providers/stt-provider-registry";
+import type { StreamingSttProviderSession, StreamingTranscriptEvent } from "./providers/voice-contracts";
 import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-streaming-translation";
 
 // ─── Public Types ─────────────────────────────────────────────────────────
@@ -105,6 +122,8 @@ const DEFAULT_PARTIAL_MIN_WORDS = 1;
 const DEFAULT_RESTART_MIN_CHAR_DELTA = 4;
 const DEFAULT_TARGET_LATENCY_MS = 800;
 const DEFAULT_TTS_READY_TIMEOUT_MS = 3_000;
+const DEFAULT_MAX_TTS_BACKLOG_SEGMENTS = 3;
+const DEFAULT_MAX_TTS_BACKLOG_MS = 1_500;
 
 // ─── Internal Types ───────────────────────────────────────────────────────
 
@@ -132,8 +151,7 @@ interface SpeakerPipeline {
   translationMode: ListenerTranslationMode;
   effectiveLanguage: string;
   detectedLanguage: string | null;
-  deepgram: DeepgramLiveTranscriber | null;
-  deepgramLanguage: string;
+  deepgram: StreamingSttProviderSession | null;
   recentSilenceFrames: number;
   turnId: string | null;
   turn: TurnLatency | null;
@@ -142,6 +160,7 @@ interface SpeakerPipeline {
   lastStartedTranscript: string;
   lastFinalTranscript: string;
   latestEmotion: EmotionState | null;
+  lastBargeInAt?: number;
 }
 
 interface OutputChannel {
@@ -156,6 +175,9 @@ interface OutputChannel {
   ttsChain: Promise<void>;
   speaking: boolean;
   lastRenderedTranslation: string;
+  lastDeliveredFinalTranslation: string;
+  pendingTtsSegments: number;
+  backlogSinceAt: number | null;
 }
 
 // ─── Core ─────────────────────────────────────────────────────────────────
@@ -220,7 +242,6 @@ export class RealtimeTranslationCore {
       effectiveLanguage: initialLanguage,
       detectedLanguage: null,
       deepgram: null,
-      deepgramLanguage: toDeepgramLanguage(initialLanguage),
       recentSilenceFrames: 0,
       turnId: null,
       turn: null,
@@ -229,6 +250,7 @@ export class RealtimeTranslationCore {
       lastStartedTranscript: "",
       lastFinalTranscript: "",
       latestEmotion: null,
+      lastBargeInAt: undefined,
     };
     this.speakerPipelines.set(speaker.id, pipeline);
     await setParticipantLanguagePreference(this.callId, speaker.id, preferredLanguage).catch(() => undefined);
@@ -304,13 +326,13 @@ export class RealtimeTranslationCore {
           turnId: pipeline.turnId,
           speechStartedAt: pipeline.firstSpeechFrameAt,
         };
-        pipeline.finalizedSegments = [];
-        pipeline.lastStartedTranscript = "";
-        pipeline.lastFinalTranscript = "";
+        resetTranscriptMemory(pipeline);
         this.resetChannelStateForSource(pipeline.identity, pipeline.turnId);
       }
 
       pipeline.recentSilenceFrames = 0;
+      pipeline.lastBargeInAt = Date.now();
+      recordVoiceCounter("overlap_events");
       // Barge-in: cancel anything we were saying AS or TO this speaker.
       this.interruptChannelsForSource(pipeline.identity, "speaker-restarted");
       this.interruptChannelsForTarget(pipeline.identity, "barge-in");
@@ -320,16 +342,19 @@ export class RealtimeTranslationCore {
     pipeline.recentSilenceFrames += 1;
   }
 
-  // ─── Deepgram lifecycle ──────────────────────────────────────────────────
+  // ─── Streaming STT lifecycle ────────────────────────────────────────────
 
   private async ensureDeepgramForPipeline(pipeline: SpeakerPipeline): Promise<void> {
     if (pipeline.deepgram) return;
 
-    pipeline.deepgram = new DeepgramLiveTranscriber({
-      language: pipeline.deepgramLanguage,
+    pipeline.deepgram = createManagedStreamingSttSession({
+      language: pipeline.effectiveLanguage,
       onTranscript: (event) => void this.handleTranscript(pipeline.identity, event),
+      onProviderSwitch: (provider, reason) => {
+        logger.warn("RealtimeCore", `[${this.callId}] STT provider switched to ${provider} for ${pipeline.identity}: ${reason}`);
+      },
       onError: (error) => {
-        logger.warn("RealtimeCore", `[${this.callId}] Deepgram error for ${pipeline.identity}: ${error.message}`);
+        logger.warn("RealtimeCore", `[${this.callId}] STT error for ${pipeline.identity}: ${error.message}`);
       },
     });
 
@@ -338,10 +363,6 @@ export class RealtimeTranslationCore {
 
   private async reconnectDeepgram(pipeline: SpeakerPipeline, language: string): Promise<void> {
     const targetLanguage = normalizeLanguage(language === "auto" ? pipeline.effectiveLanguage : language);
-    const deepgramLanguage = toDeepgramLanguage(targetLanguage);
-    if (deepgramLanguage === pipeline.deepgramLanguage) return;
-
-    pipeline.deepgramLanguage = deepgramLanguage;
     pipeline.effectiveLanguage = targetLanguage;
     if (!pipeline.deepgram) return;
 
@@ -352,12 +373,30 @@ export class RealtimeTranslationCore {
 
   // ─── Transcript handling ─────────────────────────────────────────────────
 
-  private async handleTranscript(identity: string, event: DeepgramTranscriptEvent): Promise<void> {
+  private async handleTranscript(identity: string, event: StreamingTranscriptEvent): Promise<void> {
     const pipeline = this.speakerPipelines.get(identity);
     if (!pipeline || this.closed) return;
 
     const text = applySpokenCorrections(event.text, pipeline.effectiveLanguage);
     if (!text) return;
+
+    const staleTranscript = isStaleFinalTranscript(pipeline, text, event.isFinal);
+    recordTranscriptObservation({
+      isFinal: event.isFinal,
+      confidence: event.confidence,
+      stale: staleTranscript,
+    });
+    if (staleTranscript) {
+      return;
+    }
+    if (isTranscriptRegression(pipeline, text, event.isFinal)) {
+      recordVoiceCounter("transcript_regressions");
+      return;
+    }
+    if (pipeline.lastBargeInAt) {
+      recordVoiceLatency("interruption_recovery_ms", Math.max(0, Date.now() - pipeline.lastBargeInAt));
+      pipeline.lastBargeInAt = undefined;
+    }
 
     if (pipeline.turn && !pipeline.turn.firstTranscriptAt) {
       pipeline.turn.firstTranscriptAt = Date.now();
@@ -386,14 +425,12 @@ export class RealtimeTranslationCore {
       return;
     }
 
-    pipeline.finalizedSegments.push(text);
-    const finalizedText = normalizeSpaces(pipeline.finalizedSegments.join(" "));
-    if (finalizedText) pipeline.lastFinalTranscript = finalizedText;
+    const finalizedText = appendFinalTranscriptSegment(pipeline, text);
 
     if (event.speechFinal && finalizedText) {
       pipeline.latestEmotion = detectEmotionFast(finalizedText);
       if (pipeline.turn) pipeline.turn.userText = finalizedText;
-      pipeline.finalizedSegments = [];
+      clearFinalizedTranscriptSegments(pipeline);
       await this.maybeStartTranslation(pipeline, finalizedText, true);
       return;
     }
@@ -408,24 +445,16 @@ export class RealtimeTranslationCore {
     transcript: string,
     isFinal: boolean,
   ): Promise<void> {
-    const normalized = normalizeTranscript(transcript);
-    if (!normalized) return;
-
-    const lastNormalized = normalizeTranscript(pipeline.lastStartedTranscript);
-    const shouldRestart = isFinal
-      ? normalized !== lastNormalized &&
-        (!lastNormalized ||
-          !normalized.startsWith(lastNormalized) ||
-          normalized.length - lastNormalized.length >= this.restartMinCharDelta)
-      : (!lastNormalized && wordCount(transcript) >= this.partialMinWords) ||
-        (lastNormalized &&
-          normalized !== lastNormalized &&
-          (!normalized.startsWith(lastNormalized) ||
-            normalized.length - lastNormalized.length >= this.restartMinCharDelta));
-
+    const shouldRestart = shouldStartTranslationFromTranscript({
+      transcript,
+      isFinal,
+      partialMinWords: this.partialMinWords,
+      restartMinCharDelta: this.restartMinCharDelta,
+      lastStartedTranscript: pipeline.lastStartedTranscript,
+    });
     if (!shouldRestart) return;
 
-    pipeline.lastStartedTranscript = transcript;
+    markStartedTranslation(pipeline, transcript);
     const sourceLanguage = await this.resolveSourceLanguage(pipeline, transcript, isFinal);
     const targets = await this.listTargetsForSpeaker(pipeline.identity, sourceLanguage);
     if (targets.length === 0) return;
@@ -445,6 +474,7 @@ export class RealtimeTranslationCore {
         pipeline,
         channel,
         transcript,
+        turnId: pipeline.turnId,
         sourceLanguage,
         targetLanguage: target.language,
         targetIdentity: target.identity,
@@ -549,6 +579,9 @@ export class RealtimeTranslationCore {
       ttsChain: Promise.resolve(),
       speaking: false,
       lastRenderedTranslation: "",
+      lastDeliveredFinalTranslation: "",
+      pendingTtsSegments: 0,
+      backlogSinceAt: null,
     };
     this.outputChannels.set(key, channel);
     return channel;
@@ -558,6 +591,7 @@ export class RealtimeTranslationCore {
     pipeline: SpeakerPipeline;
     channel: OutputChannel;
     transcript: string;
+    turnId: string | null;
     sourceLanguage: string;
     targetLanguage: string;
     targetIdentity: string;
@@ -603,11 +637,15 @@ export class RealtimeTranslationCore {
           },
           onPartial: (translatedText) => {
             if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
+            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
             const translated = normalizeSpaces(translatedText);
             if (!translated || !shouldEmitStreamingPartial(lastPublishedTranslation, translated)) return;
 
             lastPublishedTranslation = translated;
-            opts.channel.lastRenderedTranslation = translated;
+            recordRenderedTranslation(opts.channel, translated);
             if (opts.pipeline.turn) opts.pipeline.turn.translatedText = translated;
 
             void this.transport.emitData(opts.targetIdentity, {
@@ -626,21 +664,33 @@ export class RealtimeTranslationCore {
           },
           onSegment: (segment, fullTranslatedText) => {
             if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
+            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
             const translated = normalizeSpaces(fullTranslatedText);
             if (translated) {
-              opts.channel.lastRenderedTranslation = translated;
+              recordRenderedTranslation(opts.channel, translated);
               if (opts.pipeline.turn) opts.pipeline.turn.translatedText = translated;
             }
             if (shouldDeliverVoiceTranslation(opts.targetMode)) {
-              this.enqueueTtsSegment(opts.channel, segment, opts.generation, opts.pipeline, opts.targetLanguage, opts.targetMode);
+              this.enqueueTtsSegment(opts.channel, segment, opts.generation, opts.turnId, Date.now(), opts.pipeline, opts.targetLanguage, opts.targetMode);
             }
           },
           onFinal: (translatedText) => {
             if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
+            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
             const translated = normalizeSpaces(translatedText);
             if (!translated) return;
 
-            opts.channel.lastRenderedTranslation = translated;
+            if (isDuplicateFinalTranslation(opts.channel, translated)) {
+              recordVoiceCounter("duplicate_turns");
+            }
+
+            recordDeliveredFinalTranslation(opts.channel, translated);
             if (opts.pipeline.turn) opts.pipeline.turn.translatedText = translated;
 
             void this.transport.emitData(opts.targetIdentity, {
@@ -676,6 +726,7 @@ export class RealtimeTranslationCore {
         "RealtimeCore",
         `[${this.callId}] translation failed ${opts.pipeline.identity} -> ${opts.targetIdentity}: ${message}`,
       );
+      recordVoiceCounter("translation_fallbacks");
       await this.transport.emitData(opts.targetIdentity, {
         type: "translation-fallback",
         payload: buildTranslationFailedEvent({
@@ -697,12 +748,22 @@ export class RealtimeTranslationCore {
     channel: OutputChannel,
     text: string,
     generation: number,
+    turnId: string | null,
+    queuedAt: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
     targetMode: ListenerTranslationMode,
   ): void {
+    if (this.shouldTripTtsBacklogWatchdog(channel)) {
+      this.handleBacklogWatchdog(channel, targetMode, "tts-backlog");
+      return;
+    }
+    channel.pendingTtsSegments += 1;
+    if (channel.pendingTtsSegments > 1 && !channel.backlogSinceAt) {
+      channel.backlogSinceAt = Date.now();
+    }
     channel.ttsChain = channel.ttsChain
-      .then(() => this.streamTtsSegment(channel, text, generation, pipeline, targetLanguage, targetMode))
+      .then(() => this.streamTtsSegment(channel, text, generation, turnId, queuedAt, pipeline, targetLanguage, targetMode))
       .catch((error) => {
         logger.warn("RealtimeCore", `[${this.callId}] TTS chain failed for ${channel.key}: ${String(error)}`);
       });
@@ -712,11 +773,26 @@ export class RealtimeTranslationCore {
     channel: OutputChannel,
     text: string,
     generation: number,
+    turnId: string | null,
+    queuedAt: number,
     pipeline: SpeakerPipeline,
     targetLanguage: string,
     targetMode: ListenerTranslationMode,
   ): Promise<void> {
     if (this.closed || generation !== channel.currentGeneration) return;
+    if (isTurnOrderMismatch(channel.currentTurnId, turnId)) {
+      recordVoiceCounter("turn_order_mismatches");
+      return;
+    }
+    const queueAgeMs = Math.max(0, Date.now() - queuedAt);
+    if (queueAgeMs >= DEFAULT_MAX_TTS_BACKLOG_MS) {
+      recordVoiceCounter("stale_tts_segments");
+      logger.warn(
+        "RealtimeCore",
+        `[${this.callId}] dropped stale queued TTS segment for ${channel.key} after ${queueAgeMs}ms`,
+      );
+      return;
+    }
 
     const ttsStartedAt = Date.now();
     if (pipeline.turn && !pipeline.turn.ttsStartedAt) {
@@ -733,6 +809,7 @@ export class RealtimeTranslationCore {
       }
       timeoutFallbackTriggered = true;
       channel.ttsAbort?.abort();
+      recordVoiceCounter("translation_fallbacks");
       void this.transport.emitData(channel.targetIdentity, {
         type: "translation-fallback",
         payload: buildTtsFailedEvent({
@@ -804,6 +881,7 @@ export class RealtimeTranslationCore {
       const message = error instanceof Error ? error.message : String(error);
       if (message !== "This operation was aborted") {
         logger.warn("RealtimeCore", `[${this.callId}] Azure TTS failed for ${channel.key}: ${message}`);
+        recordVoiceCounter("translation_fallbacks");
         await this.transport.emitData(channel.targetIdentity, {
           type: "translation-fallback",
           payload: buildTtsFailedEvent({
@@ -818,6 +896,10 @@ export class RealtimeTranslationCore {
     } finally {
       clearTimeout(ttsReadyTimer);
       channel.speaking = false;
+      channel.pendingTtsSegments = Math.max(0, channel.pendingTtsSegments - 1);
+      if (channel.pendingTtsSegments === 0) {
+        channel.backlogSinceAt = null;
+      }
       if (pipeline.turn) pipeline.turn.finalAudioAt = Date.now();
     }
   }
@@ -837,11 +919,16 @@ export class RealtimeTranslationCore {
   }
 
   private interruptChannel(channel: OutputChannel, _reason: string): void {
+    if (channel.speaking || channel.pendingTtsSegments > 0) {
+      recordVoiceCounter("ghost_audio_drops");
+    }
     channel.translationAbort?.abort();
     channel.translationAbort = null;
     channel.ttsAbort?.abort();
     channel.ttsAbort = null;
     channel.speaking = false;
+    channel.pendingTtsSegments = 0;
+    channel.backlogSinceAt = null;
     channel.lastRenderedTranslation = "";
     // Transport-side flush (Twilio clear event, LiveKit audioSource.clearQueue,
     // WebSocket {type:clear}, etc.) — fire-and-forget.
@@ -853,7 +940,37 @@ export class RealtimeTranslationCore {
       if (channel.sourceIdentity !== sourceIdentity) continue;
       channel.currentTurnId = turnId;
       channel.lastRenderedTranslation = "";
+      channel.pendingTtsSegments = 0;
+      channel.backlogSinceAt = null;
     }
+  }
+
+  private shouldTripTtsBacklogWatchdog(channel: OutputChannel): boolean {
+    if (channel.pendingTtsSegments >= DEFAULT_MAX_TTS_BACKLOG_SEGMENTS) {
+      return true;
+    }
+    return Boolean(channel.backlogSinceAt && Date.now() - channel.backlogSinceAt >= DEFAULT_MAX_TTS_BACKLOG_MS);
+  }
+
+  private handleBacklogWatchdog(channel: OutputChannel, targetMode: ListenerTranslationMode, reason: string): void {
+    recordVoiceCounter("audio_backlog_events");
+    recordVoiceCounter("translation_fallbacks");
+    logger.warn(
+      "RealtimeCore",
+      `[${this.callId}] output backlog watchdog tripped for ${channel.key}: ${reason}`,
+    );
+    channel.currentGeneration += 1;
+    this.interruptChannel(channel, reason);
+    void this.transport.emitData(channel.targetIdentity, {
+      type: "translation-fallback",
+      payload: buildTtsFailedEvent({
+        sourceIdentity: channel.sourceIdentity,
+        targetIdentity: channel.targetIdentity,
+        translatedText: channel.lastRenderedTranslation || undefined,
+        reason: "Audio playback was reset to keep the conversation stable. Text translation remains available.",
+        translationMode: targetMode,
+      }),
+    });
   }
 
   private async disposeSpeakerPipeline(pipeline: SpeakerPipeline): Promise<void> {

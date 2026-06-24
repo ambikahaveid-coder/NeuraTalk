@@ -27,7 +27,7 @@ import { eq, desc, and, sql, gte } from "drizzle-orm";
 import { z } from "zod";
 import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
 import { logger } from "./observability";
-import { getRedisClient } from "./redis";
+import { getRedisClient, getRedisRuntimeStatus } from "./redis";
 import { isMSG91Healthy } from "./msg91-service";
 import { hasWorkingOpenAIKey } from "./openai-config";
 
@@ -346,8 +346,36 @@ export function registerProductionRoutes(app: Express): void {
       overallHealthy = false;
     }
 
+    try {
+      const authSchemaStart = Date.now();
+      const authTables = ["user_sessions", "users"];
+      const result = await db.execute(sql`
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name in (${sql.join(authTables.map((name) => sql`${name}`), sql`, `)})
+      `);
+      const presentTables = new Set(
+        Array.from((result as { rows?: Array<{ table_name?: string }> }).rows ?? [])
+          .map((row) => row.table_name)
+          .filter((value): value is string => typeof value === "string"),
+      );
+      const missingTables = authTables.filter((tableName) => !presentTables.has(tableName));
+      if (missingTables.length > 0) {
+        throw new Error(`missing tables: ${missingTables.join(",")}`);
+      }
+      checks.authSchema = { status: "healthy", latencyMs: Date.now() - authSchemaStart };
+    } catch (err) {
+      checks.authSchema = { status: "unhealthy", error: (err as Error).message };
+      overallHealthy = false;
+    }
+
     const redisStart = Date.now();
     try {
+      const redisStatus = getRedisRuntimeStatus();
+      if (redisStatus.degraded) {
+        throw new Error("degraded_in_memory_fallback");
+      }
       const client = getRedisClient();
       const pong = await Promise.race([
         client.ping(),
@@ -363,7 +391,7 @@ export function registerProductionRoutes(app: Express): void {
     const isProd = (process.env.NODE_ENV || "").toLowerCase() === "production";
     if (isProd) {
       const requiredKeys = [
-        "DEEPGRAM_API_KEY",
+        "STT_PROVIDER",
         "AZURE_SPEECH_KEY",
         "AZURE_SPEECH_REGION",
         "LIVEKIT_URL",

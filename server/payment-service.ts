@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import {
@@ -15,9 +15,11 @@ import {
   PAYMENT_STATUS,
 } from "@shared/schema";
 import { logger } from "./observability";
+import { logAuditEvent } from "./audit-logging";
 import { summarizeBillingPlan } from "./billing-plan-utils";
 import { BillingEngine } from "./billing-engine";
 import { createSubscriptionInvoice, markInvoicePaid } from "./invoice-service";
+import { withRedisLock, isRedisDegraded } from "./redis";
 
 const PAYMENT_TOPUP_CATALOG_KEY = "billing_wallet_topup_catalog";
 
@@ -385,6 +387,34 @@ async function provisionWalletTopupTransaction(
     throw new Error("ORGANIZATION_REQUIRED");
   }
 
+  // Atomically claim the provision slot before touching any money.
+  // If another process already set provisionedAt, this update matches 0 rows
+  // and we return early — preventing double-credit.
+  const provisionedAt = new Date().toISOString();
+  const [claimed] = await db.update(paymentTransactions)
+    .set({
+      metadata: mergeTransactionMetadata(transaction.metadata, { provisionedAt }),
+    })
+    .where(
+      and(
+        eq(paymentTransactions.id, transaction.id),
+        sql`(metadata->>'provisionedAt') IS NULL`,
+      ),
+    )
+    .returning();
+
+  if (!claimed) {
+    // Another process already claimed the provision slot — idempotent return
+    logger.warn("PaymentService", "Wallet top-up already claimed by another process", {
+      transactionId: transaction.id,
+    });
+    return {
+      kind: "wallet_topup",
+      organizationId: transaction.organizationId,
+      message: "Wallet top-up already finalized",
+    };
+  }
+
   const creditAmountPaise = Math.max(0, metadata.walletCreditPaise ?? transaction.amount);
   const updatedAccount = await BillingEngine.adjustOrganizationBalance({
     organizationId: transaction.organizationId,
@@ -393,14 +423,6 @@ async function provisionWalletTopupTransaction(
     actorUserId: transaction.userId,
     description: metadata.label || "Wallet top-up",
   });
-
-  await db.update(paymentTransactions)
-    .set({
-      metadata: mergeTransactionMetadata(transaction.metadata, {
-        provisionedAt: new Date().toISOString(),
-      }),
-    })
-    .where(eq(paymentTransactions.id, transaction.id));
 
   return {
     kind: "wallet_topup",
@@ -437,23 +459,57 @@ async function finalizeTransactionSuccess(
   paymentId: string,
   signature?: string | null,
 ): Promise<PaymentProvisionResult> {
-  if (transaction.status === PAYMENT_STATUS.COMPLETED) {
-    const existingProvision = await provisionCompletedTransaction(transaction);
-    return existingProvision;
+  const lockKey = `payment-provision:${transaction.id}`;
+
+  if (isRedisDegraded()) {
+    logger.warn("PaymentService", "Redis degraded — provision lock may not be cross-process", {
+      transactionId: transaction.id,
+      lockKey,
+    });
   }
 
-  const [updatedTransaction] = await db.update(paymentTransactions)
-    .set({
-      status: PAYMENT_STATUS.COMPLETED,
-      gatewayPaymentId: paymentId,
-      gatewaySignature: signature || transaction.gatewaySignature,
-      completedAt: new Date(),
-      metadata: mergeTransactionMetadata(transaction.metadata, { paymentId }),
-    })
-    .where(eq(paymentTransactions.id, transaction.id))
-    .returning();
+  return withRedisLock(lockKey, async () => {
+    // Re-fetch inside the lock to get the latest persisted state
+    const [fresh] = await db.select().from(paymentTransactions)
+      .where(eq(paymentTransactions.id, transaction.id))
+      .limit(1);
 
-  return provisionCompletedTransaction(updatedTransaction ?? transaction);
+    const current = fresh ?? transaction;
+
+    if (current.status === PAYMENT_STATUS.COMPLETED) {
+      const existingProvision = await provisionCompletedTransaction(current);
+      return existingProvision;
+    }
+
+    const [updatedTransaction] = await db.update(paymentTransactions)
+      .set({
+        status: PAYMENT_STATUS.COMPLETED,
+        gatewayPaymentId: paymentId,
+        gatewaySignature: signature || current.gatewaySignature,
+        completedAt: new Date(),
+        metadata: mergeTransactionMetadata(current.metadata, { paymentId }),
+      })
+      .where(eq(paymentTransactions.id, current.id))
+      .returning();
+
+    const result = await provisionCompletedTransaction(updatedTransaction ?? current);
+
+    await logAuditEvent({
+      action: result.kind === "wallet_topup" ? "billing_recharge" : "billing_subscription_purchase",
+      userId: current.userId ?? undefined,
+      organizationId: current.organizationId ?? undefined,
+      details: {
+        kind: result.kind,
+        amountPaise: current.amount,
+        gatewayPaymentId: paymentId,
+        transactionId: String(current.id),
+        source: "razorpay_webhook",
+        timestamp: new Date().toISOString(),
+      },
+    }).catch((err) => logger.error("PaymentService", "Failed to write payment audit log", err instanceof Error ? err : new Error(String(err))));
+
+    return result;
+  }, { ttlMs: 60_000, retries: 3, retryDelayMs: 200 });
 }
 
 export async function getGatewayStatus(): Promise<GatewayStatus> {
@@ -672,17 +728,20 @@ export async function getViewerSubscription(actor: PaymentActor) {
 export async function handleRazorpayWebhook(rawBody: string, signature: string | undefined, event: any) {
   const config = await resolveGatewayConfig();
 
-  if (config.webhookSecret) {
-    if (!rawBody || !signature) {
-      throw new Error("WEBHOOK_SIGNATURE_REQUIRED");
-    }
-    const expected = crypto
-      .createHmac("sha256", config.webhookSecret)
-      .update(rawBody)
-      .digest("hex");
-    if (!safeCompare(expected, signature)) {
-      throw new Error("INVALID_WEBHOOK_SIGNATURE");
-    }
+  if (!config.webhookSecret) {
+    throw new Error("WEBHOOK_SECRET_NOT_CONFIGURED");
+  }
+
+  if (!rawBody || !signature) {
+    throw new Error("WEBHOOK_SIGNATURE_REQUIRED");
+  }
+
+  const expected = crypto
+    .createHmac("sha256", config.webhookSecret)
+    .update(rawBody)
+    .digest("hex");
+  if (!safeCompare(expected, signature)) {
+    throw new Error("INVALID_WEBHOOK_SIGNATURE");
   }
 
   switch (event?.event) {
@@ -722,15 +781,28 @@ export async function handleRazorpayWebhook(rawBody: string, signature: string |
     }
     case "refund.processed": {
       const paymentId = event?.payload?.refund?.entity?.payment_id;
+      const refundAmount = event?.payload?.refund?.entity?.amount;
       if (!paymentId) {
         return;
       }
 
-      await db.update(paymentTransactions)
-        .set({
-          status: PAYMENT_STATUS.REFUNDED,
-        })
-        .where(eq(paymentTransactions.gatewayPaymentId, paymentId));
+      const [refundedTx] = await db.update(paymentTransactions)
+        .set({ status: PAYMENT_STATUS.REFUNDED })
+        .where(eq(paymentTransactions.gatewayPaymentId, paymentId))
+        .returning();
+
+      await logAuditEvent({
+        action: "billing_refund",
+        userId: refundedTx?.userId ?? undefined,
+        organizationId: refundedTx?.organizationId ?? undefined,
+        details: {
+          gatewayPaymentId: paymentId,
+          transactionId: refundedTx ? String(refundedTx.id) : null,
+          amountPaise: refundAmount ?? null,
+          source: "razorpay_webhook",
+          timestamp: new Date().toISOString(),
+        },
+      }).catch((err) => logger.error("PaymentService", "Failed to write refund audit log", err instanceof Error ? err : new Error(String(err))));
       return;
     }
     default:

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,16 +19,97 @@ import {
   Sparkles, LogOut, Users, CreditCard, BarChart3, Phone, PhoneCall, Video,
   Settings, Plus, Clock, Check, X, Loader2, Copy, Eye, EyeOff,
   Building2, Key, Activity, ExternalLink, FileText, UserPlus, Languages,
-  Share2, Link2, Globe, Headphones, Monitor
+  Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw
 } from "lucide-react";
 
-type Tab = "overview" | "agents" | "api" | "settings";
+type Tab = "overview" | "agents" | "reports" | "api" | "settings";
+
+interface CompanyCreditResponse {
+  success: boolean;
+  billing?: {
+    walletBalancePaise?: number;
+    availableWalletPaise?: number;
+    lockedBalancePaise?: number;
+    billingType?: string;
+    includedSecondsRemaining?: number;
+    canUsePaidServices?: boolean;
+  };
+  ledger?: Array<{
+    id: number;
+    entryType: string;
+    direction: string;
+    amountPaise: number;
+    balanceAfterPaise?: number | null;
+    createdAt: string;
+  }>;
+}
+
+interface CompanyBillingDashboardResponse {
+  success: boolean;
+  data?: {
+    strictAccount?: {
+      billingType?: string;
+      walletBalancePaise?: number;
+      availableWalletPaise?: number;
+      lockedBalancePaise?: number;
+      includedSecondsRemaining?: number;
+      canUsePaidServices?: boolean;
+    };
+    subscription?: {
+      status?: string;
+      billingModel?: string;
+    } | null;
+    recentInvoices?: Array<{
+      id: number;
+      invoiceNumber: string;
+      totalAmountPaise: number;
+      status: string;
+      createdAt: string;
+    }>;
+    activeCallCount?: number;
+    usageSummary?: {
+      totalMinutes?: number;
+      totalCost?: number;
+    };
+  };
+}
+
+interface AuditLogResponse {
+  logs: Array<{
+    id: number;
+    user: string;
+    action: string;
+    resource: string;
+    ip: string;
+    timestamp: string;
+    status: string;
+  }>;
+}
+
+interface PaymentHistoryResponse {
+  data: Array<{
+    id: number;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    amount: number;
+    status: string;
+    failureReason?: string | null;
+    metadata?: {
+      kind?: string;
+      label?: string;
+    } | null;
+    createdAt: string;
+  }>;
+}
+
+const legacyMeetingTransportEnabled = (import.meta.env.VITE_ENABLE_LEGACY_MEETING_TRANSPORT || "").toLowerCase() === "true";
 
 export default function CompanyDashboard() {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const canManageCompany = user?.role === "company_admin" || user?.role === "super_admin";
 
   const { data: dashboard, isLoading: dashboardLoading } = useQuery({
     queryKey: ["/api/b2b/company/dashboard"],
@@ -55,14 +136,79 @@ export default function CompanyDashboard() {
     enabled: activeTab === "agents",
   });
 
+  const { data: creditsData } = useQuery<CompanyCreditResponse>({
+    queryKey: ["/api/company/credits"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/company/credits", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load credits");
+      return res.json();
+    },
+    enabled: activeTab === "overview" || activeTab === "api" || activeTab === "reports",
+  });
+
+  const { data: billingData } = useQuery<CompanyBillingDashboardResponse>({
+    queryKey: ["/api/billing/dashboard"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/billing/dashboard", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load billing dashboard");
+      return res.json();
+    },
+    enabled: canManageCompany && (activeTab === "overview" || activeTab === "api" || activeTab === "reports"),
+  });
+
+  const { data: auditData } = useQuery<AuditLogResponse>({
+    queryKey: ["/api/enterprise/audit-logs"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/enterprise/audit-logs", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load audit logs");
+      return res.json();
+    },
+    enabled: canManageCompany && (activeTab === "overview" || activeTab === "reports"),
+  });
+
+  const { data: paymentHistory } = useQuery<PaymentHistoryResponse>({
+    queryKey: ["/api/payments/history"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/payments/history", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load payment history");
+      return res.json();
+    },
+    enabled: canManageCompany && activeTab === "reports",
+  });
+
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "agents", label: "Team", icon: <Users className="w-4 h-4" /> },
+    { id: "reports", label: "Reports", icon: <FileText className="w-4 h-4" /> },
     { id: "api", label: "API & SDK", icon: <Key className="w-4 h-4" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
   ];
+  const visibleTabs = tabs.filter((tab) => {
+    if ((tab.id === "api" || tab.id === "settings" || tab.id === "reports") && !canManageCompany) {
+      return false;
+    }
+    return true;
+  });
 
   const isPending = user?.organization?.status === "pending";
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, visibleTabs]);
 
   if (isPending) {
     return <PendingApprovalScreen user={user} logout={logout} />;
@@ -103,7 +249,7 @@ export default function CompanyDashboard() {
       <div className="flex-1 overflow-y-auto">
         <div className="container mx-auto px-4 py-6">
           <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-none">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <Button
                 key={tab.id}
                 variant={activeTab === tab.id ? "default" : "ghost"}
@@ -123,19 +269,23 @@ export default function CompanyDashboard() {
           </div>
 
           {activeTab === "overview" && (
-            <OverviewTab dashboard={dashboard} isLoading={dashboardLoading} />
+            <OverviewTab dashboard={dashboard} billingData={billingData} creditsData={creditsData} auditData={auditData} isLoading={dashboardLoading} canManageCompany={canManageCompany} />
           )}
 
           {activeTab === "agents" && (
             <AgentsTab agents={agents} isLoading={agentsLoading} />
           )}
 
+          {activeTab === "reports" && (
+            <ReportsTab billingData={billingData} creditsData={creditsData} auditData={auditData} paymentHistory={paymentHistory} />
+          )}
+
           {activeTab === "api" && (
-            <ApiTab />
+            <ApiTab billingData={billingData} />
           )}
 
           {activeTab === "settings" && (
-            <SettingsTab organization={user?.organization} />
+            <SettingsTab organization={user?.organization} user={user} canManageCompany={canManageCompany} />
           )}
         </div>
       </div>
@@ -178,7 +328,29 @@ function PendingApprovalScreen({ user, logout }: { user: any; logout: () => void
   );
 }
 
-function OverviewTab({ dashboard, isLoading }: { dashboard: any; isLoading: boolean }) {
+function formatPaise(paise?: number | null) {
+  const value = typeof paise === "number" ? paise : 0;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(value / 100);
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows
+    .map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading, canManageCompany }: { dashboard: any; billingData?: CompanyBillingDashboardResponse; creditsData?: CompanyCreditResponse; auditData?: AuditLogResponse; isLoading: boolean; canManageCompany: boolean }) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -187,11 +359,34 @@ function OverviewTab({ dashboard, isLoading }: { dashboard: any; isLoading: bool
     );
   }
 
+  const wallet = creditsData?.billing || billingData?.data?.strictAccount;
+  const recentActivity = auditData?.logs || [];
+  const recentInvoices = billingData?.data?.recentInvoices || [];
+  const recentLedger = creditsData?.ledger || [];
+  const exportAuditCsv = () => {
+    downloadCsv("company_audit_activity.csv", [
+      ["Timestamp", "User", "Action", "Resource", "Status", "IP"],
+      ...recentActivity.map((entry) => [entry.timestamp, entry.user, entry.action, entry.resource, entry.status, entry.ip]),
+    ]);
+  };
+  const exportInvoicesCsv = () => {
+    downloadCsv("company_invoices.csv", [
+      ["Invoice Number", "Created At", "Status", "Amount"],
+      ...recentInvoices.map((invoice) => [invoice.invoiceNumber, invoice.createdAt, invoice.status, formatPaise(invoice.totalAmountPaise)]),
+    ]);
+  };
+  const exportLedgerCsv = () => {
+    downloadCsv("company_wallet_ledger.csv", [
+      ["Created At", "Entry Type", "Direction", "Amount", "Balance After"],
+      ...recentLedger.map((entry) => [entry.createdAt, entry.entryType, entry.direction, formatPaise(entry.amountPaise), formatPaise(entry.balanceAfterPaise ?? 0)]),
+    ]);
+  };
+
   const stats = [
-    { label: "Credit Balance", value: dashboard?.credits || 0, icon: <CreditCard className="w-5 h-5" /> },
-    { label: "Active Agents", value: dashboard?.agentCount || 0, icon: <Users className="w-5 h-5" /> },
-    { label: "Calls Today", value: dashboard?.callsToday || 0, icon: <Phone className="w-5 h-5" /> },
-    { label: "Minutes Used", value: dashboard?.minutesUsed || 0, icon: <Activity className="w-5 h-5" /> },
+    { label: "Available Wallet", value: formatPaise(wallet?.availableWalletPaise), icon: <Wallet className="w-5 h-5" /> },
+    { label: "Active Agents", value: dashboard?.agents?.length || 0, icon: <Users className="w-5 h-5" /> },
+    { label: "Active Calls", value: billingData?.data?.activeCallCount || 0, icon: <Phone className="w-5 h-5" /> },
+    { label: "30d Usage", value: `${billingData?.data?.usageSummary?.totalMinutes || 0} min`, icon: <Activity className="w-5 h-5" /> },
   ];
 
   return (
@@ -236,19 +431,19 @@ function OverviewTab({ dashboard, isLoading }: { dashboard: any; isLoading: bool
                 <Activity className="w-4 h-4 text-primary" />
                 Quick Actions
               </CardTitle>
-              <CardDescription className="text-xs">Direct translation tools</CardDescription>
+              <CardDescription className="text-xs">Primary-safe calling first, legacy meeting links only when explicitly enabled</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Link href="/calls/video-translation">
                 <Button className="w-full justify-start shine-effect" data-testid="button-video-call">
                   <Video className="mr-3 h-4 w-4" />
-                  Video Translation Call
+                  Video Translation Call {legacyMeetingTransportEnabled ? "" : "(legacy route)"}
                 </Button>
               </Link>
               <Link href="/calls/voice-translation">
                 <Button variant="outline" className="w-full justify-start hover:bg-white/5" data-testid="button-voice-call">
                   <Phone className="mr-3 h-4 w-4" />
-                  Voice Translation Call
+                  Voice Translation Call {legacyMeetingTransportEnabled ? "" : "(legacy route)"}
                 </Button>
               </Link>
               <Link href="/calls/b2b">
@@ -257,10 +452,52 @@ function OverviewTab({ dashboard, isLoading }: { dashboard: any; isLoading: bool
                   Phone Bridge Call
                 </Button>
               </Link>
+              <Link href="/enterprise/hub">
+                <Button variant="outline" className="w-full justify-start bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 text-purple-400">
+                  <Phone className="mr-3 h-4 w-4" />
+                  Number Integration Hub
+                </Button>
+              </Link>
+              <p className="text-[11px] text-muted-foreground">
+                PSTN caller identity is best-effort. Final number display depends on provider verification and telecom rules.
+              </p>
             </CardContent>
           </Card>
 
           <ClientConnectCard />
+
+          <Card className="glass-card">
+            <CardHeader>
+              <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-primary" />
+                Billing Snapshot
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Billing Type</span>
+                <Badge variant="outline">{wallet?.billingType || "prepaid"}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Wallet Balance</span>
+                <span className="font-semibold">{formatPaise(wallet?.walletBalancePaise)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Locked Balance</span>
+                <span className="font-semibold">{formatPaise(wallet?.lockedBalancePaise)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Included Seconds</span>
+                <span className="font-semibold">{wallet?.includedSecondsRemaining ?? 0}s</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Service Status</span>
+                <Badge className={wallet?.canUsePaidServices === false ? "bg-red-600" : "bg-green-600"}>
+                  {wallet?.canUsePaidServices === false ? "Restricted" : "Active"}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         <motion.div 
@@ -271,19 +508,146 @@ function OverviewTab({ dashboard, isLoading }: { dashboard: any; isLoading: bool
         >
           <Card className="glass-card h-full">
             <CardHeader>
-              <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
-                <Clock className="w-4 h-4 text-primary" />
-                Recent Organization Activity
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-primary" />
+                  Recent Organization Activity
+                </CardTitle>
+                {canManageCompany && recentActivity.length > 0 ? (
+                  <Button size="sm" variant="outline" onClick={exportAuditCsv}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Export CSV
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
-            <CardContent>
-              <div className="flex flex-col items-center justify-center py-20 opacity-50 space-y-4">
-                <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
-                  <Activity className="w-5 h-5 text-muted-foreground" />
+            <CardContent className="space-y-4">
+              {!canManageCompany ? (
+                <div className="flex flex-col items-center justify-center py-16 opacity-70 space-y-4">
+                  <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
+                    <ShieldCheck className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground font-medium text-center max-w-md">
+                    Audit logs, invoices, and billing controls are restricted to company admins and super admins.
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground font-medium">
-                  Your call history and team audit logs will appear here.
-                </p>
+              ) : recentActivity.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 opacity-50 space-y-4">
+                  <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
+                    <Activity className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground font-medium">
+                    No recent audit activity yet.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recentActivity.slice(0, 6).map((entry) => (
+                    <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">{entry.action}</p>
+                          <p className="text-xs text-muted-foreground">{entry.resource} by {entry.user}</p>
+                        </div>
+                        <Badge variant="outline">{entry.status}</Badge>
+                      </div>
+                      <p className="mt-2 text-[11px] text-muted-foreground">{entry.timestamp} • {entry.ip}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-semibold">Recent Invoices</p>
+                    </div>
+                    {recentInvoices.length > 0 ? (
+                      <Button size="sm" variant="ghost" onClick={exportInvoicesCsv}>
+                        <FileText className="w-4 h-4 mr-2" />
+                        Export
+                      </Button>
+                    ) : null}
+                  </div>
+                  {recentInvoices.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No invoices generated yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                       {recentInvoices.slice(0, 3).map((invoice) => (
+                          <div key={invoice.id} className="flex items-center justify-between text-xs">
+                            <div>
+                              <p className="font-medium">{invoice.invoiceNumber}</p>
+                              <p className="text-muted-foreground">{new Date(invoice.createdAt).toLocaleDateString()}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-semibold">{formatPaise(invoice.totalAmountPaise)}</p>
+                              <p className="text-muted-foreground">{invoice.status}</p>
+                              <button
+                                type="button"
+                                className="mt-1 text-primary hover:underline"
+                                onClick={() => window.open(`/api/billing/invoices/${invoice.id}/html`, "_blank")}
+                              >
+                                Open
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                     </div>
+                  )}
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-4 h-4 text-primary" />
+                    <p className="text-sm font-semibold">Subscription Health</p>
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Plan Status</span>
+                      <Badge variant="outline">{billingData?.data?.subscription?.status || "inactive"}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Billing Model</span>
+                      <span>{billingData?.data?.subscription?.billingModel || wallet?.billingType || "prepaid"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">30d Cost</span>
+                      <span>{formatPaise(billingData?.data?.usageSummary?.totalCost)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-semibold">Recent Ledger</p>
+                    </div>
+                    {recentLedger.length > 0 ? (
+                      <Button size="sm" variant="ghost" onClick={exportLedgerCsv}>
+                        <FileText className="w-4 h-4 mr-2" />
+                        Export
+                      </Button>
+                    ) : null}
+                  </div>
+                  {recentLedger.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No wallet activity recorded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {recentLedger.slice(0, 3).map((entry) => (
+                        <div key={entry.id} className="flex items-center justify-between text-xs">
+                          <div>
+                            <p className="font-medium">{entry.entryType.replace(/_/g, " ")}</p>
+                            <p className="text-muted-foreground">{new Date(entry.createdAt).toLocaleDateString()}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold">{formatPaise(entry.amountPaise)}</p>
+                            <p className="text-muted-foreground">{entry.direction}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -319,14 +683,24 @@ const LANGUAGES = [
 function ClientConnectCard() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [callType, setCallType] = useState<"video" | "audio" | "f2f">("video");
+  const [callType, setCallType] = useState<"video" | "audio" | "f2f">(legacyMeetingTransportEnabled ? "video" : "f2f");
   const [myLanguage, setMyLanguage] = useState("en");
   const [clientLanguage, setClientLanguage] = useState("te");
   const [isCreating, setIsCreating] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const selectedSessionRequiresLegacyTransport = callType !== "f2f";
 
   const handleCreateSession = async () => {
+    if (selectedSessionRequiresLegacyTransport && !legacyMeetingTransportEnabled) {
+      toast({
+        title: "Legacy Meeting Transport Disabled",
+        description: "Video and voice client sessions are disabled outside controlled legacy support. Use Face-to-Face for the primary path.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsCreating(true);
     try {
       const token = getAuthToken();
@@ -346,12 +720,18 @@ function ClientConnectCard() {
           hostName: user?.username || user?.email || "Company Agent",
         }),
       });
-      if (!response.ok) throw new Error("Failed to create session");
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create session");
+      }
       setGeneratedLink(data.joinLink);
       toast({ title: "Session Created", description: "Share the link with your client" });
     } catch (err) {
-      toast({ title: "Error", description: "Could not create session", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err instanceof Error ? err.message : "Could not create session",
+        variant: "destructive",
+      });
     } finally {
       setIsCreating(false);
     }
@@ -387,6 +767,11 @@ function ClientConnectCard() {
         <CardDescription>Generate a secure link for clients to join from their browser</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {!legacyMeetingTransportEnabled && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+            Legacy video/voice meeting transport is disabled by default. Face-to-face client sessions remain available on the primary path.
+          </div>
+        )}
         {!generatedLink ? (
           <>
             <div className="space-y-3">
@@ -394,17 +779,18 @@ function ClientConnectCard() {
                 {callTypeOptions.map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => setCallType(opt.value)}
+                    onClick={() => (opt.value === "f2f" || legacyMeetingTransportEnabled) && setCallType(opt.value)}
                     className={`p-2 rounded-lg border text-center transition-all text-xs ${
                       callType === opt.value 
                         ? "border-primary bg-primary/10 text-primary" 
                         : "border-white/10 hover:border-white/20 text-muted-foreground"
-                    }`}
+                    } ${(opt.value !== "f2f" && !legacyMeetingTransportEnabled) ? "opacity-50 cursor-not-allowed" : ""}`}
+                    disabled={opt.value !== "f2f" && !legacyMeetingTransportEnabled}
                     data-testid={`calltype-${opt.value}`}
                   >
                     <div className="flex flex-col items-center gap-1">
                       {opt.icon}
-                      <span className="font-medium">{opt.label}</span>
+                      <span className="font-medium">{opt.label}{opt.value !== "f2f" && !legacyMeetingTransportEnabled ? " (disabled)" : ""}</span>
                     </div>
                   </button>
                 ))}
@@ -443,7 +829,7 @@ function ClientConnectCard() {
             <Button 
               className="w-full" 
               onClick={handleCreateSession} 
-              disabled={isCreating}
+              disabled={isCreating || (selectedSessionRequiresLegacyTransport && !legacyMeetingTransportEnabled)}
               data-testid="button-create-session"
             >
               {isCreating ? (
@@ -555,6 +941,35 @@ function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
     },
   });
 
+  const updateAgentStatusMutation = useMutation({
+    mutationFn: async ({ agentId, isActive }: { agentId: number; isActive: boolean }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/company/agents/${agentId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to update team member status");
+      }
+      return res.json();
+    },
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      toast({
+        title: variables.isActive ? "Team Member Activated" : "Team Member Deactivated",
+        description: variables.isActive ? "Access restored successfully" : "Access disabled successfully",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   if (isLoading) return <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
 
   return (
@@ -596,7 +1011,17 @@ function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
                 <p className="font-bold">{agent.username || agent.email}</p>
                 <p className="text-xs text-muted-foreground">{agent.email} • {agent.role}</p>
               </div>
-              <Badge variant={agent.isActive ? "default" : "secondary"}>{agent.isActive ? "Active" : "Inactive"}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={agent.isActive ? "default" : "secondary"}>{agent.isActive ? "Active" : "Inactive"}</Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updateAgentStatusMutation.isPending}
+                  onClick={() => updateAgentStatusMutation.mutate({ agentId: agent.id, isActive: !agent.isActive })}
+                >
+                  {agent.isActive ? "Deactivate" : "Activate"}
+                </Button>
+              </div>
             </div>
           ))}
         </CardContent>
@@ -605,7 +1030,255 @@ function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
   );
 }
 
-function ApiTab() {
+function ReportsTab({
+  billingData,
+  creditsData,
+  auditData,
+  paymentHistory,
+}: {
+  billingData?: CompanyBillingDashboardResponse;
+  creditsData?: CompanyCreditResponse;
+  auditData?: AuditLogResponse;
+  paymentHistory?: PaymentHistoryResponse;
+}) {
+  const [windowDays, setWindowDays] = useState<"7" | "30" | "all">("30");
+  const usageMinutes = billingData?.data?.usageSummary?.totalMinutes || 0;
+  const usageCost = billingData?.data?.usageSummary?.totalCost || 0;
+  const activeCalls = billingData?.data?.activeCallCount || 0;
+  const invoiceCount = billingData?.data?.recentInvoices?.length || 0;
+  const paymentRows = paymentHistory?.data || [];
+  const ledgerRows = creditsData?.ledger || [];
+  const auditRows = auditData?.logs || [];
+  const settledPayments = paymentRows.filter((payment) => ["paid", "captured", "completed"].includes((payment.status || "").toLowerCase()));
+  const failedPayments = paymentRows.filter((payment) => ["failed", "cancelled"].includes((payment.status || "").toLowerCase()));
+  const now = Date.now();
+  const windowMs = windowDays === "all" ? Number.POSITIVE_INFINITY : Number(windowDays) * 86_400_000;
+  const filteredPayments = paymentRows.filter((payment) => now - new Date(payment.createdAt).getTime() <= windowMs);
+  const filteredAudit = auditRows.filter((entry) => now - new Date(entry.timestamp).getTime() <= windowMs);
+  const filteredLedger = ledgerRows.filter((entry) => now - new Date(entry.createdAt).getTime() <= windowMs);
+  const filteredSettledPayments = filteredPayments.filter((payment) => ["paid", "captured", "completed"].includes((payment.status || "").toLowerCase()));
+  const filteredFailedPayments = filteredPayments.filter((payment) => ["failed", "cancelled"].includes((payment.status || "").toLowerCase()));
+  const exportPaymentsCsv = () => {
+    downloadCsv("company_payments.csv", [
+      ["Created At", "Label", "Status", "Amount", "Gateway Payment ID", "Failure Reason"],
+      ...paymentRows.map((payment) => [
+        payment.createdAt,
+        payment.metadata?.label || payment.metadata?.kind || "payment",
+        payment.status,
+        formatPaise(payment.amount),
+        payment.gatewayPaymentId || payment.gatewayOrderId || "-",
+        payment.failureReason || "-",
+      ]),
+    ]);
+  };
+  const exportCombinedReportCsv = () => {
+    downloadCsv("company_reports_summary.csv", [
+      ["Metric", "Value"],
+      ["30d Usage Minutes", String(usageMinutes)],
+      ["30d Usage Cost", formatPaise(usageCost)],
+      ["Active Calls", String(activeCalls)],
+      ["Wallet Ready", formatPaise(creditsData?.billing?.availableWalletPaise)],
+      ["Recent Invoice Count", String(invoiceCount)],
+      ["Recent Audit Count", String(auditRows.length)],
+      ["Recent Ledger Count", String(ledgerRows.length)],
+      ["Settled Payments", String(settledPayments.length)],
+      ["Failed Payments", String(failedPayments.length)],
+      [`Payments Last ${windowDays === "all" ? "All" : `${windowDays}d`}`, String(filteredPayments.length)],
+      [`Audit Events Last ${windowDays === "all" ? "All" : `${windowDays}d`}`, String(filteredAudit.length)],
+      [`Ledger Entries Last ${windowDays === "all" ? "All" : `${windowDays}d`}`, String(filteredLedger.length)],
+    ]);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">Company Reports</h2>
+          <p className="text-sm text-muted-foreground">Finance, wallet, and operational signals in one place.</p>
+        </div>
+        <div className="w-36">
+          <Select value={windowDays} onValueChange={(value: "7" | "30" | "all") => setWindowDays(value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Window" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">Last 7 days</SelectItem>
+              <SelectItem value="30">Last 30 days</SelectItem>
+              <SelectItem value="all">All data</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <Activity className="w-4 h-4 text-primary" />
+              30d Usage
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{usageMinutes} min</p>
+            <p className="text-xs text-muted-foreground mt-1">Current rolling multilingual usage</p>
+          </CardContent>
+        </Card>
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-primary" />
+              30d Billing
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{formatPaise(usageCost)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Recent invoiceable usage cost</p>
+          </CardContent>
+        </Card>
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <Phone className="w-4 h-4 text-primary" />
+              Active Calls
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{activeCalls}</p>
+            <p className="text-xs text-muted-foreground mt-1">Calls currently consuming company capacity</p>
+          </CardContent>
+        </Card>
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-primary" />
+              Wallet Ready
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{formatPaise(creditsData?.billing?.availableWalletPaise)}</p>
+            <p className="text-xs text-muted-foreground mt-1">Spendable balance for calls and top-ups</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-primary" />
+              Invoice Snapshot
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Recent Invoices</span>
+              <span className="font-semibold">{invoiceCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Wallet Entries</span>
+              <span className="font-semibold">{ledgerRows.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Audit Events</span>
+              <span className="font-semibold">{auditRows.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Audit Events In Window</span>
+              <span className="font-semibold">{filteredAudit.length}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-primary" />
+              Payment Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Settled</span>
+              <span className="font-semibold">{filteredSettledPayments.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Failed/Cancelled</span>
+              <span className="font-semibold">{filteredFailedPayments.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Total Payment Records</span>
+              <span className="font-semibold">{paymentRows.length}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Payments In Window</span>
+              <span className="font-semibold">{filteredPayments.length}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" />
+              Export Pack
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Download payment evidence for finance, support, and reconciliation.
+            </p>
+            <Button size="sm" variant="outline" className="w-full" onClick={exportPaymentsCsv}>
+              <FileText className="w-4 h-4 mr-2" />
+              Export Payments CSV
+            </Button>
+            <Button size="sm" variant="outline" className="w-full" onClick={exportCombinedReportCsv}>
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Export Summary CSV
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="glass-card">
+        <CardHeader>
+          <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-primary" />
+            Recent Payment Activity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {paymentRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No payment activity recorded yet.</p>
+          ) : (
+            filteredPayments.slice(0, 8).map((payment) => (
+              <div key={payment.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">{payment.metadata?.label || payment.metadata?.kind || "Payment"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(payment.createdAt).toLocaleString()} · {payment.gatewayPaymentId || payment.gatewayOrderId || "Awaiting gateway reference"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">{formatPaise(payment.amount)}</p>
+                    <Badge variant={["paid", "captured", "completed"].includes((payment.status || "").toLowerCase()) ? "default" : "secondary"}>
+                      {payment.status}
+                    </Badge>
+                  </div>
+                </div>
+                {payment.failureReason ? (
+                  <p className="mt-2 text-xs text-red-400">{payment.failureReason}</p>
+                ) : null}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse }) {
   const [showKey, setShowKey] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -639,23 +1312,100 @@ function ApiTab() {
   });
 
   const apiKey = apiKeyData?.key || "";
+  const billing = billingData?.data;
   const maskedKey = apiKey ? `ntk_live_••••••••${apiKey.slice(-8)}` : "No API key";
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader><CardTitle className="text-sm">API Key</CardTitle></CardHeader>
-        <CardContent className="flex items-center gap-2">
-          <code className="bg-muted p-2 rounded flex-1 text-sm">{showKey ? apiKey : maskedKey}</code>
-          <Button variant="ghost" size="icon" onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</Button>
-          <Button variant="ghost" size="icon" onClick={() => { navigator.clipboard.writeText(apiKey); toast({ title: "Copied" }); }}><Copy className="w-4 h-4" /></Button>
+      <Card className="glass-card">
+        <CardHeader>
+          <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+            <Key className="w-4 h-4 text-primary" />
+            API Key
+          </CardTitle>
+          <CardDescription>
+            Manage your company integration credential and rotate it when you need a clean cutover.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <code className="bg-muted p-2 rounded flex-1 text-sm">{showKey ? apiKey : maskedKey}</code>
+            <Button variant="ghost" size="icon" onClick={() => setShowKey(!showKey)} disabled={keyLoading}>
+              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={!apiKey}
+              onClick={() => {
+                navigator.clipboard.writeText(apiKey);
+                toast({ title: "Copied" });
+              }}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => generateKeyMutation.mutate()} disabled={generateKeyMutation.isPending}>
+              {generateKeyMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Rotate Key
+            </Button>
+            <Link href="/api-docs">
+              <Button size="sm" variant="outline">
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Open API Docs
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="glass-card">
+        <CardHeader>
+          <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-primary" />
+            Integration Readiness
+          </CardTitle>
+          <CardDescription>
+            Live billing and usage context for external integrations and supervised enterprise rollout.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border bg-card/60 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <Wallet className="w-3.5 h-3.5" />
+              Billing Model
+            </div>
+            <p className="mt-2 text-lg font-semibold">
+              {billing?.subscription?.billingModel || billing?.strictAccount?.billingType || "prepaid"}
+            </p>
+          </div>
+          <div className="rounded-lg border bg-card/60 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <Activity className="w-3.5 h-3.5" />
+              Active Calls
+            </div>
+            <p className="mt-2 text-lg font-semibold">{billing?.activeCallCount ?? 0}</p>
+          </div>
+          <div className="rounded-lg border bg-card/60 p-4">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+              <Receipt className="w-3.5 h-3.5" />
+              30d Usage
+            </div>
+            <p className="mt-2 text-lg font-semibold">{billing?.usageSummary?.totalMinutes ?? 0} min</p>
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 }
 
-function SettingsTab({ organization }: { organization: any }) {
+function SettingsTab({ organization, user, canManageCompany }: { organization: any; user: any; canManageCompany: boolean }) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-sm">Organization Settings</CardTitle></CardHeader>
@@ -667,6 +1417,18 @@ function SettingsTab({ organization }: { organization: any }) {
         <div>
           <label className="text-xs text-muted-foreground">Status</label>
           <Badge>{organization?.status}</Badge>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Your Role</label>
+          <p className="font-bold">{user?.role || "unknown"}</p>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">Access Scope</label>
+          <p className="text-sm text-muted-foreground">
+            {canManageCompany
+              ? "Full company admin access for billing, API keys, team management, and audit review."
+              : "Operational access only. Billing, API credentials, and audit controls stay restricted to company admins."}
+          </p>
         </div>
       </CardContent>
     </Card>

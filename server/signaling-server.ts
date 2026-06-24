@@ -3,21 +3,43 @@ import { EventEmitter } from "events";
 import jwt from "jsonwebtoken";
 import { getICEServersConfigAsync } from "./turn-config";
 import { logger } from "./observability";
+import { getSessionDetails } from "./role-middleware";
+import {
+  SIGNALING_MESSAGE,
+  normalizeSignalingMessage,
+  type SignalingMessage as SharedSignalingMessage,
+  type SignalingMessageType,
+} from "@shared/signaling-protocol";
 
 export interface WsAuthClaims {
   userId: number;
+  sessionId?: number;
+  sessionToken?: string;
   phoneNumber?: string;
   deviceId?: string;
 }
 
-export function verifyWsToken(token: string): WsAuthClaims | null {
+export async function verifyWsToken(token: string): Promise<WsAuthClaims | null> {
   const secret = process.env.SESSION_SECRET;
   if (!secret) return null;
   try {
     const decoded = jwt.verify(token, secret, { algorithms: ["HS256"] }) as any;
     if (typeof decoded?.userId !== "number") return null;
+    if (typeof decoded?.sessionId !== "number") {
+      return null;
+    }
+    if (typeof decoded?.sessionToken !== "string" || !decoded.sessionToken.startsWith("sess_")) {
+      return null;
+    }
+
+    const liveSession = await getSessionDetails(decoded.sessionToken, undefined).catch(() => null);
+    if (!liveSession || liveSession.id !== decoded.sessionId || liveSession.userId !== decoded.userId) {
+      return null;
+    }
+
     return {
       userId: decoded.userId,
+      sessionId: decoded.sessionId,
       phoneNumber: typeof decoded.phoneNumber === "string" ? decoded.phoneNumber : undefined,
       deviceId: typeof decoded.deviceId === "string" ? decoded.deviceId : undefined,
     };
@@ -117,43 +139,7 @@ const wsAuthMap = new WeakMap<WebSocket, WsAuthClaims>();
 //
 // ============================================================================
 
-export interface SignalingMessage {
-  type: SignalingMessageType;
-  callId?: string;
-  sessionId?: string;
-  from?: string;
-  to?: string;
-  payload?: Record<string, unknown>;
-  timestamp: number;
-}
-
-export type SignalingMessageType =
-  | "register"           // Client registers with signaling server
-  | "unregister"         // Client disconnects
-  | "call_initiate"      // Caller initiates call
-  | "call_offer"         // SDP offer (WebRTC)
-  | "call_answer"        // SDP answer (WebRTC)
-  | "call_ice"           // ICE candidate exchange
-  | "call_ringing"       // Call is ringing
-  | "call_accept"        // Callee accepts call
-  | "call_reject"        // Callee rejects call
-  | "call_busy"          // Callee is busy
-  | "call_end"           // Either party ends call
-  | "call_hold"          // Put call on hold
-  | "call_resume"        // Resume call from hold
-  | "call_mute"          // Mute audio
-  | "call_unmute"        // Unmute audio
-  | "media_ready"        // Media stream ready
-  | "error"              // Error message
-  | "heartbeat"          // Keep-alive ping
-  | "ack"                // Acknowledgment
-  | "video_enable"       // Enable video stream
-  | "video_disable"      // Disable video stream
-  | "screen_share_start" // Start screen sharing
-  | "screen_share_stop"  // Stop screen sharing
-  | "external_handoff"   // Handoff to external platform (Teams/Zoom/WhatsApp)
-  | "translation_subtitle" // Real-time translation subtitle
-  | "app_metadata";        // App-specific metadata (B2B sync)
+export type SignalingMessage = SharedSignalingMessage;
 
 export interface RegisteredClient {
   sessionId: string;
@@ -277,22 +263,26 @@ export class SignalingServer extends EventEmitter {
 
       const token = url.searchParams.get("token");
       if (!token) {
+        logger.warn("Signaling", "Rejected websocket upgrade without token");
         socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
       }
 
-      const claims = verifyWsToken(token);
-      if (!claims) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+      void (async () => {
+        const claims = await verifyWsToken(token);
+        if (!claims) {
+          logger.warn("Signaling", "Rejected websocket upgrade with invalid token");
+          socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          socket.destroy();
+          return;
+        }
 
-      this.wss!.handleUpgrade(request, socket, head, (ws) => {
-        wsAuthMap.set(ws, claims);
-        this.wss!.emit("connection", ws, request);
-      });
+        this.wss!.handleUpgrade(request, socket, head, (ws) => {
+          wsAuthMap.set(ws, claims);
+          this.wss!.emit("connection", ws, request);
+        });
+      })();
     });
 
     console.log(`[Signaling] WebSocket server attached to path ${path}`);
@@ -308,7 +298,10 @@ export class SignalingServer extends EventEmitter {
 
       ws.on("message", (data: Buffer) => {
         try {
-          const message = JSON.parse(data.toString()) as SignalingMessage;
+          const message = normalizeSignalingMessage(JSON.parse(data.toString()));
+          if (!message) {
+            throw new Error("Unsupported signaling message");
+          }
           this.handleMessage(sessionId, ws, message);
         } catch (error) {
           console.error("[Signaling] Invalid message:", error);
@@ -357,60 +350,61 @@ export class SignalingServer extends EventEmitter {
   private handleMessage(sessionId: string, ws: WebSocket, message: SignalingMessage): void {
     switch (message.type) {
       case "register":
+      case SIGNALING_MESSAGE.REGISTER:
         this.handleRegister(sessionId, ws, message);
         break;
-      case "unregister":
+      case SIGNALING_MESSAGE.UNREGISTER:
         this.handleDisconnect(sessionId);
         break;
-      case "call_initiate":
+      case SIGNALING_MESSAGE.CALL_INITIATE:
         this.handleCallInitiate(sessionId, message);
         break;
-      case "call_offer":
+      case SIGNALING_MESSAGE.CALL_OFFER:
         this.handleCallOffer(sessionId, message);
         break;
-      case "call_answer":
+      case SIGNALING_MESSAGE.CALL_ANSWER:
         this.handleCallAnswer(sessionId, message);
         break;
-      case "call_ice":
+      case SIGNALING_MESSAGE.CALL_ICE:
         this.handleIceCandidate(sessionId, message);
         break;
-      case "call_accept":
+      case SIGNALING_MESSAGE.CALL_ACCEPT:
         this.handleCallAccept(sessionId, message);
         break;
-      case "call_reject":
+      case SIGNALING_MESSAGE.CALL_REJECT:
         this.handleCallReject(sessionId, message);
         break;
-      case "call_end":
+      case SIGNALING_MESSAGE.CALL_END:
         this.handleCallEnd(sessionId, message);
         break;
-      case "call_hold":
+      case SIGNALING_MESSAGE.CALL_HOLD:
         this.handleCallHold(sessionId, message);
         break;
-      case "call_resume":
+      case SIGNALING_MESSAGE.CALL_RESUME:
         this.handleCallResume(sessionId, message);
         break;
-      case "heartbeat":
+      case SIGNALING_MESSAGE.HEARTBEAT:
         this.handleHeartbeat(sessionId);
         break;
-      case "video_enable":
+      case SIGNALING_MESSAGE.VIDEO_ENABLE:
         this.handleVideoEnable(sessionId, message);
         break;
-      case "video_disable":
+      case SIGNALING_MESSAGE.VIDEO_DISABLE:
         this.handleVideoDisable(sessionId, message);
         break;
-      case "screen_share_start":
+      case SIGNALING_MESSAGE.SCREEN_SHARE_START:
         this.handleScreenShareStart(sessionId, message);
         break;
-      case "screen_share_stop":
+      case SIGNALING_MESSAGE.SCREEN_SHARE_STOP:
         this.handleScreenShareStop(sessionId, message);
         break;
-      case "external_handoff":
+      case SIGNALING_MESSAGE.EXTERNAL_HANDOFF:
         this.handleExternalHandoff(sessionId, message);
         break;
-      case "translation_subtitle":
+      case SIGNALING_MESSAGE.TRANSLATION_SUBTITLE:
         this.handleTranslationSubtitle(sessionId, message);
         break;
-      case "app_metadata":
+      case SIGNALING_MESSAGE.APP_METADATA:
         this.handleAppMetadata(sessionId, message);
         break;
       default:

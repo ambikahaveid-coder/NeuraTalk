@@ -127,6 +127,71 @@ export function CallLogsSection() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><HeartPulse className="w-4 h-4" />Conversation Stability Signals</CardTitle>
+          <CardDescription>Realtime collapse-prevention metrics from the shared conversation engine</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              {
+                label: "Duplicate Turn Rate",
+                value: `${(((metrics.voice?.rates?.duplicateTurnRate ?? metrics.voice?.duplicateTurnRate ?? 0) as number) * 100).toFixed(2)}%`,
+              },
+              {
+                label: "Stale Transcript Rate",
+                value: `${(((metrics.voice?.rates?.staleTranscriptRate ?? metrics.voice?.staleTranscriptRate ?? 0) as number) * 100).toFixed(2)}%`,
+              },
+              {
+                label: "Transcript Regression Rate",
+                value: `${(((metrics.voice?.rates?.transcriptRegressionRate ?? 0) as number) * 100).toFixed(2)}%`,
+              },
+              {
+                label: "Confidence Coverage",
+                value: `${(((metrics.voice?.rates?.confidenceCoverageRate ?? metrics.voice?.confidenceCoverageRate ?? 0) as number) * 100).toFixed(2)}%`,
+              },
+            ].map((signal) => (
+              <div key={signal.label} className="p-4 rounded-lg border">
+                <p className="text-xs text-muted-foreground mb-1">{signal.label}</p>
+                <p className="text-xl font-bold">{signal.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            {[
+              {
+                label: "Translation Fallbacks",
+                value: metrics.voice?.counters?.translation_fallbacks ?? 0,
+              },
+              {
+                label: "Stale TTS Segments",
+                value: metrics.voice?.counters?.stale_tts_segments ?? 0,
+              },
+              {
+                label: "Audio Backlog Events",
+                value: metrics.voice?.counters?.audio_backlog_events ?? 0,
+              },
+              {
+                label: "Ghost Audio Drops",
+                value: metrics.voice?.counters?.ghost_audio_drops ?? 0,
+              },
+            ].map((signal) => (
+              <div key={signal.label} className="p-4 rounded-lg border bg-muted/20">
+                <p className="text-xs text-muted-foreground mb-1">{signal.label}</p>
+                <p className="text-xl font-bold">{signal.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mt-4">
+            <div className="p-4 rounded-lg border bg-muted/20">
+              <p className="text-xs text-muted-foreground mb-1">Turn Order Mismatches</p>
+              <p className="text-xl font-bold">{metrics.voice?.counters?.turn_order_mismatches ?? 0}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Call Types</CardTitle>
             <Button variant="outline" size="sm" onClick={() => toast({ title: "Export", description: "Call logs exported" })}>
@@ -559,19 +624,32 @@ export function SystemHealthSection() {
   const uptime = healthData?.uptime ? Math.floor(healthData.uptime / 3600) : 0;
   const uptimeMin = healthData?.uptime ? Math.floor((healthData.uptime % 3600) / 60) : 0;
   const configKeyMap = new Map<string, boolean>((configStatus?.configs || []).map((config: any) => [config.key, config.isSet]));
+  const configSummary = configStatus?.summary || {};
+  const openAiConfigured = Boolean(configKeyMap.get("OPENAI_API_KEY") || configKeyMap.get("AI_INTEGRATIONS_OPENAI_API_KEY"));
+  const azureSpeechConfigured = Boolean(configKeyMap.get("AZURE_SPEECH_KEY") && configKeyMap.get("AZURE_SPEECH_REGION"));
+  const azureTranslatorConfigured = Boolean(
+    (configKeyMap.get("AZURE_TRANSLATOR_KEY") && configKeyMap.get("AZURE_TRANSLATOR_REGION")) || azureSpeechConfigured,
+  );
+  const livekitConfigured = Boolean(
+    configKeyMap.get("LIVEKIT_URL") && configKeyMap.get("LIVEKIT_API_KEY") && configKeyMap.get("LIVEKIT_API_SECRET"),
+  );
+  const firebaseConfigured = Boolean(configSummary.firebase?.configured);
+  const razorpayConfigured = Boolean(configSummary.razorpay?.configured);
+  const msg91Configured = Boolean(configSummary.msg91?.configured);
 
   const services = [
     { name: "API Server", status: healthData?.status === "ok" ? "online" : "offline", detail: `Uptime: ${uptime}h ${uptimeMin}m` },
     { name: "Database (Neon)", status: healthData?.status === "ok" ? "online" : "offline", detail: "PostgreSQL Serverless" },
     { name: "WebSocket Signaling", status: healthData?.status === "ok" ? "online" : "offline", detail: "Real-time events" },
     { name: "Redis Cache", status: "degraded", detail: "Not running — in-memory fallback" },
-    { name: "LiveKit (WebRTC)", status: configKeyMap.get("LIVEKIT_URL") ? "online" : "offline", detail: configKeyMap.get("LIVEKIT_URL") ? "Configured" : "Not configured" },
-    { name: "Whisper (STT)", status: "offline", detail: "GPU not deployed" },
-    { name: "Translation (NMT)", status: "offline", detail: "Requires OpenAI key or GPU" },
-    { name: "TTS (Voice)", status: "offline", detail: "Requires GPU or OpenAI key" },
-    { name: "Firebase Auth", status: configKeyMap.get("FIREBASE_SERVICE_ACCOUNT_JSON") ? "online" : "offline", detail: configKeyMap.get("FIREBASE_SERVICE_ACCOUNT_JSON") ? "Configured" : "Not configured" },
-    { name: "Razorpay Payments", status: configKeyMap.get("RAZORPAY_KEY_ID") ? "online" : "offline", detail: configKeyMap.get("RAZORPAY_KEY_ID") ? "Configured" : "Not configured" },
-    { name: "MSG91 Callbacks", status: configKeyMap.get("APP_BASE_URL") ? "online" : "offline", detail: configKeyMap.get("APP_BASE_URL") ? "Public callback base configured" : "APP_BASE_URL missing" },
+    { name: "LiveKit (WebRTC)", status: livekitConfigured ? "online" : "offline", detail: livekitConfigured ? "Primary media transport configured" : "LIVEKIT_URL/API keys missing" },
+    { name: "Azure STT (Primary)", status: azureSpeechConfigured ? "online" : "offline", detail: azureSpeechConfigured ? "Azure Speech streaming configured" : "AZURE_SPEECH_KEY/REGION missing" },
+    { name: "OpenAI Orchestration", status: openAiConfigured ? "online" : "offline", detail: openAiConfigured ? "Realtime orchestration configured" : "OPENAI API key missing" },
+    { name: "Azure TTS (Primary)", status: azureSpeechConfigured ? "online" : "offline", detail: azureSpeechConfigured ? "Azure voice output configured" : "AZURE_SPEECH_KEY/REGION missing" },
+    { name: "Azure Translator", status: azureTranslatorConfigured ? "online" : "degraded", detail: azureTranslatorConfigured ? "Translator path available" : "Falling back to orchestration-only translation" },
+    { name: "Firebase Auth", status: firebaseConfigured ? "online" : "offline", detail: firebaseConfigured ? "Configured" : "Firebase server/web keys missing" },
+    { name: "Razorpay Payments", status: razorpayConfigured ? "online" : "offline", detail: razorpayConfigured ? "Configured" : "Razorpay keys missing" },
+    { name: "MSG91 Callbacks", status: msg91Configured ? "online" : "degraded", detail: msg91Configured ? "PSTN/OTP callback base configured" : "MSG91 or APP_BASE_URL incomplete" },
   ];
 
   const statusColor = (s: string) => s === "online" ? "bg-green-500" : s === "degraded" ? "bg-amber-500" : "bg-red-500";
@@ -616,11 +694,15 @@ export function SystemHealthSection() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {[
               { key: "DATABASE_URL", label: "Database (Neon)", required: true },
-              { key: "OPENAI_API_KEY", label: "OpenAI (Translation/STT/TTS)", required: true },
+              { key: "OPENAI_API_KEY", label: "OpenAI (Orchestration)", required: true },
+              { key: "AZURE_SPEECH_KEY", label: "Azure Speech Key", required: true },
+              { key: "AZURE_SPEECH_REGION", label: "Azure Speech Region", required: true },
               { key: "MSG91_AUTH_KEY", label: "MSG91 Auth", required: false },
               { key: "APP_BASE_URL", label: "Public Callback Base URL", required: false },
               { key: "MSG91_OTP_TEMPLATE_ID", label: "MSG91 OTP Template", required: false },
-              { key: "LIVEKIT_URL", label: "LiveKit (WebRTC)", required: true },
+              { key: "LIVEKIT_URL", label: "LiveKit URL", required: true },
+              { key: "LIVEKIT_API_KEY", label: "LiveKit API Key", required: true },
+              { key: "LIVEKIT_API_SECRET", label: "LiveKit API Secret", required: true },
               { key: "RAZORPAY_KEY_ID", label: "Razorpay (Payments)", required: false },
               { key: "FIREBASE_SERVICE_ACCOUNT_JSON", label: "Firebase", required: false },
               { key: "ELEVEN_LABS_API_KEY", label: "ElevenLabs (TTS)", required: false },

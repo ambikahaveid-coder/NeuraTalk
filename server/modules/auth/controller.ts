@@ -7,6 +7,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { logger } from "../../observability";
+import { clearOtpVerifyFailures, recordOtpVerifyFailure } from "../../rate-limit";
 import * as svc from "./service";
 
 const forgotPasswordSchema = z.object({
@@ -18,12 +19,12 @@ const resetPasswordSchema = z.object({
   identifier: z.string().min(1),
   channel: z.enum(["email", "mobile"]),
   code: z.string().length(6),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: z.string().min(10, "Password must be at least 10 characters"),
 });
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
-  newPassword: z.string().min(6, "Password must be at least 6 characters"),
+  newPassword: z.string().min(10, "Password must be at least 10 characters"),
 });
 
 const firebaseVerifySchema = z.object({
@@ -60,7 +61,7 @@ export async function register(req: Request, res: Response) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ message: err.errors[0].message });
     }
-    console.error("Register error:", err);
+    logger.error("Auth", "Register failed", err as Error);
     res.status(500).json({ message: "Internal server error" });
   }
 }
@@ -86,6 +87,12 @@ export async function login(req: Request, res: Response) {
       }
       if (result.error === "TENANT_INACTIVE") {
         return res.status(403).json({ message: "This company workspace is not active yet" });
+      }
+      if (result.error === "USER_INACTIVE") {
+        return res.status(403).json({ message: "This account is inactive. Please contact your administrator." });
+      }
+      if (result.error === "PASSWORD_RESET_REQUIRED") {
+        return res.status(403).json({ message: "Password reset required for this account" });
       }
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -144,6 +151,9 @@ export async function changePassword(req: Request, res: Response) {
       if (result.error === "PASSWORD_AUTH_NOT_AVAILABLE") {
         return res.status(400).json({ success: false, message: "This account does not have password login enabled yet" });
       }
+      if (result.error === "PASSWORD_RESET_REQUIRED") {
+        return res.status(403).json({ success: false, message: "Password reset required for this account" });
+      }
       return res.status(404).json({ success: false, message: "User not found" });
     }
     res.json({ success: true, message: "Password updated successfully" });
@@ -160,6 +170,9 @@ export async function firebaseVerify(req: Request, res: Response) {
     const { idToken } = firebaseVerifySchema.parse(req.body);
     const result = await svc.firebaseVerify(idToken);
     if ("error" in result) {
+      if (result.error === "USER_INACTIVE") {
+        return res.status(403).json({ success: false, message: "This account is inactive. Please contact your administrator." });
+      }
       return res.status(401).json({ success: false, message: "Invalid Firebase token" });
     }
     res.json({ success: true, token: result.token, user: result.user, isNewUser: result.isNewUser });
@@ -173,7 +186,14 @@ export async function firebaseVerify(req: Request, res: Response) {
 
 export function wsToken(req: Request, res: Response) {
   const user = req.user!;
-  const token = svc.issueSignalingToken(user.id, user.phone ?? undefined);
+  const authHeader = req.headers.authorization;
+  const sessionToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  if (!sessionToken || !user.sessionId) {
+    return res.status(401).json({ message: "Active session required" });
+  }
+
+  const token = svc.issueSignalingToken(user.id, user.sessionId, sessionToken, user.phone ?? undefined);
   res.json({ token, expiresInSeconds: 300 });
 }
 
@@ -198,7 +218,7 @@ export async function me(req: Request, res: Response) {
       mfaVerifiedAt: req.user.mfaVerifiedAt || null,
     });
   } catch (err) {
-    console.error("Auth me error:", err);
+    logger.error("Auth", "Profile lookup failed", err as Error);
     res.status(500).json({ message: "Internal server error" });
   }
 }
@@ -238,8 +258,12 @@ export async function otpVerify(req: Request, res: Response) {
     });
 
     if (!result.success) {
+      const identifier = input.identifier;
+      void recordOtpVerifyFailure(identifier);
+      logger.warn("Auth", "OTP verify failed", { masked: identifier.slice(0, 4) + "****", ip: req.ip, channel: input.channel });
       return res.status(result.status).json({ success: false, message: result.message });
     }
+    void clearOtpVerifyFailures(input.identifier);
     res.json({
       success: true,
       userId: result.userId,

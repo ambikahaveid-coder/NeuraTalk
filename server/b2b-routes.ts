@@ -24,7 +24,6 @@ import {
 } from "@shared/schema";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { setDummyOtpMode } from "./otp-auth";
 import { storage } from "./storage";
 import {
   loadUser,
@@ -32,12 +31,15 @@ import {
   requireSuperAdmin,
   requireCompanyAdminOrAbove,
   requireApprovedCompany,
+  invalidateAllSessionsForUser,
 } from "./role-middleware";
 import { logger } from "./observability";
 import { AuditHelpers } from "./audit";
 import { BillingEngine } from "./billing-engine";
 import { getOrganizationBillingSnapshot } from "./organization-billing";
+import { requireActiveSubscription, warnLowBalance } from "./usage-enforcement";
 import * as callService from "./modules/calls/service";
+import { buildUnifiedSessionFromInitiateResponse } from "./modules/calls/session-view";
 import { routeToSkillAgent } from "./modules/calls/smart-router";
 
 // ============================================================================
@@ -59,6 +61,10 @@ const addAgentSchema = z.object({
   phone: z.string().optional(),
   name: z.string().min(2),
   role: z.enum(["agent", "company_admin"]).default("agent"),
+});
+
+const updateAgentStatusSchema = z.object({
+  isActive: z.boolean(),
 });
 
 const createCompanySchema = z.object({
@@ -265,6 +271,55 @@ async function getAgentStatusRows(organizationId: number) {
       } : null,
     };
   });
+}
+
+async function endActiveCallsForUser(userId: number, actorUserId: number, reason: string) {
+  const userIdString = String(userId);
+  const calls = await callService.listSmartCallsForUser(userIdString).catch((error) => {
+    logger.warn("B2BRoutes", "Failed to list active calls during user deactivation", {
+      userId,
+      actorUserId,
+      error: String(error),
+    });
+    return [];
+  });
+
+  const activeCalls = calls.filter((call) => {
+    if (!call.callId) return false;
+    if (call.status === "ended" || call.status === "failed" || call.status === "cancelled") return false;
+    return !call.endedAt;
+  });
+
+  if (activeCalls.length === 0) {
+    return { activeCallIds: [] as string[] };
+  }
+
+  const activeCallIds = activeCalls.map((call) => call.callId);
+  const teardownResults = await Promise.allSettled(
+    activeCallIds.map((callId) => callService.endCallById(callId, reason)),
+  );
+
+  const failedTeardowns = teardownResults
+    .map((result, index) => ({ result, callId: activeCallIds[index] }))
+    .filter((entry) => entry.result.status === "rejected");
+
+  if (failedTeardowns.length > 0) {
+    logger.warn("B2BRoutes", "Failed to end one or more active calls during user deactivation", {
+      userId,
+      actorUserId,
+      callIds: failedTeardowns.map((entry) => entry.callId),
+      failures: failedTeardowns.map((entry) => String((entry.result as PromiseRejectedResult).reason)),
+    });
+  } else {
+    logger.info("B2BRoutes", "Ended active calls during user deactivation", {
+      userId,
+      actorUserId,
+      callIds: activeCallIds,
+      reason,
+    });
+  }
+
+  return { activeCallIds };
 }
 
 function buildTranslationRouteSnapshot() {
@@ -690,21 +745,6 @@ export function registerB2BRoutes(app: Express): void {
   });
 
   /**
-   * Toggle dummy OTP mode (Super Admin)
-   */
-  app.post("/api/admin/settings/dummy-otp", requireAuth, requireSuperAdmin, async (req, res) => {
-    try {
-      const { enabled } = req.body;
-      await setDummyOtpMode(enabled, req.user!.id);
-      
-      res.json({ success: true, message: `Dummy OTP ${enabled ? "enabled" : "disabled"}` });
-    } catch (err) {
-      logger.error("B2BRoutes", "Failed to toggle dummy OTP", err as Error);
-      res.status(500).json({ success: false, message: "Failed to update setting" });
-    }
-  });
-
-  /**
    * Adjust company wallet balance (Super Admin)
    */
   app.post("/api/admin/companies/:id/credits", requireAuth, requireSuperAdmin, async (req, res) => {
@@ -958,10 +998,83 @@ export function registerB2BRoutes(app: Express): void {
         .set({ isActive: false })
         .where(eq(users.id, agentId));
 
-      res.json({ success: true, message: "Agent removed" });
+      const { activeCallIds } = await endActiveCallsForUser(agentId, req.user.id, "USER_DEACTIVATED");
+      await invalidateAllSessionsForUser(agentId);
+
+      await AuditHelpers.logUpdate(
+        req.user.id,
+        "company_agent_removed",
+        agentId,
+        { isActive: true },
+        { isActive: false, activeCallIdsEnded: activeCallIds },
+      );
+
+      res.json({
+        success: true,
+        message: "Agent removed",
+        activeCallIdsEnded: activeCallIds,
+      });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to remove agent", err as Error);
       res.status(500).json({ success: false, message: "Failed to remove agent" });
+    }
+  });
+
+  app.patch("/api/company/agents/:agentId/status", requireAuth, requireCompanyAdminOrAbove, requireApprovedCompany, async (req, res) => {
+    try {
+      if (!req.user?.organizationId) {
+        return res.status(400).json({ success: false, message: "No company associated" });
+      }
+
+      const agentId = Number.parseInt(req.params.agentId, 10);
+      if (!Number.isFinite(agentId)) {
+        return res.status(400).json({ success: false, message: "Invalid team member" });
+      }
+
+      const parsed = updateAgentStatusSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ success: false, message: parsed.error.errors[0]?.message || "Invalid status update" });
+      }
+
+      const agent = await db.query.users.findFirst({
+        where: eq(users.id, agentId),
+      });
+
+      if (!agent || agent.organizationId !== req.user.organizationId) {
+        return res.status(404).json({ success: false, message: "Team member not found" });
+      }
+
+      if (agent.id === req.user.id && parsed.data.isActive === false) {
+        return res.status(400).json({ success: false, message: "You cannot deactivate your own account" });
+      }
+
+      await db.update(users)
+        .set({ isActive: parsed.data.isActive })
+        .where(eq(users.id, agentId));
+
+      let activeCallIdsEnded: string[] = [];
+      if (!parsed.data.isActive) {
+        const cleanup = await endActiveCallsForUser(agentId, req.user.id, "USER_DEACTIVATED");
+        activeCallIdsEnded = cleanup.activeCallIds;
+        await invalidateAllSessionsForUser(agentId);
+      }
+
+      await AuditHelpers.logUpdate(
+        req.user.id,
+        "company_agent_status",
+        agentId,
+        { isActive: agent.isActive },
+        { isActive: parsed.data.isActive, activeCallIdsEnded },
+      );
+
+      res.json({
+        success: true,
+        message: parsed.data.isActive ? "Team member reactivated" : "Team member deactivated",
+        activeCallIdsEnded,
+      });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to update team member status", err as Error);
+      res.status(500).json({ success: false, message: "Failed to update team member status" });
     }
   });
 
@@ -991,7 +1104,7 @@ export function registerB2BRoutes(app: Express): void {
   /**
    * Get company API key
    */
-  app.get("/api/company/api-key", requireAuth, requireApprovedCompany, async (req, res) => {
+  app.get("/api/company/api-key", requireAuth, requireCompanyAdminOrAbove, requireApprovedCompany, async (req, res) => {
     try {
       if (!req.user?.organizationId) {
         return res.status(400).json({ success: false, message: "No company associated" });
@@ -1125,7 +1238,7 @@ export function registerB2BRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/b2b/outbound-call", requireAuth, requireApprovedCompany, async (req, res) => {
+  app.post("/api/b2b/outbound-call", requireAuth, requireApprovedCompany, requireActiveSubscription, warnLowBalance, async (req, res) => {
     try {
       if (!req.user?.organizationId) {
         return res.status(400).json({ success: false, message: "No company associated" });
@@ -1167,7 +1280,19 @@ export function registerB2BRoutes(app: Express): void {
       res.json({
         success: true,
         message: "B2B outbound call initiated",
-        call: result,
+        call: {
+          ...result,
+          session: buildUnifiedSessionFromInitiateResponse(result, {
+            callerId: String(actingUser.id),
+            callerNumber: (actingUser as any).phone || "",
+            callerDisplayName: actingUser.username || actingUser.email || `Agent ${actingUser.id}`,
+            calleeIdentifier: input.calleeIdentifier,
+            callerLanguage: input.myLanguage,
+            calleeLanguage: input.theirLanguage,
+            translationMode: input.translationMode,
+            translationEnabled: true,
+          }),
+        },
       });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to start B2B outbound call", err as Error);

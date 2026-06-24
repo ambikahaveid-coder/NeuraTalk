@@ -22,6 +22,7 @@ import {
   updateSmartCallStatus,
 } from "./modules/calls/service";
 import { smartCallEvents } from "./modules/calls/smart-router";
+import { buildUnifiedSessionFromCommunicationSession } from "./modules/calls/session-view";
 import {
   billingPlans,
   communicationApiKeyPricing,
@@ -116,7 +117,13 @@ function buildPricingOverride(pricing: PricingProfile): Partial<StrictBillingPla
 }
 
 function getWsBaseUrl() {
-  const appBaseUrl = process.env.APP_BASE_URL || "http://localhost:5000";
+  const appBaseUrl = process.env.APP_BASE_URL;
+  if (!appBaseUrl) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("[CommunicationAPI] APP_BASE_URL must be set in production");
+    }
+    return `ws://localhost:${process.env.PORT || 5000}`;
+  }
   return appBaseUrl.replace(/^http/i, "ws");
 }
 
@@ -485,12 +492,64 @@ export async function createCommunicationCallSession(
       startedAt: new Date(),
     });
 
+    const createdAt = new Date();
+
     await recordLifecycleEvent(unified.callId, "session.created", {
       apiKeyId: apiKey.id,
       organizationId: apiKey.organizationId,
       joinMethod: unified.joinMethod,
       callType: input.callType || "voice",
       maskedNumber: mapping.maskedNumber,
+    });
+
+    const sessionView = buildUnifiedSessionFromCommunicationSession({
+      id: 0,
+      sessionId: unified.callId,
+      apiKeyId: apiKey.id,
+      organizationId: apiKey.organizationId,
+      pricingId: pricing.pricingId ?? null,
+      subscriptionId: pricing.subscriptionId ?? null,
+      maskedMappingId: mapping.id,
+      livekitRoomName: unified.callId,
+      callerIdentity: input.caller.externalId,
+      calleeIdentity: input.callee.externalId,
+      callerPhoneNumber: input.caller.phoneNumber || null,
+      calleePhoneNumber: input.callee.phoneNumber || null,
+      callerDisplayName: input.caller.displayName || input.caller.externalId,
+      calleeDisplayName: input.callee.displayName || input.callee.externalId,
+      callerLanguage: input.caller.language || "auto",
+      calleeLanguage: input.callee.language || "auto",
+      maskedNumber: mapping.maskedNumber,
+      callType: input.callType || "voice",
+      transport: "webrtc",
+      joinMethod: unified.joinMethod,
+      status: unified.joinMethod === "app_to_pstn" ? "ringing" : "created",
+      recordingEnabled: input.enableRecording === true && pricing.allowRecording,
+      aiAssistantEnabled: input.enableAiAssistant === true,
+      maskingEnabled: true,
+      pstnFallbackEnabled: pricing.allowPstnFallback,
+      pstnCallId: unified.pstnCallId ?? null,
+      metadata: {
+        ...(input.metadata || {}),
+        pricingSource: pricing.source,
+        connectionFeePaise: pricing.connectionFeePaise,
+      },
+      telemetry: {
+        pricingSnapshot: pricing,
+      },
+      connectedParticipantCount: 0,
+      billedSeconds: 0,
+      totalCostPaise: 0,
+      startedAt: createdAt,
+      connectedAt: null,
+      endedAt: null,
+      createdAt,
+      updatedAt: createdAt,
+    }, {
+      smartCallStatus: unified.joinMethod === "app_to_pstn" ? "ringing" : "created",
+      provider: unified.joinMethod === "app_to_pstn" ? "msg91_sip" : "livekit",
+      livekitUrl: process.env.LIVEKIT_URL || null,
+      durationSeconds: 0,
     });
 
     return {
@@ -525,6 +584,7 @@ export async function createCommunicationCallSession(
       websocket: {
         url: `${getWsBaseUrl()}/ws/communication-api?session_id=${encodeURIComponent(unified.callId)}`,
       },
+      session: sessionView,
     };
   } catch (error) {
     if (initiated) {
@@ -694,21 +754,32 @@ export async function getCommunicationCallStatus(
       .limit(20),
   ]);
 
+  const status = smartCall?.status ?? session.status;
+  const connectedAt = smartCall?.connectedAt ? new Date(smartCall.connectedAt) : session.connectedAt;
+  const endedAt = smartCall?.endedAt ? new Date(smartCall.endedAt) : session.endedAt;
+  const durationSeconds = billing?.durationSeconds ?? session.billedSeconds ?? 0;
+
   return {
     sessionId,
-    status: smartCall?.status ?? session.status,
+    status,
     callType: session.callType,
     joinMethod: smartCall?.joinMethod ?? session.joinMethod,
     maskedNumber: mapping?.maskedNumber || session.maskedNumber,
     connectedParticipantCount: session.connectedParticipantCount ?? (smartCall?.status === "active" ? 2 : 0),
-    billedSeconds: billing?.durationSeconds ?? session.billedSeconds ?? 0,
+    billedSeconds: durationSeconds,
     totalCostPaise: billing?.totalCostPaise ?? session.totalCostPaise ?? 0,
     prepaidBalancePaise: null,
     postpaidRemainingCreditPaise: null,
     createdAt: session.createdAt,
-    connectedAt: smartCall?.connectedAt ? new Date(smartCall.connectedAt) : session.connectedAt,
-    endedAt: smartCall?.endedAt ? new Date(smartCall.endedAt) : session.endedAt,
+    connectedAt,
+    endedAt,
     events: events.reverse(),
+    session: buildUnifiedSessionFromCommunicationSession(session, {
+      smartCallStatus: status,
+      provider: smartCall?.provider ?? null,
+      livekitUrl: process.env.LIVEKIT_URL || null,
+      durationSeconds,
+    }),
   };
 }
 

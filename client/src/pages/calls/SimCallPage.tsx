@@ -75,9 +75,8 @@ const LANGUAGES = [
 ];
 
 // Production API Base URL - This ensures APK knows where to talk
-const API_BASE = import.meta.env.DEV 
-  ? "http://localhost:5000" 
-  : (import.meta.env.VITE_API_URL || "https://neuratalk.in");
+const API_BASE = import.meta.env.VITE_API_URL?.trim()
+  || (import.meta.env.DEV ? "http://localhost:5000" : window.location.origin);
 const WS_BASE = API_BASE.replace("http", "ws");
 
 export default function SimCallPage() {
@@ -670,6 +669,10 @@ export default function SimCallPage() {
                     </Button>
                   </div>
                 )}
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+                  This screen is a legacy PSTN bridge utility for controlled verification and
+                  trial-account workflows. It is not the primary LiveKit/Azure-first calling path.
+                </div>
                 {!isTrial && accountStatus?.configured && (
                   <div className="bg-green-50 dark:bg-green-950/30 border border-green-300 dark:border-green-700 rounded-lg p-3 text-sm">
                     <p className="text-green-800 dark:text-green-300 font-medium flex items-center gap-2">

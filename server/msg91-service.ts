@@ -14,7 +14,22 @@
  *   MSG91_VOICE_URL         — callback for voice flow (XML/BXML)
  */
 
+import { logger } from "./observability";
+
 const MSG91_BASE = "https://api.msg91.com/api";
+
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+    logger.warn("MSG91", `Request timed out after ${timeoutMs}ms`);
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function authKey(): string {
   const key = process.env.MSG91_AUTH_KEY;
@@ -47,6 +62,9 @@ function resolveCallerId(to: string, requestedFrom: string): string {
   const configuredCallerId = normalizePhoneNumber(process.env.MSG91_VOICE_CALLER_ID);
 
   if (isIndianNumber(normalizedTo)) {
+    if (normalizedRequestedFrom) {
+      return normalizedRequestedFrom;
+    }
     if (configuredCallerId) {
       return configuredCallerId;
     }
@@ -94,7 +112,7 @@ export async function initiateOutboundCall(opts: OutboundCallOptions): Promise<M
   }
   const from = resolveCallerId(to, opts.from);
 
-  const response = await fetch(`${MSG91_BASE}/v5/voice/call/outbound`, {
+  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/call/outbound`, {
     method: "POST",
     headers: {
       "authkey": authKey(),
@@ -107,7 +125,7 @@ export async function initiateOutboundCall(opts: OutboundCallOptions): Promise<M
       fallback_message: opts.fallbackMessage,
       metadata: opts.metadata,
     }),
-  });
+  }, 15_000);
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
@@ -130,14 +148,14 @@ export async function initiateOutboundCall(opts: OutboundCallOptions): Promise<M
  * verchual numbers kaadu". The user's actual mobile becomes the outgoing caller ID.
  */
 export async function requestCallerIdVerification(phoneNumber: string): Promise<{ verificationId: string }> {
-  const response = await fetch(`${MSG91_BASE}/v5/voice/callerid/verify/request`, {
+  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/callerid/verify/request`, {
     method: "POST",
     headers: {
       "authkey": authKey(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ phone: phoneNumber }),
-  });
+  }, 15_000);
 
   if (!response.ok) {
     throw new Error(`Caller ID verify request failed: ${response.status}`);
@@ -151,14 +169,14 @@ export async function confirmCallerIdVerification(
   verificationId: string,
   otp: string
 ): Promise<{ verified: boolean; phoneNumber?: string }> {
-  const response = await fetch(`${MSG91_BASE}/v5/voice/callerid/verify/confirm`, {
+  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/callerid/verify/confirm`, {
     method: "POST",
     headers: {
       "authkey": authKey(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ verification_id: verificationId, otp }),
-  });
+  }, 15_000);
 
   if (!response.ok) return { verified: false };
 
@@ -195,7 +213,7 @@ export async function bridgeCallToLiveKitRoom(opts: {
  * Send OTP via SMS (used for SIM-app binding, TRAI compliance).
  */
 export async function sendOTP(phoneNumber: string, otp: string, templateId?: string): Promise<void> {
-  const response = await fetch(`${MSG91_BASE}/v5/otp`, {
+  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/otp`, {
     method: "POST",
     headers: {
       "authkey": authKey(),
@@ -205,9 +223,9 @@ export async function sendOTP(phoneNumber: string, otp: string, templateId?: str
       mobile: phoneNumber,
       otp,
       template_id: templateId,
-      otp_expiry: 10, // minutes
+      otp_expiry: 10,
     }),
-  });
+  }, 15_000);
 
   if (!response.ok) {
     throw new Error(`MSG91 OTP send failed: ${response.status}`);
@@ -240,9 +258,9 @@ export function getCallForwardingInstructions(neuraTalkInboundNumber: string): {
 export async function isMSG91Healthy(): Promise<boolean> {
   try {
     if (!process.env.MSG91_AUTH_KEY) return false;
-    const response = await fetch(`${MSG91_BASE}/v5/account/balance`, {
+    const response = await fetchWithTimeout(`${MSG91_BASE}/v5/account/balance`, {
       headers: { authkey: authKey() },
-    });
+    }, 5_000);
     return response.ok;
   } catch {
     return false;

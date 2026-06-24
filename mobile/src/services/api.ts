@@ -1,8 +1,27 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = __DEV__ 
-  ? 'http://localhost:5000' 
-  : 'https://neuratalk.in'; // Use your actual production backend URL
+function readRuntimeEnv(key: string): string | null {
+  const value = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function resolveApiBaseUrl(): string {
+  const configured = readRuntimeEnv('EXPO_PUBLIC_API_BASE_URL')
+    ?? readRuntimeEnv('REACT_NATIVE_API_BASE_URL')
+    ?? readRuntimeEnv('API_BASE_URL');
+
+  if (configured) {
+    return configured.replace(/\/+$/, '');
+  }
+
+  if (__DEV__) {
+    return 'http://localhost:5000';
+  }
+
+  throw new Error('Release API base URL is not configured. Set EXPO_PUBLIC_API_BASE_URL.');
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 let authToken: string | null = null;
 
@@ -49,6 +68,10 @@ export async function apiRequest<T = any>(
   return await response.json() as T;
 }
 
+export function getApiBaseUrl(): string {
+  return API_BASE_URL;
+}
+
 export const authApi = {
   requestOtp: (identifier: string, channel: 'email' | 'mobile') =>
     apiRequest('POST', '/api/auth/otp/request', { identifier, channel }),
@@ -62,6 +85,8 @@ export const authApi = {
     setAuthToken(null);
     return Promise.resolve();
   },
+
+  getWsToken: () => apiRequest<{ token: string; expiresInSeconds: number }>('POST', '/api/auth/ws-token', {}),
 };
 
 export const callApi = {

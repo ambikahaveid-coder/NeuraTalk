@@ -3,7 +3,7 @@ import { cache } from "./cache";
 import { getOpenAIKey } from "./openai-config";
 
 const openai = new OpenAI({
-  apiKey: getOpenAIKey() || "placeholder",
+  apiKey: getOpenAIKey() || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 

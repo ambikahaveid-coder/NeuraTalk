@@ -244,34 +244,56 @@ async function resolveCallee(identifier: string): Promise<{
   phoneNumber?: string;
   preferredLanguage?: string;
 }> {
-  const isPhone = /^\+?\d{10,15}$/.test(identifier.replace(/\s+/g, ""));
+  const rawIdentifier = (identifier ?? "").trim();
+  const normalizedPhone = rawIdentifier.replace(/\s+/g, "");
+  const isPhone = /^\+?\d{10,15}$/.test(normalizedPhone);
+
+  const toResolvedCallee = (user: any, fallbackPhone?: string) => ({
+    hasApp: true as const,
+    userId: String(user.id),
+    phoneNumber: (user as any).phone ?? fallbackPhone,
+    preferredLanguage: (user as any).preferredLanguage,
+  });
 
   if (isPhone) {
-    const user = await storage.getUserByPhone(identifier);
+    const user =
+      (await storage.getUserByPhone(normalizedPhone)) ??
+      (normalizedPhone.startsWith("+")
+        ? await storage.getUserByPhone(normalizedPhone.slice(1))
+        : await storage.getUserByPhone(`+${normalizedPhone}`));
     if (user) {
-      return {
-        hasApp: true,
-        userId: String(user.id),
-        phoneNumber: identifier,
-        preferredLanguage: (user as any).preferredLanguage,
-      };
+      return toResolvedCallee(user, normalizedPhone);
     }
 
-    return { hasApp: false, phoneNumber: identifier };
+    return { hasApp: false, phoneNumber: normalizedPhone };
   }
 
-  const asNum = Number(identifier);
-  const user = Number.isFinite(asNum) ? await storage.getUser(asNum) : undefined;
-  if (!user) {
-    return { hasApp: false };
+  const asNum = Number(rawIdentifier);
+  if (Number.isFinite(asNum)) {
+    const byId = await storage.getUser(asNum);
+    if (byId) {
+      return toResolvedCallee(byId);
+    }
   }
 
-  return {
-    hasApp: true,
-    userId: String(user.id),
-    phoneNumber: (user as any).phone ?? undefined,
-    preferredLanguage: (user as any).preferredLanguage,
-  };
+  const loweredIdentifier = rawIdentifier.toLowerCase();
+  const byIdentity = await db.query.users.findFirst({
+    where: (users, { and, eq, or, sql }) =>
+      and(
+        eq(users.isActive, true),
+        or(
+          eq(users.username, rawIdentifier),
+          sql`LOWER(${users.email}) = ${loweredIdentifier}`,
+          sql`REPLACE(COALESCE(${users.phone}, ''), ' ', '') = ${normalizedPhone}`,
+        ),
+      ),
+  });
+
+  if (byIdentity) {
+    return toResolvedCallee(byIdentity);
+  }
+
+  return { hasApp: false };
 }
 
 async function storeSmartCall(record: SmartCallRecord): Promise<void> {
@@ -499,6 +521,10 @@ async function processSmartCallWatchdog(): Promise<void> {
   }));
 }
 
+export function startSmartCallWatchdog(): void {
+  ensureSmartCallWatchdog();
+}
+
 export function isSmartCallId(callId: string): boolean {
   return callId.startsWith("call_") || callId.startsWith("conf_");
 }
@@ -532,7 +558,6 @@ function ensureBillingTerminationBinding() {
 }
 
 ensureBillingTerminationBinding();
-ensureSmartCallWatchdog();
 
 export async function getSmartCall(callId: string): Promise<SmartCallRecord | null> {
   if (!isSmartCallId(callId)) {
@@ -732,7 +757,10 @@ async function sendIncomingCallPush(
   payload: { callId: string; callerId: string; callType: string; callerName?: string },
 ): Promise<void> {
   try {
-    const mod: any = await import("../../firebase-admin").catch(() => ({}));
+    const mod: any = await import("../../firebase-admin").catch((err) => {
+      logger.debug("SmartCallRouter", `firebase-admin optional module not loaded (push unavailable): ${String(err)}`);
+      return {};
+    });
     if (typeof mod.sendVoIPPush === "function") {
       await mod.sendVoIPPush(userId, payload);
     }
@@ -788,7 +816,10 @@ export async function routeToSkillAgent(
 
 async function spawnTranslatorBot(callId: string, botToken: string): Promise<void> {
   try {
-    const mod: any = await import("../../translator-bot").catch(() => ({}));
+    const mod: any = await import("../../translator-bot").catch((err) => {
+      logger.debug("SmartCallRouter", `translator-bot optional module not loaded: ${String(err)}`);
+      return {};
+    });
     if (typeof mod.startBotWorker === "function") {
       await mod.startBotWorker(callId, botToken);
     } else {
@@ -915,7 +946,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   );
 
   await redisClient().set(activeCallKey, callId, "EX", 3600);
-  await redisClient().set(`call_metadata:${callId}:caller`, req.callerId);
+  await redisClient().set(`call_metadata:${callId}:caller`, req.callerId, "EX", 7200);
 
   await storeSmartCall({
     callId,
@@ -1000,13 +1031,13 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     const callerOrgId = req.callerOrganizationIdOverride ?? callerUser?.organizationId ?? null;
     const orgOutboundCallerId = await resolveOrgOutboundCallerId(callerOrgId);
     const normalizedCallerNumber = normalizePhoneNumber(req.callerNumber);
-    const callerOwnNumberAllowed = Boolean(callerUser?.phoneVerified && normalizedCallerNumber);
+    const callerOwnNumberAllowed = Boolean((callerUser as any)?.callerIdVerified && normalizedCallerNumber);
     const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
     callerIdentityMode = resolveCallerIdentityMode({
       joinMethod: requestedJoinMethod,
       organizationCallerId: orgOutboundCallerId,
       callerVerifiedNumber: normalizedCallerNumber,
-      callerPhoneVerified: Boolean(callerUser?.phoneVerified),
+      callerPhoneVerified: Boolean((callerUser as any)?.callerIdVerified),
     });
     callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
     if (callerIdentityDisclaimer) {
@@ -1143,7 +1174,9 @@ export async function initiateConference(params: {
   }
 
   const botToken = await issueBotToken(callId);
-  spawnTranslatorBot(callId, botToken).catch(() => {});
+  spawnTranslatorBot(callId, botToken).catch((err) => {
+    logger.error("SmartCallRouter", `Failed to spawn translator bot for call ${callId}: ${String(err)}`);
+  });
   const participantOrganizations = await Promise.all(
     params.participantIds.map(async (participantId) => {
       const numericId = Number(participantId);
@@ -1156,7 +1189,7 @@ export async function initiateConference(params: {
   );
 
   await redisClient().set(`user:active_call:${params.hostId}`, callId, "EX", 3600);
-  await redisClient().set(`call_metadata:${callId}:caller`, params.hostId);
+  await redisClient().set(`call_metadata:${callId}:caller`, params.hostId, "EX", 7200);
 
   await storeSmartCall({
     callId,
@@ -1286,7 +1319,10 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
   }
 
   try {
-    const mod: any = await import("../../translator-bot").catch(() => ({}));
+    const mod: any = await import("../../translator-bot").catch((err) => {
+      logger.debug("SmartCallRouter", `translator-bot optional module not loaded: ${String(err)}`);
+      return {};
+    });
     if (typeof mod.stopBotWorker === "function") {
       await mod.stopBotWorker(callId);
     }

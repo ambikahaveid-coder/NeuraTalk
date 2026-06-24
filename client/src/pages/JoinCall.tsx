@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRoute } from "wouter";
 import { useWebRTC } from "@/hooks/use-webrtc";
-import { useSignaling } from "@/hooks/use-signaling";
+import { useLegacySignaling } from "@/hooks/use-signaling";
 import { useCallTranslation } from "@/hooks/use-call-translation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -124,7 +124,8 @@ export default function JoinCall() {
       });
   }, [token]);
 
-  const signaling = useSignaling({
+  // Legacy meeting/join transport. Primary translated calling uses LiveKit paths.
+  const signaling = useLegacySignaling({
     onCallRinging: (callId, from) => {
       toast({ title: "Connecting...", description: "Waiting for host to accept" });
     },

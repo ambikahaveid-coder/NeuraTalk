@@ -23,6 +23,13 @@ interface ActiveCall {
   connectedAt?: number;
   metadata: Record<string, unknown>;
   durationMs: number;
+  session?: {
+    sourceLanguage?: string | null;
+    targetLanguage?: string | null;
+    translationEnabled?: boolean | null;
+    caller?: { externalId?: string | null };
+    callee?: { externalId?: string | null };
+  };
 }
 
 interface ConnectedClient {
@@ -70,6 +77,28 @@ interface GatewayStatus {
   infrastructure?: string;
 }
 
+interface VoiceMetricsSnapshot {
+  counters?: Record<string, number>;
+  rates?: {
+    duplicateTurnRate?: number;
+    staleTranscriptRate?: number;
+    transcriptRegressionRate?: number;
+    overlapRate?: number;
+    reconnectRecoveryRate?: number;
+    confidenceCoverageRate?: number;
+  };
+  transcriptConfidence?: { p50?: number; p95?: number; p99?: number };
+  reconnectRecoveryMs?: { p50?: number; p95?: number; p99?: number };
+  interruptionRecoveryMs?: { p50?: number; p95?: number; p99?: number };
+}
+
+interface PipelineMetricsSnapshot {
+  stt?: { p50?: number; p95?: number; p99?: number };
+  translation?: { p50?: number; p95?: number; p99?: number };
+  tts?: { p50?: number; p95?: number; p99?: number };
+  total?: { p50?: number; p95?: number; p99?: number };
+}
+
 type WSState = "connecting" | "connected" | "disconnected" | "error";
 
 export default function LiveMonitor() {
@@ -82,6 +111,8 @@ export default function LiveMonitor() {
   const [translations, setTranslations] = useState<TranslationEvent[]>([]);
   const [callEvents, setCallEvents] = useState<CallEvent[]>([]);
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
+  const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetricsSnapshot>({});
+  const [pipelineMetrics, setPipelineMetrics] = useState<PipelineMetricsSnapshot>({});
   const reconnectRef = useRef<NodeJS.Timeout | null>(null);
   const lastSeqIdRef = useRef<number>(0);
 
@@ -121,6 +152,8 @@ export default function LiveMonitor() {
             setClients(data.connectedClients || []);
             setStats(data.stats || {});
             setGateway(data.gateway || {});
+            setVoiceMetrics(data.voiceMetrics || {});
+            setPipelineMetrics(data.pipelineMetrics || {});
             break;
 
           case "call_event": {
@@ -270,6 +303,17 @@ export default function LiveMonitor() {
     }
   };
 
+  const callSourceLanguage = (call: ActiveCall) =>
+    call.session?.sourceLanguage || String((call.metadata as Record<string, string>).myLanguage || (call.metadata as Record<string, string>).callerLanguage || "");
+
+  const callTargetLanguage = (call: ActiveCall) =>
+    call.session?.targetLanguage || String((call.metadata as Record<string, string>).theirLanguage || (call.metadata as Record<string, string>).calleeLanguage || "");
+
+  const callTranslationEnabled = (call: ActiveCall) =>
+    call.session?.translationEnabled ?? Boolean((call.metadata as Record<string, boolean>).translationEnabled);
+
+  const formatRate = (value?: number) => `${(((value || 0) as number) * 100).toFixed(2)}%`;
+
   return (
     <div className="min-h-screen bg-gray-950 text-white" data-testid="live-monitor-page">
       <header className="sticky top-0 z-50 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
@@ -317,6 +361,58 @@ export default function LiveMonitor() {
           <Card className="bg-gray-900 border-gray-800">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2 text-white">
+                <Heart className="w-5 h-5 text-rose-400" />
+                Conversation Stability
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Duplicate Turns", value: formatRate(voiceMetrics.rates?.duplicateTurnRate) },
+                  { label: "Stale Transcripts", value: formatRate(voiceMetrics.rates?.staleTranscriptRate) },
+                  { label: "Transcript Regressions", value: formatRate(voiceMetrics.rates?.transcriptRegressionRate) },
+                  { label: "Reconnect Recovery", value: formatRate(voiceMetrics.rates?.reconnectRecoveryRate) },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
+                    <div className="text-[11px] text-gray-400">{item.label}</div>
+                    <div className="text-lg font-semibold text-white">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { label: "Fallback Events", value: voiceMetrics.counters?.translation_fallbacks ?? 0 },
+                  { label: "Stale TTS Segments", value: voiceMetrics.counters?.stale_tts_segments ?? 0 },
+                  { label: "Audio Backlog", value: voiceMetrics.counters?.audio_backlog_events ?? 0 },
+                  { label: "Ghost Audio Drops", value: voiceMetrics.counters?.ghost_audio_drops ?? 0 },
+                  { label: "Turn Mismatches", value: voiceMetrics.counters?.turn_order_mismatches ?? 0 },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
+                    <div className="text-[11px] text-gray-400">{item.label}</div>
+                    <div className="text-lg font-semibold text-white">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-xs">
+                <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
+                  <div className="text-gray-400">STT p95</div>
+                  <div className="mt-1 font-semibold text-white">{pipelineMetrics.stt?.p95 ?? 0}ms</div>
+                </div>
+                <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
+                  <div className="text-gray-400">TTS p95</div>
+                  <div className="mt-1 font-semibold text-white">{pipelineMetrics.tts?.p95 ?? 0}ms</div>
+                </div>
+                <div className="rounded-lg border border-gray-800 bg-gray-800/50 p-3">
+                  <div className="text-gray-400">Interrupt p95</div>
+                  <div className="mt-1 font-semibold text-white">{voiceMetrics.interruptionRecoveryMs?.p95 ?? 0}ms</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gray-900 border-gray-800">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2 text-white">
                 <PhoneCall className="w-5 h-5 text-green-400" />
                 Active Calls
                 {activeCalls.length > 0 && (
@@ -332,7 +428,16 @@ export default function LiveMonitor() {
                     <p>No active calls</p>
                   </div>
                 ) : (
-                  activeCalls.map(call => (
+                  activeCalls.map(call => {
+                    const metadata = {
+                      ...(call.metadata as Record<string, unknown>),
+                      myLanguage: callSourceLanguage(call) || (call.metadata as Record<string, unknown>).myLanguage,
+                      theirLanguage: callTargetLanguage(call) || (call.metadata as Record<string, unknown>).theirLanguage,
+                      translationEnabled: callTranslationEnabled(call),
+                    };
+                    call.metadata = metadata as typeof call.metadata;
+
+                    return (
                     <motion.div
                       key={call.callId}
                       initial={{ opacity: 0, x: -20 }}
@@ -356,8 +461,8 @@ export default function LiveMonitor() {
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
-                        <div>Caller: <span className="text-gray-200">{call.callerId || "unknown"}</span></div>
-                        <div>Callee: <span className="text-gray-200">{call.calleeId || "unknown"}</span></div>
+                        <div>Caller: <span className="text-gray-200">{call.session?.caller?.externalId || call.callerId || "unknown"}</span></div>
+                        <div>Callee: <span className="text-gray-200">{call.session?.callee?.externalId || call.calleeId || "unknown"}</span></div>
                         <div className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatDuration(Date.now() - call.startedAt)}
@@ -370,12 +475,12 @@ export default function LiveMonitor() {
                       </div>
                       {call.metadata && Object.keys(call.metadata).length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {(call.metadata as Record<string, string>).myLanguage && (
+                          {callSourceLanguage(call) && (
                             <Badge variant="outline" className="text-[10px] border-blue-800 text-blue-400">
                               <Languages className="w-3 h-3 mr-1" />{String((call.metadata as Record<string, string>).myLanguage)} → {String((call.metadata as Record<string, string>).theirLanguage || "?")}
                             </Badge>
                           )}
-                          {(call.metadata as Record<string, boolean>).translationEnabled && (
+                          {callTranslationEnabled(call) && (
                             <Badge variant="outline" className="text-[10px] border-purple-800 text-purple-400">
                               <Sparkles className="w-3 h-3 mr-1" />Translation
                             </Badge>
@@ -383,7 +488,8 @@ export default function LiveMonitor() {
                         </div>
                       )}
                     </motion.div>
-                  ))
+                  );
+                  })
                 )}
               </AnimatePresence>
             </CardContent>

@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, LogOut, ArrowLeft, Check, Loader2, CreditCard,
-  Clock, Zap, Star, Receipt, AlertTriangle, RefreshCw
+  Clock, Zap, Star, Receipt, AlertTriangle, RefreshCw, Building2, Wallet, Activity, ShieldCheck, ExternalLink
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -71,14 +71,80 @@ interface BillingDashboard {
   };
 }
 
+interface CompanyBillingDashboard {
+  strictAccount?: {
+    billingType?: string;
+    walletBalancePaise?: number;
+    availableWalletPaise?: number;
+    lockedBalancePaise?: number;
+    includedSecondsRemaining?: number;
+    canUsePaidServices?: boolean;
+  };
+  subscription?: {
+    id: number;
+    planId: number;
+    status: string;
+    startDate: string;
+    endDate: string;
+    remainingMinutes: number;
+    plan?: BillingPlan;
+    planName?: string;
+    billingModel?: string;
+  } | null;
+  recentInvoices: Array<{
+    id: number;
+    invoiceNumber: string;
+    totalAmountPaise: number;
+    status: string;
+    createdAt: string;
+  }>;
+  activeCallCount?: number;
+  usageSummary?: {
+    totalMinutes?: number;
+    totalCost?: number;
+  };
+}
+
+interface PaymentHistoryItem {
+  id: number;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
+  amount: number;
+  currency?: string | null;
+  status: string;
+  failureReason?: string | null;
+  metadata?: {
+    kind?: string;
+    label?: string;
+    billingScope?: string;
+  } | null;
+  createdAt: string;
+  completedAt?: string | null;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows
+    .map((row) => row.map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function BillingPage() {
   const { user, logout } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedPlan, setSelectedPlan] = useState<BillingPlan | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const isCompanyBillingUser = !!user?.organizationId && (user?.role === "company_admin" || user?.role === "super_admin");
+  const isRestrictedCompanyUser = !!user?.organizationId && !isCompanyBillingUser;
 
-  const { data: dashboard, isLoading: dashboardLoading } = useQuery<{ success: boolean; data: BillingDashboard }>({
+  const { data: consumerDashboard, isLoading: consumerDashboardLoading } = useQuery<{ success: boolean; data: BillingDashboard }>({
     queryKey: ["/api/billing/consumer/dashboard"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -88,9 +154,23 @@ export default function BillingPage() {
       if (!res.ok) throw new Error("Failed to load billing dashboard");
       return res.json();
     },
+    enabled: !isCompanyBillingUser && !isRestrictedCompanyUser,
   });
 
-  const { data: plans, isLoading: plansLoading } = useQuery<{ success: boolean; data: BillingPlan[] }>({
+  const { data: companyDashboard, isLoading: companyDashboardLoading } = useQuery<{ success: boolean; data: CompanyBillingDashboard }>({
+    queryKey: ["/api/billing/dashboard"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/billing/dashboard", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load company billing dashboard");
+      return res.json();
+    },
+    enabled: isCompanyBillingUser,
+  });
+
+  const { data: consumerPlans, isLoading: consumerPlansLoading } = useQuery<{ success: boolean; data: BillingPlan[] }>({
     queryKey: ["/api/billing/plans/b2c"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -100,6 +180,52 @@ export default function BillingPage() {
       if (!res.ok) throw new Error("Failed to load plans");
       return res.json();
     },
+    enabled: !isCompanyBillingUser && !isRestrictedCompanyUser,
+  });
+
+  const { data: companyPlans, isLoading: companyPlansLoading } = useQuery<{ success: boolean; data: BillingPlan[] }>({
+    queryKey: ["/api/billing/plans/b2b"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/billing/plans/b2b", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load company plans");
+      return res.json();
+    },
+    enabled: isCompanyBillingUser,
+  });
+
+  const { data: companyInvoices, isLoading: companyInvoicesLoading } = useQuery<{ success: boolean; data: Array<{
+    id: number;
+    invoiceNumber: string;
+    totalAmountPaise: number;
+    status: string;
+    createdAt: string;
+  }> }>({
+    queryKey: ["/api/billing/invoices"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/billing/invoices", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load company invoices");
+      return res.json();
+    },
+    enabled: isCompanyBillingUser,
+  });
+
+  const { data: paymentHistory, isLoading: paymentHistoryLoading } = useQuery<{ success: boolean; data: PaymentHistoryItem[] }>({
+    queryKey: ["/api/payments/history"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/payments/history", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load payment history");
+      return res.json();
+    },
+    enabled: !isRestrictedCompanyUser,
   });
 
 
@@ -180,6 +306,9 @@ export default function BillingPage() {
                 description: `Your ${data.planName} subscription is now active!`,
               });
               queryClient.invalidateQueries({ queryKey: ["/api/billing/consumer/dashboard"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/billing/dashboard"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/billing/invoices"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/payments/history"] });
             } else {
               toast({
                 title: "Payment Verification Failed",
@@ -244,10 +373,17 @@ export default function BillingPage() {
     });
   };
 
-  const currentSubscription = dashboard?.data?.subscription;
-  const availablePlans = (plans?.data || []).filter(p => p.isEnabled);
-  const usageSummary = dashboard?.data?.usageSummary;
-  const recentInvoices = dashboard?.data?.recentInvoices || [];
+  const currentSubscription = isCompanyBillingUser
+    ? companyDashboard?.data?.subscription
+    : consumerDashboard?.data?.subscription;
+  const availablePlans = ((isCompanyBillingUser ? companyPlans?.data : consumerPlans?.data) || []).filter(p => p.isEnabled);
+  const usageSummary = isCompanyBillingUser
+    ? companyDashboard?.data?.usageSummary
+    : consumerDashboard?.data?.usageSummary;
+  const recentInvoices = isCompanyBillingUser
+    ? (companyInvoices?.data || companyDashboard?.data?.recentInvoices || [])
+    : (consumerDashboard?.data?.recentInvoices || []);
+  const companyWallet = companyDashboard?.data?.strictAccount;
 
   const totalMinutes = currentSubscription?.plan?.includedMinutes ?? 0;
   const remainingMinutes = currentSubscription?.remainingMinutes ?? 0;
@@ -259,7 +395,33 @@ export default function BillingPage() {
   const isExpiringSoon = daysLeft > 0 && daysLeft <= 5;
   const isLowMinutes = totalMinutes > 0 && remainingMinutes / totalMinutes < 0.15;
 
-  const isLoading = dashboardLoading || plansLoading;
+  const paymentRows = paymentHistory?.data || [];
+  const isLoading = consumerDashboardLoading || companyDashboardLoading || consumerPlansLoading || companyPlansLoading || companyInvoicesLoading || paymentHistoryLoading;
+  const exportInvoicesCsv = () => {
+    downloadCsv(isCompanyBillingUser ? "company_invoices.csv" : "billing_invoices.csv", [
+      ["Invoice Number", "Created At", "Status", "Amount"],
+      ...recentInvoices.map((invoice) => [
+        invoice.invoiceNumber,
+        invoice.createdAt,
+        invoice.status,
+        formatPrice(invoice.totalAmountPaise),
+      ]),
+    ]);
+  };
+  const exportPaymentsCsv = () => {
+    downloadCsv(isCompanyBillingUser ? "company_payments.csv" : "payment_history.csv", [
+      ["Created At", "Kind", "Label", "Status", "Amount", "Gateway Payment ID", "Failure Reason"],
+      ...paymentRows.map((payment) => [
+        payment.createdAt,
+        payment.metadata?.kind || "payment",
+        payment.metadata?.label || "-",
+        payment.status,
+        formatPrice(payment.amount),
+        payment.gatewayPaymentId || payment.gatewayOrderId || "-",
+        payment.failureReason || "-",
+      ]),
+    ]);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -273,7 +435,7 @@ export default function BillingPage() {
             </Link>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-primary" />
-              <span className="font-bold">Billing</span>
+              <span className="font-bold">{isCompanyBillingUser ? "Company Billing" : "Billing"}</span>
             </div>
           </div>
           
@@ -300,6 +462,82 @@ export default function BillingPage() {
           </div>
         ) : (
           <div className="max-w-4xl mx-auto space-y-8">
+            {isRestrictedCompanyUser && (
+              <Card className="border-amber-400/40 bg-amber-50/5">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-amber-500" />
+                    Billing Access Restricted
+                  </CardTitle>
+                  <CardDescription>
+                    Company billing, invoices, and payment controls are available only to company admins.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    You can continue using your assigned calling tools, but wallet, invoices, and payment operations stay restricted.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Link href="/company">
+                      <Button size="sm">
+                        <Building2 className="w-4 h-4 mr-2" />
+                        Back to Company Dashboard
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {isCompanyBillingUser && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="border-primary/20 bg-primary/5">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Building2 className="w-5 h-5 text-primary" />
+                      Company Billing Summary
+                    </CardTitle>
+                    <CardDescription>
+                      Live tenant wallet, usage, and subscription context for your company account.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-4">
+                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <Wallet className="w-3.5 h-3.5" />
+                        Available Wallet
+                      </div>
+                      <p className="mt-2 text-xl font-bold">{formatPrice(companyWallet?.availableWalletPaise || 0)}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Billing Type
+                      </div>
+                      <p className="mt-2 text-xl font-bold capitalize">{companyWallet?.billingType || "prepaid"}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <Activity className="w-3.5 h-3.5" />
+                        Active Calls
+                      </div>
+                      <p className="mt-2 text-xl font-bold">{companyDashboard?.data?.activeCallCount ?? 0}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                        <Receipt className="w-3.5 h-3.5" />
+                        30d Cost
+                      </div>
+                      <p className="mt-2 text-xl font-bold">{formatPrice(companyDashboard?.data?.usageSummary?.totalCost || 0)}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
             {currentSubscription && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -389,36 +627,39 @@ export default function BillingPage() {
               </motion.div>
             )}
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
-              <h2 className="text-xl font-semibold mb-4">
-                {currentSubscription ? "Upgrade Your Plan" : "Choose a Plan"}
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {availablePlans.map((plan, i) => (
-                  <motion.div
-                    key={plan.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 + i * 0.05 }}
-                  >
-                    <Card 
-                      className={`relative hover-elevate cursor-pointer transition-all ${
-                        plan.isFeatured ? "border-primary" : ""
-                      } ${isContactSales(plan) ? "border-amber-500/50 bg-amber-500/5" : ""}`}
-                      onClick={() => {
-                        if (isContactSales(plan)) {
-                          window.open("mailto:sales@neuratalk.com?subject=Enterprise Plan Inquiry", "_blank");
-                          return;
-                        }
-                        setSelectedPlan(plan);
-                        setShowConfirmDialog(true);
-                      }}
-                      data-testid={`plan-card-${plan.id}`}
+            {!isRestrictedCompanyUser && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+              >
+                <h2 className="text-xl font-semibold mb-4">
+                  {isCompanyBillingUser
+                    ? (currentSubscription ? "Adjust Company Plan" : "Choose a Company Plan")
+                    : (currentSubscription ? "Upgrade Your Plan" : "Choose a Plan")}
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {availablePlans.map((plan, i) => (
+                    <motion.div
+                      key={plan.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 + i * 0.05 }}
                     >
+                      <Card 
+                        className={`relative hover-elevate cursor-pointer transition-all ${
+                          plan.isFeatured ? "border-primary" : ""
+                        } ${isContactSales(plan) ? "border-amber-500/50 bg-amber-500/5" : ""}`}
+                        onClick={() => {
+                          if (isContactSales(plan)) {
+                            window.open("mailto:sales@neuratalk.com?subject=Enterprise Plan Inquiry", "_blank");
+                            return;
+                          }
+                          setSelectedPlan(plan);
+                          setShowConfirmDialog(true);
+                        }}
+                        data-testid={`plan-card-${plan.id}`}
+                      >
                       {plan.isFeatured && (
                         <Badge 
                           className="absolute -top-2 left-1/2 -translate-x-1/2"
@@ -509,19 +750,26 @@ export default function BillingPage() {
                           {isContactSales(plan) ? "Contact Sales" : plan.priceInPaise === 0 ? "Start Free Trial" : "Select Plan"}
                         </Button>
                       </CardFooter>
-                    </Card>
-                  </motion.div>
-                ))}
-              </div>
-            </motion.div>
+                      </Card>
+                    </motion.div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
-            {recentInvoices.length > 0 && (
+            {!isRestrictedCompanyUser && recentInvoices.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
               >
-                <h2 className="text-xl font-semibold mb-4">Recent Invoices</h2>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2 className="text-xl font-semibold">{isCompanyBillingUser ? "Company Invoices" : "Recent Invoices"}</h2>
+                  <Button size="sm" variant="outline" onClick={exportInvoicesCsv}>
+                    <Receipt className="w-4 h-4 mr-2" />
+                    Export CSV
+                  </Button>
+                </div>
                 <Card>
                   <CardContent className="p-0">
                     <div className="divide-y">
@@ -563,6 +811,54 @@ export default function BillingPage() {
                 </Card>
               </motion.div>
             )}
+
+            {!isRestrictedCompanyUser && paymentRows.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+              >
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2 className="text-xl font-semibold">{isCompanyBillingUser ? "Company Payments" : "Payment History"}</h2>
+                  <Button size="sm" variant="outline" onClick={exportPaymentsCsv}>
+                    <Receipt className="w-4 h-4 mr-2" />
+                    Export CSV
+                  </Button>
+                </div>
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="divide-y">
+                      {paymentRows.slice(0, 12).map((payment) => (
+                        <div
+                          key={payment.id}
+                          className="flex items-center justify-between p-4 hover-elevate"
+                          data-testid={`payment-row-${payment.id}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <CreditCard className="w-5 h-5 text-muted-foreground" />
+                            <div>
+                              <p className="font-medium">{payment.metadata?.label || payment.metadata?.kind || "Payment"}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {formatDate(payment.createdAt)} · {payment.gatewayPaymentId || payment.gatewayOrderId || "Awaiting gateway ID"}
+                              </p>
+                              {payment.failureReason ? (
+                                <p className="text-xs text-red-500 mt-1">{payment.failureReason}</p>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge variant={payment.status === "paid" || payment.status === "captured" || payment.status === "completed" ? "default" : "secondary"}>
+                              {payment.status}
+                            </Badge>
+                            <span className="font-medium">{formatPrice(payment.amount)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
           </div>
         )}
       </main>
@@ -572,7 +868,7 @@ export default function BillingPage() {
           <DialogHeader>
             <DialogTitle>Confirm Purchase</DialogTitle>
             <DialogDescription>
-              You are about to purchase the {selectedPlan ? planLabel(selectedPlan) : ""} plan
+              You are about to purchase the {selectedPlan ? planLabel(selectedPlan) : ""} {isCompanyBillingUser ? "company" : ""} plan
             </DialogDescription>
           </DialogHeader>
           {selectedPlan && (
@@ -606,7 +902,7 @@ export default function BillingPage() {
             </div>
           )}
           <p className="text-sm text-muted-foreground">
-            You'll be redirected to our secure payment page to complete your purchase.
+            You'll be redirected to our secure payment page to complete your purchase{isCompanyBillingUser ? " for this organization" : ""}.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>

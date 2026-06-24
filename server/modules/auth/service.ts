@@ -5,8 +5,8 @@
 
 import { db } from "../../db";
 import { storage } from "../../storage";
-import { hashPassword, verifyPassword } from "../../password-utils";
-import { createSession, invalidateSession, validateSession } from "../../role-middleware";
+import { hashPassword, isPasswordHashSupported, needsPasswordRehash, verifyPassword } from "../../password-utils";
+import { createSession, invalidateAllSessionsForUser, invalidateSession, validateSession } from "../../role-middleware";
 import { requestOtp, verifyOtp } from "../../otp-auth";
 import { verifyFirebaseToken, isFirebaseAdminConfigured } from "../../firebase-admin";
 import { issueWsToken } from "../../signaling-server";
@@ -130,11 +130,24 @@ export async function loginUser(input: LoginInput, context?: AuthRequestContext)
   if (!user || !user.password) {
     return { error: "INVALID_CREDENTIALS" as const };
   }
-  const passwordValid = user.password.includes(":")
-    ? verifyPassword(input.password, user.password)
-    : user.password === input.password; // backward compat for old plaintext
+
+  if (!user.isActive) {
+    return { error: "USER_INACTIVE" as const };
+  }
+
+  if (!isPasswordHashSupported(user.password)) {
+    return { error: "PASSWORD_RESET_REQUIRED" as const };
+  }
+
+  const passwordValid = verifyPassword(input.password, user.password);
   if (!passwordValid) {
     return { error: "INVALID_CREDENTIALS" as const };
+  }
+
+  if (needsPasswordRehash(user.password)) {
+    await db.update(users)
+      .set({ password: hashPassword(input.password) })
+      .where(eq(users.id, user.id));
   }
 
   const requestedTenantSlug = normalizeTenantSlug(
@@ -213,6 +226,7 @@ export async function resetPassword(
   const user = await db.query.users.findFirst({ where: whereClause });
   if (!user) return { error: "USER_NOT_FOUND" as const };
 
+  await invalidateAllSessionsForUser(user.id);
   await db.update(users).set({ password: hashPassword(newPassword) }).where(eq(users.id, user.id));
   const organization = user.organizationId
     ? await storage.getOrganization(user.organizationId)
@@ -232,14 +246,14 @@ export async function changePassword(
   });
   if (!user) return { error: "USER_NOT_FOUND" as const };
   if (!user.password) return { error: "PASSWORD_AUTH_NOT_AVAILABLE" as const };
+  if (!isPasswordHashSupported(user.password)) return { error: "PASSWORD_RESET_REQUIRED" as const };
 
-  const passwordValid = user.password.includes(":")
-    ? verifyPassword(currentPassword, user.password)
-    : user.password === currentPassword;
+  const passwordValid = verifyPassword(currentPassword, user.password);
   if (!passwordValid) {
     return { error: "INVALID_CURRENT_PASSWORD" as const };
   }
 
+  await invalidateAllSessionsForUser(user.id);
   await db.update(users)
     .set({ password: hashPassword(newPassword) })
     .where(eq(users.id, user.id));
@@ -290,15 +304,28 @@ export async function firebaseVerify(idToken: string) {
     } catch { /* non-fatal */ }
   }
 
+  if (!user.isActive) {
+    return { error: "USER_INACTIVE" as const };
+  }
+
   const organization = user.organizationId
     ? await storage.getOrganization(user.organizationId)
     : null;
   const token = await createSession(user.id, undefined, undefined, buildSessionBinding(organization));
+  await AuditHelpers.logLogin(user.id, undefined, undefined, user.organizationId ?? undefined);
   const { password: _pw, ...safeUser } = user;
   return { user: safeUser, token, isNewUser };
 }
 
 export async function requestAuthOtp(identifier: string, channel: "email" | "mobile") {
+  if (channel === "mobile") {
+    return {
+      success: false,
+      message:
+        "Phone authentication requires Firebase Phone Auth. " +
+        "Use the Firebase OTP flow on the login screen.",
+    };
+  }
   return await requestOtp(identifier, channel);
 }
 
@@ -355,6 +382,15 @@ export async function verifyAuthOtp(params: {
     }
     result = { success: true, userId: user.id };
   } else {
+    if (channel === "mobile") {
+      return {
+        success: false,
+        status: 400,
+        message:
+          "Phone authentication requires Firebase Phone Auth. " +
+          "Please use the phone OTP login flow and submit the resulting ID token.",
+      };
+    }
     result = await verifyOtp(identifier, channel, code);
   }
 
@@ -366,6 +402,14 @@ export async function verifyAuthOtp(params: {
     where: eq(users.id, result.userId),
     with: { organization: true },
   });
+
+  if (!user?.isActive) {
+    return {
+      success: false,
+      status: 403,
+      message: "This account is inactive. Please contact your administrator.",
+    };
+  }
 
   const normalizedRequestedTenantSlug = normalizeTenantSlug(requestedTenantSlug);
   if (normalizedRequestedTenantSlug && user?.role !== "super_admin") {
@@ -441,6 +485,16 @@ export async function getMe(token: string) {
   };
 }
 
-export function issueSignalingToken(userId: number, phone?: string | null) {
-  return issueWsToken({ userId, phoneNumber: phone ?? undefined }, 300);
+export function issueSignalingToken(
+  userId: number,
+  sessionId: number,
+  sessionToken: string,
+  phone?: string | null,
+) {
+  return issueWsToken({
+    userId,
+    sessionId,
+    sessionToken,
+    phoneNumber: phone ?? undefined,
+  }, 300);
 }

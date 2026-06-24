@@ -101,25 +101,24 @@ async function testHealthEndpoints() {
 async function testAuthentication() {
   console.log("\n2. AUTHENTICATION");
 
-  await runTest("POST /api/auth/otp/request (dummy mode)", async () => {
+  await runTest("POST /api/auth/otp/request mobile → correctly rejects (Firebase-only path)", async () => {
     const { status, data } = await api("POST", "/api/auth/otp/request", {
       identifier: "+919999999999",
       channel: "mobile",
     });
-    assert(status === 200, `Expected 200, got ${status}: ${JSON.stringify(data)}`);
-    return `OTP sent: ${data.message || "ok"}`;
+    assert(status === 400, `Expected 400 (Firebase-only rejection), got ${status}: ${JSON.stringify(data)}`);
+    return `Correctly rejected with: ${data.message || "no message"}`;
   });
 
-  await runTest("POST /api/auth/otp/verify (dummy code 123456)", async () => {
+  await runTest("POST /api/auth/otp/verify mobile → correctly rejects (Firebase-only path)", async () => {
     const { status, data } = await api("POST", "/api/auth/otp/verify", {
       identifier: "+919999999999",
       channel: "mobile",
-      code: "123456",
+      code: "000000",
     });
-    assert(status === 200, `Expected 200, got ${status}: ${JSON.stringify(data)}`);
-    assert(data.token, "No token in response");
-    authToken = data.token;
-    return `Authenticated as user ${data.user?.id || "unknown"}, role=${data.user?.role || "unknown"}`;
+    assert(status === 400, `Expected 400 (Firebase-only rejection), got ${status}: ${JSON.stringify(data)}`);
+    assert(!data.token, "Should not return token for non-Firebase mobile verify");
+    return `Correctly rejected with: ${data.message || "no message"}`;
   });
 }
 

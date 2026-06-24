@@ -59,46 +59,41 @@ export default function AdminLogin() {
         }
       }
       const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
-      let usedFirebaseFlow = false;
 
       if (channel === "mobile") {
-        let otpSent = false;
-
-        if (firebaseEnabled && !confirmationResult) {
-          setIsSendingFirebaseOtp(true);
-          try {
-            const verifier = setupRecaptcha("admin-recaptcha-container");
-            if (!verifier) {
-              throw new Error("Firebase reCAPTCHA could not be initialized");
-            }
-
-            const result = await sendOtpWithFirebase(normalizedIdentifier);
-            if (!result) {
-              throw new Error("Failed to start Firebase phone verification");
-            }
-
-            setConfirmationResult(result);
-            usedFirebaseFlow = true;
-            otpSent = true;
-          } catch (firebaseError) {
-            setConfirmationResult(null);
-            await requestOtp({ identifier: normalizedIdentifier, channel });
-            otpSent = true;
-            toast({
-              title: "Using SMS fallback",
-              description: getFirebasePhoneAuthErrorMessage(firebaseError),
-            });
-          } finally {
-            setIsSendingFirebaseOtp(false);
-          }
-        } else {
-          setConfirmationResult(null);
-          await requestOtp({ identifier: normalizedIdentifier, channel });
-          otpSent = true;
+        // Firebase Phone Auth is the only mobile authentication method — no SMS fallback.
+        if (!firebaseEnabled) {
+          toast({
+            title: "Phone login unavailable",
+            description: "Firebase Phone Auth is not configured. Please use email login.",
+            variant: "destructive",
+          });
+          return;
         }
 
-        if (!otpSent) {
-          throw new Error("Failed to send mobile OTP");
+        setIsSendingFirebaseOtp(true);
+        try {
+          const verifier = setupRecaptcha("admin-recaptcha-container");
+          if (!verifier) {
+            throw new Error("Firebase reCAPTCHA could not be initialized. Please refresh and try again.");
+          }
+
+          const result = await sendOtpWithFirebase(normalizedIdentifier);
+          if (!result) {
+            throw new Error("Failed to start Firebase phone verification.");
+          }
+
+          setConfirmationResult(result);
+        } catch (firebaseError) {
+          setConfirmationResult(null);
+          toast({
+            title: "Phone verification failed",
+            description: getFirebasePhoneAuthErrorMessage(firebaseError),
+            variant: "destructive",
+          });
+          return;
+        } finally {
+          setIsSendingFirebaseOtp(false);
         }
       } else {
         setConfirmationResult(null);
@@ -107,9 +102,7 @@ export default function AdminLogin() {
 
       setIdentifier(normalizedIdentifier);
       const deliveryMessage = channel === "mobile"
-        ? usedFirebaseFlow
-          ? "Firebase accepted the request. If the SMS does not arrive, tap Back and try again to use SMS fallback."
-          : "SMS OTP sent. Check your phone."
+        ? "Check your phone for the Firebase verification code."
         : "Check your email for the verification code.";
       toast({ title: "Code Sent", description: deliveryMessage });
       setStep("otp");
@@ -129,7 +122,11 @@ export default function AdminLogin() {
       const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
       let result;
 
-      if (channel === "mobile" && confirmationResult) {
+      if (channel === "mobile") {
+        if (!confirmationResult) {
+          toast({ title: "Session expired", description: "Please go back and request a new OTP.", variant: "destructive" });
+          return;
+        }
         setIsVerifyingFirebaseOtp(true);
         try {
           const idToken = await verifyOtpWithFirebase(confirmationResult, otpCode);

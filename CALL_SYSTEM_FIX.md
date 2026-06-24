@@ -82,8 +82,8 @@ http://localhost:5173
 **Fix:** Make sure Terminal 1 shows `✅ serving on port 5000`
 
 ### Issue: `[Call] ❌ Room creation failed: 404`
-**Cause:** API URL incorrect or backend endpoint missing
-**Fix:** Check that `http://localhost:5000/api/rooms/create` is accessible
+**Cause:** API URL incorrect, backend endpoint missing, or legacy meeting transport disabled for video/audio rooms
+**Fix:** Check that `http://localhost:5000/api/rooms/create` is accessible. If the response is `409`, use Face-to-Face mode or explicitly enable legacy meeting transport for old room flows.
 
 ### Issue: `Permission denied` for microphone
 **Cause:** Browser permissions

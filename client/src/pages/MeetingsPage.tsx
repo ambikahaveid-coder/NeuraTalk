@@ -103,12 +103,14 @@ const EXTERNAL_PLATFORMS = [
   },
 ];
 
+const legacyMeetingTransportEnabled = (import.meta.env.VITE_ENABLE_LEGACY_MEETING_TRANSPORT || "").toLowerCase() === "true";
+
 export default function MeetingsPage() {
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
-  const [meetingType, setMeetingType] = useState<MeetingType>("video");
+  const [meetingType, setMeetingType] = useState<MeetingType>(legacyMeetingTransportEnabled ? "video" : "f2f");
   const [myLanguage, setMyLanguage] = useState("en");
   const [theirLanguage, setTheirLanguage] = useState("te");
   const [joinCode, setJoinCode] = useState("");
@@ -116,6 +118,7 @@ export default function MeetingsPage() {
   const [isJoining, setIsJoining] = useState(false);
   const [scheduledMeetings, setScheduledMeetings] = useState<ScheduledMeeting[]>([]);
   const [isScheduling, setIsScheduling] = useState(false);
+  const selectedMeetingRequiresLegacyTransport = meetingType !== "f2f";
 
   const getCallRoute = (type: MeetingType) => {
     switch (type) {
@@ -125,7 +128,17 @@ export default function MeetingsPage() {
     }
   };
 
+  const isMeetingTypeAvailable = (type: MeetingType) => type === "f2f" || legacyMeetingTransportEnabled;
+
   const handleNewMeeting = useCallback(async () => {
+    if (!isMeetingTypeAvailable(meetingType)) {
+      toast({
+        title: "Legacy Meeting Transport Disabled",
+        description: "Video and audio meeting rooms are isolated from the primary calling stack. Re-enable only for controlled legacy support.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsCreating(true);
     try {
       const authToken = getAuthToken();
@@ -185,6 +198,14 @@ export default function MeetingsPage() {
     try {
       let token = code;
       if (code.includes("/join/")) {
+        if (!legacyMeetingTransportEnabled) {
+          toast({
+            title: "Legacy Join Route Disabled",
+            description: "Join-token meeting links are not enabled in the primary calling stack.",
+            variant: "destructive",
+          });
+          return;
+        }
         const parts = code.split("/join/");
         token = parts[parts.length - 1].split("?")[0];
       }
@@ -200,6 +221,15 @@ export default function MeetingsPage() {
       }
 
       const room = await response.json();
+      if (!legacyMeetingTransportEnabled) {
+        toast({
+          title: "Meeting Join Disabled",
+          description: "Legacy meeting transport is disabled. Use primary calling flows or face-to-face mode.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       navigate(`/join/${token}`);
     } catch (error) {
       console.error("Failed to join meeting:", error);
@@ -214,6 +244,14 @@ export default function MeetingsPage() {
   }, [joinCode, toast, navigate]);
 
   const handleScheduleMeeting = useCallback(async () => {
+    if (!isMeetingTypeAvailable(meetingType)) {
+      toast({
+        title: "Legacy Meeting Transport Disabled",
+        description: "Video and audio scheduled meeting links are disabled outside controlled legacy support.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsScheduling(true);
     try {
       const authToken = getAuthToken();
@@ -337,11 +375,19 @@ export default function MeetingsPage() {
             Meetings Hub
           </h2>
           <p className="text-muted-foreground">
-            Start, join, or schedule meetings with real-time translation
+            Start, join, or schedule translation sessions. Face-to-face is the primary-safe path.
           </p>
         </div>
 
         <div className="mb-6 space-y-4">
+          {!legacyMeetingTransportEnabled && (
+            <Card className="border-amber-500/40 bg-amber-500/10">
+              <CardContent className="p-4 text-sm text-amber-200">
+                Video/audio meeting rooms currently use a legacy transport and are disabled by default.
+                Face-to-face interpreter mode remains available on the primary path.
+              </CardContent>
+            </Card>
+          )}
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1 min-w-[200px]">
               <Label className="text-xs text-muted-foreground mb-1 block">Meeting Type</Label>
@@ -351,10 +397,10 @@ export default function MeetingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {MEETING_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
+                    <SelectItem key={t.value} value={t.value} disabled={!isMeetingTypeAvailable(t.value)}>
                       <span className="flex items-center gap-2">
                         <t.icon className="w-4 h-4" />
-                        {t.label}
+                        {t.label}{!isMeetingTypeAvailable(t.value) ? " (legacy disabled)" : ""}
                       </span>
                     </SelectItem>
                   ))}
@@ -396,8 +442,8 @@ export default function MeetingsPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Card
-            className="cursor-pointer hover-elevate group"
-            onClick={isCreating ? undefined : handleNewMeeting}
+            className={`group ${selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover-elevate"}`}
+            onClick={isCreating || (selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled) ? undefined : handleNewMeeting}
             data-testid="card-new-meeting"
           >
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
@@ -409,12 +455,12 @@ export default function MeetingsPage() {
                 )}
               </div>
               <div>
-                <p className="font-semibold">New Meeting</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Create a room and start now
-                </p>
-              </div>
-            </CardContent>
+                  <p className="font-semibold">New Meeting</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled ? "Disabled while legacy transport is off" : "Create a room and start now"}
+                  </p>
+                </div>
+              </CardContent>
           </Card>
 
           <Card className="group" data-testid="card-join-meeting">
@@ -423,10 +469,15 @@ export default function MeetingsPage() {
                 <LogIn className="w-7 h-7 text-blue-500" />
               </div>
               <div className="w-full">
-                <p className="font-semibold mb-2">Join Meeting</p>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Enter code or link"
+                  <p className="font-semibold mb-2">Join Meeting</p>
+                  {!legacyMeetingTransportEnabled && (
+                    <p className="text-[11px] text-amber-300 mb-2">
+                      Legacy join links are disabled in the primary stack.
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder={legacyMeetingTransportEnabled ? "Enter code or link" : "Legacy join disabled"}
                     value={joinCode}
                     onChange={(e) => setJoinCode(e.target.value)}
                     onKeyDown={(e) => {
@@ -435,12 +486,12 @@ export default function MeetingsPage() {
                     data-testid="input-join-code"
                     className="text-sm"
                   />
-                  <Button
-                    size="icon"
-                    onClick={handleJoinMeeting}
-                    disabled={isJoining || !joinCode.trim()}
-                    data-testid="button-join-meeting"
-                  >
+                    <Button
+                      size="icon"
+                      onClick={handleJoinMeeting}
+                      disabled={isJoining || !joinCode.trim() || !legacyMeetingTransportEnabled}
+                      data-testid="button-join-meeting"
+                    >
                     {isJoining ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
@@ -453,8 +504,8 @@ export default function MeetingsPage() {
           </Card>
 
           <Card
-            className="cursor-pointer hover-elevate group"
-            onClick={isScheduling ? undefined : handleScheduleMeeting}
+            className={`group ${selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover-elevate"}`}
+            onClick={isScheduling || (selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled) ? undefined : handleScheduleMeeting}
             data-testid="card-schedule-meeting"
           >
             <CardContent className="p-6 flex flex-col items-center text-center gap-3">
@@ -466,12 +517,12 @@ export default function MeetingsPage() {
                 )}
               </div>
               <div>
-                <p className="font-semibold">Schedule Meeting</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Create a link to share in advance
-                </p>
-              </div>
-            </CardContent>
+                  <p className="font-semibold">Schedule Meeting</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedMeetingRequiresLegacyTransport && !legacyMeetingTransportEnabled ? "Disabled while legacy transport is off" : "Create a link to share in advance"}
+                  </p>
+                </div>
+              </CardContent>
           </Card>
         </div>
 
@@ -526,11 +577,17 @@ export default function MeetingsPage() {
                       >
                         <Share2 className="w-4 h-4" />
                       </Button>
-                      <Link href={`${getCallRoute(meeting.callType)}?room=${meeting.token}`}>
-                        <Button size="sm" data-testid={`button-start-${meeting.token}`}>
-                          Start
+                      {isMeetingTypeAvailable(meeting.callType) ? (
+                        <Link href={`${getCallRoute(meeting.callType)}?room=${meeting.token}`}>
+                          <Button size="sm" data-testid={`button-start-${meeting.token}`}>
+                            Start
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Button size="sm" disabled data-testid={`button-start-${meeting.token}`}>
+                          Legacy Disabled
                         </Button>
-                      </Link>
+                      )}
                     </div>
                   </div>
                 );

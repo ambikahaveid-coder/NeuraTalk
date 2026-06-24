@@ -331,22 +331,23 @@ AI-powered conversational assistant.
 ## 7. Meetings Hub
 
 The Meetings Hub (`/meetings`) is a centralized page for creating, joining, and scheduling meetings.
+Important: video/audio meeting transport is a legacy path and is disabled by default in the primary production stack. Face-to-face remains the primary-safe meeting mode.
 
 ### Features
 
-**New Meeting**: Creates a room on the server (`POST /api/rooms/create`), copies the join link to clipboard, and navigates the host directly into the call. Room parameters include call type, host/guest languages, and translation settings.
+**New Meeting**: Creates a room on the server (`POST /api/rooms/create`), copies the join link to clipboard, and navigates the host directly into the call. If legacy meeting transport is disabled, only Face-to-Face rooms are allowed on the primary path.
 
-**Join Meeting**: Enter a room code or full join link. The system validates the room exists (`GET /api/rooms/:token`) and navigates the user to the appropriate call screen.
+**Join Meeting**: Enter a room code or full join link. The system validates the room exists (`GET /api/rooms/:token`) and navigates the user to the appropriate call screen. Legacy `/join/:token` behavior is disabled unless legacy meeting transport is explicitly enabled.
 
-**Schedule Meeting**: Creates a room in advance without joining immediately. The link can be shared and used later. Scheduled meetings appear in a list with copy/share/start actions.
+**Schedule Meeting**: Creates a room in advance without joining immediately. The link can be shared and used later. Scheduled meetings appear in a list with copy/share/start actions. Video/audio scheduled meetings require legacy meeting transport to be enabled.
 
 ### Meeting Types
 
 | Type | Route | Description |
 |------|-------|-------------|
-| Video Call | `/calls/video-translation` | Video with live translation |
-| Audio Only | `/calls/voice-translation` | Voice call with translation |
-| Face-to-Face | `/calls/face-to-face` | In-person interpreter mode |
+| Video Call | `/calls/video-translation` | Legacy meeting transport; disabled by default |
+| Audio Only | `/calls/voice-translation` | Legacy meeting transport; disabled by default |
+| Face-to-Face | `/calls/face-to-face` | Primary-safe in-person interpreter mode |
 
 ### External Platform Integration
 
@@ -524,8 +525,8 @@ The system selects TTS voice characteristics based on detected emotion:
 
 | Endpoint | Method | Auth | Description |
 |----------|--------|------|-------------|
-| `/api/rooms/create` | POST | Optional | Create a call room |
-| `/api/rooms/:token` | GET | No | Get room details by token |
+| `/api/rooms/create` | POST | Optional | Create a room; video/audio requires legacy transport, f2f is primary-safe |
+| `/api/rooms/:token` | GET | No | Get room details by token; legacy video/audio rooms return guard info when disabled |
 | `/api/meetings/platforms` | GET | No | List external meeting platforms |
 | `/api/meetings/external-link` | POST | Yes | Generate external platform deep link |
 
@@ -769,7 +770,7 @@ Update the API base URL in `flutter_app/lib/services/app_config.dart` to point t
 | View platform analytics | `/admin` (super_admin) or `/investor/dashboard` |
 | Manage an organization | `/company/dashboard` (company_admin) |
 | Make a translated call | `/dashboard` > Quick Actions (consumer) |
-| Create a meeting room | `/meetings` > New Meeting |
+| Create a meeting room | `/meetings` > New Meeting (Face-to-Face primary-safe; video/audio requires legacy transport) |
 | View billing plans | `/pricing` or `GET /api/billing/plans` |
 | Check API docs | `/api/docs` (Swagger UI) |
 | Check system health | `GET /api/health` |

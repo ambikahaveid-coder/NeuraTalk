@@ -83,9 +83,10 @@ export default function FAQPage() {
               <AccordionItem value="video-calls">
                 <AccordionTrigger>Can I use this for video calls?</AccordionTrigger>
                 <AccordionContent>
-                  Yes! You can create meeting rooms where multiple participants join. Each person 
-                  sets their preferred language, and everyone hears translations in real-time. 
-                  Great for team meetings across language barriers.
+                  Face-to-face multilingual sessions are the primary supported path today. Some
+                  meeting-room style audio/video experiences may depend on your deployment and
+                  enabled transport stack, so we recommend face-to-face sessions for the most
+                  reliable real-time translation experience.
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
@@ -139,9 +140,10 @@ export default function FAQPage() {
               <AccordionItem value="data">
                 <AccordionTrigger>Where is my data stored?</AccordionTrigger>
                 <AccordionContent>
-                  All data is stored on secure, self-hosted servers. We don't use third-party 
-                  telecom or calling services. Your voice data never goes to Twilio, Agora, or 
-                  any external service.
+                  Core application data is stored on secure infrastructure we control. For live
+                  calling, translation, and phone-bridge delivery we may use vetted provider
+                  infrastructure as part of the service path, with access controls and encryption
+                  applied throughout.
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="voice-training">
@@ -155,9 +157,10 @@ export default function FAQPage() {
               <AccordionItem value="security">
                 <AccordionTrigger>How secure is NeuraTalk?</AccordionTrigger>
                 <AccordionContent>
-                  We use industry-standard encryption for all communications. Our infrastructure 
-                  is 100% self-hosted, meaning your data never touches third-party servers. 
-                  We follow Indian IT Act guidelines and global security best practices.
+                  We use industry-standard encryption for communications and enforce access
+                  controls across our stack. NeuraTalk combines infrastructure we control with
+                  vetted calling and AI providers where needed, and we follow Indian IT Act
+                  guidelines and broader security best practices.
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

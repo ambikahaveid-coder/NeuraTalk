@@ -36,6 +36,7 @@ import slaManagementRoutes from "./sla-management";
 import auditLoggingRoutes from "./audit-logging";
 import voiceMemosRoutes from "./voice-memos";
 import groupChatsRoutes from "./group-chats";
+import personalChatRoutes from "./personal-chat-routes";
 import { registerLipSyncRoutes } from "./lip-sync";
 import { registerOpenApiRoutes } from "./openapi";
 import { registerRoomRoutes } from "./room-routes";
@@ -44,6 +45,8 @@ import { registerMeetingLinkRoutes } from "./meeting-links";
 import { registerEnterpriseApiRoutes } from "./enterprise-api-routes";
 import { registerVoiceAssistantRoutes } from "./voice-assistant-routes";
 import { registerCommunicationApiRoutes } from "./communication-api-routes";
+import { registerJagoIntegrationRoutes } from "./jago-integration-routes";
+import { registerSecPlusIntegrationRoutes } from "./secplus-integration-routes";
 import { registerTenantAdminRoutes } from "./tenant-admin-routes";
 import { registerFaceToFaceRoutes } from "./face-to-face-routes";
 import complianceRoutes from "./compliance-routes";
@@ -51,8 +54,10 @@ import { registerAuthRoutes } from "./modules/auth/routes";
 import { registerCallsRoutes } from "./modules/calls/routes";
 import { registerCallerIdRoutes } from "./modules/caller-id/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
-import { loadUser } from "./role-middleware";
+import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
+import { loadUser, requireAuth } from "./role-middleware";
 import { loadTenantContext } from "./tenant-context";
+import { rateLimit } from "./rate-limit";
 import { isLegacyTwilioBridgeEnabled } from "./call-platform-config";
 import { getOpenAIKey, hasWorkingOpenAIKey } from "./openai-config";
 
@@ -86,8 +91,9 @@ export async function registerRoutes(
   });
 
   const demoTTSCache = new Map<string, Buffer>();
+  const demoTtsLimiter = rateLimit({ windowMs: 60_000, max: 10, message: "Too many demo TTS requests." });
 
-  app.post("/api/demo/tts", async (req, res) => {
+  app.post("/api/demo/tts", requireAuth, demoTtsLimiter, async (req, res) => {
     try {
       const { text, voice = "nova", language = "en" } = req.body;
       if (!text || typeof text !== "string" || text.length > 200) {
@@ -127,6 +133,7 @@ export async function registerRoutes(
   registerCallsRoutes(app); console.log("[Routes] ✓ Calls module (LiveKit) routes");
   registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
+  registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerB2BRoutes(app); console.log("[Routes] ✓ B2B routes");
   registerLocationRoutes(app); console.log("[Routes] ✓ Location routes");
   registerAdminSettingsRoutes(app); console.log("[Routes] ✓ Admin settings routes");
@@ -150,6 +157,8 @@ export async function registerRoutes(
   registerEnterpriseApiRoutes(app); console.log("[Routes] ✓ Enterprise API routes");
   registerVoiceAssistantRoutes(app); console.log("[Routes] ✓ Voice assistant routes");
   registerCommunicationApiRoutes(app); console.log("[Routes] ✓ Communication API routes");
+  registerJagoIntegrationRoutes(app); console.log("[Routes] ✓ Jago integration routes");
+  registerSecPlusIntegrationRoutes(app); console.log("[Routes] ✓ SecPlus integration routes");
   registerFaceToFaceRoutes(app); console.log("[Routes] ✓ Face-to-face realtime routes");
   registerTenantAdminRoutes(app); console.log("[Routes] âœ“ Tenant admin routes");
 
@@ -192,6 +201,7 @@ export async function registerRoutes(
   
   // Multi-language Group Chats
   app.use(groupChatsRoutes);
+  app.use(personalChatRoutes);
   console.log("[Routes] ✓ Group chats routes");
   
   // Lip-sync video translation (self-hosted GPU architecture)
@@ -203,7 +213,7 @@ export async function registerRoutes(
   console.log("[Routes] ✓ OpenAPI routes");
 
   // === ICE SERVERS CONFIGURATION (for WebRTC) ===
-  app.get("/api/rtc/ice-servers", async (_req, res) => {
+  app.get("/api/rtc/ice-servers", requireAuth, async (_req, res) => {
     try {
       // Use async version to fetch fresh Twilio tokens if configured
       const config = isTwilioConfigured() 
@@ -226,12 +236,14 @@ export async function registerRoutes(
   });
 
   // === RTC STATUS (for diagnostics) ===
-  app.get("/api/rtc/status", (_req, res) => {
+  app.get("/api/rtc/status", requireAuth, (_req, res) => {
     const turnStatus = getTurnStatus();
     res.json({
       signaling: {
         configured: true,
         path: "/ws/signaling",
+        legacy: true,
+        note: "Legacy meeting signaling transport. Primary production calling uses LiveKit-based routes.",
       },
       turn: {
         ...turnStatus,
@@ -246,7 +258,7 @@ export async function registerRoutes(
 
   // === WEBSITE CHATBOT ===
   const websiteOpenai = new OpenAI({
-    apiKey: getOpenAIKey() || "placeholder",
+    apiKey: getOpenAIKey() || "",
     baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   });
 
@@ -409,27 +421,37 @@ Your personality:
 
   // === ORGANIZATION ROUTES (B2B) ===
 
-  // List all organizations (admin only in real app)
-  app.get(api.organizations.list.path, async (req, res) => {
+  // List all organizations (admin only)
+  app.get(api.organizations.list.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     const orgs = await storage.getAllOrganizations();
     res.json(orgs);
   });
 
-  // Get single organization
-  app.get(api.organizations.get.path, async (req, res) => {
-    const org = await storage.getOrganization(Number(req.params.id));
+  // Get single organization — members of that org or admins
+  app.get(api.organizations.get.path, requireAuth, async (req, res) => {
+    const orgId = Number(req.params.id);
+    if (!req.user || (!["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const org = await storage.getOrganization(orgId);
     if (!org) {
       return res.status(404).json({ message: "Organization not found" });
     }
     res.json(org);
   });
 
-  // Create organization
-  app.post(api.organizations.create.path, async (req, res) => {
+  // Create organization (admin only)
+  app.post(api.organizations.create.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     try {
       const input = api.organizations.create.input.parse(req.body);
       const slug = generateSlug(input.name);
-      
+
       const existing = await storage.getOrganizationBySlug(slug);
       if (existing) {
         return res.status(400).json({ message: "Organization slug already exists" });
@@ -442,8 +464,11 @@ Your personality:
     }
   });
 
-  // Update organization
-  app.put(api.organizations.update.path, async (req, res) => {
+  // Update organization (admin only)
+  app.put(api.organizations.update.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     try {
       const input = api.organizations.update.input.parse(req.body);
       const org = await storage.updateOrganization(Number(req.params.id), input);
@@ -456,18 +481,25 @@ Your personality:
     }
   });
 
-  // Get org members
-  app.get(api.organizations.members.path, async (req, res) => {
-    const users = await storage.getUsersByOrg(Number(req.params.id));
+  // Get org members (admin or org member)
+  app.get(api.organizations.members.path, requireAuth, async (req, res) => {
+    const orgId = Number(req.params.id);
+    if (!req.user || (!["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const users = await storage.getUsersByOrg(orgId);
     res.json(users);
   });
 
-  // Add member to org
-  app.post(api.organizations.addMember.path, async (req, res) => {
+  // Add member to org (admin only)
+  app.post(api.organizations.addMember.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     try {
       const { userId, memberRole } = req.body;
       const orgId = Number(req.params.id);
-      
+
       await storage.addOrgMember({
         organizationId: orgId,
         userId,
@@ -476,7 +508,7 @@ Your personality:
 
       // Update user's organizationId
       await storage.updateUser(userId, { organizationId: orgId });
-      
+
       res.status(201).json({ success: true });
     } catch (err) {
       res.status(400).json({ message: "Failed to add member" });
@@ -485,14 +517,20 @@ Your personality:
 
   // === USER MANAGEMENT (Admin) ===
 
-  // List all users
-  app.get(api.users.list.path, async (req, res) => {
+  // List all users (admin only)
+  app.get(api.users.list.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     const users = await storage.getAllUsers();
     res.json(users);
   });
 
-  // Update user role
-  app.patch(api.users.updateRole.path, async (req, res) => {
+  // Update user role (admin only)
+  app.patch(api.users.updateRole.path, requireAuth, async (req, res) => {
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
     try {
       const { role } = req.body;
       const user = await storage.updateUser(Number(req.params.id), { role });
@@ -527,7 +565,7 @@ Your personality:
     }
   });
 
-  app.post(api.voiceProfiles.create.path, async (req, res) => {
+  app.post(api.voiceProfiles.create.path, requireAuth, async (req, res) => {
     try {
       const input = api.voiceProfiles.create.input.parse(req.body);
       const profile = await storage.createVoiceProfile(input);

@@ -1,11 +1,28 @@
 import Fastify from "fastify";
 import fastifyWebsocket from "@fastify/websocket";
 import fastifyCors from "@fastify/cors";
+import type { FastifyRequest, FastifyReply } from "fastify";
 import { chatStorage } from "./replit_integrations/chat/storage";
 import { speechToText, textToSpeech, voiceChatWithTextModel, convertWebmToWav } from "./replit_integrations/audio/client";
 import { sessionCache, presenceCache, emotionCache, contextCache } from "./cache";
 import { storage } from "./storage";
 import type { WebSocket } from "ws";
+import { isOriginAllowed } from "./security-middleware";
+import { logger } from "./observability";
+import { getSessionDetails } from "./role-middleware";
+
+async function extractVerifiedSession(req: FastifyRequest): Promise<{ userId: number } | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  const session = await getSessionDetails(token).catch(() => null);
+  if (!session) return null;
+  return { userId: session.userId };
+}
+
+async function rejectUnauthorized(reply: FastifyReply): Promise<void> {
+  reply.status(401).send({ error: "Unauthorized" });
+}
 
 // Human-like AI system prompt
 const HUMAN_VOICE_SYSTEM_PROMPT = `You are NeuraTalk - a warm, friendly conversational AI with a human-like personality.
@@ -50,12 +67,36 @@ export async function createFastifyServer() {
     bodyLimit: 50 * 1024 * 1024, // 50MB for audio
   });
 
-  await fastify.register(fastifyCors, { origin: true });
+  await fastify.register(fastifyCors, {
+    origin: (origin, callback) => {
+      if (!origin || isOriginAllowed(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      logger.warn("Fastify", "Rejected CORS origin", { origin });
+      callback(new Error("Origin not allowed"), false);
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Authorization", "Content-Type", "X-Tenant-Id", "X-Tenant-Slug"],
+  });
   await fastify.register(fastifyWebsocket);
 
   // WebSocket voice streaming endpoint
   fastify.register(async function (fastify) {
     fastify.get("/ws/voice/:conversationId", { websocket: true }, async (socket: WebSocket, req) => {
+      // Auth: token passed as ?token= query param (WebSocket handshake cannot set Authorization header)
+      const tokenParam = typeof (req.query as any)?.token === "string" ? (req.query as any).token as string : null;
+      const session = tokenParam
+        ? await getSessionDetails(tokenParam).catch(() => null)
+        : null;
+      if (!session) {
+        socket.send(JSON.stringify({ type: "error", error: "Unauthorized" }));
+        socket.close(4401, "Unauthorized");
+        return;
+      }
+
       const conversationId = parseInt((req.params as any).conversationId);
       let audioChunks: Buffer[] = [];
       let isProcessing = false;
@@ -121,7 +162,7 @@ export async function createFastifyServer() {
             socket.send(JSON.stringify({ type: "pong", timestamp: Date.now() }));
           }
         } catch (err) {
-          console.error("WebSocket voice error:", err);
+          logger.error("Fastify", "WebSocket voice error", err as Error);
           socket.send(JSON.stringify({ type: "error", error: "Processing failed" }));
           isProcessing = false;
         }
@@ -135,7 +176,11 @@ export async function createFastifyServer() {
 
   // Preload endpoint - called after login
   fastify.post("/api/preload/:userId", async (request, reply) => {
+    const session = await extractVerifiedSession(request);
     const userId = parseInt((request.params as any).userId);
+    if (!session || session.userId !== userId) {
+      return rejectUnauthorized(reply);
+    }
     const startTime = Date.now();
 
     try {
@@ -183,14 +228,18 @@ export async function createFastifyServer() {
         },
       };
     } catch (err) {
-      console.error("Preload error:", err);
+      logger.error("Fastify", "Preload error", err as Error);
       return reply.status(500).send({ error: "Preload failed" });
     }
   });
 
   // Get cached context
   fastify.get("/api/context/:userId", async (request, reply) => {
+    const session = await extractVerifiedSession(request);
     const userId = parseInt((request.params as any).userId);
+    if (!session || session.userId !== userId) {
+      return rejectUnauthorized(reply);
+    }
     const context = await contextCache.getUserContext(userId);
     
     if (!context) {
@@ -202,7 +251,11 @@ export async function createFastifyServer() {
 
   // Presence heartbeat
   fastify.post("/api/presence/:userId/heartbeat", async (request, reply) => {
+    const session = await extractVerifiedSession(request);
     const userId = parseInt((request.params as any).userId);
+    if (!session || session.userId !== userId) {
+      return rejectUnauthorized(reply);
+    }
     await presenceCache.setOnline(userId, 120); // 2 min TTL
     return { success: true };
   });

@@ -37,6 +37,7 @@ interface ICECandidate {
 
 export default function CallDiagnostics() {
   const { user } = useAuth();
+  const legacyMeetingTransportEnabled = (import.meta.env.VITE_ENABLE_LEGACY_MEETING_TRANSPORT || "").toLowerCase() === "true";
   const [diagnostics, setDiagnostics] = useState<DiagnosticResult[]>([]);
   const [iceServers, setIceServers] = useState<ICEServer[]>([]);
   const [iceCandidates, setIceCandidates] = useState<ICECandidate[]>([]);
@@ -90,8 +91,8 @@ export default function CallDiagnostics() {
       updateDiagnostic("API Connection", { status: "error", message: "Cannot reach server" });
     }
 
-    // 2. Test Twilio ICE Servers
-    addDiagnostic({ name: "Twilio TURN/STUN", status: "checking", message: "Fetching Twilio ICE servers..." });
+    // 2. Test RTC transport readiness
+    addDiagnostic({ name: "RTC Transport", status: "checking", message: "Fetching ICE and transport readiness..." });
     try {
       const response = await fetch("/api/rtc/ice-servers");
       const data = await response.json();
@@ -105,28 +106,77 @@ export default function CallDiagnostics() {
         );
         
         if (hasTwilioTurn && hasTwilioStun) {
-          updateDiagnostic("Twilio TURN/STUN", { 
+          updateDiagnostic("RTC Transport", { 
             status: "success", 
-            message: `Twilio servers active (${data.iceServers.length} servers)`,
-            details: "TURN + STUN with ephemeral credentials"
+            message: `TURN + STUN available (${data.iceServers.length} servers)`,
+            details: "RTC transport ready for restrictive networks"
           });
         } else if (hasTwilioStun) {
-          updateDiagnostic("Twilio TURN/STUN", { 
+          updateDiagnostic("RTC Transport", { 
             status: "warning", 
-            message: "Only STUN available, TURN not configured"
+            message: "Only STUN available, TURN relay not configured"
           });
         } else {
-          updateDiagnostic("Twilio TURN/STUN", { 
+          updateDiagnostic("RTC Transport", { 
             status: "warning", 
-            message: "Using fallback STUN servers (no Twilio)"
+            message: "Using fallback STUN servers (no dedicated TURN relay)"
           });
         }
       }
     } catch (err) {
-      updateDiagnostic("Twilio TURN/STUN", { status: "error", message: "Failed to fetch ICE servers" });
+      updateDiagnostic("RTC Transport", { status: "error", message: "Failed to fetch ICE servers" });
     }
 
-    // 3. Test WebRTC Peer Connection
+    // 3. Test primary voice stack readiness
+    addDiagnostic({ name: "Primary Voice Stack", status: "checking", message: "Checking LiveKit, Azure, and OpenAI readiness..." });
+    try {
+      const [rtcStatusResponse, voiceHealthResponse] = await Promise.all([
+        fetch("/api/rtc/status"),
+        fetch("/api/voice-assistant/health", {
+          headers: {
+            Authorization: `Bearer ${getAuthToken()}`,
+          },
+        }),
+      ]);
+
+      const rtcStatus = rtcStatusResponse.ok ? await rtcStatusResponse.json() : null;
+      const voiceHealth = voiceHealthResponse.ok ? await voiceHealthResponse.json() : null;
+
+      const livekitReady = Boolean(voiceHealth?.livekit);
+      const azureReady = Boolean(voiceHealth?.azure);
+      const openaiReady = Boolean(voiceHealth?.openai);
+      const signalingLegacy = Boolean(rtcStatus?.signaling?.legacy);
+
+      if (livekitReady && azureReady && openaiReady) {
+        updateDiagnostic("Primary Voice Stack", {
+          status: "success",
+          message: "LiveKit, Azure speech, and OpenAI are configured",
+          details: signalingLegacy
+            ? "Primary stack ready. Legacy signaling remains separate."
+            : "Primary stack ready for LiveKit/Azure-first flows.",
+        });
+      } else {
+        const missing = [
+          livekitReady ? null : "LiveKit",
+          azureReady ? null : "Azure speech",
+          openaiReady ? null : "OpenAI",
+        ].filter(Boolean).join(", ");
+
+        updateDiagnostic("Primary Voice Stack", {
+          status: "warning",
+          message: "Primary stack is partially configured",
+          details: missing ? `Missing or unavailable: ${missing}` : "One or more primary services are degraded",
+        });
+      }
+    } catch (err) {
+      updateDiagnostic("Primary Voice Stack", {
+        status: "warning",
+        message: "Primary voice stack health unavailable",
+        details: "Could not verify LiveKit/Azure/OpenAI readiness from diagnostics",
+      });
+    }
+
+    // 4. Test WebRTC Peer Connection
     addDiagnostic({ name: "WebRTC Connection", status: "checking", message: "Creating peer connection..." });
     try {
       const iceResponse = await fetch("/api/rtc/ice-servers");
@@ -193,7 +243,7 @@ export default function CallDiagnostics() {
       updateDiagnostic("WebRTC Connection", { status: "error", message: `WebRTC error: ${err}` });
     }
 
-    // 4. Test Microphone Access
+    // 5. Test Microphone Access
     addDiagnostic({ name: "Microphone Access", status: "checking", message: "Requesting microphone permission..." });
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -237,7 +287,7 @@ export default function CallDiagnostics() {
       updateDiagnostic("Microphone Access", { status: "error", message: "Microphone access denied" });
     }
 
-    // 5. Test Translation API
+    // 6. Test Translation API
     addDiagnostic({ name: "Translation API", status: "checking", message: "Testing translation service..." });
     try {
       const authToken = getAuthToken();
@@ -269,10 +319,41 @@ export default function CallDiagnostics() {
       updateDiagnostic("Translation API", { status: "error", message: "Translation API unreachable" });
     }
 
-    // 6. Test Signaling Server
+    // 7. Test Signaling Server
     addDiagnostic({ name: "Signaling Server", status: "checking", message: "Testing WebSocket connection..." });
     try {
-      const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/signaling`;
+      if (!legacyMeetingTransportEnabled) {
+        updateDiagnostic("Signaling Server", {
+          status: "warning",
+          message: "Legacy signaling transport disabled",
+          details: "/ws/signaling is not part of the primary LiveKit calling stack",
+        });
+        throw new Error("__legacy_signaling_disabled__");
+      }
+
+      const authToken = getAuthToken();
+      if (!authToken) {
+        throw new Error("Authentication token unavailable");
+      }
+
+      const wsTokenResponse = await fetch("/api/auth/ws-token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: "{}",
+      });
+      if (!wsTokenResponse.ok) {
+        throw new Error(`Failed to mint signaling token (${wsTokenResponse.status})`);
+      }
+
+      const wsTokenPayload = await wsTokenResponse.json() as { token?: string };
+      if (!wsTokenPayload.token) {
+        throw new Error("Missing signaling token");
+      }
+
+      const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/signaling?token=${encodeURIComponent(wsTokenPayload.token)}`;
       const ws = new WebSocket(wsUrl);
       
       await new Promise((resolve, reject) => {
@@ -293,10 +374,12 @@ export default function CallDiagnostics() {
         details: wsUrl
       });
     } catch (err) {
-      updateDiagnostic("Signaling Server", { status: "error", message: "Signaling server connection failed" });
+      if ((err as Error)?.message !== "__legacy_signaling_disabled__") {
+        updateDiagnostic("Signaling Server", { status: "error", message: "Signaling server connection failed" });
+      }
     }
 
-    // 7. Test Ultra-Low Latency Status
+    // 8. Test Ultra-Low Latency Status
     addDiagnostic({ name: "Ultra-Low Latency", status: "checking", message: "Checking GPU services..." });
     try {
       const response = await fetch("/api/call/ultra-low-latency-status");
@@ -367,7 +450,7 @@ export default function CallDiagnostics() {
                   Real-Time Call System Diagnostics
                 </CardTitle>
                 <CardDescription>
-                  Live verification of Twilio, WebRTC, and translation services
+                  Live verification of the primary LiveKit, Azure speech, OpenAI, and RTC transport stack
                 </CardDescription>
               </div>
               <Button onClick={runDiagnostics} disabled={isRunning} data-testid="button-run-diagnostics">
@@ -421,7 +504,7 @@ export default function CallDiagnostics() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Server className="w-4 h-4" />
-                Twilio ICE Servers
+                RTC ICE Servers
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -436,7 +519,7 @@ export default function CallDiagnostics() {
                           <Badge variant="secondary" className="text-[10px]">STUN</Badge>
                         )}
                         {server.urls.includes("twilio") && (
-                          <Badge variant="outline" className="text-[10px] text-green-500 border-green-500">Twilio</Badge>
+                          <Badge variant="outline" className="text-[10px] text-green-500 border-green-500">Managed</Badge>
                         )}
                       </div>
                       <p className="mt-1 break-all">{server.urls}</p>
@@ -516,8 +599,8 @@ export default function CallDiagnostics() {
                   <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto" />
                   <h3 className="text-lg font-semibold text-green-600">All Systems Operational</h3>
                   <p className="text-sm text-muted-foreground">
-                    Twilio TURN/STUN, WebRTC, Translation, and Signaling are all working correctly.
-                    Real-time calls with bidirectional translation are ready!
+                    RTC transport, WebRTC, translation, and the available signaling stack are
+                    working correctly. Real-time calling is ready for the currently enabled paths.
                   </p>
                 </>
               ) : failCount > 0 ? (

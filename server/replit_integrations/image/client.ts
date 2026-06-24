@@ -4,7 +4,7 @@ import { Buffer } from "node:buffer";
 import { getOpenAIKey } from "../../openai-config";
 
 export const openai = new OpenAI({
-  apiKey: getOpenAIKey() || "placeholder",
+  apiKey: getOpenAIKey() || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 

@@ -28,7 +28,17 @@ import {
 } from "./billing-config";
 import { calculateBillableSecondsForBudget, calculateChargeIncrement } from "@shared/billing-math";
 import { logger } from "./observability";
-import { getRedisClient, withRedisLock } from "./redis";
+import { getRedisClient, isRedisDegraded, withRedisLock } from "./redis";
+import { logAuditEvent } from "./audit-logging";
+
+function requireRedisForBilling(operation: string): void {
+  if (isRedisDegraded()) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(`[BillingEngine] Redis is in degraded/in-memory mode — refusing to run ${operation} to prevent billing inconsistency`);
+    }
+    logger.warn("BillingEngine", `Redis is degraded (in-memory shim) — ${operation} running in dev mode without consistency guarantees`);
+  }
+}
 
 export interface CallBillingStartInput {
   sessionId: string;
@@ -739,6 +749,7 @@ export class BillingEngine {
   }
 
   static async startCallSession(input: CallBillingStartInput): Promise<CallBillingAuthorization> {
+    requireRedisForBilling("startCallSession");
     try {
       const context = await resolveBillingContext({
         userId: input.userId,
@@ -1025,6 +1036,7 @@ export class BillingEngine {
   }
 
   private static async advanceRuntimeSession(sessionId: string, explicitElapsedSeconds?: number): Promise<CallBillingProgress> {
+    requireRedisForBilling("advanceRuntimeSession");
     return await withRedisLock(runtimeLockKey(sessionId), async () => {
       const runtime = await loadRuntimeSession(sessionId);
       if (!runtime) {
@@ -1092,6 +1104,7 @@ export class BillingEngine {
   }
 
   static async activateCallSession(sessionId: string): Promise<CallBillingActivation> {
+    requireRedisForBilling("activateCallSession");
     return await withRedisLock(runtimeLockKey(sessionId), async () => {
       const runtime = await loadRuntimeSession(sessionId);
       if (!runtime) {
@@ -1172,6 +1185,7 @@ export class BillingEngine {
     sessionId: string,
     status: "completed" | "ended" | "dropped" | "failed" = "completed",
   ): Promise<CallBillingFinalization> {
+    requireRedisForBilling("finalizeCallSession");
     return await withRedisLock(runtimeLockKey(sessionId), async () => {
       const runtime = await loadRuntimeSession(sessionId);
       if (!runtime) {
@@ -1455,27 +1469,52 @@ export class BillingEngine {
       ? Math.max(0, account.outstandingPostpaidPaise - Math.max(0, input.amountPaise))
       : account.outstandingPostpaidPaise;
 
-    const [updated] = await db.update(billingAccounts)
-      .set({
-        walletBalancePaise: nextWalletBalance,
-        outstandingPostpaidPaise: nextOutstanding,
-        updatedAt: new Date(),
-      })
-      .where(eq(billingAccounts.id, account.id))
-      .returning();
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(billingAccounts)
+        .set({
+          walletBalancePaise: nextWalletBalance,
+          outstandingPostpaidPaise: nextOutstanding,
+          updatedAt: new Date(),
+        })
+        .where(eq(billingAccounts.id, account.id))
+        .returning();
 
-    await db.insert(billingLedgerEntries).values({
-      billingAccountId: account.id,
-      organizationId: input.organizationId,
-      entryType: input.type,
-      direction: input.amountPaise >= 0 ? "credit" : "debit",
-      amountPaise: Math.abs(input.amountPaise),
-      balanceAfterPaise: input.type === "credit_limit_settlement" ? nextOutstanding : nextWalletBalance,
-      metadata: {
-        description: input.description || null,
-      },
-      createdBy: input.actorUserId,
+      await tx.insert(billingLedgerEntries).values({
+        billingAccountId: account.id,
+        organizationId: input.organizationId,
+        entryType: input.type,
+        direction: input.amountPaise >= 0 ? "credit" : "debit",
+        amountPaise: Math.abs(input.amountPaise),
+        balanceAfterPaise: input.type === "credit_limit_settlement" ? nextOutstanding : nextWalletBalance,
+        metadata: {
+          description: input.description || null,
+        },
+        createdBy: input.actorUserId,
+      });
+
+      return row;
     });
+
+    const auditAction =
+      input.type === "wallet_credit" ? "billing_wallet_credit" as const
+      : input.type === "wallet_debit" ? "billing_wallet_debit" as const
+      : "billing_adjustment" as const;
+
+    await logAuditEvent({
+      action: auditAction,
+      userId: input.actorUserId,
+      organizationId: input.organizationId,
+      details: {
+        amountPaise: Math.abs(input.amountPaise),
+        type: input.type,
+        direction: input.amountPaise >= 0 ? "credit" : "debit",
+        balanceAfterPaise: input.type === "credit_limit_settlement" ? nextOutstanding : nextWalletBalance,
+        description: input.description || null,
+        billingAccountId: account.id,
+        source: "billing_engine",
+        transactionId: `ledger_${account.id}_${Date.now()}`,
+      },
+    }).catch((err) => logger.error("BillingEngine", "Failed to write audit log for balance adjustment", err instanceof Error ? err : new Error(String(err))));
 
     return updated;
   }

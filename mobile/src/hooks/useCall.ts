@@ -674,6 +674,7 @@ export function useCall(userId: number, authToken: string, deviceId: string) {
     }
 
     void callApi.updateStatus(callIdRef.current, 'accepted', { source: 'mobile_native_accept' }).catch(() => undefined);
+    signalingService.acceptCall(callIdRef.current);
     NativeTelephony.answerCall(callIdRef.current).catch(() => undefined);
 
     if (pendingMediaSessionRef.current) {

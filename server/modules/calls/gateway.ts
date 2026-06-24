@@ -181,9 +181,22 @@ function isProviderConfigured(providerId: string): boolean {
 }
 
 async function checkProviderHeartbeat(providerId: string): Promise<boolean> {
-  // TODO(infra): wire real provider ping (msg91/twilio/local-sip). For now
-  // assume healthy — failover is still driven by actual send failures.
-  return isProviderConfigured(providerId);
+  if (!isProviderConfigured(providerId)) {
+    return false;
+  }
+
+  switch (providerId) {
+    case "msg91": {
+      const { isMSG91Healthy } = await import("../../msg91-service");
+      return await isMSG91Healthy().catch(() => false);
+    }
+    case "local-sip":
+      return Boolean(process.env.LIVEKIT_SIP_DOMAIN?.trim());
+    case "twilio":
+      return false;
+    default:
+      return false;
+  }
 }
 
 setInterval(async () => {

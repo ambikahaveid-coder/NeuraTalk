@@ -2,10 +2,73 @@ import Redis from "ioredis";
 import "./load-env";
 import { logger } from "./observability";
 
+type RedisConstructor = new (...args: any[]) => Redis;
+type RedisBackendMode = "uninitialized" | "remote" | "in_memory";
+
+interface RedisRuntimeStatus {
+  mode: RedisBackendMode;
+  ready: boolean;
+  degraded: boolean;
+  lastError: string | null;
+}
+
 let redisClient: Redis | null = null;
 let lifecycleBound = false;
 let shutdownBound = false;
-let redisMockCtor: ((...args: any[]) => unknown) | null = null;
+let redisMockCtor: RedisConstructor | null = null;
+let redisRuntimeStatus: RedisRuntimeStatus = {
+  mode: "uninitialized",
+  ready: false,
+  degraded: false,
+  lastError: null,
+};
+
+function setRedisRuntimeStatus(next: Partial<RedisRuntimeStatus>): void {
+  redisRuntimeStatus = {
+    ...redisRuntimeStatus,
+    ...next,
+  };
+}
+
+function createRemoteRedisClient(url: string): Redis {
+  const client = new Redis(url, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    enableReadyCheck: false,
+    connectTimeout: 5_000,
+    retryStrategy: (attempt) => {
+      if (attempt >= 4) {
+        return null;
+      }
+      return Math.min(attempt * 500, 2_000);
+    },
+    reconnectOnError: () => false,
+  });
+  bindLifecycle(client);
+  return client;
+}
+
+async function resetRedisClient(client: Redis | null): Promise<void> {
+  if (!client) {
+    redisClient = null;
+    lifecycleBound = false;
+    setRedisRuntimeStatus({ ready: false });
+    return;
+  }
+
+  try {
+    client.disconnect();
+  } catch {
+    // ignore cleanup failures during connection reset
+  } finally {
+    if (redisClient === client) {
+      redisClient = null;
+    }
+    lifecycleBound = false;
+    setRedisRuntimeStatus({ ready: false });
+  }
+}
 
 function isInMemoryUrl(url: string): boolean {
   return url.startsWith("memory://") || url === "mock" || url === "inmemory";
@@ -39,7 +102,8 @@ function shouldPreferInMemoryRedis(): boolean {
   try {
     const parsed = new URL(rawUrl);
     const host = (parsed.hostname || "").toLowerCase();
-    return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+    // Use in-memory shim only when URL points to localhost (local dev only)
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
   } catch {
     return false;
   }
@@ -49,13 +113,13 @@ if (shouldPreferInMemoryRedis()) {
   process.env.REDIS_URL = "memory://local-dev";
 }
 
-async function getRedisMockCtor(): Promise<(...args: any[]) => unknown> {
+async function getRedisMockCtor(): Promise<RedisConstructor> {
   if (redisMockCtor) {
     return redisMockCtor;
   }
 
   const mod = await import("ioredis-mock");
-  redisMockCtor = (mod.default ?? mod) as (...args: any[]) => unknown;
+  redisMockCtor = (mod.default ?? mod) as unknown as RedisConstructor;
   return redisMockCtor;
 }
 
@@ -76,20 +140,41 @@ function bindLifecycle(client: Redis) {
     logger.error("Redis", "Redis client error", error instanceof Error ? error : new Error(String(error)));
   });
   client.on("connect", () => {
+    setRedisRuntimeStatus({ ready: false, lastError: null });
     logger.info("Redis", "Redis client connected");
   });
   client.on("ready", () => {
+    setRedisRuntimeStatus({
+      mode: "remote",
+      ready: true,
+      degraded: false,
+      lastError: null,
+    });
     logger.info("Redis", "Redis client ready");
   });
   client.on("close", () => {
+    setRedisRuntimeStatus({ ready: false });
     logger.warn("Redis", "Redis connection closed");
   });
   client.on("reconnecting", (delay: number) => {
     logger.warn("Redis", `Redis reconnecting in ${delay}ms`);
   });
   client.on("end", () => {
+    setRedisRuntimeStatus({ ready: false });
     logger.warn("Redis", "Redis connection ended");
   });
+}
+
+export function getRedisRuntimeStatus(): RedisRuntimeStatus {
+  return { ...redisRuntimeStatus };
+}
+
+export function isRedisReady(): boolean {
+  return redisRuntimeStatus.ready;
+}
+
+export function isRedisDegraded(): boolean {
+  return redisRuntimeStatus.degraded;
 }
 
 export function getRedisClient(): Redis {
@@ -112,14 +197,7 @@ export function getRedisClient(): Redis {
     if (isInMemoryUrl(process.env.REDIS_URL)) {
       throw new Error("In-memory Redis must be initialized via assertRedisReady() first");
     }
-    redisClient = new Redis(process.env.REDIS_URL, {
-      lazyConnect: true,
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-      enableReadyCheck: false,
-      connectTimeout: 5_000,
-    });
-    bindLifecycle(redisClient);
+    redisClient = createRemoteRedisClient(process.env.REDIS_URL);
   }
 
   return redisClient;
@@ -135,6 +213,12 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
       bindLifecycle(redisClient);
     }
     await redisClient.ping();
+    setRedisRuntimeStatus({
+      mode: "in_memory",
+      ready: true,
+      degraded: true,
+      lastError: null,
+    });
     logger.warn("Redis", `Using in-memory Redis shim for local startup in ${Date.now() - start}ms`);
     return;
   }
@@ -146,6 +230,12 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
       bindLifecycle(redisClient);
     }
     await redisClient.ping();
+    setRedisRuntimeStatus({
+      mode: "in_memory",
+      ready: true,
+      degraded: true,
+      lastError: null,
+    });
     logger.warn("Redis", `REDIS_URL missing; using in-memory Redis shim in ${Date.now() - start}ms`);
     return;
   }
@@ -157,6 +247,12 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
       bindLifecycle(redisClient);
     }
     await redisClient.ping();
+    setRedisRuntimeStatus({
+      mode: "in_memory",
+      ready: true,
+      degraded: true,
+      lastError: null,
+    });
     logger.info("Redis", `In-memory Redis ready in ${Date.now() - start}ms`);
     return;
   }
@@ -182,7 +278,15 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
 
     logger.info("Redis", `Redis readiness check passed in ${Date.now() - start}ms`);
   } catch (error) {
+    setRedisRuntimeStatus({
+      mode: "remote",
+      ready: false,
+      degraded: false,
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+
     if (!allowRedisFallback()) {
+      await resetRedisClient(client);
       throw error;
     }
 
@@ -191,16 +295,18 @@ export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
       `Redis unavailable in local/degraded mode; falling back to in-memory shim: ${error instanceof Error ? error.message : String(error)}`,
     );
 
-    try {
-      client.disconnect();
-    } catch {
-      // ignore cleanup failures while swapping to in-memory mode
-    }
+    await resetRedisClient(client);
 
     redisClient = await createInMemoryRedis();
     lifecycleBound = false;
     bindLifecycle(redisClient);
     await redisClient.ping();
+    setRedisRuntimeStatus({
+      mode: "in_memory",
+      ready: true,
+      degraded: true,
+      lastError: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -216,6 +322,12 @@ export async function closeRedisClient(): Promise<void> {
   } finally {
     redisClient = null;
     lifecycleBound = false;
+    setRedisRuntimeStatus({
+      mode: "uninitialized",
+      ready: false,
+      degraded: false,
+      lastError: null,
+    });
   }
 }
 

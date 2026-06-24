@@ -1,13 +1,17 @@
 import "./load-env";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "@shared/schema";
 import { logger } from "./observability";
 
 const { Pool } = pg;
 
+type AppDb = NodePgDatabase<typeof schema> & {
+  $client: pg.Pool;
+};
+
 let poolInstance: pg.Pool | null = null;
-let dbInstance: ReturnType<typeof drizzle> | null = null;
+let dbInstance: AppDb | null = null;
 
 function requireDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
@@ -20,16 +24,27 @@ function requireDatabaseUrl(): string {
   return databaseUrl;
 }
 
+function shouldUseSsl(databaseUrl: string): boolean {
+  try {
+    const url = new URL(databaseUrl);
+    return !["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function getPool(): pg.Pool {
   if (poolInstance) {
     return poolInstance;
   }
 
+  const databaseUrl = requireDatabaseUrl();
   poolInstance = new Pool({
-    connectionString: requireDatabaseUrl(),
+    connectionString: databaseUrl,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 15000, // Neon cold-start can take 5-10s
+    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: process.env.NODE_ENV === "production" } : undefined,
   });
 
   poolInstance.on("error", (error) => {
@@ -39,12 +54,12 @@ function getPool(): pg.Pool {
   return poolInstance;
 }
 
-function getDb() {
+function getDb(): AppDb {
   if (dbInstance) {
     return dbInstance;
   }
 
-  dbInstance = drizzle(getPool(), { schema });
+  dbInstance = drizzle<typeof schema, pg.Pool>(getPool(), { schema });
   return dbInstance;
 }
 
@@ -93,7 +108,7 @@ export const shutdownPool = async () => {
 process.on("SIGTERM", shutdownPool);
 process.on("SIGINT", shutdownPool);
 
-export const db = new Proxy({} as ReturnType<typeof drizzle>, {
+export const db = new Proxy({} as AppDb, {
   get(_target, property, receiver) {
     return Reflect.get(getDb() as unknown as object, property, receiver);
   },

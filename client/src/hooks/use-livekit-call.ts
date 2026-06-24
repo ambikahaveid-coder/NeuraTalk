@@ -38,6 +38,36 @@ export interface InitiateCallRequest {
   enableLipsync?: boolean;
 }
 
+export interface CallSessionPartyView {
+  userId?: string | null;
+  externalId?: string | null;
+  phoneNumber?: string | null;
+  displayName?: string | null;
+}
+
+export interface CallSessionView {
+  id: string;
+  callId: string;
+  sessionId: string;
+  status: string;
+  routeType: string;
+  transport?: string | null;
+  provider?: string | null;
+  callType?: string | null;
+  sourceLanguage?: string | null;
+  targetLanguage?: string | null;
+  translationEnabled?: boolean | null;
+  translationMode?: string | null;
+  callerIdentityMode?: "app_identity" | "organization_caller_id" | "user_verified_number" | "provider_caller_id" | null;
+  callerIdentityDisclaimer?: string | null;
+  caller?: CallSessionPartyView | null;
+  callee?: CallSessionPartyView | null;
+  livekitUrl?: string | null;
+  pstnCallId?: string | null;
+  durationSeconds?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface InitiateCallResponse {
   callId: string;
   joinMethod: "app_to_app" | "app_to_pstn" | "conference";
@@ -50,6 +80,7 @@ export interface InitiateCallResponse {
   estimatedRateInrPerMin: number;
   languageDetectionActive: boolean;
   operationalWarnings?: string[];
+  session?: CallSessionView;
 }
 
 export interface CallPricingPreview {
@@ -68,6 +99,7 @@ interface IncomingCallData {
   callType: CallType;
   livekitUrl: string;
   livekitToken: string;
+  session?: CallSessionView;
 }
 
 interface DataMessage {
@@ -77,6 +109,12 @@ interface DataMessage {
   ts: number;
 }
 
+interface CallDetailsResponse {
+  session?: CallSessionView | null;
+  call?: { status?: string | null } | null;
+  status?: string | null;
+}
+
 export function useLiveKitCall() {
   const [status, setStatus] = useState<CallStatus>("idle");
   const [callId, setCallId] = useState<string | null>(null);
@@ -84,9 +122,12 @@ export function useLiveKitCall() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [connectionQuality, setConnectionQuality] = useState<"excellent" | "good" | "poor" | "lost">("good");
+  const [hasRemoteVideoTrack, setHasRemoteVideoTrack] = useState(false);
+  const [hasRemoteAudioTrack, setHasRemoteAudioTrack] = useState(false);
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const [dataMessages, setDataMessages] = useState<DataMessage[]>([]);
   const [pricingPreview, setPricingPreview] = useState<CallPricingPreview | null>(null);
+  const [session, setSession] = useState<CallSessionView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const roomRef = useRef<Room | null>(null);
@@ -105,6 +146,55 @@ export function useLiveKitCall() {
   });
   const activeMarkedRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  const statusRef = useRef<CallStatus>("idle");
+  const incomingCallIdRef = useRef<string | null>(null);
+
+  const clearMediaElements = useCallback(() => {
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.pause();
+      remoteAudioRef.current.srcObject = null;
+    }
+  }, []);
+
+  const teardownMediaState = useCallback(() => {
+    try {
+      localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch {}
+    try {
+      remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch {}
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
+    setHasRemoteVideoTrack(false);
+    setHasRemoteAudioTrack(false);
+    clearMediaElements();
+  }, [clearMediaElements]);
+
+  const resetCallUiState = useCallback((nextStatus: CallStatus = "idle") => {
+    setCallId(null);
+    setParticipants([]);
+    setDataMessages([]);
+    setPricingPreview(null);
+    setSession(null);
+    setIsMuted(false);
+    setIsVideoOn(true);
+    setError(null);
+    setStatus(nextStatus);
+  }, []);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  useEffect(() => {
+    incomingCallIdRef.current = incomingCall?.callId || null;
+  }, [incomingCall]);
 
   const updateServerCallStatus = useCallback(async (activeCallId: string, nextStatus: "active" | "completed") => {
     const token = getAuthToken();
@@ -152,9 +242,11 @@ export function useLiveKitCall() {
     if (track.mediaStreamTrack) ms.addTrack(track.mediaStreamTrack);
     remoteStreamRef.current = ms;
     if (track.kind === Track.Kind.Video && remoteVideoRef.current) {
+      setHasRemoteVideoTrack(true);
       remoteVideoRef.current.srcObject = ms;
     }
     if (track.kind === Track.Kind.Audio && remoteAudioRef.current) {
+      setHasRemoteAudioTrack(true);
       remoteAudioRef.current.srcObject = ms;
       // Mobile browsers block autoplay without a user gesture.
       // We use muted=false + play(). If it fails (autoplay policy), we set a
@@ -172,6 +264,20 @@ export function useLiveKitCall() {
       });
     }
   }, []);
+
+  const syncRoomParticipantState = useCallback((room: Room, activeCallId?: string) => {
+    const remoteParticipants = Array.from(room.remoteParticipants.values());
+    setParticipants(remoteParticipants);
+
+    const hasHumanParticipant = remoteParticipants.some((participant) => !isTranslatorBotParticipant(participant));
+    if (hasHumanParticipant && !activeMarkedRef.current) {
+      activeMarkedRef.current = true;
+      setStatus("active");
+      if (activeCallId) {
+        void updateServerCallStatus(activeCallId, "active");
+      }
+    }
+  }, [updateServerCallStatus]);
 
   const connectToRoom = useCallback(async (
     url: string | null | undefined,
@@ -199,18 +305,21 @@ export function useLiveKitCall() {
     room
       .on(RoomEvent.Connected, () => {
         setStatus((current) => (current === "connecting" ? "ringing" : current));
+        syncRoomParticipantState(room, activeCallId);
       })
       .on(RoomEvent.Disconnected, () => {
-        setStatus("ended");
-        setParticipants([]);
+        teardownMediaState();
+        roomRef.current = null;
+        preferredLanguagesRef.current = {};
+        activeMarkedRef.current = false;
+        setIncomingCall(null);
+        resetCallUiState("ended");
         if (activeCallId) {
           void updateServerCallStatus(activeCallId, "completed");
         }
       })
-      .on(RoomEvent.ParticipantConnected, (_p: RemoteParticipant) => {
-        setParticipants(Array.from(room.remoteParticipants.values()));
-      })
       .on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        syncRoomParticipantState(room, activeCallId);
         if (!activeCallId || activeMarkedRef.current || isTranslatorBotParticipant(participant)) {
           return;
         }
@@ -219,7 +328,7 @@ export function useLiveKitCall() {
         void updateServerCallStatus(activeCallId, "active");
       })
       .on(RoomEvent.ParticipantDisconnected, () => {
-        setParticipants(Array.from(room.remoteParticipants.values()));
+        syncRoomParticipantState(room, activeCallId);
       })
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, participant: RemoteParticipant) => {
         if (isTranslatorBotParticipant(participant)) {
@@ -244,9 +353,28 @@ export function useLiveKitCall() {
         }
 
         attachRemoteTrack(track);
+        syncRoomParticipantState(room, activeCallId);
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         track.detach().forEach((el: HTMLMediaElement) => el.remove());
+        const mediaTrack = track.mediaStreamTrack;
+        if (mediaTrack && remoteStreamRef.current) {
+          remoteStreamRef.current.removeTrack(mediaTrack);
+        }
+        const remainingTracks = remoteStreamRef.current?.getTracks() || [];
+        setHasRemoteVideoTrack(remainingTracks.some((item) => item.kind === "video"));
+        setHasRemoteAudioTrack(remainingTracks.some((item) => item.kind === "audio"));
+        if (remainingTracks.length === 0) {
+          remoteStreamRef.current = null;
+          clearMediaElements();
+        } else {
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = remoteStreamRef.current;
+          }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStreamRef.current;
+          }
+        }
       })
       .on(RoomEvent.ConnectionQualityChanged, (quality: unknown) => {
         const map: Record<string, typeof connectionQuality> = {
@@ -301,7 +429,7 @@ export function useLiveKitCall() {
 
     roomRef.current = room;
     return room;
-  }, [attachLocalTrack, attachRemoteTrack, updateServerCallStatus]);
+  }, [attachLocalTrack, attachRemoteTrack, clearMediaElements, resetCallUiState, syncRoomParticipantState, teardownMediaState, updateServerCallStatus]);
 
   const startCall = useCallback(async (req: InitiateCallRequest): Promise<void> => {
     try {
@@ -336,21 +464,29 @@ export function useLiveKitCall() {
         throw new Error(err.message || `HTTP ${res.status}`);
       }
       const data: InitiateCallResponse = await res.json();
+      const responseSession = data.session ?? null;
+      const effectiveCallId = responseSession?.callId || data.callId;
+      const effectiveJoinMethod = normalizeJoinMethod(responseSession?.routeType) || data.joinMethod;
+      const effectiveLivekitUrl = responseSession?.livekitUrl || data.livekitUrl;
+      const effectivePstnCallId = responseSession?.pstnCallId || data.pstnCallId;
+      const effectiveIdentityMode = responseSession?.callerIdentityMode || data.callerIdentityMode;
+      const effectiveIdentityDisclaimer = responseSession?.callerIdentityDisclaimer || data.callerIdentityDisclaimer;
       activeMarkedRef.current = false;
-      setCallId(data.callId);
+      setCallId(effectiveCallId);
+      setSession(responseSession);
       setPricingPreview({
         estimatedRateInrPerMin: data.estimatedRateInrPerMin,
         estimatedRateInrPerSecond: data.estimatedRateInrPerMin / 60,
-        joinMethod: data.joinMethod,
-        callerIdentityMode: data.callerIdentityMode,
-        callerIdentityDisclaimer: data.callerIdentityDisclaimer,
+        joinMethod: effectiveJoinMethod,
+        callerIdentityMode: effectiveIdentityMode,
+        callerIdentityDisclaimer: effectiveIdentityDisclaimer,
         operationalWarnings: data.operationalWarnings,
       });
       setStatus("ringing");
 
       const effectiveCallType = data.effectiveCallType || normalizedRequest.callType;
       setIsVideoOn(effectiveCallType === "video");
-      await connectToRoom(data.livekitUrl, data.livekitToken, effectiveCallType, data.callId);
+      await connectToRoom(effectiveLivekitUrl, data.livekitToken, effectiveCallType, effectiveCallId);
     } catch (e: any) {
       setError(e?.message ?? "Failed to start call");
       setStatus("error");
@@ -364,21 +500,26 @@ export function useLiveKitCall() {
       preferredLanguagesRef.current = {};
       activeMarkedRef.current = false;
       setStatus("connecting");
-      setCallId(incomingCall.callId);
+      setCallId(incomingCall.session?.callId || incomingCall.callId);
+      setSession(incomingCall.session ?? null);
+      setIsVideoOn(incomingCall.callType === "video");
       await connectToRoom(
-        incomingCall.livekitUrl,
+        incomingCall.session?.livekitUrl || incomingCall.livekitUrl,
         incomingCall.livekitToken,
         incomingCall.callType,
-        incomingCall.callId,
+        incomingCall.session?.callId || incomingCall.callId,
       );
       await markCallAnswered(incomingCall.callId);
       setStatus("active");
       setIncomingCall(null);
     } catch (e: any) {
+      roomRef.current?.disconnect();
+      roomRef.current = null;
+      teardownMediaState();
       setError(e?.message ?? "Failed to accept");
       setStatus("error");
     }
-  }, [incomingCall, connectToRoom, markCallAnswered]);
+  }, [incomingCall, connectToRoom, markCallAnswered, teardownMediaState]);
 
   const rejectIncomingCall = useCallback(async (): Promise<void> => {
     if (!incomingCall) return;
@@ -399,8 +540,7 @@ export function useLiveKitCall() {
       roomRef.current?.disconnect();
     } catch {}
     roomRef.current = null;
-    localStreamRef.current = null;
-    remoteStreamRef.current = null;
+    teardownMediaState();
     preferredLanguagesRef.current = {};
     activeMarkedRef.current = false;
 
@@ -413,14 +553,8 @@ export function useLiveKitCall() {
         });
       } catch {}
     }
-    setCallId(null);
-    setStatus("idle");
-    setParticipants([]);
-    setDataMessages([]);
-    setPricingPreview(null);
-    setIsMuted(false);
-    setIsVideoOn(true);
-  }, [callId]);
+    resetCallUiState("idle");
+  }, [callId, resetCallUiState, teardownMediaState]);
 
   const toggleMute = useCallback(async () => {
     const lp = roomRef.current?.localParticipant;
@@ -434,8 +568,22 @@ export function useLiveKitCall() {
     const lp = roomRef.current?.localParticipant;
     if (!lp) return;
     const next = !isVideoOn;
-    await lp.setCameraEnabled(next);
-    setIsVideoOn(next);
+    try {
+      await lp.setCameraEnabled(next);
+      setIsVideoOn(next);
+      setError(null);
+    } catch (cameraErr: any) {
+      const message = String(cameraErr?.message || cameraErr || "").toLowerCase();
+      if (message.includes("permission") || cameraErr?.name === "NotAllowedError" || cameraErr?.name === "PermissionDeniedError") {
+        setError("Camera/microphone permission denied - allow access in browser settings and retry video.");
+        return;
+      }
+      if (message.includes("notfound") || message.includes("device") || cameraErr?.name === "NotFoundError" || cameraErr?.name === "DevicesNotFoundError") {
+        setError("No camera or microphone found - connect a working device or continue in voice mode.");
+        return;
+      }
+      setError(cameraErr?.message ?? "Camera toggle failed.");
+    }
   }, [isVideoOn]);
 
   const sendDataMessage = useCallback(async (msg: Omit<DataMessage, "from" | "ts">) => {
@@ -512,7 +660,12 @@ export function useLiveKitCall() {
     let cancelled = false;
 
     const handleIncomingData = (data: { incoming?: IncomingCallData | null }) => {
-      if (data?.incoming && !cancelled) {
+      if (
+        data?.incoming &&
+        !cancelled &&
+        statusRef.current === "idle" &&
+        incomingCallIdRef.current !== data.incoming.callId
+      ) {
         setIncomingCall(data.incoming);
       }
     };
@@ -580,6 +733,49 @@ export function useLiveKitCall() {
     };
   }, [status]);
 
+  useEffect(() => {
+    if (!callId || (status !== "connecting" && status !== "ringing" && status !== "active")) {
+      return;
+    }
+
+    const token = getAuthToken();
+    if (!token) return;
+
+    let cancelled = false;
+
+    const syncCallState = async () => {
+      try {
+        const res = await fetch(`/api/calls/${callId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+
+        const payload = await res.json() as CallDetailsResponse;
+        const nextSession = payload.session ?? null;
+        if (!nextSession) return;
+
+        setSession(nextSession);
+        if (nextSession.routeType === "app_to_pstn") {
+          const normalizedStatus = String(nextSession.status || "").toLowerCase();
+          if (["active", "answered"].includes(normalizedStatus)) {
+            setStatus("active");
+          } else if (["completed", "ended", "failed", "missed", "busy", "cancelled"].includes(normalizedStatus)) {
+            setStatus("ended");
+          }
+        }
+      } catch {
+        // Preserve local state when backend sync is unavailable.
+      }
+    };
+
+    void syncCallState();
+    const interval = window.setInterval(syncCallState, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [callId, status]);
+
   // Listen for SW messages (Answer/Reject from push notification)
   useEffect(() => {
     const handleSwMessage = (event: MessageEvent) => {
@@ -593,7 +789,10 @@ export function useLiveKitCall() {
     return () => navigator.serviceWorker?.removeEventListener("message", handleSwMessage);
   }, [rejectIncomingCall, acceptIncomingCall]);
 
-  useEffect(() => () => { roomRef.current?.disconnect(); }, []);
+  useEffect(() => () => {
+    roomRef.current?.disconnect();
+    teardownMediaState();
+  }, [teardownMediaState]);
 
   return {
     status,
@@ -602,9 +801,12 @@ export function useLiveKitCall() {
     isMuted,
     isVideoOn,
     connectionQuality,
+    hasRemoteVideoTrack,
+    hasRemoteAudioTrack,
     incomingCall,
     dataMessages,
     pricingPreview,
+    session,
     error,
     localVideoRef,
     remoteVideoRef,
@@ -665,4 +867,11 @@ function normalizeTranslationMode(
     return "off";
   }
   return translationMode || "subtitles";
+}
+
+function normalizeJoinMethod(routeType?: string | null): "app_to_app" | "app_to_pstn" | "conference" | undefined {
+  if (routeType === "app_to_app" || routeType === "app_to_pstn" || routeType === "conference") {
+    return routeType;
+  }
+  return undefined;
 }

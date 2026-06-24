@@ -2,9 +2,10 @@ import OpenAI from "openai";
 import { logger } from "./observability";
 import { normalizeLanguage, normalizeSpaces } from "./realtime-translation-core";
 import { getCachedTranslation, setCachedTranslation, ultraTranslate } from "./ultra-pipeline";
+import { createLinkedAbortController, runWithResilience } from "./voice-resilience";
 
 const translationOpenAI = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "placeholder",
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
@@ -15,6 +16,10 @@ const OPENAI_TRANSLATION_MODEL =
 const OPENAI_TRANSLATION_MAX_TOKENS = parsePositiveInt(
   process.env.OPENAI_REALTIME_TRANSLATION_MAX_TOKENS,
   192,
+);
+const OPENAI_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
+  process.env.OPENAI_REALTIME_TRANSLATION_TIMEOUT_MS,
+  8_000,
 );
 
 export interface StreamingTranslationCallbacks {
@@ -73,42 +78,62 @@ export async function streamTranslationTokens(
   const chunker = new SpeakableChunker();
   const responseBuffer: string[] = [];
   let sawFirstToken = false;
+  let linkedAbort: ReturnType<typeof createLinkedAbortController> | null = null;
 
   try {
     callbacks.onProviderSelected?.("openai-stream", true);
     callbacks.onRequestStart?.();
     const requestStartNs = process.hrtime.bigint();
-    const stream = await translationOpenAI.chat.completions.create(
+    linkedAbort = createLinkedAbortController({
+      signal: callbacks.signal,
+      timeoutMs: OPENAI_TRANSLATION_TIMEOUT_MS,
+      label: `openai-stream ${sourceLanguage}->${targetLanguage}`,
+    });
+    const stream = await runWithResilience(
+      async (signal) => translationOpenAI.chat.completions.create(
+        {
+          model: OPENAI_TRANSLATION_MODEL,
+          stream: true,
+          temperature: 0,
+          max_tokens: Math.max(
+            OPENAI_TRANSLATION_MAX_TOKENS,
+            Math.min(512, inputText.split(/\s+/).length * 4 + 24),
+          ),
+          messages: [
+            {
+              role: "system",
+              content:
+                `You are a live interpreter for a real-time voice call. Translate only from ${languageLabel(sourceLanguage)} to ${languageLabel(targetLanguage)}. ` +
+                `Return only the translated spoken text in ${languageLabel(targetLanguage)}. ` +
+                `Do not explain, do not answer, do not add quotes, labels, or commentary. Preserve intent, tone, and brevity.`,
+            },
+            {
+              role: "user",
+              content: inputText,
+            },
+          ],
+        },
+        {
+          signal,
+        } as any,
+      ),
       {
-        model: OPENAI_TRANSLATION_MODEL,
-        stream: true,
-        temperature: 0,
-        max_tokens: Math.max(
-          OPENAI_TRANSLATION_MAX_TOKENS,
-          Math.min(512, inputText.split(/\s+/).length * 4 + 24),
-        ),
-        messages: [
-          {
-            role: "system",
-            content:
-              `You are a live interpreter for a real-time voice call. Translate only from ${languageLabel(sourceLanguage)} to ${languageLabel(targetLanguage)}. ` +
-              `Return only the translated spoken text in ${languageLabel(targetLanguage)}. ` +
-              `Do not explain, do not answer, do not add quotes, labels, or commentary. Preserve intent, tone, and brevity.`,
-          },
-          {
-            role: "user",
-            content: inputText,
-          },
-        ],
+        provider: "openai-stream",
+        operation: "translate",
+        timeoutMs: OPENAI_TRANSLATION_TIMEOUT_MS,
+        retries: 1,
+        retryDelayMs: 200,
+        signal: linkedAbort.controller.signal,
+        metadata: {
+          sourceLanguage,
+          targetLanguage,
+        },
       },
-      {
-        signal: callbacks.signal as AbortSignal,
-      } as any,
     );
     callbacks.onStreamReady?.(Number((Number(process.hrtime.bigint() - requestStartNs) / 1_000_000).toFixed(3)));
 
     for await (const chunk of stream) {
-      if (callbacks.signal?.aborted) {
+      if (linkedAbort.controller.signal.aborted) {
         throw abortError();
       }
 
@@ -190,6 +215,8 @@ export async function streamTranslationTokens(
       callbacks,
       `openai_stream_failed:${String(error)}`,
     );
+  } finally {
+    linkedAbort?.cleanup();
   }
 }
 

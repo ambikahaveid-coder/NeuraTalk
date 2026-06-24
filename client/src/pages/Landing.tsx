@@ -120,57 +120,50 @@ export default function Landing() {
 
     try {
       if (channel === "mobile") {
-        let otpSent = false;
-
-        if (firebaseEnabled && !confirmationResult) {
-          setIsSendingFirebaseOtp(true);
-          try {
-            const verifier = setupRecaptcha("recaptcha-container");
-            if (!verifier) {
-              throw new Error("Firebase reCAPTCHA could not be initialized");
-            }
-            
-            const result = await sendOtpWithFirebase(normalizedIdentifier);
-            if (result) {
-              setConfirmationResult(result);
-              usedFirebaseFlow = true;
-              otpSent = true;
-            }
-          } catch (err: any) {
-            console.error("Firebase OTP error:", err);
-            setConfirmationResult(null);
-            await requestOtp({ identifier: normalizedIdentifier, channel });
-            otpSent = true;
-            toast({
-              title: "Using SMS fallback",
-              description: getFirebasePhoneAuthErrorMessage(err),
-            });
-          } finally {
-            setIsSendingFirebaseOtp(false);
-          }
-        } else {
-          setConfirmationResult(null);
-          await requestOtp({ identifier: normalizedIdentifier, channel });
-          otpSent = true;
+        // Firebase Phone Auth is the only mobile authentication method.
+        // If Firebase is not initialized, block login with a clear error.
+        if (!firebaseEnabled) {
+          toast({
+            title: "Phone login unavailable",
+            description: "Firebase Phone Auth is not configured. Please use email login or contact support.",
+            variant: "destructive",
+          });
+          return;
         }
 
-        if (otpSent) {
+        setIsSendingFirebaseOtp(true);
+        try {
+          const verifier = setupRecaptcha("recaptcha-container");
+          if (!verifier) {
+            throw new Error("Firebase reCAPTCHA could not be initialized. Please refresh the page and try again.");
+          }
+
+          const result = await sendOtpWithFirebase(normalizedIdentifier);
+          if (!result) {
+            throw new Error("Failed to send OTP. Please try again.");
+          }
+
+          setConfirmationResult(result);
           setIdentifier(normalizedIdentifier);
-          toast({
-            title: "OTP Sent",
-            description: usedFirebaseFlow
-              ? "If the Firebase SMS does not arrive, tap Resend and the app will switch to direct SMS."
-              : "Direct SMS OTP sent. Check your phone for the verification code.",
-          });
+          toast({ title: "OTP Sent", description: "Check your phone for the Firebase verification code." });
           setStep("otp");
+        } catch (err: any) {
+          setConfirmationResult(null);
+          toast({
+            title: "Phone verification failed",
+            description: getFirebasePhoneAuthErrorMessage(err),
+            variant: "destructive",
+          });
+        } finally {
+          setIsSendingFirebaseOtp(false);
         }
         return;
       } else {
-        // Email OTP still uses the server email provider.
+        // Email OTP uses the server email provider (Resend).
         await requestOtp({ identifier: normalizedIdentifier, channel });
         setConfirmationResult(null);
         setIdentifier(normalizedIdentifier);
-        toast({ title: "OTP Sent", description: `Check your ${channel} for the verification code` });
+        toast({ title: "OTP Sent", description: "Check your email for the verification code." });
         setStep("otp");
       }
     } catch (err: any) {
@@ -182,25 +175,31 @@ export default function Landing() {
     const normalizedIdentifier = normalizeIdentifierByChannel(identifier, channel, phoneCountryCode);
 
     try {
-      // If we used Firebase, verify with Firebase first
       if (confirmationResult) {
+        // Mobile: verify Firebase OTP, then exchange ID token with backend
         setIsVerifyingFirebaseOtp(true);
         try {
           const idToken = await verifyOtpWithFirebase(confirmationResult, otpCode);
           if (idToken) {
-            // Verify with backend using Firebase token
             const result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode, firebaseToken: idToken });
             handleVerifySuccess(result);
           }
         } catch (err: any) {
-          toast({ title: "Invalid OTP", description: "The code you entered is incorrect", variant: "destructive" });
+          toast({ title: "Invalid OTP", description: "The code you entered is incorrect. Please check and try again.", variant: "destructive" });
         } finally {
           setIsVerifyingFirebaseOtp(false);
         }
-      } else {
-        // Use server OTP verification
+      } else if (channel === "email") {
+        // Email: use server OTP verification
         const result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode });
         handleVerifySuccess(result);
+      } else {
+        // Mobile without Firebase confirmation — should not reach here
+        toast({
+          title: "Session expired",
+          description: "Please go back and request a new OTP.",
+          variant: "destructive",
+        });
       }
     } catch (err: any) {
       toast({ title: "Invalid OTP", description: err.message, variant: "destructive" });
@@ -773,15 +772,15 @@ function IdentifierStep({
 
       {channel === "mobile" && firebaseEnabled ? (
         <p className="text-xs text-center text-muted-foreground">
-          Firebase phone OTP is enabled. If delivery fails, resend will switch to direct SMS OTP.
+          A one-time code will be sent to your phone via Firebase.
         </p>
       ) : channel === "mobile" ? (
-        <p className="text-xs text-center text-muted-foreground">
-          Direct SMS OTP is enabled. The selected country code is applied automatically.
+        <p className="text-xs text-center text-muted-foreground text-destructive">
+          Phone login requires Firebase configuration. Please use email login.
         </p>
       ) : (
         <p className="text-xs text-center text-muted-foreground">
-          OTP will be sent to your email
+          OTP will be sent to your email.
         </p>
       )}
 

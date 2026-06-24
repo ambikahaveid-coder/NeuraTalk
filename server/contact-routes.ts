@@ -5,8 +5,41 @@
 
 import { Router, Request, Response } from "express";
 import { db } from "./db";
-import { userContacts } from "@shared/schema";
-import { eq, and, ilike, desc } from "drizzle-orm";
+import { userContacts, users } from "@shared/schema";
+import { eq, and, desc, or } from "drizzle-orm";
+import { normalizePhoneNumber } from "@shared/phone";
+
+function preferredAppIdentifier(user: { username?: string | null; email?: string | null; phone?: string | null }) {
+  return user.username || user.email || user.phone || "";
+}
+
+async function resolveAppLinkedContact(identifier: string) {
+  const trimmed = String(identifier || "").trim();
+  if (!trimmed) return null;
+
+  const normalizedPhone = normalizePhoneNumber(trimmed);
+  const [matchedUser] = await db.select({
+    id: users.id,
+    username: users.username,
+    email: users.email,
+    phone: users.phone,
+    preferredLanguage: users.preferredRegion,
+  }).from(users).where(or(
+    eq(users.username, trimmed),
+    eq(users.email, trimmed),
+    eq(users.phone, normalizedPhone),
+  ));
+
+  if (!matchedUser) return null;
+
+  return {
+    hasApp: true,
+    appUserId: matchedUser.id,
+    appUsername: matchedUser.username,
+    appDisplayIdentifier: matchedUser.phone || matchedUser.email || matchedUser.username || "",
+    appPreferredIdentifier: preferredAppIdentifier(matchedUser),
+  };
+}
 
 export function registerContactRoutes(app: Router) {
   // GET /api/contacts — List all contacts for the logged-in user
@@ -19,7 +52,14 @@ export function registerContactRoutes(app: Router) {
         .where(eq(userContacts.userId, userId))
         .orderBy(desc(userContacts.isFavorite), desc(userContacts.lastCalledAt));
 
-      res.json({ contacts });
+      const hydratedContacts = await Promise.all(
+        contacts.map(async (contact) => ({
+          ...contact,
+          ...(await resolveAppLinkedContact(contact.identifier)),
+        })),
+      );
+
+      res.json({ contacts: hydratedContacts });
     } catch (error) {
       console.error("[Contacts] List error:", error);
       res.status(500).json({ error: "Failed to load contacts" });
@@ -45,7 +85,12 @@ export function registerContactRoutes(app: Router) {
         notes: notes ? String(notes).slice(0, 500) : null,
       }).returning();
 
-      res.status(201).json({ contact });
+      res.status(201).json({
+        contact: {
+          ...contact,
+          ...(await resolveAppLinkedContact(contact.identifier)),
+        },
+      });
     } catch (error) {
       console.error("[Contacts] Create error:", error);
       res.status(500).json({ error: "Failed to create contact" });
@@ -74,7 +119,12 @@ export function registerContactRoutes(app: Router) {
         .returning();
 
       if (!updated) return res.status(404).json({ error: "Contact not found" });
-      res.json({ contact: updated });
+      res.json({
+        contact: {
+          ...updated,
+          ...(await resolveAppLinkedContact(updated.identifier)),
+        },
+      });
     } catch (error) {
       console.error("[Contacts] Update error:", error);
       res.status(500).json({ error: "Failed to update contact" });
@@ -117,7 +167,12 @@ export function registerContactRoutes(app: Router) {
         .where(eq(userContacts.id, contactId))
         .returning();
 
-      res.json({ contact: updated });
+      res.json({
+        contact: {
+          ...updated,
+          ...(await resolveAppLinkedContact(updated.identifier)),
+        },
+      });
     } catch (error) {
       console.error("[Contacts] Favorite error:", error);
       res.status(500).json({ error: "Failed to toggle favorite" });
@@ -137,7 +192,12 @@ export function registerContactRoutes(app: Router) {
         .returning();
 
       if (!updated) return res.status(404).json({ error: "Contact not found" });
-      res.json({ contact: updated });
+      res.json({
+        contact: {
+          ...updated,
+          ...(await resolveAppLinkedContact(updated.identifier)),
+        },
+      });
     } catch (error) {
       console.error("[Contacts] Record call error:", error);
       res.status(500).json({ error: "Failed to record call" });

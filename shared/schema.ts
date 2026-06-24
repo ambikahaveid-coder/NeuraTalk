@@ -145,6 +145,8 @@ export const users = pgTable("users", {
   // OTP auth fields
   emailVerified: boolean("email_verified").default(false),
   phoneVerified: boolean("phone_verified").default(false),
+  callerIdVerified: boolean("caller_id_verified").default(false),
+  callerIdVerifiedAt: timestamp("caller_id_verified_at"),
   lastLoginAt: timestamp("last_login_at"),
   // Compliance & Legal (Founder's Roadmap)
   consentTerms: boolean("consent_terms").default(false),
@@ -286,6 +288,47 @@ export const messages = pgTable("messages", {
   audioUrl: text("audio_url"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+// === PERSONAL 1:1 MULTILINGUAL CHAT ===
+export const personalChatThreads = pgTable("personal_chat_threads", {
+  id: serial("id").primaryKey(),
+  participantAUserId: integer("participant_a_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  participantBUserId: integer("participant_b_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  participantALanguage: text("participant_a_language").notNull().default("en"),
+  participantBLanguage: text("participant_b_language").notNull().default("en"),
+  createdByUserId: integer("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  lastMessagePreview: text("last_message_preview"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("personal_chat_threads_unique_pair_idx").on(table.participantAUserId, table.participantBUserId),
+  index("personal_chat_threads_participant_a_idx").on(table.participantAUserId),
+  index("personal_chat_threads_participant_b_idx").on(table.participantBUserId),
+  index("personal_chat_threads_last_message_idx").on(table.lastMessageAt),
+]);
+
+export const personalChatMessages = pgTable("personal_chat_messages", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull().references(() => personalChatThreads.id, { onDelete: "cascade" }),
+  senderUserId: integer("sender_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  messageType: text("message_type").notNull().default("text"),
+  originalContent: text("original_content").notNull(),
+  originalLanguage: text("original_language").notNull().default("en"),
+  translations: jsonb("translations").default({}),
+  metadata: jsonb("metadata").default({}),
+  clientMessageId: text("client_message_id"),
+  deliveryStatus: text("delivery_status").notNull().default("sent"),
+  deliveredAt: timestamp("delivered_at"),
+  seenAt: timestamp("seen_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("personal_chat_messages_thread_idx").on(table.threadId),
+  index("personal_chat_messages_sender_idx").on(table.senderUserId),
+  index("personal_chat_messages_status_idx").on(table.deliveryStatus),
+  uniqueIndex("personal_chat_messages_client_message_idx").on(table.threadId, table.clientMessageId).where(sql`client_message_id IS NOT NULL`),
+]);
 
 // === VOICE MEMOS (Translated Voice Messages) ===
 export const voiceMemos = pgTable("voice_memos", {
@@ -1814,6 +1857,8 @@ export const insertCallTelemetrySchema = createInsertSchema(callTelemetry).omit(
 export const insertVoiceSampleSchema = createInsertSchema(voiceSamples).omit({ id: true, createdAt: true });
 export const insertConversationSchema = createInsertSchema(conversations).omit({ id: true, createdAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+export const insertPersonalChatThreadSchema = createInsertSchema(personalChatThreads).omit({ id: true, createdAt: true, updatedAt: true, lastMessageAt: true });
+export const insertPersonalChatMessageSchema = createInsertSchema(personalChatMessages).omit({ id: true, createdAt: true, updatedAt: true, deliveredAt: true, seenAt: true });
 export const insertVoiceMemoSchema = createInsertSchema(voiceMemos).omit({ id: true, createdAt: true });
 export const insertGroupChatSchema = createInsertSchema(groupChats).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertGroupChatMemberSchema = createInsertSchema(groupChatMembers).omit({ id: true, joinedAt: true });
@@ -1876,6 +1921,10 @@ export type VoiceSample = typeof voiceSamples.$inferSelect;
 export type InsertVoiceSample = z.infer<typeof insertVoiceSampleSchema>;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type PersonalChatThread = typeof personalChatThreads.$inferSelect;
+export type InsertPersonalChatThread = z.infer<typeof insertPersonalChatThreadSchema>;
+export type PersonalChatMessage = typeof personalChatMessages.$inferSelect;
+export type InsertPersonalChatMessage = z.infer<typeof insertPersonalChatMessageSchema>;
 export type VoiceMemo = typeof voiceMemos.$inferSelect;
 export type InsertVoiceMemo = z.infer<typeof insertVoiceMemoSchema>;
 export type GroupChat = typeof groupChats.$inferSelect;
@@ -2113,6 +2162,10 @@ export type InsertUserAnalytics = z.infer<typeof insertUserAnalyticsSchema>;
 // === API TYPES ===
 export type ConversationWithMessages = Conversation & {
   messages: Message[];
+};
+
+export type PersonalChatThreadWithMessages = PersonalChatThread & {
+  messages: PersonalChatMessage[];
 };
 
 export type UserWithOrg = User & {
@@ -2458,3 +2511,142 @@ export const insertOrgDIDNumberSchema = createInsertSchema(orgDIDNumbers).omit({
 
 export type OrgDIDNumber = typeof orgDIDNumbers.$inferSelect;
 export type InsertOrgDIDNumber = z.infer<typeof insertOrgDIDNumberSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// ENTERPRISE HUB — Existing Number Integration (bring-your-own-number)
+// ═══════════════════════════════════════════════════════════════════════
+
+export const enterpriseNumbers = pgTable("enterprise_numbers", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  phoneNumber: text("phone_number").notNull(),           // E.164
+  label: text("label"),                                  // "Sales Hotline", "Support"
+  carrier: text("carrier").notNull().default("unknown"), // airtel | jio | vi | bsnl | sip | did | tollfree | international
+  integrationType: text("integration_type").notNull(),   // sip_trunk | call_forwarding | cloud_pbx | ivr | contact_center | api_based | webhook_based
+  verificationStatus: text("verification_status").notNull().default("pending"), // pending | verified | failed
+  isActive: boolean("is_active").notNull().default(false),
+  aiEnabled: boolean("ai_enabled").notNull().default(false),
+  countryCode: text("country_code").notNull().default("IN"),
+  forwardingTarget: text("forwarding_target"),           // E.164 target for call_forwarding type
+  webhookUrl: text("webhook_url"),                       // target for webhook_based type
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("enterprise_numbers_org_idx").on(t.organizationId),
+  index("enterprise_numbers_phone_idx").on(t.phoneNumber),
+]);
+
+export const insertEnterpriseNumberSchema = createInsertSchema(enterpriseNumbers).omit({ id: true, createdAt: true, updatedAt: true });
+export type EnterpriseNumber = typeof enterpriseNumbers.$inferSelect;
+export type InsertEnterpriseNumber = z.infer<typeof insertEnterpriseNumberSchema>;
+
+// ── Number Ownership Verification Workflow ───────────────────────────────────
+
+export const numberVerifications = pgTable("number_verifications", {
+  id: serial("id").primaryKey(),
+  enterpriseNumberId: integer("enterprise_number_id").notNull().references(() => enterpriseNumbers.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  method: text("method").notNull(),                      // otp_sms | otp_call | dns_txt | callback | manual_review
+  status: text("status").notNull().default("pending"),   // pending | sent | verified | failed | expired
+  otp: text("otp"),                                      // hashed
+  otpExpiresAt: timestamp("otp_expires_at"),
+  attempts: integer("attempts").notNull().default(0),
+  verifiedAt: timestamp("verified_at"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("number_verifications_number_idx").on(t.enterpriseNumberId),
+]);
+
+export const insertNumberVerificationSchema = createInsertSchema(numberVerifications).omit({ id: true, createdAt: true });
+export type NumberVerification = typeof numberVerifications.$inferSelect;
+export type InsertNumberVerification = z.infer<typeof insertNumberVerificationSchema>;
+
+// ── SIP Trunk Configurations ─────────────────────────────────────────────────
+
+export const sipIntegrations = pgTable("sip_integrations", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "set null" }),
+  label: text("label").notNull(),
+  sipServer: text("sip_server").notNull(),               // sip.provider.com
+  sipPort: integer("sip_port").notNull().default(5060),
+  sipUsername: text("sip_username"),
+  sipPassword: text("sip_password"),                     // encrypted at rest
+  transport: text("transport").notNull().default("udp"), // udp | tcp | tls
+  codecPreference: text("codec_preference").default("PCMU,PCMA,G729"),
+  isActive: boolean("is_active").notNull().default(true),
+  registrationStatus: text("registration_status").default("unknown"), // registered | unregistered | failed | unknown
+  lastRegisteredAt: timestamp("last_registered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("sip_integrations_org_idx").on(t.organizationId),
+]);
+
+export const insertSipIntegrationSchema = createInsertSchema(sipIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
+export type SipIntegration = typeof sipIntegrations.$inferSelect;
+export type InsertSipIntegration = z.infer<typeof insertSipIntegrationSchema>;
+
+// ── Per-Number Language Routing Rules ────────────────────────────────────────
+
+export const languageRules = pgTable("language_rules", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").notNull().references(() => enterpriseNumbers.id, { onDelete: "cascade" }),
+  callerLanguage: text("caller_language").notNull(),     // BCP-47: hi-IN, te-IN, ta-IN, en-US
+  agentLanguage: text("agent_language").notNull(),       // what agent speaks
+  autoTranslate: boolean("auto_translate").notNull().default(true),
+  priority: integer("priority").notNull().default(0),
+  routeToSkill: text("route_to_skill"),                  // agentSkills.skillName
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("language_rules_number_idx").on(t.enterpriseNumberId),
+]);
+
+export const insertLanguageRuleSchema = createInsertSchema(languageRules).omit({ id: true, createdAt: true });
+export type LanguageRule = typeof languageRules.$inferSelect;
+export type InsertLanguageRule = z.infer<typeof insertLanguageRuleSchema>;
+
+// ── Per-Number AI Service Configurations ─────────────────────────────────────
+
+export const aiConfigurations = pgTable("ai_configurations", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").notNull().references(() => enterpriseNumbers.id, { onDelete: "cascade" }),
+  translationEnabled: boolean("translation_enabled").notNull().default(false),
+  transcriptionEnabled: boolean("transcription_enabled").notNull().default(false),
+  sentimentAnalysisEnabled: boolean("sentiment_analysis_enabled").notNull().default(false),
+  agentAssistEnabled: boolean("agent_assist_enabled").notNull().default(false),
+  qualityMonitoringEnabled: boolean("quality_monitoring_enabled").notNull().default(false),
+  callSummaryEnabled: boolean("call_summary_enabled").notNull().default(false),
+  piiRedactionEnabled: boolean("pii_redaction_enabled").notNull().default(false),
+  defaultSrcLanguage: text("default_src_language").default("auto"),
+  defaultTgtLanguage: text("default_tgt_language").default("en-US"),
+  customPrompt: text("custom_prompt"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("ai_configurations_number_idx").on(t.enterpriseNumberId),
+]);
+
+export const insertAiConfigurationSchema = createInsertSchema(aiConfigurations).omit({ id: true, updatedAt: true });
+export type AiConfiguration = typeof aiConfigurations.$inferSelect;
+export type InsertAiConfiguration = z.infer<typeof insertAiConfigurationSchema>;
+
+// ── Integration Audit Logs ────────────────────────────────────────────────────
+
+export const integrationAuditLogs = pgTable("integration_audit_logs", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "set null" }),
+  actorId: integer("actor_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),                      // number_registered, verification_sent, ai_enabled, sip_config_updated, etc.
+  details: jsonb("details").default({}),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("integration_audit_logs_org_idx").on(t.organizationId),
+  index("integration_audit_logs_number_idx").on(t.enterpriseNumberId),
+]);

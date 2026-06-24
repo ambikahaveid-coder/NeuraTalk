@@ -29,9 +29,10 @@ export default function AboutPage() {
               your customer speaks English, NeuraTalk makes it feel like you're speaking the same language.
             </p>
             <p>
-              What makes us different? We're 100% self-hosted. Your voice data never touches third-party 
-              servers. No Twilio, no Agora, no external telecom services. Just pure, secure, 
-              privacy-respecting technology that works.
+              What makes us different? We focus on a tightly controlled, reliability-first
+              architecture. NeuraTalk combines infrastructure we operate with carefully chosen
+              realtime, AI, and telecom providers so language-bridged conversations stay secure,
+              observable, and practical in the real world.
             </p>
           </div>
         </div>
@@ -86,13 +87,15 @@ export default function AboutPage() {
           <h2 className="text-2xl font-bold mb-6">Our Technology</h2>
           <div className="space-y-4 text-muted-foreground">
             <p>
-              NeuraTalk uses a proprietary, self-hosted communication infrastructure. We don't rely on 
-              external telecom APIs or cloud calling services. Every component - from signaling to 
-              media relay to translation - runs on our own servers.
+              NeuraTalk uses a controlled communication stack built around our orchestration layer,
+              realtime transport, AI translation services, and phone-bridge integrations. We do
+              not treat external providers as invisible magic; we monitor them, harden failover,
+              and design the product around recoverability.
             </p>
             <p>
-              This means: No phone numbers assigned by us, no call interception, no hidden data collection. 
-              We work alongside your existing phone service, enhancing calls rather than replacing them.
+              This means we can support both app-to-app conversations and app-to-phone bridges
+              without pretending telecom complexity does not exist. We work alongside real phone
+              networks and identity rules, while keeping the user experience as simple as possible.
             </p>
             <p>
               Our AI understands context, emotion, and cultural nuances. When someone speaks angrily, 

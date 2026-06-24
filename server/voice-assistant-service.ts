@@ -16,8 +16,6 @@ import { createCallRoom, endCallRoom, getClientConfig, issueAccessToken, issueBo
 import { logger } from "./observability";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
 import {
-  DeepgramLiveTranscriber,
-  type DeepgramTranscriptEvent,
   FRAME_DURATION_MS,
   PCM_CHANNELS,
   PCM_SAMPLE_RATE,
@@ -28,24 +26,29 @@ import {
   normalizeSpaces,
   normalizeTranscript,
   streamAzureTtsFrames,
-  toDeepgramLanguage,
   wordCount,
 } from "./realtime-translation-core";
+import { createManagedStreamingSttSession } from "./providers/stt-provider-registry";
+import type { StreamingSttProviderSession, StreamingTranscriptEvent } from "./providers/voice-contracts";
+import { createLinkedAbortController, runWithResilience } from "./voice-resilience";
 
 const DEFAULT_TARGET_LATENCY_MS = parsePositiveInt(process.env.VOICE_ASSISTANT_TARGET_LATENCY_MS, 900);
 const MAX_CONTEXT_TURNS = parsePositiveInt(process.env.VOICE_ASSISTANT_MAX_CONTEXT_TURNS, 6);
 const OPENAI_MODEL = process.env.OPENAI_VOICE_ASSISTANT_MODEL || "gpt-4.1-mini";
 const DEEPGRAM_MODEL = process.env.DEEPGRAM_STT_MODEL || "nova-3";
 const LLM_MAX_TOKENS = parsePositiveInt(process.env.OPENAI_VOICE_ASSISTANT_MAX_TOKENS, 96);
+const LLM_STREAM_TIMEOUT_MS = parsePositiveInt(process.env.OPENAI_VOICE_ASSISTANT_TIMEOUT_MS, 8_000);
 const LLM_START_MIN_WORDS = parsePositiveInt(process.env.VOICE_ASSISTANT_MIN_PARTIAL_WORDS, 1);
 const LLM_RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.VOICE_ASSISTANT_RESTART_DELTA, 4);
 const PRECACHE_ENABLED = (process.env.VOICE_ASSISTANT_ENABLE_PRECACHE || "true") === "true";
+const VOICE_ASSISTANT_IDLE_TIMEOUT_MS = parsePositiveInt(process.env.VOICE_ASSISTANT_IDLE_TIMEOUT_MS, 120_000);
+const VOICE_ASSISTANT_WATCHDOG_INTERVAL_MS = parsePositiveInt(process.env.VOICE_ASSISTANT_WATCHDOG_INTERVAL_MS, 15_000);
 const DEFAULT_SYSTEM_PROMPT =
   process.env.VOICE_ASSISTANT_SYSTEM_PROMPT ||
   "You are NeuraTalk Voice Assistant. Reply in short spoken sentences for live audio. Keep answers concise, helpful, and natural. Avoid bullet points, markdown, and long preambles. If the user interrupts, stop immediately and continue from the latest input.";
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "placeholder",
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
@@ -57,6 +60,7 @@ const PREWARM_PHRASES = {
 
 const assistantSessions = new Map<string, VoiceAssistantSessionRecord>();
 let shutdownBound = false;
+let watchdogBound = false;
 
 export interface CreateVoiceAssistantSessionInput {
   userId: number;
@@ -81,7 +85,7 @@ export interface VoiceAssistantSessionResponse {
 export interface VoiceAssistantHealth {
   configured: boolean;
   livekit: boolean;
-  deepgram: boolean;
+  deepgramFallback: boolean;
   openai: boolean;
   azure: boolean;
   targetLatencyMs: number;
@@ -170,11 +174,10 @@ export function getVoiceAssistantHealth(): VoiceAssistantHealth {
   return {
     configured:
       Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) &&
-      Boolean(process.env.DEEPGRAM_API_KEY) &&
       Boolean(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY) &&
       Boolean(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION),
     livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
-    deepgram: Boolean(process.env.DEEPGRAM_API_KEY),
+    deepgramFallback: Boolean(process.env.DEEPGRAM_API_KEY),
     openai: Boolean(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY),
     azure: Boolean(process.env.AZURE_SPEECH_KEY && process.env.AZURE_SPEECH_REGION),
     targetLatencyMs: DEFAULT_TARGET_LATENCY_MS,
@@ -290,6 +293,7 @@ export async function createVoiceAssistantSession(
   }
 
   bindVoiceAssistantShutdown();
+  ensureVoiceAssistantWatchdog();
   const livekitConfig = getClientConfig();
   if (!livekitConfig.url) {
     throw new Error("LiveKit is not configured");
@@ -340,7 +344,7 @@ class UltraLowLatencyVoiceAssistantWorker {
   private room: Room | null = null;
   private audioSource: AudioSource | null = null;
   private localTrack: LocalAudioTrack | null = null;
-  private deepgram: DeepgramLiveTranscriber | null = null;
+  private deepgram: StreamingSttProviderSession | null = null;
   private llmAbort: AbortController | null = null;
   private ttsAbort: AbortController | null = null;
   private ttsChain: Promise<void> = Promise.resolve();
@@ -474,13 +478,16 @@ class UltraLowLatencyVoiceAssistantWorker {
 
   private async ensureDeepgram(): Promise<void> {
     if (this.deepgram) return;
-    this.deepgram = new DeepgramLiveTranscriber({
-      language: toDeepgramLanguage(this.language),
+    this.deepgram = createManagedStreamingSttSession({
+      language: this.language,
       endpointingMs: 90,
       utteranceEndMs: 240,
       onTranscript: (event) => void this.handleTranscript(event),
+      onProviderSwitch: (provider, reason) => {
+        logger.warn("VoiceAssistant", `STT provider switched to ${provider} in ${this.roomName}: ${reason}`);
+      },
       onError: (error) => {
-        logger.warn("VoiceAssistant", `Deepgram error in ${this.roomName}: ${error.message}`);
+        logger.warn("VoiceAssistant", `STT error in ${this.roomName}: ${error.message}`);
         void this.publishEvent({
           type: "error",
           ts: new Date().toISOString(),
@@ -545,7 +552,7 @@ class UltraLowLatencyVoiceAssistantWorker {
     this.recentSilenceFrames += 1;
   }
 
-  private async handleTranscript(event: DeepgramTranscriptEvent): Promise<void> {
+  private async handleTranscript(event: StreamingTranscriptEvent): Promise<void> {
     const text = normalizeSpaces(applySpokenCorrections(event.text, this.language));
     if (!text) return;
 
@@ -662,6 +669,11 @@ class UltraLowLatencyVoiceAssistantWorker {
 
     const responseBuffer: string[] = [];
     const chunker = new SpeakableChunker();
+    const linkedAbort = createLinkedAbortController({
+      signal: this.llmAbort.signal,
+      timeoutMs: LLM_STREAM_TIMEOUT_MS,
+      label: `voice-assistant ${this.roomName}`,
+    });
 
     try {
       const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -671,17 +683,31 @@ class UltraLowLatencyVoiceAssistantWorker {
         { role: "user", content: transcript },
       ];
 
-      const stream = await openai.chat.completions.create(
+      const stream = await runWithResilience(
+        async (signal) => openai.chat.completions.create(
+          {
+            model: OPENAI_MODEL,
+            stream: true,
+            temperature: 0.2,
+            max_tokens: LLM_MAX_TOKENS,
+            messages,
+          },
+          {
+            signal,
+          } as any,
+        ),
         {
-          model: OPENAI_MODEL,
-          stream: true,
-          temperature: 0.2,
-          max_tokens: LLM_MAX_TOKENS,
-          messages,
+          provider: "openai-voice-assistant",
+          operation: "respond",
+          timeoutMs: LLM_STREAM_TIMEOUT_MS,
+          retries: 1,
+          retryDelayMs: 200,
+          signal: linkedAbort.controller.signal,
+          metadata: {
+            roomName: this.roomName,
+            language: this.language,
+          },
         },
-        {
-          signal: this.llmAbort.signal as AbortSignal,
-        } as any,
       );
 
       for await (const chunk of stream) {
@@ -747,6 +773,8 @@ class UltraLowLatencyVoiceAssistantWorker {
           ts: new Date().toISOString(),
         });
       }
+    } finally {
+      linkedAbort.cleanup();
     }
   }
 
@@ -1062,4 +1090,28 @@ function bindVoiceAssistantShutdown(): void {
 
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
+}
+
+function ensureVoiceAssistantWatchdog(): void {
+  if (watchdogBound) return;
+  watchdogBound = true;
+
+  setInterval(() => {
+    const now = Date.now();
+    for (const [sessionId, session] of Array.from(assistantSessions.entries())) {
+      if (session.status === "stopping" || session.status === "stopped") {
+        continue;
+      }
+      if (now - session.lastActivityAt.getTime() < VOICE_ASSISTANT_IDLE_TIMEOUT_MS) {
+        continue;
+      }
+      logger.warn("VoiceAssistant", `Ending stale assistant session ${sessionId} after inactivity`, {
+        roomName: session.roomName,
+        idleMs: now - session.lastActivityAt.getTime(),
+      });
+      void endVoiceAssistantSession(sessionId).catch((error) => {
+        logger.warn("VoiceAssistant", `Failed to end stale assistant session ${sessionId}: ${String(error)}`);
+      });
+    }
+  }, VOICE_ASSISTANT_WATCHDOG_INTERVAL_MS).unref?.();
 }

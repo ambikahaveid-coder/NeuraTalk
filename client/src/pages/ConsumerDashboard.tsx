@@ -16,6 +16,10 @@ import {
   CreditCard, Users, History, Mic, Globe,
 } from "lucide-react";
 
+function looksLikePhoneTarget(identifier: string) {
+  return /^\+?\d{10,15}$/.test(String(identifier || "").replace(/\s+/g, ""));
+}
+
 interface RecentCall {
   id: number | string;
   peerName: string;
@@ -25,6 +29,12 @@ interface RecentCall {
   durationSec?: number;
   startedAt: string;
   translationEnabled?: boolean;
+  session?: {
+    routeType?: string | null;
+    callee?: { displayName?: string | null; phoneNumber?: string | null; externalId?: string | null };
+    durationSeconds?: number | null;
+    translationEnabled?: boolean | null;
+  };
 }
 
 export default function ConsumerDashboard() {
@@ -69,9 +79,17 @@ export default function ConsumerDashboard() {
   }, [contacts, search]);
 
   const favorites = useMemo(() => contacts.filter(c => c.isFavorite).slice(0, 6), [contacts]);
+  const contactRouteLabel = (hasApp?: boolean) => (hasApp ? "App" : "PSTN");
+
+  const preferredCallIdentifier = (identifier: string) => {
+    const linkedContact = contacts.find((contact) => contact.identifier === identifier);
+    return linkedContact?.hasApp ? (linkedContact.appPreferredIdentifier || linkedContact.identifier) : identifier;
+  };
+  const dialLinkedContact = contacts.find((contact) => contact.identifier === dial.trim());
+  const dialLooksLikePstn = dialLinkedContact?.hasApp === false || (!dialLinkedContact && looksLikePhoneTarget(dial.trim()));
 
   const startCall = (identifier: string, mode: "voice" | "video" = "voice") => {
-    const url = `/calls/c2c?to=${encodeURIComponent(identifier)}&mode=${mode}`;
+    const url = `/calls/c2c?identifier=${encodeURIComponent(preferredCallIdentifier(identifier))}&mode=${mode}`;
     navigate(url);
   };
 
@@ -83,6 +101,28 @@ export default function ConsumerDashboard() {
 
   const initials = (name: string) =>
     name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
+
+  const recentPeerName = (call: RecentCall) =>
+    call.session?.callee?.displayName || call.peerName || call.peerIdentifier;
+
+  const recentPeerIdentifier = (call: RecentCall) =>
+    call.session?.routeType === "app_to_app"
+      ? call.session?.callee?.externalId || call.session?.callee?.phoneNumber || call.peerIdentifier
+      : call.session?.callee?.phoneNumber || call.session?.callee?.externalId || call.peerIdentifier;
+
+  const recentTranslationEnabled = (call: RecentCall) =>
+    call.session?.translationEnabled ?? call.translationEnabled;
+  const recentRouteLabel = (call: RecentCall) =>
+    call.session?.routeType === "app_to_app"
+      ? "App"
+      : call.session?.routeType === "app_to_pstn"
+        ? "PSTN"
+        : "Call";
+
+  const recentDurationMinutes = (call: RecentCall) => {
+    const durationSeconds = call.session?.durationSeconds ?? call.durationSec;
+    return durationSeconds != null ? Math.round(durationSeconds / 60) : null;
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
@@ -146,10 +186,21 @@ export default function ConsumerDashboard() {
               <Button onClick={() => handleDial("voice")} className="gap-2">
                 <Phone className="w-4 h-4" /> Voice
               </Button>
-              <Button onClick={() => handleDial("video")} variant="outline" className="gap-2">
+              <Button
+                onClick={() => handleDial("video")}
+                variant="outline"
+                className="gap-2"
+                disabled={dialLooksLikePstn}
+                title={dialLooksLikePstn ? "Video is available only for app-to-app targets" : "Start video call"}
+              >
                 <Video className="w-4 h-4" /> Video
               </Button>
             </div>
+            {dialLooksLikePstn ? (
+              <p className="mt-3 text-xs text-gray-500">
+                This target looks like a mobile/PSTN number. Use voice for the phone bridge. Video is available only app-to-app.
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2 mt-4 text-xs text-gray-500">
               <Badge variant="secondary" className="gap-1">
                 <Sparkles className="w-3 h-3" /> AI translation
@@ -193,7 +244,12 @@ export default function ConsumerDashboard() {
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{c.name}</div>
-                        <div className="text-xs text-gray-500 truncate">{c.identifier}</div>
+                        <div className="text-xs text-gray-500 truncate flex items-center gap-2">
+                          <span>{c.identifier}</span>
+                          <Badge variant={c.hasApp ? "secondary" : "outline"} className="h-5 px-2">
+                            {contactRouteLabel(c.hasApp)}
+                          </Badge>
+                        </div>
                       </div>
                       <Button size="sm" variant="ghost" onClick={() => toggleFavorite(c.id)}>
                         <Star className="w-4 h-4 fill-yellow-400 text-yellow-500" />
@@ -242,10 +298,21 @@ export default function ConsumerDashboard() {
                           {c.language?.toUpperCase() ?? "EN"} · {c.identifier}
                         </div>
                       </div>
+                      <div className="shrink-0">
+                        <Badge variant={c.hasApp ? "secondary" : "outline"} className="h-5 px-2">
+                          {contactRouteLabel(c.hasApp)}
+                        </Badge>
+                      </div>
                       <Button size="sm" variant="outline" onClick={() => startCall(c.identifier, "voice")}>
                         <Phone className="w-4 h-4" />
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => startCall(c.identifier, "video")}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={c.hasApp === false}
+                        title={c.hasApp === false ? "Video is available only for app-to-app contacts" : "Start video call"}
+                        onClick={() => startCall(c.identifier, "video")}
+                      >
                         <Video className="w-4 h-4" />
                       </Button>
                     </div>
@@ -276,21 +343,24 @@ export default function ConsumerDashboard() {
                 {recentData.calls.map(call => (
                   <div key={call.id} className="flex items-center gap-3 py-3">
                     <Avatar className="w-9 h-9">
-                      <AvatarFallback>{initials(call.peerName || "?")}</AvatarFallback>
+                      <AvatarFallback>{initials(recentPeerName(call) || "?")}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{call.peerName || call.peerIdentifier}</div>
+                      <div className="font-medium truncate">{recentPeerName(call)}</div>
                       <div className="text-xs text-gray-500 flex items-center gap-2">
                         <Clock className="w-3 h-3" />
                         {new Date(call.startedAt).toLocaleString()}
-                        {call.durationSec != null && <span>· {Math.round(call.durationSec / 60)}m</span>}
-                        {call.translationEnabled && <Sparkles className="w-3 h-3 text-purple-500" />}
+                        {recentDurationMinutes(call) != null && <span>· {recentDurationMinutes(call)}m</span>}
+                        {recentTranslationEnabled(call) && <Sparkles className="w-3 h-3 text-purple-500" />}
                       </div>
                     </div>
                     <Badge variant={call.direction === "inbound" ? "secondary" : "outline"} className="text-xs">
                       {call.direction}
                     </Badge>
-                    <Button size="sm" variant="ghost" onClick={() => startCall(call.peerIdentifier, "voice")}>
+                    <Badge variant={call.session?.routeType === "app_to_app" ? "secondary" : "outline"} className="text-xs">
+                      {recentRouteLabel(call)}
+                    </Badge>
+                    <Button size="sm" variant="ghost" onClick={() => startCall(recentPeerIdentifier(call), "voice")}>
                       <Phone className="w-4 h-4" />
                     </Button>
                   </div>

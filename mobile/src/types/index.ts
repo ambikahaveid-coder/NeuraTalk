@@ -97,6 +97,7 @@ export interface SignalingMessage {
   type: string;
   from?: string;
   to?: string;
+  callId?: string;
   sessionId?: string;
   payload?: any;
   timestamp: number;

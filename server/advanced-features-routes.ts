@@ -15,6 +15,18 @@ import { requireAuth } from "./role-middleware";
 
 const router = Router();
 
+function isLegacyMeetingTransportEnabled(): boolean {
+  return (process.env.ENABLE_LEGACY_SIGNALING_WS || "").toLowerCase() === "true";
+}
+
+function legacyMeetingTransportPayload(roomType: "video" | "audio") {
+  return {
+    legacyTransportRequired: true,
+    legacyTransportEnabled: false,
+    recommendedRoute: roomType === "audio" ? "/calls/voice-translation" : "/calls/video-translation",
+  };
+}
+
 // ============ CALL HISTORY ============
 
 router.get("/call-history", requireAuth, async (req: Request, res: Response) => {
@@ -83,6 +95,14 @@ router.post("/meetings", requireAuth, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     const { name, isVideoEnabled, isTranslationEnabled, defaultLanguage, maxParticipants } = req.body;
+    const roomType = isVideoEnabled === false ? "audio" : "video";
+
+    if (!isLegacyMeetingTransportEnabled()) {
+      return res.status(409).json({
+        error: "Legacy meeting transport is disabled for video/audio meetings",
+        ...legacyMeetingTransportPayload(roomType),
+      });
+    }
 
     const roomCode = generateRoomCode();
 
@@ -100,7 +120,11 @@ router.post("/meetings", requireAuth, async (req: Request, res: Response) => {
       })
       .returning();
 
-    res.json(meeting);
+    res.json({
+      ...meeting,
+      legacyTransportRequired: true,
+      legacyTransportEnabled: true,
+    });
   } catch (error) {
     console.error("Error creating meeting:", error);
     res.status(500).json({ error: "Failed to create meeting" });
@@ -118,7 +142,11 @@ router.get("/meetings", requireAuth, async (req: Request, res: Response) => {
       .orderBy(desc(meetingRooms.createdAt))
       .limit(20);
 
-    res.json(meetings);
+    res.json(meetings.map((meeting) => ({
+      ...meeting,
+      legacyTransportRequired: true,
+      legacyTransportEnabled: isLegacyMeetingTransportEnabled(),
+    })));
   } catch (error) {
     console.error("Error fetching meetings:", error);
     res.status(500).json({ error: "Failed to fetch meetings" });
@@ -138,6 +166,13 @@ router.get("/meetings/:roomCode", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Meeting not found" });
     }
 
+    if (!isLegacyMeetingTransportEnabled()) {
+      return res.status(409).json({
+        error: "Legacy meeting transport is disabled for video/audio meetings",
+        ...legacyMeetingTransportPayload(meeting.isVideoEnabled === false ? "audio" : "video"),
+      });
+    }
+
     const participants = await db
       .select({
         id: meetingParticipants.id,
@@ -154,7 +189,14 @@ router.get("/meetings/:roomCode", async (req: Request, res: Response) => {
         sql`${meetingParticipants.leftAt} IS NULL`
       ));
 
-    res.json({ meeting, participants });
+    res.json({
+      meeting: {
+        ...meeting,
+        legacyTransportRequired: true,
+        legacyTransportEnabled: true,
+      },
+      participants,
+    });
   } catch (error) {
     console.error("Error fetching meeting:", error);
     res.status(500).json({ error: "Failed to fetch meeting" });
@@ -180,6 +222,13 @@ router.post("/meetings/:roomCode/join", requireAuth, async (req: Request, res: R
       return res.status(400).json({ error: "Meeting has ended" });
     }
 
+    if (!isLegacyMeetingTransportEnabled()) {
+      return res.status(409).json({
+        error: "Legacy meeting transport is disabled for video/audio meetings",
+        ...legacyMeetingTransportPayload(meeting.isVideoEnabled === false ? "audio" : "video"),
+      });
+    }
+
     const [user] = await db.select().from(users).where(eq(users.id, userId));
 
     const [participant] = await db
@@ -200,7 +249,14 @@ router.post("/meetings/:roomCode/join", requireAuth, async (req: Request, res: R
         .where(eq(meetingRooms.id, meeting.id));
     }
 
-    res.json({ meeting, participant });
+    res.json({
+      meeting: {
+        ...meeting,
+        legacyTransportRequired: true,
+        legacyTransportEnabled: true,
+      },
+      participant,
+    });
   } catch (error) {
     console.error("Error joining meeting:", error);
     res.status(500).json({ error: "Failed to join meeting" });

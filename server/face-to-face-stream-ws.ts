@@ -9,6 +9,11 @@ import { verifyWsToken } from "./signaling-server";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
 import { createLatencyTrace, type LatencyTrace } from "./latency-audit";
 import { logger } from "./observability";
+import {
+  recordTranscriptObservation,
+  recordVoiceCounter,
+  recordVoiceLatency,
+} from "./modules/calls/metrics";
 import { preWarmCacheForCall } from "./ultra-pipeline";
 import {
   initCallLanguageTracking,
@@ -17,8 +22,6 @@ import {
   setParticipantLanguagePreference,
 } from "./universal-language-runtime";
 import {
-  DeepgramLiveTranscriber,
-  type DeepgramTranscriptEvent,
   PCM_FRAME_BYTES,
   applySpokenCorrections,
   bytesToInt16Frame,
@@ -29,16 +32,32 @@ import {
   normalizeSpaces,
   normalizeTranscript,
   streamAzureTtsFrames,
-  toDeepgramLanguage,
   wordCount,
 } from "./realtime-translation-core";
+import {
+  appendFinalTranscriptSegment,
+  clearFinalizedTranscriptSegments,
+  isStaleFinalTranscript,
+  isTranscriptRegression,
+  isTurnOrderMismatch,
+  markStartedTranslation,
+  isDuplicateFinalTranslation,
+  recordDeliveredFinalTranslation,
+  recordRenderedTranslation,
+  resetTranscriptMemory,
+  shouldStartTranslationFromTranscript,
+} from "./conversation-engine";
 import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-streaming-translation";
+import { createManagedStreamingSttSession, getDefaultSttProviderName } from "./providers/stt-provider-registry";
+import type { StreamingSttProviderSession, StreamingTranscriptEvent } from "./providers/voice-contracts";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.FACE_TO_FACE_TARGET_LATENCY_MS, 900);
 const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.FACE_TO_FACE_MIN_PARTIAL_WORDS, 1);
 const RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.FACE_TO_FACE_RESTART_DELTA, 4);
 const VAD_THRESHOLD = parsePositiveFloat(process.env.FACE_TO_FACE_VAD_THRESHOLD, 0.014);
 const SILENCE_RESET_FRAMES = parsePositiveInt(process.env.FACE_TO_FACE_SILENCE_RESET_FRAMES, 8);
+const FACE_TO_FACE_MAX_TTS_BACKLOG_SEGMENTS = 3;
+const FACE_TO_FACE_MAX_TTS_BACKLOG_MS = 1_500;
 
 type FaceToFaceSpeaker = "person1" | "person2";
 
@@ -71,14 +90,14 @@ class FaceToFaceRealtimeSession {
     targetLanguage: "auto",
   };
 
-  private deepgram: DeepgramLiveTranscriber | null = null;
-  private deepgramLanguage = toDeepgramLanguage("en");
+  private deepgram: StreamingSttProviderSession | null = null;
   private recentSilenceFrames = 0;
   private turnId: string | null = null;
   private turn: TurnLatency | null = null;
   private firstSpeechFrameAt = 0;
   private finalizedSegments: string[] = [];
   private lastStartedTranscript = "";
+  private lastFinalTranscript = "";
   private lastRenderedTranslation = "";
   private latestEmotion: EmotionState | null = null;
   private currentGeneration = 0;
@@ -88,6 +107,32 @@ class FaceToFaceRealtimeSession {
   private audioSequence = 0;
   private closed = false;
   private lastDeepgramSocketLatencyMs: number | null = null;
+  private lastDeliveredFinalTranslation = "";
+  private lastBargeInAt = 0;
+  private pendingTtsSegments = 0;
+  private backlogSinceAt: number | null = null;
+
+  private transcriptMemoryView(): {
+    finalizedSegments: string[];
+    lastStartedTranscript: string;
+    lastFinalTranscript: string;
+  } {
+    return this as unknown as {
+      finalizedSegments: string[];
+      lastStartedTranscript: string;
+      lastFinalTranscript: string;
+    };
+  }
+
+  private outputMemoryView(): {
+    lastRenderedTranslation: string;
+    lastDeliveredFinalTranslation: string;
+  } {
+    return this as unknown as {
+      lastRenderedTranslation: string;
+      lastDeliveredFinalTranslation: string;
+    };
+  }
 
   constructor(ws: WebSocket, opts: { sessionId: string; userId: number }) {
     this.ws = ws;
@@ -142,6 +187,7 @@ class FaceToFaceRealtimeSession {
         this.interruptPlayback("client-stop");
         this.finalizedSegments = [];
         this.lastStartedTranscript = "";
+        this.lastFinalTranscript = "";
         this.lastRenderedTranslation = "";
         this.turnId = null;
         this.turn = null;
@@ -174,12 +220,10 @@ class FaceToFaceRealtimeSession {
     this.currentGeneration += 1;
     this.interruptPlayback("speaker-switch");
 
-    const nextDeepgramLanguage = toDeepgramLanguage(sourceLanguage);
-    if (this.deepgram && nextDeepgramLanguage !== this.deepgramLanguage) {
+    if (this.deepgram) {
       await this.deepgram.close().catch(() => {});
       this.deepgram = null;
     }
-    this.deepgramLanguage = nextDeepgramLanguage;
 
     void preWarmCacheForCall(sourceLanguage, targetLanguage).catch(() => undefined);
 
@@ -196,18 +240,21 @@ class FaceToFaceRealtimeSession {
   private async ensureDeepgram(): Promise<void> {
     if (this.deepgram) return;
 
-    this.deepgram = new DeepgramLiveTranscriber({
-      language: this.deepgramLanguage,
+    this.deepgram = createManagedStreamingSttSession({
+      language: this.config.sourceLanguage,
       endpointingMs: 90,
       utteranceEndMs: 240,
       onSocketOpen: (latencyMs) => {
         this.lastDeepgramSocketLatencyMs = latencyMs;
       },
+      onProviderSwitch: (provider, reason) => {
+        logger.warn("FaceToFaceWS", `STT provider switched to ${provider} in ${this.sessionId}: ${reason}`);
+      },
       onTranscript: (event) => {
         void this.handleTranscript(event);
       },
       onError: (error) => {
-        logger.warn("FaceToFaceWS", `Deepgram error in ${this.sessionId}: ${error.message}`);
+        logger.warn("FaceToFaceWS", `STT error in ${this.sessionId}: ${error.message}`);
         this.sendJson({ type: "error", stage: "stt", message: "Speech recognition interrupted. Recovering..." });
       },
     });
@@ -232,12 +279,13 @@ class FaceToFaceRealtimeSession {
           speechStartedAt: this.firstSpeechFrameAt,
           trace: this.createTraceForCurrentTurn(),
         };
-        this.finalizedSegments = [];
-        this.lastStartedTranscript = "";
+        resetTranscriptMemory(this.transcriptMemoryView());
         this.lastRenderedTranslation = "";
       }
 
       this.recentSilenceFrames = 0;
+      this.lastBargeInAt = Date.now();
+      recordVoiceCounter("overlap_events");
       this.interruptPlayback("barge-in");
     } else {
       this.recentSilenceFrames += 1;
@@ -246,10 +294,28 @@ class FaceToFaceRealtimeSession {
     this.deepgram?.send(normalized);
   }
 
-  private async handleTranscript(event: DeepgramTranscriptEvent): Promise<void> {
+  private async handleTranscript(event: StreamingTranscriptEvent): Promise<void> {
     const corrected = applySpokenCorrections(event.text, this.config.sourceLanguage);
     const text = normalizeSpaces(corrected);
     if (!text) return;
+
+    const staleTranscript = isStaleFinalTranscript(this.transcriptMemoryView(), text, event.isFinal);
+    recordTranscriptObservation({
+      isFinal: event.isFinal,
+      confidence: event.confidence,
+      stale: staleTranscript,
+    });
+    if (staleTranscript) {
+      return;
+    }
+    if (isTranscriptRegression(this.transcriptMemoryView(), text, event.isFinal)) {
+      recordVoiceCounter("transcript_regressions");
+      return;
+    }
+    if (this.lastBargeInAt) {
+      recordVoiceLatency("interruption_recovery_ms", Math.max(0, Date.now() - this.lastBargeInAt));
+      this.lastBargeInAt = 0;
+    }
 
     const resolvedLanguages = await resolveDirectionalLanguages(
       this.sessionId,
@@ -286,12 +352,11 @@ class FaceToFaceRealtimeSession {
       return;
     }
 
-    this.finalizedSegments.push(text);
-    const finalizedText = normalizeSpaces(this.finalizedSegments.join(" "));
+    const finalizedText = appendFinalTranscriptSegment(this.transcriptMemoryView(), text);
 
     if (event.speechFinal && finalizedText) {
       this.latestEmotion = detectEmotionFast(finalizedText);
-      this.finalizedSegments = [];
+      clearFinalizedTranscriptSegments(this.transcriptMemoryView());
       await this.maybeStartTranslation(finalizedText, true);
       return;
     }
@@ -302,30 +367,22 @@ class FaceToFaceRealtimeSession {
   }
 
   private async maybeStartTranslation(transcript: string, isFinal: boolean): Promise<void> {
-    const normalized = normalizeTranscript(transcript);
-    if (!normalized) return;
-
-    const lastNormalized = normalizeTranscript(this.lastStartedTranscript);
-    const shouldRestart = isFinal
-      ? normalized !== lastNormalized &&
-        (!lastNormalized ||
-          !normalized.startsWith(lastNormalized) ||
-          normalized.length - lastNormalized.length >= RESTART_MIN_CHAR_DELTA)
-      : (!lastNormalized && wordCount(transcript) >= PARTIAL_MIN_WORDS) ||
-        (lastNormalized &&
-          normalized !== lastNormalized &&
-          (!normalized.startsWith(lastNormalized) ||
-            normalized.length - lastNormalized.length >= RESTART_MIN_CHAR_DELTA));
-
+    const shouldRestart = shouldStartTranslationFromTranscript({
+      transcript,
+      isFinal,
+      partialMinWords: PARTIAL_MIN_WORDS,
+      restartMinCharDelta: RESTART_MIN_CHAR_DELTA,
+      lastStartedTranscript: this.lastStartedTranscript,
+    });
     if (!shouldRestart) return;
 
-    this.lastStartedTranscript = transcript;
+    markStartedTranslation(this.transcriptMemoryView(), transcript);
     const generation = ++this.currentGeneration;
     this.interruptPlayback(isFinal ? "new-final" : "new-partial");
-    void this.translateAndSpeak(transcript, generation, isFinal);
+    void this.translateAndSpeak(transcript, generation, this.turnId, isFinal);
   }
 
-  private async translateAndSpeak(transcript: string, generation: number, isFinal: boolean): Promise<void> {
+  private async translateAndSpeak(transcript: string, generation: number, turnId: string | null, isFinal: boolean): Promise<void> {
     let translationAbort: AbortController | null = null;
     try {
       const sourceState = await registerParticipantTranscript(
@@ -406,11 +463,15 @@ class FaceToFaceRealtimeSession {
           },
           onPartial: (translatedText) => {
             if (this.closed || generation !== this.currentGeneration) return;
+            if (isTurnOrderMismatch(this.turnId, turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
             const translated = normalizeSpaces(translatedText);
             if (!translated || !shouldEmitStreamingPartial(lastPublishedTranslation, translated)) return;
 
             lastPublishedTranslation = translated;
-            this.lastRenderedTranslation = translated;
+            recordRenderedTranslation(this.outputMemoryView(), translated);
             this.sendJson({
               type: "translation.partial",
               speaker: this.config.speaker,
@@ -424,15 +485,29 @@ class FaceToFaceRealtimeSession {
           },
           onSegment: (segment, fullTranslatedText) => {
             if (this.closed || generation !== this.currentGeneration) return;
-            this.lastRenderedTranslation = normalizeSpaces(fullTranslatedText);
-            this.enqueueTtsSegment(segment, generation, resolvedLanguages.targetLanguage, this.turn?.trace || null);
+            if (isTurnOrderMismatch(this.turnId, turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
+            recordRenderedTranslation(this.outputMemoryView(), fullTranslatedText);
+            this.enqueueTtsSegment(segment, generation, turnId, Date.now(), resolvedLanguages.targetLanguage, this.turn?.trace || null);
           },
           onFinal: (translatedText) => {
             if (this.closed || generation !== this.currentGeneration) return;
+            if (isTurnOrderMismatch(this.turnId, turnId)) {
+              recordVoiceCounter("turn_order_mismatches");
+              return;
+            }
             const translated = normalizeSpaces(translatedText);
             if (!translated) return;
 
-            this.lastRenderedTranslation = translated;
+            if (
+              isDuplicateFinalTranslation(this.outputMemoryView(), translated)
+            ) {
+              recordVoiceCounter("duplicate_turns");
+            }
+
+            recordDeliveredFinalTranslation(this.outputMemoryView(), translated);
             this.sendJson({
               type: "translation.final",
               speaker: this.config.speaker,
@@ -462,6 +537,7 @@ class FaceToFaceRealtimeSession {
       if (message !== "This operation was aborted") {
         this.turn?.trace?.markFallback(`translation_runtime_failed:${message}`);
         logger.warn("FaceToFaceWS", `Streaming translation failed in ${this.sessionId}: ${message}`);
+        recordVoiceCounter("translation_fallbacks");
         this.sendJson({
           type: "text-fallback",
           speaker: this.config.speaker,
@@ -483,14 +559,24 @@ class FaceToFaceRealtimeSession {
   private enqueueTtsSegment(
     text: string,
     generation: number,
+    turnId: string | null,
+    queuedAt: number,
     targetLanguage: string,
     trace: LatencyTrace | null,
   ): void {
     const clean = normalizeSpaces(text);
     if (!clean) return;
+    if (this.shouldTripTtsBacklogWatchdog()) {
+      this.handleBacklogWatchdog("tts-backlog");
+      return;
+    }
+    this.pendingTtsSegments += 1;
+    if (this.pendingTtsSegments > 1 && !this.backlogSinceAt) {
+      this.backlogSinceAt = Date.now();
+    }
 
     this.ttsChain = this.ttsChain
-      .then(() => this.streamTtsSegment(clean, generation, targetLanguage, trace))
+      .then(() => this.streamTtsSegment(clean, generation, turnId, queuedAt, targetLanguage, trace))
       .catch((error) => {
         logger.warn("FaceToFaceWS", `TTS chain failed in ${this.sessionId}: ${String(error)}`);
       });
@@ -499,10 +585,23 @@ class FaceToFaceRealtimeSession {
   private async streamTtsSegment(
     text: string,
     generation: number,
+    turnId: string | null,
+    queuedAt: number,
     targetLanguage: string,
     trace: LatencyTrace | null,
   ): Promise<void> {
     if (this.closed || generation !== this.currentGeneration) return;
+    if (isTurnOrderMismatch(this.turnId, turnId)) {
+      recordVoiceCounter("turn_order_mismatches");
+      return;
+    }
+    const queueAgeMs = Math.max(0, Date.now() - queuedAt);
+    if (queueAgeMs >= FACE_TO_FACE_MAX_TTS_BACKLOG_MS) {
+      recordVoiceCounter("stale_tts_segments");
+      trace?.markFallback(`stale_tts_segment:${queueAgeMs}`);
+      logger.warn("FaceToFaceWS", `Dropped stale queued TTS segment in ${this.sessionId} after ${queueAgeMs}ms`);
+      return;
+    }
 
     this.ttsAbort = new AbortController();
     if (this.turn && !this.turn.ttsStartedAt) {
@@ -544,6 +643,10 @@ class FaceToFaceRealtimeSession {
         });
       }
     } finally {
+      this.pendingTtsSegments = Math.max(0, this.pendingTtsSegments - 1);
+      if (this.pendingTtsSegments === 0) {
+        this.backlogSinceAt = null;
+      }
       if (this.turn) {
         this.turn.finalAudioAt = Date.now();
       }
@@ -551,14 +654,40 @@ class FaceToFaceRealtimeSession {
   }
 
   private interruptPlayback(reason: string): void {
+    if (this.pendingTtsSegments > 0 || this.ttsAbort) {
+      recordVoiceCounter("ghost_audio_drops");
+    }
     this.translationAbort?.abort();
     this.translationAbort = null;
     if (this.ttsAbort) {
       this.ttsAbort.abort();
       this.ttsAbort = null;
     }
+    this.pendingTtsSegments = 0;
+    this.backlogSinceAt = null;
 
     this.sendJson({ type: "interrupt", reason, ts: Date.now() });
+  }
+
+  private shouldTripTtsBacklogWatchdog(): boolean {
+    if (this.pendingTtsSegments >= FACE_TO_FACE_MAX_TTS_BACKLOG_SEGMENTS) {
+      return true;
+    }
+    return Boolean(this.backlogSinceAt && Date.now() - this.backlogSinceAt >= FACE_TO_FACE_MAX_TTS_BACKLOG_MS);
+  }
+
+  private handleBacklogWatchdog(reason: string): void {
+    recordVoiceCounter("audio_backlog_events");
+    recordVoiceCounter("translation_fallbacks");
+    logger.warn("FaceToFaceWS", `Playback backlog watchdog tripped in ${this.sessionId}: ${reason}`);
+    this.currentGeneration += 1;
+    this.interruptPlayback(reason);
+    this.sendJson({
+      type: "text-fallback",
+      speaker: this.config.speaker,
+      message: "Audio playback was reset to keep the conversation stable. Text translation is still live.",
+      ts: Date.now(),
+    });
   }
 
   private emitLatencySnapshot(finalize = false): void {
@@ -586,9 +715,9 @@ class FaceToFaceRealtimeSession {
       direction: `${this.config.speaker}->${getOtherSpeaker(this.config.speaker)}`,
     });
     trace.mark("speech_start", true);
-    trace.addProvider("deepgram-stream");
+    trace.addProvider(`${getDefaultSttProviderName()}-stream`);
     if (this.lastDeepgramSocketLatencyMs != null) {
-      trace.addObservedNetworkLatency("deepgram_socket_open", this.lastDeepgramSocketLatencyMs);
+      trace.addObservedNetworkLatency("stt_socket_open", this.lastDeepgramSocketLatencyMs);
     }
     return trace;
   }
@@ -608,7 +737,7 @@ export function setupFaceToFaceRealtimeWebSocket(wss: WebSocketServer): void {
 async function handleConnection(ws: WebSocket, request: IncomingMessage): Promise<void> {
   const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
   const token = url.searchParams.get("token");
-  const claims = token ? verifyWsToken(token) : null;
+  const claims = token ? await verifyWsToken(token) : null;
 
   if (!claims?.userId) {
     ws.close(4401, "Unauthorized");

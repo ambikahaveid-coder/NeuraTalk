@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { Agent as UndiciAgent, fetch as undiciFetch } from "undici";
 import type { AudioFrame } from "@livekit/rtc-node";
 import { getAzureVoice } from "./azure-service";
+import { runWithResilience } from "./voice-resilience";
 
 export const PCM_SAMPLE_RATE = 16_000;
 export const PCM_CHANNELS = 1;
@@ -11,6 +12,8 @@ export const PCM_FRAME_BYTES = (PCM_SAMPLE_RATE * FRAME_DURATION_MS * BYTES_PER_
 
 const DEEPGRAM_MODEL = process.env.DEEPGRAM_STT_MODEL || "nova-3";
 const DEFAULT_DEEPGRAM_ENDPOINTING_MS = parsePositiveInt(process.env.DEEPGRAM_STT_ENDPOINTING_MS, 100);
+const DEEPGRAM_CONNECT_TIMEOUT_MS = parsePositiveInt(process.env.DEEPGRAM_CONNECT_TIMEOUT_MS, 4_000);
+const AZURE_TTS_TIMEOUT_MS = parsePositiveInt(process.env.AZURE_TTS_TIMEOUT_MS, 8_000);
 
 const azureDispatcher = new UndiciAgent({
   keepAliveTimeout: 30_000,
@@ -85,57 +88,89 @@ export class DeepgramLiveTranscriber {
       language: this.language,
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const socketStartNs = nowHrNs();
-      const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, {
-        headers: {
-          Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-        },
-      });
+    await runWithResilience(async (signal) => {
+      await new Promise<void>((resolve, reject) => {
+        const socketStartNs = nowHrNs();
+        const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, {
+          headers: {
+            Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+          },
+        });
 
-      socket.once("open", () => {
-        this.socket = socket;
-        this.connected = true;
-        this.onSocketOpen?.(Number(elapsedMsFrom(socketStartNs).toFixed(3)));
-        for (const packet of this.pendingFrames.splice(0)) {
-          socket.send(packet);
+        const closeSocket = () => {
+          try {
+            socket.close();
+          } catch {
+            // ignore close race
+          }
+        };
+
+        if (signal.aborted) {
+          closeSocket();
+          reject(signal.reason ?? new Error("Deepgram connect aborted"));
+          return;
         }
-        resolve();
-      });
 
-      socket.on("message", (message) => {
-        try {
-          const payload = JSON.parse(String(message)) as any;
-          if (payload.type !== "Results") return;
-          const text = normalizeSpaces(payload.channel?.alternatives?.[0]?.transcript || "");
-          if (!text) return;
-          this.onTranscript({
-            text,
-            isFinal: Boolean(payload.is_final),
-            speechFinal: Boolean(payload.speech_final),
-          });
-        } catch (error) {
-          this.onError(error instanceof Error ? error : new Error(String(error)));
-        }
-      });
+        const onAbort = () => {
+          closeSocket();
+          reject(signal.reason ?? new Error("Deepgram connect aborted"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
 
-      socket.on("error", (error) => {
-        this.connected = false;
-        reject(error);
-      });
+        socket.once("open", () => {
+          signal.removeEventListener("abort", onAbort);
+          this.socket = socket;
+          this.connected = true;
+          this.onSocketOpen?.(Number(elapsedMsFrom(socketStartNs).toFixed(3)));
+          for (const packet of this.pendingFrames.splice(0)) {
+            socket.send(packet);
+          }
+          resolve();
+        });
 
-      socket.on("close", () => {
-        this.connected = false;
-        this.socket = null;
-
-        if (!this.closed) {
-          this.reconnectTimer = setTimeout(() => {
-            void this.connect().catch((error) => {
-              this.onError(error instanceof Error ? error : new Error(String(error)));
+        socket.on("message", (message) => {
+          try {
+            const payload = JSON.parse(String(message)) as any;
+            if (payload.type !== "Results") return;
+            const text = normalizeSpaces(payload.channel?.alternatives?.[0]?.transcript || "");
+            if (!text) return;
+            this.onTranscript({
+              text,
+              isFinal: Boolean(payload.is_final),
+              speechFinal: Boolean(payload.speech_final),
             });
-          }, 300);
-        }
+          } catch (error) {
+            this.onError(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+
+        socket.on("error", (error) => {
+          signal.removeEventListener("abort", onAbort);
+          this.connected = false;
+          reject(error);
+        });
+
+        socket.on("close", () => {
+          signal.removeEventListener("abort", onAbort);
+          this.connected = false;
+          this.socket = null;
+
+          if (!this.closed) {
+            this.reconnectTimer = setTimeout(() => {
+              void this.connect().catch((error) => {
+                this.onError(error instanceof Error ? error : new Error(String(error)));
+              });
+            }, 300);
+          }
+        });
       });
+    }, {
+      provider: "deepgram-stt",
+      operation: "connect",
+      timeoutMs: DEEPGRAM_CONNECT_TIMEOUT_MS,
+      retries: 1,
+      retryDelayMs: 250,
+      metadata: { language: this.language },
     });
   }
 
@@ -207,18 +242,29 @@ export async function* streamAzureTtsFrames(
   )}</prosody></voice></speak>`;
 
   const requestStartNs = nowHrNs();
-  const response = await undiciFetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-    method: "POST",
-    headers: {
-      "Ocp-Apim-Subscription-Key": key,
-      "Content-Type": "application/ssml+xml",
-      "X-Microsoft-OutputFormat": "raw-16khz-16bit-mono-pcm",
-      "User-Agent": opts.userAgent || "NeuraTalk/Realtime",
+  const response = await runWithResilience(
+    async (deadlineSignal) => undiciFetch(`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+      method: "POST",
+      headers: {
+        "Ocp-Apim-Subscription-Key": key,
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "raw-16khz-16bit-mono-pcm",
+        "User-Agent": opts.userAgent || "NeuraTalk/Realtime",
+      },
+      body: ssml,
+      signal: deadlineSignal,
+      dispatcher: azureDispatcher,
+    }),
+    {
+      provider: "azure-tts",
+      operation: "stream",
+      timeoutMs: AZURE_TTS_TIMEOUT_MS,
+      signal,
+      retries: 1,
+      retryDelayMs: 200,
+      metadata: { language },
     },
-    body: ssml,
-    signal,
-    dispatcher: azureDispatcher,
-  });
+  );
   opts.onResponseHeaders?.(Number(elapsedMsFrom(requestStartNs).toFixed(3)));
 
   if (!response.ok) {

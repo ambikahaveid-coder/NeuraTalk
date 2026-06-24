@@ -3,24 +3,40 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, 
-  Clock, Globe, ArrowLeft, ChevronRight 
+import {
+  Phone,
+  PhoneOutgoing,
+  PhoneMissed,
+  Clock,
+  Globe,
+  ArrowLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
 
+interface CallSessionView {
+  routeType?: string | null;
+  provider?: string | null;
+  caller?: { phoneNumber?: string | null; displayName?: string | null; externalId?: string | null };
+  callee?: { phoneNumber?: string | null; displayName?: string | null; externalId?: string | null };
+  sourceLanguage?: string | null;
+  targetLanguage?: string | null;
+  durationSeconds?: number | null;
+}
+
 interface Call {
-  id: number;
-  callerNumber: string;
-  receiverNumber: string;
+  id: number | string;
+  callerNumber?: string | null;
+  receiverNumber?: string | null;
   status: string;
-  callerLanguage: string;
-  receiverLanguage: string;
-  duration: number | null;
+  callerLanguage?: string | null;
+  receiverLanguage?: string | null;
+  duration?: number | null;
   createdAt: string;
   connectedAt: string | null;
   endedAt: string | null;
+  session?: CallSessionView;
 }
 
 export default function CallHistory() {
@@ -41,7 +57,6 @@ export default function CallHistory() {
       case "completed":
         return <PhoneOutgoing className="w-4 h-4 text-green-500" />;
       case "missed":
-        return <PhoneMissed className="w-4 h-4 text-red-500" />;
       case "failed":
         return <PhoneMissed className="w-4 h-4 text-red-500" />;
       default:
@@ -71,6 +86,44 @@ export default function CallHistory() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const getPeerLabel = (call: Call) =>
+    call.session?.callee?.displayName
+    || call.session?.callee?.phoneNumber
+    || call.receiverNumber
+    || "Unknown";
+
+  const getSourceLanguage = (call: Call) => call.session?.sourceLanguage || call.callerLanguage || "auto";
+  const getTargetLanguage = (call: Call) => call.session?.targetLanguage || call.receiverLanguage || "auto";
+  const getDuration = (call: Call) => call.session?.durationSeconds ?? call.duration ?? null;
+  const getRouteBadge = (call: Call) => {
+    if (call.session?.routeType === "app_to_app") {
+      return <Badge variant="secondary">App</Badge>;
+    }
+    if (call.session?.routeType === "app_to_pstn") {
+      return <Badge variant="outline">PSTN</Badge>;
+    }
+    return null;
+  };
+  const getCaller = (call?: Call) => call?.session?.caller?.phoneNumber || call?.callerNumber || "-";
+  const getReceiver = (call?: Call) => call?.session?.callee?.phoneNumber || call?.receiverNumber || "-";
+  const getRouteLabel = (call?: Call) =>
+    call?.session?.routeType === "app_to_app"
+      ? "App-to-app"
+      : call?.session?.routeType === "app_to_pstn"
+        ? "PSTN/mobile"
+        : "Call";
+  const getRedialIdentifier = (call?: Call) => {
+    if (!call) return "";
+    if (call.session?.routeType === "app_to_app") {
+      return call.session?.callee?.externalId || call.session?.callee?.phoneNumber || call.receiverNumber || "";
+    }
+    return call.session?.callee?.phoneNumber || call.session?.callee?.externalId || call.receiverNumber || "";
+  };
+  const startCall = (identifier: string, mode: "voice" | "video" = "voice") => {
+    if (!identifier) return;
+    navigate(`/calls/c2c?identifier=${encodeURIComponent(identifier)}&mode=${mode}`);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -82,9 +135,9 @@ export default function CallHistory() {
   return (
     <div className="container max-w-4xl mx-auto p-4">
       <div className="flex items-center gap-4 mb-6">
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => navigate("/dashboard")}
           data-testid="button-back"
         >
@@ -101,8 +154,8 @@ export default function CallHistory() {
             <p className="text-muted-foreground text-center">
               Your call history will appear here after you make your first call.
             </p>
-            <Button 
-              className="mt-4" 
+            <Button
+              className="mt-4"
               onClick={() => navigate("/dashboard")}
               data-testid="button-make-call"
             >
@@ -113,34 +166,33 @@ export default function CallHistory() {
       ) : (
         <div className="space-y-3">
           {calls.map((call) => (
-            <Card 
-              key={call.id} 
+            <Card
+              key={call.id}
               className="cursor-pointer hover-elevate"
-              onClick={() => setSelectedCall(call.id)}
+              onClick={() => setSelectedCall(Number(call.id))}
               data-testid={`card-call-${call.id}`}
             >
               <CardContent className="flex items-center gap-4 py-4">
                 <div className="flex items-center justify-center w-10 h-10 rounded-full bg-secondary">
                   {getStatusIcon(call.status)}
                 </div>
-                
+
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium truncate">{call.receiverNumber}</span>
+                    <span className="font-medium truncate">{getPeerLabel(call)}</span>
                     {getStatusBadge(call.status)}
+                    {getRouteBadge(call)}
                   </div>
                   <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
-                      {formatDuration(call.duration)}
+                      {formatDuration(getDuration(call))}
                     </span>
                     <span className="flex items-center gap-1">
                       <Globe className="w-3 h-3" />
-                      {call.callerLanguage} → {call.receiverLanguage}
+                      {getSourceLanguage(call)} -&gt; {getTargetLanguage(call)}
                     </span>
-                    <span>
-                      {format(new Date(call.createdAt), "MMM d, h:mm a")}
-                    </span>
+                    <span>{format(new Date(call.createdAt), "MMM d, h:mm a")}</span>
                   </div>
                 </div>
 
@@ -159,9 +211,9 @@ export default function CallHistory() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Call Details</CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setSelectedCall(null)}
                     data-testid="button-close-details"
                   >
@@ -173,21 +225,60 @@ export default function CallHistory() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm text-muted-foreground">From</label>
-                    <p className="font-medium">{details.call?.callerNumber}</p>
+                    <p className="font-medium">{getCaller(details.call)}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">To</label>
-                    <p className="font-medium">{details.call?.receiverNumber}</p>
+                    <p className="font-medium">{getReceiver(details.call)}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Duration</label>
-                    <p className="font-medium">{formatDuration(details.call?.duration ?? null)}</p>
+                    <p className="font-medium">{formatDuration(details.call ? getDuration(details.call) : null)}</p>
                   </div>
                   <div>
                     <label className="text-sm text-muted-foreground">Status</label>
                     <div>{getStatusBadge(details.call?.status ?? "")}</div>
                   </div>
                 </div>
+
+                <div className="text-xs text-muted-foreground">
+                  Route: <span className="font-medium">{getRouteLabel(details.call)}</span>
+                </div>
+                {details.call?.session?.provider ? (
+                  <div className="text-xs text-muted-foreground">
+                    Provider: <span className="font-medium">{details.call.session.provider}</span>
+                  </div>
+                ) : null}
+
+                {getRedialIdentifier(details.call) ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Button
+                        className="flex-1"
+                        onClick={() => startCall(getRedialIdentifier(details.call), "voice")}
+                        data-testid="button-redial-voice"
+                      >
+                        <Phone className="w-4 h-4 mr-2" />
+                        Redial Voice
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        disabled={details.call?.session?.routeType === "app_to_pstn"}
+                        onClick={() => startCall(getRedialIdentifier(details.call), "video")}
+                        data-testid="button-redial-video"
+                      >
+                        <Phone className="w-4 h-4 mr-2" />
+                        {details.call?.session?.routeType === "app_to_pstn" ? "PSTN voice only" : "Try Video"}
+                      </Button>
+                    </div>
+                    {details.call?.session?.routeType === "app_to_pstn" ? (
+                      <p className="text-xs text-muted-foreground">
+                        This call used the PSTN/mobile bridge. Video redial is available only for app-to-app contacts.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {details.translations && details.translations.length > 0 && (
                   <div>
