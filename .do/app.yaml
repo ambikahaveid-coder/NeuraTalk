@@ -3,7 +3,7 @@ region: blr
 services:
   - name: web
     github:
-      repo: liftmateapp/Neuratalk-
+      repo: ambikahaveid-coder/NeuraTalk
       branch: neuratalk-clean-release
       deploy_on_push: true
     build_command: npm install && npm run build
@@ -13,53 +13,83 @@ services:
     instance_size_slug: apps-s-1vcpu-1gb
     http_port: 5000
     health_check:
-      http_path: /api/health
+      http_path: /healthz
     envs:
       - key: NODE_ENV
         value: production
-        scope: RUN_TIME
+        scope: RUN_AND_BUILD_TIME
       - key: PORT
         value: "5000"
         scope: RUN_TIME
-      - key: DATABASE_URL
+      - key: DOTENV_OVERRIDE
+        value: "true"
+        scope: RUN_AND_BUILD_TIME
+      - key: PREFER_LOCAL_AI
+        value: "false"
         scope: RUN_TIME
-        type: SECRET
-      - key: LIVEKIT_API_KEY
+      - key: STT_PROVIDER
+        value: azure
         scope: RUN_TIME
-        type: SECRET
-      - key: LIVEKIT_API_SECRET
+      - key: ENABLE_DEEPGRAM_STT_FALLBACK
+        value: "true"
         scope: RUN_TIME
-        type: SECRET
+      - key: PHONE_OTP_PROVIDER
+        value: firebase
+        scope: RUN_AND_BUILD_TIME
+      - key: VITE_PHONE_OTP_PROVIDER
+        value: firebase
+        scope: RUN_AND_BUILD_TIME
+      - key: AZURE_SPEECH_REGION
+        value: centralindia
+        scope: RUN_TIME
+      - key: AZURE_TRANSLATOR_REGION
+        value: centralindia
+        scope: RUN_TIME
       - key: LIVEKIT_URL
+        value: wss://neuratalk-vzgep7qq.livekit.cloud
         scope: RUN_TIME
-        type: SECRET
+      - key: LIVEKIT_SIP_DOMAIN
+        value: 1m2u036kt9m.sip.livekit.cloud
+        scope: RUN_TIME
+      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+        scope: RUN_TIME
+      - key: SUPER_ADMIN_EMAIL
+        value: kiranatmakuri518@gmail.com
+        scope: RUN_TIME
+      - key: SUPER_ADMIN_PHONE
+        value: "+918125557378"
+        scope: RUN_TIME
+      - key: APP_BASE_URL
+        value: https://neuratalk.in
+        scope: RUN_TIME
+      - key: BASE_URL
+        value: https://neuratalk.in
+        scope: RUN_TIME
+      - key: FRONTEND_URL
+        value: https://neuratalk.in
+        scope: RUN_TIME
+      - key: ALLOWED_ORIGINS
+        value: https://neuratalk.in
+        scope: RUN_TIME
+      - key: MSG91_VOICE_CALLER_ID
+        value: "+918125557378"
+        scope: RUN_TIME
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        value: neuratalk-c6683.firebaseapp.com
+        scope: RUN_AND_BUILD_TIME
+      - key: VITE_FIREBASE_PROJECT_ID
+        value: neuratalk-c6683
+        scope: RUN_AND_BUILD_TIME
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        value: neuratalk-c6683.firebasestorage.app
+        scope: RUN_AND_BUILD_TIME
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        value: "612487293092"
+        scope: RUN_AND_BUILD_TIME
+      - key: VITE_FIREBASE_MEASUREMENT_ID
+        value: G-71G09M618D
+        scope: RUN_AND_BUILD_TIME
       - key: FIREBASE_PROJECT_ID
+        value: neuratalk-c6683
         scope: RUN_TIME
-        type: SECRET
-      - key: FIREBASE_PRIVATE_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: FIREBASE_CLIENT_EMAIL
-        scope: RUN_TIME
-        type: SECRET
-      - key: OPENAI_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: STRIPE_SECRET_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: STRIPE_WEBHOOK_SECRET
-        scope: RUN_TIME
-        type: SECRET
-      - key: MSG91_AUTH_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: MSG91_TEMPLATE_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: REDIS_URL
-        scope: RUN_TIME
-        type: SECRET
-      - key: SESSION_SECRET
-        scope: RUN_TIME
-        type: SECRET
