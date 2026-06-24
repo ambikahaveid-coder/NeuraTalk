@@ -40,14 +40,22 @@ export function isOriginAllowed(origin: string | undefined): boolean {
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin;
   const isPreflight = req.method === "OPTIONS";
+  const isApiRoute = req.path.startsWith("/api") || req.path.startsWith("/ws");
 
-  if (origin) {
+  // Only enforce CORS origin checks on API/WS routes.
+  // Static asset requests (JS, CSS, images) must never be blocked — Chromium
+  // sends an Origin header even for same-origin module script loads, and
+  // blocking those causes a blank page when the DO preview URL differs from
+  // the configured ALLOWED_ORIGINS domain.
+  if (origin && isApiRoute) {
     if (!isOriginAllowed(origin)) {
       logger.warn("Security", "Rejected CORS origin", { origin, path: req.path });
       res.status(403).json({ success: false, message: "Origin not allowed" });
       return;
     }
+  }
 
+  if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
