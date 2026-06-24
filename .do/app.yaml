@@ -1,5 +1,87 @@
 name: neuratalk
 region: blr
+envs:
+  - key: NODE_ENV
+    value: production
+    scope: RUN_AND_BUILD_TIME
+  - key: PORT
+    value: "5000"
+    scope: RUN_TIME
+  - key: DOTENV_OVERRIDE
+    value: "true"
+    scope: RUN_AND_BUILD_TIME
+  - key: PREFER_LOCAL_AI
+    value: "false"
+    scope: RUN_TIME
+  - key: STT_PROVIDER
+    value: azure
+    scope: RUN_TIME
+  - key: ENABLE_DEEPGRAM_STT_FALLBACK
+    value: "true"
+    scope: RUN_TIME
+  - key: PHONE_OTP_PROVIDER
+    value: firebase
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_PHONE_OTP_PROVIDER
+    value: firebase
+    scope: RUN_AND_BUILD_TIME
+  - key: AZURE_SPEECH_REGION
+    value: centralindia
+    scope: RUN_TIME
+  - key: AZURE_TRANSLATOR_REGION
+    value: centralindia
+    scope: RUN_TIME
+  - key: LIVEKIT_URL
+    value: wss://neuratalk-vzgep7qq.livekit.cloud
+    scope: RUN_TIME
+  - key: LIVEKIT_SIP_DOMAIN
+    value: 1m2u036kt9m.sip.livekit.cloud
+    scope: RUN_TIME
+  - key: AI_INTEGRATIONS_OPENAI_BASE_URL
+    value: https://api.openai.com/v1
+    scope: RUN_TIME
+  - key: SUPER_ADMIN_EMAIL
+    value: kiranatmakuri518@gmail.com
+    scope: RUN_TIME
+  - key: SUPER_ADMIN_PHONE
+    value: "+918125557378"
+    scope: RUN_TIME
+  - key: APP_BASE_URL
+    value: https://neuratalk.in
+    scope: RUN_TIME
+  - key: BASE_URL
+    value: https://neuratalk.in
+    scope: RUN_TIME
+  - key: FRONTEND_URL
+    value: https://neuratalk.in
+    scope: RUN_TIME
+  - key: ALLOWED_ORIGINS
+    value: https://neuratalk.in
+    scope: RUN_TIME
+  - key: MSG91_VOICE_CALLER_ID
+    value: "+918125557378"
+    scope: RUN_TIME
+  - key: VITE_FIREBASE_AUTH_DOMAIN
+    value: neuratalk-c6683.firebaseapp.com
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_FIREBASE_PROJECT_ID
+    value: neuratalk-c6683
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_FIREBASE_STORAGE_BUCKET
+    value: neuratalk-c6683.firebasestorage.app
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+    value: "612487293092"
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_FIREBASE_MEASUREMENT_ID
+    value: G-71G09M618D
+    scope: RUN_AND_BUILD_TIME
+  - key: VITE_FIREBASE_APP_ID
+    value: 1:612487293092:web:2aa2cf6d2c33e74b335e31
+    scope: RUN_AND_BUILD_TIME
+  - key: FIREBASE_PROJECT_ID
+    value: neuratalk-c6683
+    scope: RUN_TIME
 services:
   - name: web
     github:
@@ -14,85 +96,3 @@ services:
     http_port: 5000
     health_check:
       http_path: /healthz
-    envs:
-      - key: NODE_ENV
-        value: production
-        scope: RUN_AND_BUILD_TIME
-      - key: PORT
-        value: "5000"
-        scope: RUN_TIME
-      - key: DOTENV_OVERRIDE
-        value: "true"
-        scope: RUN_AND_BUILD_TIME
-      - key: PREFER_LOCAL_AI
-        value: "false"
-        scope: RUN_TIME
-      - key: STT_PROVIDER
-        value: azure
-        scope: RUN_TIME
-      - key: ENABLE_DEEPGRAM_STT_FALLBACK
-        value: "true"
-        scope: RUN_TIME
-      - key: PHONE_OTP_PROVIDER
-        value: firebase
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_PHONE_OTP_PROVIDER
-        value: firebase
-        scope: RUN_AND_BUILD_TIME
-      - key: AZURE_SPEECH_REGION
-        value: centralindia
-        scope: RUN_TIME
-      - key: AZURE_TRANSLATOR_REGION
-        value: centralindia
-        scope: RUN_TIME
-      - key: LIVEKIT_URL
-        value: wss://neuratalk-vzgep7qq.livekit.cloud
-        scope: RUN_TIME
-      - key: LIVEKIT_SIP_DOMAIN
-        value: 1m2u036kt9m.sip.livekit.cloud
-        scope: RUN_TIME
-      - key: AI_INTEGRATIONS_OPENAI_BASE_URL
-        value: https://api.openai.com/v1
-        scope: RUN_TIME
-      - key: SUPER_ADMIN_EMAIL
-        value: kiranatmakuri518@gmail.com
-        scope: RUN_TIME
-      - key: SUPER_ADMIN_PHONE
-        value: "+918125557378"
-        scope: RUN_TIME
-      - key: APP_BASE_URL
-        value: https://neuratalk.in
-        scope: RUN_TIME
-      - key: BASE_URL
-        value: https://neuratalk.in
-        scope: RUN_TIME
-      - key: FRONTEND_URL
-        value: https://neuratalk.in
-        scope: RUN_TIME
-      - key: ALLOWED_ORIGINS
-        value: https://neuratalk.in
-        scope: RUN_TIME
-      - key: MSG91_VOICE_CALLER_ID
-        value: "+918125557378"
-        scope: RUN_TIME
-      - key: VITE_FIREBASE_AUTH_DOMAIN
-        value: neuratalk-c6683.firebaseapp.com
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_FIREBASE_PROJECT_ID
-        value: neuratalk-c6683
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_FIREBASE_STORAGE_BUCKET
-        value: neuratalk-c6683.firebasestorage.app
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
-        value: "612487293092"
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_FIREBASE_MEASUREMENT_ID
-        value: G-71G09M618D
-        scope: RUN_AND_BUILD_TIME
-      - key: VITE_FIREBASE_APP_ID
-        value: 1:612487293092:web:2aa2cf6d2c33e74b335e31
-        scope: RUN_AND_BUILD_TIME
-      - key: FIREBASE_PROJECT_ID
-        value: neuratalk-c6683
-        scope: RUN_TIME
