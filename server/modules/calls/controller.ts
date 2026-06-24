@@ -1615,7 +1615,7 @@ export async function translate(req: Request, res: Response) {
                 const voiceConfig = EMOTION_VOICE_MAP[result.emotion || "neutral"] || EMOTION_VOICE_MAP.neutral;
                 usedVoice = voiceConfig.voice;
               }
-              const { textToSpeech } = await import("../../replit_integrations/audio/client");
+              const { textToSpeech } = await import("../../ai_integrations/audio/client");
               const ttsBuffer = await textToSpeech(result.translatedText, usedVoice as any, "mp3", targetLanguage);
               audioBase64 = ttsBuffer.toString("base64");
             } catch (ttsErr) {
@@ -1641,7 +1641,7 @@ export async function translate(req: Request, res: Response) {
       }
     }
 
-    const { speechToText, textToSpeech, openai } = await import("../../replit_integrations/audio/client");
+    const { speechToText, textToSpeech, openai } = await import("../../ai_integrations/audio/client");
     let transcribedText = "";
     try {
       transcribedText = await speechToText(wavBuffer, "wav", sourceLanguage);
@@ -1863,7 +1863,7 @@ export async function translateNatural(req: Request, res: Response) {
     const wavHeader = createWavHeader(audioBuffer.length, 16000, 16, 1);
     const wavBuffer = Buffer.concat([wavHeader, audioBuffer]);
 
-    const { speechToText, textToSpeech: ttsFunc, openai } = await import("../../replit_integrations/audio/client");
+    const { speechToText, textToSpeech: ttsFunc, openai } = await import("../../ai_integrations/audio/client");
     let transcribedText = "";
     try {
       transcribedText = await speechToText(wavBuffer, "wav", sourceLanguage);
@@ -1945,7 +1945,7 @@ export async function translateNatural(req: Request, res: Response) {
 
     if (!audioBase64) {
       try {
-        const { textToSpeech } = await import("../../replit_integrations/audio/client");
+        const { textToSpeech } = await import("../../ai_integrations/audio/client");
         const ttsBuffer = await textToSpeech(translatedText, "nova", "mp3", targetLanguage);
         audioBase64 = ttsBuffer.toString("base64");
         provider = "openai-tts";

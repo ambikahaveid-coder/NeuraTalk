@@ -5,7 +5,7 @@ import { spawn } from "child_process";
 import { writeFileSync, readFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { speechToText, textToSpeech } from "../replit_integrations/audio/client";
+import { speechToText, textToSpeech } from "../ai_integrations/audio/client";
 import { detectEmotion } from "../emotion-engine";
 import { createLatencyTrace, type LatencyTrace } from "../latency-audit";
 import { convertToUserVoice, isVoiceCloningAvailable } from "../voice-cloning-service";

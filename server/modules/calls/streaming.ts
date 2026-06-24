@@ -1,5 +1,5 @@
 import { detectEmotion, type EmotionState as BaseEmotionState } from "../../emotion-engine";
-import { speechToText, textToSpeech } from "../../replit_integrations/audio/client";
+import { speechToText, textToSpeech } from "../../ai_integrations/audio/client";
 import { logger } from "../../observability";
 import { recordStageLatency } from "./metrics";
 import {

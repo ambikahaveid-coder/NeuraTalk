@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { db } from "./db";
 import { voiceSamples, voiceProfiles } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { ObjectStorageService } from "./replit_integrations/object_storage";
+import { ObjectStorageService } from "./ai_integrations/object_storage";
 import crypto from "crypto";
 import { loadUser, requireAuth } from "./role-middleware";
 

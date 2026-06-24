@@ -23,7 +23,7 @@ Authorization: Bearer <your-token>
 
 ## Base URL
 - Development: http://localhost:5000
-- Production: https://your-domain.replit.app
+- Production: https://neuratalk.in
 
 ## Rate Limits
 - Standard: 100 requests/minute

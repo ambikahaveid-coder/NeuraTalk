@@ -13,7 +13,7 @@ export const openai = new OpenAI({
 /**
  * Convert WebM audio buffer to WAV format using ffmpeg.
  * Browser MediaRecorder outputs WebM/opus which must be converted to WAV for audio APIs.
- * Note: Requires ffmpeg (available by default on Replit).
+ * Note: Requires ffmpeg (available by default in production).
  *
  * @example
  * // In your route handler:
@@ -52,7 +52,7 @@ export function convertWebmToWav(webmBuffer: Buffer): Promise<Buffer> {
 
 /**
  * Voice Chat: User speaks, LLM responds with audio (audio-in, audio-out).
- * Uses gpt-audio-mini model via Replit AI Integrations.
+ * Uses gpt-audio-mini model via NeuraTalk AI.
  *
  * @example
  * // Converting browser WebM to WAV before calling:
@@ -235,7 +235,7 @@ export async function textToSpeech(
 
 /**
  * Streaming Text-to-Speech: Converts text to speech with real-time streaming.
- * Uses gpt-audio-mini model via Replit AI Integrations.
+ * Uses gpt-audio-mini model via NeuraTalk AI.
  * Note: Streaming only supports pcm16 output format.
  * @param language - Target language code (e.g., "hi", "te"). Defaults to "en".
  */

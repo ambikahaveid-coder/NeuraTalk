@@ -14,7 +14,7 @@ const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 // The object storage client is used to interact with the object storage service.
 export const objectStorageClient = new Storage({
   credentials: {
-    audience: "replit",
+    audience: "neuratalk",
     subject_token_type: "access_token",
     token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
     type: "external_account",
@@ -290,7 +290,7 @@ async function signObjectURL({
   if (!response.ok) {
     throw new Error(
       `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
+        `make sure you're running in production`
     );
   }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAuthToken } from "./use-auth";
 import { applyNoiseSuppression } from "./use-noise-suppression";
-import { useAudioPlayback } from "@/replit_integrations/audio/useAudioPlayback";
+import { useAudioPlayback } from "@/ai_integrations/audio/useAudioPlayback";
 
 export type FaceToFaceSpeaker = "person1" | "person2";
 

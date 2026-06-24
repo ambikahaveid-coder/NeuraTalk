@@ -506,7 +506,7 @@ export async function ultraSTT(
   } catch {}
 
   try {
-    const { speechToText } = await import("./replit_integrations/audio/client");
+    const { speechToText } = await import("./ai_integrations/audio/client");
     return await speechToText(audio, format as any);
   } catch {}
 

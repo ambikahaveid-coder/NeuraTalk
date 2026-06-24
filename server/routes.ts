@@ -6,10 +6,10 @@ import { supportContacts } from "@shared/schema";
 import { db } from "./db";
 import { z } from "zod";
 import OpenAI from "openai";
-import { registerChatRoutes } from "./replit_integrations/chat";
-import { registerAudioRoutes } from "./replit_integrations/audio";
-import { registerImageRoutes } from "./replit_integrations/image";
-import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { registerChatRoutes } from "./ai_integrations/chat";
+import { registerAudioRoutes } from "./ai_integrations/audio";
+import { registerImageRoutes } from "./ai_integrations/image";
+import { registerObjectStorageRoutes } from "./ai_integrations/object_storage";
 import { registerVoiceTrainingRoutes } from "./voice-training";
 import { registerB2BRoutes } from "./b2b-routes";
 import { registerLocationRoutes } from "./location-routes";
@@ -104,7 +104,7 @@ export async function registerRoutes(
       let audioBuffer = demoTTSCache.get(cacheKey);
 
       if (!audioBuffer) {
-        const { textToSpeech } = await import("./replit_integrations/audio/client");
+        const { textToSpeech } = await import("./ai_integrations/audio/client");
         audioBuffer = await textToSpeech(text, voice as any, "mp3", language);
         if (demoTTSCache.size > 100) {
           const firstKey = demoTTSCache.keys().next().value;

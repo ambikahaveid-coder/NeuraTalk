@@ -292,7 +292,7 @@ export async function convertToUserVoice(
     }
 
     // Fallback to OpenAI TTS (via audio client which also tries ElevenLabs)
-    const { textToSpeech } = await import("./replit_integrations/audio/client");
+    const { textToSpeech } = await import("./ai_integrations/audio/client");
     const audioBuffer = await textToSpeech(request.text, "nova");
     
     return {
@@ -326,7 +326,7 @@ async function convertWithRVC(
   try {
     // Step 1: Generate base TTS audio using a neutral voice
     // This will be converted to user's voice by RVC
-    const { textToSpeech } = await import("./replit_integrations/audio/client");
+    const { textToSpeech } = await import("./ai_integrations/audio/client");
     const baseTTSBuffer = await textToSpeech(request.text, "onyx");
     
     // Step 2: Build multipart form data for RVC

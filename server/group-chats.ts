@@ -2,10 +2,10 @@ import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { groupChats, groupChatMembers, groupChatMessages, users } from "@shared/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
-import { ObjectStorageService } from "./replit_integrations/object_storage";
-import { speechToText, textToSpeech } from "./replit_integrations/audio/client";
+import { ObjectStorageService } from "./ai_integrations/object_storage";
+import { speechToText, textToSpeech } from "./ai_integrations/audio/client";
 import crypto from "crypto";
-import { openai } from "./replit_integrations/audio/client";
+import { openai } from "./ai_integrations/audio/client";
 import { Readable } from "stream";
 import { requireAuth } from "./role-middleware";
 

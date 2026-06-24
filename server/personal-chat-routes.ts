@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { personalChatMessages, personalChatThreads, userContacts, users } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
-import { openai } from "./replit_integrations/audio/client";
+import { openai } from "./ai_integrations/audio/client";
 import { requireAuth } from "./role-middleware";
 
 const router = Router();

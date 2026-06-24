@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useConversations, useCreateConversation } from "@/hooks/use-chat";
-import { useVoiceRecorder, useVoiceStream } from "@/replit_integrations/audio";
+import { useVoiceRecorder, useVoiceStream } from "@/ai_integrations/audio";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { ChatMessage } from "@/components/ChatMessage";
 import { TypingIndicator } from "@/components/TypingIndicator";

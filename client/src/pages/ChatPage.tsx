@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useContacts } from "@/hooks/use-contacts";
 import { getAuthToken, useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@/hooks/use-upload";
-import { useVoiceRecorder } from "@/replit_integrations/audio/useVoiceRecorder";
+import { useVoiceRecorder } from "@/ai_integrations/audio/useVoiceRecorder";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 type PeerSummary = {

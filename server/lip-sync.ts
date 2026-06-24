@@ -289,7 +289,7 @@ export function registerLipSyncRoutes(app: Express) {
             stage: 3,
             name: "Speech-to-Text",
             description: "Transcribe audio to text with timestamps",
-            technology: "gpt-4o-mini-transcribe (via Replit AI)",
+            technology: "gpt-4o-mini-transcribe (via NeuraTalk AI)",
           },
           {
             stage: 4,
@@ -329,7 +329,7 @@ export function registerLipSyncRoutes(app: Express) {
             models: ["RTX 3080", "RTX 4080", "A100", "V100"],
           },
           deployment: {
-            options: ["Self-hosted bare metal", "Cloud GPU (GCP/AWS)", "Replit Dedicated GPU"],
+            options: ["Self-hosted bare metal", "Cloud GPU (GCP/AWS)", "Cloud GPU"],
             recommended: "Self-hosted for cost efficiency at scale",
           },
         },

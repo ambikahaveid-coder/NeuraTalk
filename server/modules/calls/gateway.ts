@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { eq, desc, and, or } from "drizzle-orm";
 import { detectEmotion } from "../../emotion-engine";
-import { speechToText, textToSpeech } from "../../replit_integrations/audio/client";
+import { speechToText, textToSpeech } from "../../ai_integrations/audio/client";
 import { createStreamingCall } from "./streaming";
 import { signalingServer, type CallSession } from "../../signaling-server";
 import { mediaRelayServer, type MediaSession } from "../../media-relay";
@@ -599,7 +599,7 @@ async function translateWithEmotionPreservation(
     }
 
     // 2. OpenAI with emotion preservation
-    const { openai } = await import("../../replit_integrations/audio/client");
+    const { openai } = await import("../../ai_integrations/audio/client");
 
     const response = await openai.chat.completions.create({
       model: "gpt-4.1-nano",
