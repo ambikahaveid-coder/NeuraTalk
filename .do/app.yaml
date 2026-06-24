@@ -90,6 +90,9 @@ services:
       - key: VITE_FIREBASE_MEASUREMENT_ID
         value: G-71G09M618D
         scope: RUN_AND_BUILD_TIME
+      - key: VITE_FIREBASE_APP_ID
+        value: 1:612487293092:web:2aa2cf6d2c33e74b335e31
+        scope: RUN_AND_BUILD_TIME
       - key: FIREBASE_PROJECT_ID
         value: neuratalk-c6683
         scope: RUN_TIME
