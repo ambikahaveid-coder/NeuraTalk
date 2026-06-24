@@ -19,7 +19,6 @@ const MOCK_PATTERNS = [
 const BOOTSTRAP_REQUIRED_VARS = ["DATABASE_URL", "REDIS_URL", "SESSION_SECRET"];
 
 const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
-  STT_PROVIDER: "STT provider selection must be explicit for production",
   AZURE_SPEECH_KEY: "Streaming TTS is required for production voice paths",
   AZURE_SPEECH_REGION: "Azure speech region must be explicitly configured",
   LIVEKIT_URL: "Realtime media transport depends on LiveKit",
@@ -28,13 +27,14 @@ const PRODUCTION_REQUIRED_VARS: Record<string, string> = {
   OPENAI_API_KEY: "Core realtime translation paths depend on OpenAI",
   APP_BASE_URL: "External callbacks and provider webhooks require a stable public base URL",
   FIREBASE_SERVICE_ACCOUNT_JSON: "Firebase Phone Auth is the sole mobile OTP method — Admin SDK must be able to verify tokens",
-  VITE_FIREBASE_API_KEY: "Firebase client SDK cannot request phone OTP without this",
-  VITE_FIREBASE_PROJECT_ID: "Firebase client SDK needs the project ID",
-  VITE_FIREBASE_APP_ID: "Firebase client SDK needs the app ID",
 };
 
 
 const IMPORTANT_VARS: Record<string, string> = {
+  VITE_FIREBASE_API_KEY: "Firebase client SDK cannot initialize without this (build-time var)",
+  VITE_FIREBASE_PROJECT_ID: "Firebase client SDK needs the project ID (build-time var)",
+  VITE_FIREBASE_APP_ID: "Firebase client SDK needs the app ID (build-time var)",
+  STT_PROVIDER: "STT provider not set — defaulting to azure",
   MSG91_AUTH_KEY: "Outbound PSTN calls to phones remain unavailable",
   MSG91_VOICE_CALLER_ID: "Verified PSTN caller identity will be unavailable",
   MSG91_WEBHOOK_SECRET: "Inbound telephony webhooks will not be authenticated",
