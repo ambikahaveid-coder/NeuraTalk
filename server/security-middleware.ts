@@ -48,7 +48,20 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
   // blocking those causes a blank page when the DO preview URL differs from
   // the configured ALLOWED_ORIGINS domain.
   if (origin && isApiRoute) {
-    if (!isOriginAllowed(origin)) {
+    // Same-origin requests are always allowed.
+    // Chrome sends Origin even for same-origin POSTs, and we must not block them.
+    let blocked = false;
+    try {
+      const originHost = new URL(origin).hostname;
+      const reqHost = (req.headers.host || "").split(":")[0];
+      const isSameOrigin = originHost === req.hostname || originHost === reqHost;
+      if (!isSameOrigin && !isOriginAllowed(origin)) {
+        blocked = true;
+      }
+    } catch {
+      if (!isOriginAllowed(origin)) blocked = true;
+    }
+    if (blocked) {
       logger.warn("Security", "Rejected CORS origin", { origin, path: req.path });
       res.status(403).json({ success: false, message: "Origin not allowed" });
       return;
