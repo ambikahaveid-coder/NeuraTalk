@@ -123,7 +123,7 @@ services:
       branch: neuratalk-clean-release
       deploy_on_push: true
     build_command: npm ci --omit=dev
-    run_command: npm run db:push && node dist/index.cjs
+    run_command: node dist/index.cjs
     environment_slug: node-js
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb
