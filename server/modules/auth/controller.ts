@@ -280,6 +280,44 @@ export async function otpVerify(req: Request, res: Response) {
   }
 }
 
+export async function adminSecretLogin(req: Request, res: Response) {
+  try {
+    const schema = z.object({
+      email: z.string().email(),
+      secret: z.string().min(1),
+    });
+    const { email, secret } = schema.parse(req.body);
+
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const superAdminSecret = process.env.SUPER_ADMIN_SECRET;
+
+    if (!superAdminSecret || !superAdminEmail) {
+      return res.status(503).json({ success: false, message: "Admin secret login is not configured." });
+    }
+
+    if (email !== superAdminEmail || secret !== superAdminSecret) {
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
+    }
+
+    const result = await svc.loginBySuperAdminEmail(email, {
+      userAgent: req.headers["user-agent"],
+      ipAddress: req.ip || req.socket.remoteAddress,
+    });
+
+    if ("error" in result) {
+      return res.status(401).json({ success: false, message: "Super admin account not found. Check seeding." });
+    }
+
+    res.json({ success: true, token: result.token, user: result.user });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ success: false, message: err.errors[0].message });
+    }
+    logger.error("Auth", "Admin secret login failed", err as Error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
+
 export async function logout(req: Request, res: Response) {
   try {
     const authHeader = req.headers.authorization;

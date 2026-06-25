@@ -40,6 +40,9 @@ export function registerAuthRoutes(app: Express): void {
   app.post("/api/auth/otp/request", otpRequestLimiter, otpPhoneRequestLimiter, otpRequestDailyLimiter, ctrl.otpRequest);
   app.post("/api/auth/otp/verify", otpVerifyLimiter, otpVerifyLockoutCheck(), ctrl.otpVerify);
 
+  // Admin secret login (email + SUPER_ADMIN_SECRET env var — bypasses OTP/Firebase)
+  app.post("/api/auth/admin-secret", authLimiter, ctrl.adminSecretLogin);
+
   // Logout
   app.post("/api/auth/logout", loadUser, ctrl.logout);
 }

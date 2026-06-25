@@ -454,6 +454,40 @@ export async function verifyAuthOtp(params: {
   };
 }
 
+export async function loginBySuperAdminEmail(
+  email: string,
+  context?: { userAgent?: string; ipAddress?: string },
+) {
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, email),
+    with: { organization: true },
+  });
+
+  if (!user || user.role !== "super_admin") {
+    return { error: "NOT_FOUND" as const };
+  }
+
+  const token = await createSession(
+    user.id,
+    context?.userAgent,
+    context?.ipAddress,
+    buildSessionBinding(user.organization ?? null),
+  );
+  await AuditHelpers.logLogin(user.id, context?.ipAddress, context?.userAgent, user.organizationId ?? undefined);
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      organization: user.organization,
+    },
+  };
+}
+
 export async function logout(token: string | undefined, userId?: number) {
   if (token) {
     try { await invalidateSession(token); } catch { /* best-effort */ }

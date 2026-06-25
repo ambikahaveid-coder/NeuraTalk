@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Shield, Lock } from "lucide-react";
+import { Loader2, Shield, Lock, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import {
@@ -26,15 +26,20 @@ import {
   verifyOtpWithFirebase,
 } from "@/lib/firebase";
 
+type LoginMode = "otp" | "password";
+
 export default function AdminLogin() {
+  const [loginMode, setLoginMode] = useState<LoginMode>("password");
   const [step, setStep] = useState<"identifier" | "otp">("identifier");
   const [phoneCountryCode, setPhoneCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [identifier, setIdentifier] = useState("");
   const [otpCode, setOtpCode] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
   const [firebaseEnabled, setFirebaseEnabled] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
   const [isSendingFirebaseOtp, setIsSendingFirebaseOtp] = useState(false);
   const [isVerifyingFirebaseOtp, setIsVerifyingFirebaseOtp] = useState(false);
+  const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
   const recaptchaContainerRef = useRef<HTMLDivElement>(null);
   const { requestOtp, verifyOtp, isRequestingOtp, isVerifyingOtp } = useAuth();
   const { toast } = useToast();
@@ -47,6 +52,38 @@ export default function AdminLogin() {
   }, []);
 
   const phoneOtpProvider = getPhoneOtpProvider();
+
+  const handleAdminPasswordLogin = async () => {
+    if (!identifier || !adminPassword) return;
+    setIsSubmittingPassword(true);
+    try {
+      const res = await fetch("/api/auth/admin-secret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: identifier.trim(), secret: adminPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        toast({ title: "Login Failed", description: data.message || "Invalid credentials.", variant: "destructive" });
+        return;
+      }
+      // Store token same way as OTP flow
+      if (data.token) {
+        localStorage.setItem("auth_token", data.token);
+      }
+      if (data.user?.role === "super_admin") {
+        toast({ title: "Welcome", description: "Admin access granted" });
+        // Reload so useAuth picks up the new session
+        window.location.href = "/admin";
+      } else {
+        toast({ title: "Access Denied", description: "This portal is for administrators only", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Login failed", variant: "destructive" });
+    } finally {
+      setIsSubmittingPassword(false);
+    }
+  };
 
   const handleRequestOtp = async () => {
     try {
@@ -61,7 +98,6 @@ export default function AdminLogin() {
       const normalizedIdentifier = channel === "mobile" ? normalizePhoneForCountry(identifier, phoneCountryCode) : identifier.trim();
 
       if (channel === "mobile") {
-        // Firebase Phone Auth is the only mobile authentication method — no SMS fallback.
         if (!firebaseEnabled) {
           toast({
             title: "Phone login unavailable",
@@ -140,15 +176,15 @@ export default function AdminLogin() {
       } else {
         result = await verifyOtp({ identifier: normalizedIdentifier, channel, code: otpCode });
       }
-      
+
       if (result.success && result.user?.role === "super_admin") {
         toast({ title: "Welcome", description: "Admin access granted" });
         setLocation("/admin");
       } else if (result.success) {
-        toast({ 
-          title: "Access Denied", 
-          description: "This portal is for administrators only", 
-          variant: "destructive" 
+        toast({
+          title: "Access Denied",
+          description: "This portal is for administrators only",
+          variant: "destructive"
         });
       }
     } catch (error: any) {
@@ -172,93 +208,136 @@ export default function AdminLogin() {
             <Shield className="w-6 h-6 text-primary" />
           </div>
           <CardTitle className="text-xl">System Access</CardTitle>
+
+          {/* Mode tabs */}
+          <div className="flex gap-2 mt-4 bg-muted rounded-lg p-1">
+            <button
+              className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${loginMode === "password" ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}
+              onClick={() => { setLoginMode("password"); setStep("identifier"); }}
+            >
+              <KeyRound className="w-3.5 h-3.5 inline mr-1" />
+              Password
+            </button>
+            <button
+              className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${loginMode === "otp" ? "bg-background shadow text-foreground" : "text-muted-foreground"}`}
+              onClick={() => { setLoginMode("otp"); setStep("identifier"); }}
+            >
+              <Lock className="w-3.5 h-3.5 inline mr-1" />
+              OTP
+            </button>
+          </div>
         </CardHeader>
+
         <CardContent className="space-y-4">
-          {step === "identifier" ? (
+          {loginMode === "password" ? (
             <>
               <div className="space-y-2">
-                {!identifier.includes("@") && (
-                  <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
-                    <SelectTrigger data-testid="select-admin-country">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {countries.map((country) => (
-                        <SelectItem key={country.code} value={country.code}>
-                          {country.name} ({country.dialCode})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
                 <Input
-                  data-testid="input-admin-identifier"
-                  type="text"
-                  placeholder={!identifier.includes("@") ? "Phone number or admin@company.com" : "admin@company.com"}
+                  type="email"
+                  placeholder="Admin email"
                   value={identifier}
-                  onChange={(e) => {
-                    const nextValue = e.target.value;
-                    if (nextValue.includes("@")) {
-                      setIdentifier(nextValue);
-                      return;
-                    }
-                    const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
-                    setIdentifier(sanitizePhoneInput(nextValue, selectedCountry?.phoneLength || 15));
-                  }}
-                  onKeyDown={(e) => e.key === "Enter" && handleRequestOtp()}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAdminPasswordLogin()}
                 />
-                {!identifier.includes("@") && (
-                  <p className="text-xs text-muted-foreground">
-                    {phoneOtpProvider === "firebase"
-                      ? "Firebase phone OTP is enabled for this screen. If delivery fails, the flow will fall back to direct SMS."
-                      : "Direct SMS OTP is enabled for admin login. The selected country code is applied automatically."}
-                  </p>
-                )}
+                <Input
+                  type="password"
+                  placeholder="Admin password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAdminPasswordLogin()}
+                />
               </div>
-              <Button 
-                data-testid="button-admin-continue"
-                className="w-full" 
-                onClick={handleRequestOtp}
-                disabled={!identifier || isOtpRequestLoading}
+              <Button
+                className="w-full"
+                onClick={handleAdminPasswordLogin}
+                disabled={!identifier || !adminPassword || isSubmittingPassword}
               >
-                {isOtpRequestLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
-                Continue
+                {isSubmittingPassword ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <KeyRound className="w-4 h-4 mr-2" />}
+                Sign In
               </Button>
             </>
           ) : (
             <>
-              <div className="space-y-2">
-                <Input
-                  data-testid="input-admin-otp"
-                  type="text"
-                  placeholder="Enter verification code"
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()}
-                  maxLength={6}
-                  className="text-center text-2xl tracking-widest"
-                />
-              </div>
-              <Button 
-                data-testid="button-admin-verify"
-                className="w-full" 
-                onClick={handleVerifyOtp}
-                disabled={otpCode.length !== 6 || isOtpVerifyLoading}
-              >
-                {isOtpVerifyLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Verify
-              </Button>
-              <Button 
-                variant="ghost" 
-                className="w-full" 
-                onClick={() => {
-                  setConfirmationResult(null);
-                  setOtpCode("");
-                  setStep("identifier");
-                }}
-              >
-                Back
-              </Button>
+              {step === "identifier" ? (
+                <>
+                  <div className="space-y-2">
+                    {!identifier.includes("@") && (
+                      <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
+                        <SelectTrigger data-testid="select-admin-country">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {countries.map((country) => (
+                            <SelectItem key={country.code} value={country.code}>
+                              {country.name} ({country.dialCode})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <Input
+                      data-testid="input-admin-identifier"
+                      type="text"
+                      placeholder="Phone number or admin@company.com"
+                      value={identifier}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        if (nextValue.includes("@")) {
+                          setIdentifier(nextValue);
+                          return;
+                        }
+                        const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
+                        setIdentifier(sanitizePhoneInput(nextValue, selectedCountry?.phoneLength || 15));
+                      }}
+                      onKeyDown={(e) => e.key === "Enter" && handleRequestOtp()}
+                    />
+                  </div>
+                  <Button
+                    data-testid="button-admin-continue"
+                    className="w-full"
+                    onClick={handleRequestOtp}
+                    disabled={!identifier || isOtpRequestLoading}
+                  >
+                    {isOtpRequestLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
+                    Send Code
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Input
+                      data-testid="input-admin-otp"
+                      type="text"
+                      placeholder="Enter verification code"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleVerifyOtp()}
+                      maxLength={6}
+                      className="text-center text-2xl tracking-widest"
+                    />
+                  </div>
+                  <Button
+                    data-testid="button-admin-verify"
+                    className="w-full"
+                    onClick={handleVerifyOtp}
+                    disabled={otpCode.length !== 6 || isOtpVerifyLoading}
+                  >
+                    {isOtpVerifyLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Verify
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => {
+                      setConfirmationResult(null);
+                      setOtpCode("");
+                      setStep("identifier");
+                    }}
+                  >
+                    Back
+                  </Button>
+                </>
+              )}
             </>
           )}
         </CardContent>

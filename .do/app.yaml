@@ -60,6 +60,9 @@ envs:
   - key: SUPER_ADMIN_PHONE
     value: "+918125557378"
     scope: RUN_TIME
+  - key: SUPER_ADMIN_SECRET
+    value: "NeuraTalk@Admin2025!Secure"
+    scope: RUN_TIME
 
   # ── Domain / CORS ────────────────────────────────────────────────────────────
   - key: APP_BASE_URL
