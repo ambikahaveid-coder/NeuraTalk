@@ -18,6 +18,14 @@ envs:
     value: "false"
     scope: RUN_TIME
 
+  # ── Session / Redis (in-memory shim for single-instance deployment) ──────────
+  - key: SESSION_SECRET
+    value: NeuraTalkProd2025SecureKey7Z9mQX4b
+    scope: RUN_TIME
+  - key: REDIS_URL
+    value: memory://local
+    scope: RUN_TIME
+
   # ── Auth / OTP ───────────────────────────────────────────────────────────────
   - key: PHONE_OTP_PROVIDER
     value: firebase
