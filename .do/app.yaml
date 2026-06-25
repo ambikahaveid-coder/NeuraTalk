@@ -122,7 +122,7 @@ services:
       repo: ambikahaveid-coder/NeuraTalk
       branch: neuratalk-clean-release
       deploy_on_push: true
-    build_command: npm install && npm run build
+    build_command: npm ci && npm run build
     run_command: npm run db:push && node dist/index.cjs
     environment_slug: node-js
     instance_count: 1
