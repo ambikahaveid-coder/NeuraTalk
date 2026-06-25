@@ -61,7 +61,7 @@ envs:
     value: "+918125557378"
     scope: RUN_TIME
   - key: SUPER_ADMIN_SECRET
-    value: "NeuraTalk@Admin2025!Secure"
+    value: NeuraTalkAdmin2025Kiran
     scope: RUN_TIME
 
   # ── Domain / CORS ────────────────────────────────────────────────────────────

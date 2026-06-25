@@ -62,6 +62,15 @@ export default function AdminLogin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: identifier.trim(), secret: adminPassword }),
       });
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        toast({
+          title: "Server Restarting",
+          description: "New version is deploying. Please wait 1 minute and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
       const data = await res.json();
       if (!res.ok || !data.success) {
         toast({ title: "Login Failed", description: data.message || "Invalid credentials.", variant: "destructive" });
