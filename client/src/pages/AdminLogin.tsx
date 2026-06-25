@@ -41,7 +41,7 @@ export default function AdminLogin() {
   const [isVerifyingFirebaseOtp, setIsVerifyingFirebaseOtp] = useState(false);
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
   const recaptchaContainerRef = useRef<HTMLDivElement>(null);
-  const { requestOtp, verifyOtp, isRequestingOtp, isVerifyingOtp } = useAuth();
+  const { requestOtp, verifyOtp, isRequestingOtp, isVerifyingOtp, setAuth } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
@@ -76,14 +76,10 @@ export default function AdminLogin() {
         toast({ title: "Login Failed", description: data.message || "Invalid credentials.", variant: "destructive" });
         return;
       }
-      // Store token same way as OTP flow
-      if (data.token) {
-        localStorage.setItem("auth_token", data.token);
-      }
       if (data.user?.role === "super_admin") {
+        setAuth(data.token, data.user);
         toast({ title: "Welcome", description: "Admin access granted" });
-        // Reload so useAuth picks up the new session
-        window.location.href = "/admin";
+        setLocation("/admin");
       } else {
         toast({ title: "Access Denied", description: "This portal is for administrators only", variant: "destructive" });
       }
