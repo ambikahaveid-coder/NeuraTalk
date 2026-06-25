@@ -46,7 +46,7 @@
 - **PostgreSQL 15+** (managed service recommended)
 - **Redis 7.x** (Required for Signaling Scale)
 - **ffmpeg** (for audio format conversion)
-- **nginx** (as reverse proxy, optional for non-Replit)
+- **nginx** (as reverse proxy, optional for non-DigitalOcean)
 - **PM2** or **systemd** (process manager for production)
 
 ### Optional for AI Features
@@ -105,8 +105,8 @@ WS_SCALING_ENABLED=true
 # Authentication
 SESSION_SECRET=your-256-bit-random-secret-here
 
-# AI Services (OpenAI via Replit Integrations or direct)
-OPENAI_API_KEY=sk-xxxxx  # Or use Replit AI Integrations
+# AI Services (OpenAI direct)
+OPENAI_API_KEY=sk-xxxxx  
 # OpenAI API Key:
 AI_INTEGRATIONS_OPENAI_API_KEY=auto-configured
 AI_INTEGRATIONS_OPENAI_BASE_URL=auto-configured
@@ -834,4 +834,5 @@ neuratalk/
 â”œâ”€â”€ DEPLOYMENT_GUIDE.md         # This file
 â””â”€â”€ README.md                   # Project metadata
 ```
+
 

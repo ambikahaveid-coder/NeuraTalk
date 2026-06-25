@@ -1,4 +1,4 @@
-# NeuraTalk B2B Integration Guide
+﻿# NeuraTalk B2B Integration Guide
 
 ## Call Center Phone System Integration
 
@@ -9,34 +9,34 @@ This guide explains how call centers can connect their existing phone infrastruc
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         CALL CENTER INFRASTRUCTURE                       │
-│                                                                          │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐          │
-│   │   Agents     │◄──►│     PBX      │◄──►│   SIP Trunk      │          │
-│   │  (Softphone) │    │(Asterisk/etc)│    │  Provider        │          │
-│   └──────────────┘    └──────────────┘    └──────────────────┘          │
-│                              │                                           │
-│                              │ SIP/RTP                                   │
-└──────────────────────────────┼───────────────────────────────────────────┘
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         NEURATALK PLATFORM                                │
-│                                                                           │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐           │
-│   │   SIP Edge   │◄──►│  Media Relay │◄──►│  AI Translation  │           │
-│   │   Gateway    │    │  (RTP Proxy) │    │     Pipeline     │           │
-│   └──────────────┘    └──────────────┘    └──────────────────┘           │
-│          │                   │                      │                     │
-│          │                   │                      │                     │
-│          ▼                   ▼                      ▼                     │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐           │
-│   │   Signaling  │◄──►│   WebSocket  │◄──►│   Agent Portal   │           │
-│   │    Server    │    │   Control    │    │   (Subtitles)    │           │
-│   └──────────────┘    └──────────────┘    └──────────────────┘           │
-│                                                                           │
-└───────────────────────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                         CALL CENTER INFRASTRUCTURE                       â”‚
+â”‚                                                                          â”‚
+â”‚   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”          â”‚
+â”‚   â”‚   Agents     â”‚â—„â”€â”€â–ºâ”‚     PBX      â”‚â—„â”€â”€â–ºâ”‚   SIP Trunk      â”‚          â”‚
+â”‚   â”‚  (Softphone) â”‚    â”‚(Asterisk/etc)â”‚    â”‚  Provider        â”‚          â”‚
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜          â”‚
+â”‚                              â”‚                                           â”‚
+â”‚                              â”‚ SIP/RTP                                   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                               â”‚
+                               â–¼
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                         NEURATALK PLATFORM                                â”‚
+â”‚                                                                           â”‚
+â”‚   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”           â”‚
+â”‚   â”‚   SIP Edge   â”‚â—„â”€â”€â–ºâ”‚  Media Relay â”‚â—„â”€â”€â–ºâ”‚  AI Translation  â”‚           â”‚
+â”‚   â”‚   Gateway    â”‚    â”‚  (RTP Proxy) â”‚    â”‚     Pipeline     â”‚           â”‚
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â”‚
+â”‚          â”‚                   â”‚                      â”‚                     â”‚
+â”‚          â”‚                   â”‚                      â”‚                     â”‚
+â”‚          â–¼                   â–¼                      â–¼                     â”‚
+â”‚   â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”           â”‚
+â”‚   â”‚   Signaling  â”‚â—„â”€â”€â–ºâ”‚   WebSocket  â”‚â—„â”€â”€â–ºâ”‚   Agent Portal   â”‚           â”‚
+â”‚   â”‚    Server    â”‚    â”‚   Control    â”‚    â”‚   (Subtitles)    â”‚           â”‚
+â”‚   â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜           â”‚
+â”‚                                                                           â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ---
@@ -89,7 +89,7 @@ exten => _X.,n,Hangup()
 #### Integration Code:
 ```javascript
 // Connect agent to NeuraTalk WebRTC gateway
-const signalingSocket = new WebSocket('wss://yourapp.replit.app/ws/signaling');
+const signalingSocket = new WebSocket('wss://neuratalk.in/ws/signaling');
 
 signalingSocket.onopen = () => {
   // Register as enterprise agent
@@ -213,7 +213,7 @@ Realm: neuratalk.yourcompany.com
 
 ### Connection
 ```javascript
-const ws = new WebSocket('wss://yourapp.replit.app/ws/enterprise-control');
+const ws = new WebSocket('wss://neuratalk.in/ws/enterprise-control');
 
 ws.onopen = () => {
   ws.send(JSON.stringify({
@@ -226,7 +226,7 @@ ws.onopen = () => {
 
 ### Message Types
 
-#### Outbound Messages (Client → Server)
+#### Outbound Messages (Client â†’ Server)
 ```javascript
 // Start call
 { type: 'call:start', destination: '+91...', agentId: '...', languages: ['en', 'te'] }
@@ -241,7 +241,7 @@ ws.onopen = () => {
 { type: 'call:translation:config', callId: '...', source: 'en', target: 'hi' }
 ```
 
-#### Inbound Messages (Server → Client)
+#### Inbound Messages (Server â†’ Client)
 ```javascript
 // Call state updates
 { type: 'call:ringing', callId: '...', destination: '...' }
@@ -290,7 +290,7 @@ ws.onopen = () => {
 async function syncToSalesforce(callId, translations) {
   await salesforce.Case.update(caseId, {
     Call_Translation_Notes__c: translations.map(t => 
-      `[${t.timestamp}] ${t.speaker}: ${t.originalText} → ${t.translatedText}`
+      `[${t.timestamp}] ${t.speaker}: ${t.originalText} â†’ ${t.translatedText}`
     ).join('\n')
   });
 }
@@ -354,7 +354,7 @@ const usage = await fetch('/api/enterprise/usage?period=current-month', {
     "en-ta": 1280
   },
   "emotionDetectionMinutes": 8500,
-  "estimatedCost": "₹52,400"
+  "estimatedCost": "â‚¹52,400"
 }
 ```
 
@@ -459,3 +459,4 @@ services:
 
 *Last Updated: January 2026*
 *NeuraTalk Platform Version: 2.0*
+

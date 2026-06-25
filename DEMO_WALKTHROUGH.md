@@ -1,4 +1,4 @@
-# NeuraTalk Demo Walkthrough
+﻿# NeuraTalk Demo Walkthrough
 
 ## Demo Overview
 
@@ -218,3 +218,4 @@ This document provides a step-by-step guide for demonstrating NeuraTalk's capabi
 
 **Company**: Mindwhile It Solutions Pvt Ltd
 **Location**: 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503
+

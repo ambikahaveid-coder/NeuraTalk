@@ -776,3 +776,4 @@ Update the API base URL in `flutter_app/lib/services/app_config.dart` to point t
 | Check system health | `GET /api/health` |
 | Build Flutter APK | `cd flutter_app && flutter build apk --release` |
 
+
