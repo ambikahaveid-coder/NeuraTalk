@@ -8,8 +8,8 @@ This document provides a step-by-step guide for demonstrating NeuraTalk's capabi
 
 ## Demo URL
 
-**Development**: https://[your-repl-id].replit.app
-**Production**: Your published URL (e.g., https://neuratalk.replit.app)
+**Development**: http://localhost:5000
+**Production**: https://neuratalk.in
 
 ---
 

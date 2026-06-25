@@ -170,12 +170,7 @@ export async function initiateSimCall(options: {
   }).returning();
 
   const wsToken = `sim_${call.id}_${Date.now().toString(36)}`;
-  const baseUrl = process.env.APP_BASE_URL
-    || (process.env.REPL_SLUG
-      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-      : process.env.REPLIT_DEV_DOMAIN
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : `http://localhost:5000`);
+  const baseUrl = process.env.APP_BASE_URL || `http://localhost:5000`;
 
   // CRITICAL: Twilio cannot reach localhost — must be a public URL
   if (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1")) {

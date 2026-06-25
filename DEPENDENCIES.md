@@ -1,4 +1,4 @@
-# NeuraTalk Dependency Audit
+﻿# NeuraTalk Dependency Audit
 
 ## Dependency Zero Policy
 
@@ -44,9 +44,9 @@ This document audits all external dependencies used by NeuraTalk and ensures com
 
 | Service | Purpose | Interface Location | Self-Hosted Alternative |
 |---------|---------|-------------------|------------------------|
-| OpenAI Whisper | Speech-to-Text | `server/replit_integrations/audio/client.ts` | Vosk, Whisper.cpp |
-| OpenAI TTS | Text-to-Speech | `server/replit_integrations/audio/client.ts` | Coqui TTS, Piper |
-| OpenAI GPT | Translation/Chat | `server/replit_integrations/ai/client.ts` | LLaMA, Mistral |
+| OpenAI Whisper | Speech-to-Text | `server/ai_integrations/audio/client.ts` | Vosk, Whisper.cpp |
+| OpenAI TTS | Text-to-Speech | `server/ai_integrations/audio/client.ts` | Coqui TTS, Piper |
+| OpenAI GPT | Translation/Chat | `server/ai_integrations/ai/client.ts` | LLaMA, Mistral |
 
 **Isolation Strategy:** All AI services are accessed through abstracted interfaces. To swap providers:
 1. Implement the same interface with the new provider
@@ -110,7 +110,7 @@ These are dependencies that are critical to core functionality:
 - **Can we replace it?** Native module, no replacement needed
 
 ### 4. Speech Processing
-- **Dependency:** OpenAI API (via Replit integration)
+- **Dependency:** OpenAI API (via NeuraTalk AI integration)
 - **What it does:** Speech-to-text, text-to-speech
 - **Isolation:** Behind `speechToText()` and `textToSpeech()` interfaces
 - **Can we replace it?** Yes, interface allows drop-in replacement
@@ -183,3 +183,4 @@ For full independence from cloud APIs, these can be deployed:
 | OpenAI GPT API | LLaMA / Mistral | Interface ready |
 
 All interfaces are designed to accept these replacements with minimal code changes.
+

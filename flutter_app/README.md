@@ -1,4 +1,4 @@
-# NeuraTalk Flutter App
+﻿# NeuraTalk Flutter App
 
 Cross-platform mobile application for NeuraTalk - Voice AI Communication Platform with Real-Time Translation.
 
@@ -53,7 +53,7 @@ flutter build ios --release
 
 1. Update the API base URL in `lib/services/api_service.dart`:
 ```dart
-static const String baseUrl = 'https://your-app.replit.app';
+static const String baseUrl = 'https://neuratalk.in';
 ```
 
 2. For production, configure:
@@ -65,22 +65,22 @@ static const String baseUrl = 'https://your-app.replit.app';
 
 ```
 flutter_app/
-├── lib/
-│   ├── main.dart           # App entry point & theme
-│   ├── models/             # Data models
-│   │   └── user.dart
-│   ├── screens/            # App screens
-│   │   ├── login_screen.dart
-│   │   ├── home_screen.dart
-│   │   └── call_screen.dart
-│   ├── services/           # API & business logic
-│   │   ├── api_service.dart
-│   │   ├── auth_service.dart
-│   │   └── audio_service.dart
-│   └── widgets/            # Reusable widgets
-│       └── waveform_visualizer.dart
-├── pubspec.yaml            # Dependencies
-└── README.md
+â”œâ”€â”€ lib/
+â”‚   â”œâ”€â”€ main.dart           # App entry point & theme
+â”‚   â”œâ”€â”€ models/             # Data models
+â”‚   â”‚   â””â”€â”€ user.dart
+â”‚   â”œâ”€â”€ screens/            # App screens
+â”‚   â”‚   â”œâ”€â”€ login_screen.dart
+â”‚   â”‚   â”œâ”€â”€ home_screen.dart
+â”‚   â”‚   â””â”€â”€ call_screen.dart
+â”‚   â”œâ”€â”€ services/           # API & business logic
+â”‚   â”‚   â”œâ”€â”€ api_service.dart
+â”‚   â”‚   â”œâ”€â”€ auth_service.dart
+â”‚   â”‚   â””â”€â”€ audio_service.dart
+â”‚   â””â”€â”€ widgets/            # Reusable widgets
+â”‚       â””â”€â”€ waveform_visualizer.dart
+â”œâ”€â”€ pubspec.yaml            # Dependencies
+â””â”€â”€ README.md
 ```
 
 ## Dependencies
@@ -176,7 +176,7 @@ open ios/Runner.xcworkspace
 Update `lib/services/api_service.dart` with your backend URL:
 
 ```dart
-static const String baseUrl = 'https://your-neuratalk-app.replit.app';
+static const String baseUrl = 'https://neuratalk.in';
 ```
 
 ## Firebase Setup
@@ -189,3 +189,4 @@ static const String baseUrl = 'https://your-neuratalk-app.replit.app';
 ## License
 
 Proprietary - 2026 Mindwhile IT Solutions Pvt Ltd
+

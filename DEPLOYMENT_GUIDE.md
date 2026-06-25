@@ -1,6 +1,6 @@
-# NeuraTalk - Production Deployment & Hosting Guide
+﻿# NeuraTalk - Production Deployment & Hosting Guide
 
-**Version 2.0 — February 2026**
+**Version 2.0 â€” February 2026**
 **Mindwhile IT Solutions Pvt Ltd**
 
 ---
@@ -14,7 +14,7 @@
 5. [Building for Production](#5-building-for-production)
 6. [Deployment Options](#6-deployment-options)
 7. [AWS Deployment (Recommended)](#7-aws-deployment-recommended)
-8. [Replit Deployment](#8-replit-deployment)
+8. [DigitalOcean Deployment](#8-replit-deployment)
 9. [VPS/Self-Hosted Deployment](#9-vpsself-hosted-deployment)
 10. [Payment Gateway Configuration](#10-payment-gateway-configuration)
 11. [SSL/TLS & Domain Setup](#11-ssltls--domain-setup)
@@ -58,34 +58,34 @@
 ## 2. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Client (Browser/App)                   │
-│         React SPA / Flutter App / React Native           │
-└────────────────────┬────────────────────────────────────┘
-                     │ HTTPS
-┌────────────────────▼────────────────────────────────────┐
-│              Reverse Proxy (nginx/Replit)                 │
-│            SSL Termination, Rate Limiting                │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│              Node.js Express Server (Port 5000)          │
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │ REST API │  │WebSocket │  │ SDK API  │              │
-│  │ Routes   │  │Signaling │  │ Routes   │              │
-│  └──────────┘  └──────────┘  └──────────┘              │
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │ Auth &   │  │ Billing  │  │ Voice AI │              │
-│  │ Sessions │  │ Engine   │  │ Pipeline │              │
-│  └──────────┘  └──────────┘  └──────────┘              │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│              PostgreSQL Database                         │
-│              62 Tables, Full ACID                        │
-└─────────────────────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                    Client (Browser/App)                   â”‚
+â”‚         React SPA / Flutter App / React Native           â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                     â”‚ HTTPS
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚              Reverse Proxy (nginx/DigitalOcean)                 â”‚
+â”‚            SSL Termination, Rate Limiting                â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                     â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚              Node.js Express Server (Port 5000)          â”‚
+â”‚                                                          â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”              â”‚
+â”‚  â”‚ REST API â”‚  â”‚WebSocket â”‚  â”‚ SDK API  â”‚              â”‚
+â”‚  â”‚ Routes   â”‚  â”‚Signaling â”‚  â”‚ Routes   â”‚              â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜              â”‚
+â”‚                                                          â”‚
+â”‚  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”              â”‚
+â”‚  â”‚ Auth &   â”‚  â”‚ Billing  â”‚  â”‚ Voice AI â”‚              â”‚
+â”‚  â”‚ Sessions â”‚  â”‚ Engine   â”‚  â”‚ Pipeline â”‚              â”‚
+â”‚  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜              â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                     â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚              PostgreSQL Database                         â”‚
+â”‚              62 Tables, Full ACID                        â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ---
@@ -107,7 +107,7 @@ SESSION_SECRET=your-256-bit-random-secret-here
 
 # AI Services (OpenAI via Replit Integrations or direct)
 OPENAI_API_KEY=sk-xxxxx  # Or use Replit AI Integrations
-# If using Replit AI Integrations:
+# OpenAI API Key:
 AI_INTEGRATIONS_OPENAI_API_KEY=auto-configured
 AI_INTEGRATIONS_OPENAI_BASE_URL=auto-configured
 
@@ -192,82 +192,82 @@ npm run dev  # Auto-seeds on first start
 ### Database Tables (62 total)
 
 **Core Tables:**
-- `users` — User accounts (67 users across 5 roles)
-- `organizations` — B2B tenant companies (9 orgs)
-- `user_sessions` — Active login sessions
-- `otp_challenges` — OTP verification codes
+- `users` â€” User accounts (67 users across 5 roles)
+- `organizations` â€” B2B tenant companies (9 orgs)
+- `user_sessions` â€” Active login sessions
+- `otp_challenges` â€” OTP verification codes
 
 **Communication:**
-- `conversations` — Chat threads
-- `messages` — Chat messages
-- `bridged_calls` — SIM-to-SIM call records
-- `call_telemetry` — Call quality metrics
-- `call_participants` — Multi-party call tracking
-- `call_translations` — Translation records
-- `call_consents` — User consent for recording
-- `meeting_rooms` — Meeting hub rooms
-- `meeting_participants` — Meeting attendees
-- `voice_memos` — Voice memo recordings
-- `group_chats` — Group conversations
-- `group_chat_members` — Group membership
-- `group_chat_messages` — Group messages
-- `signaling_sessions` — WebRTC signaling state
+- `conversations` â€” Chat threads
+- `messages` â€” Chat messages
+- `bridged_calls` â€” SIM-to-SIM call records
+- `call_telemetry` â€” Call quality metrics
+- `call_participants` â€” Multi-party call tracking
+- `call_translations` â€” Translation records
+- `call_consents` â€” User consent for recording
+- `meeting_rooms` â€” Meeting hub rooms
+- `meeting_participants` â€” Meeting attendees
+- `voice_memos` â€” Voice memo recordings
+- `group_chats` â€” Group conversations
+- `group_chat_members` â€” Group membership
+- `group_chat_messages` â€” Group messages
+- `signaling_sessions` â€” WebRTC signaling state
 
 **Voice & AI:**
-- `voice_profiles` — User voice identity profiles
-- `voice_samples` — Voice training audio samples
-- `ai_personas` — AI assistant personalities
+- `voice_profiles` â€” User voice identity profiles
+- `voice_samples` â€” Voice training audio samples
+- `ai_personas` â€” AI assistant personalities
 
 **Billing:**
-- `billing_plans` — Subscription plans (10 plans: B2C + B2B)
-- `subscriptions` — Active user subscriptions
-- `invoices` — Generated invoices
-- `invoice_line_items` — Invoice details
-- `credit_ledger` — B2B credit transactions
-- `usage_records` — API/call usage tracking
-- `billing_settings` — Organization billing config
-- `gst_settings` — India GST tax configuration
-- `payment_gateways` — Configured payment providers
-- `payment_transactions` — Payment records
+- `billing_plans` â€” Subscription plans (10 plans: B2C + B2B)
+- `subscriptions` â€” Active user subscriptions
+- `invoices` â€” Generated invoices
+- `invoice_line_items` â€” Invoice details
+- `credit_ledger` â€” B2B credit transactions
+- `usage_records` â€” API/call usage tracking
+- `billing_settings` â€” Organization billing config
+- `gst_settings` â€” India GST tax configuration
+- `payment_gateways` â€” Configured payment providers
+- `payment_transactions` â€” Payment records
 
 **Enterprise:**
-- `enterprise_api_keys` — SDK activation keys
-- `audit_logs` — Admin action audit trail (128 entries)
-- `feature_flags` — Feature toggle system
-- `custom_roles` — Custom RBAC roles
-- `ip_whitelists` — IP-based access control
-- `rate_limit_rules` — API rate limit config
-- `rate_limit_buckets` — Rate limit state
-- `abuse_reports` — User-reported issues
+- `enterprise_api_keys` â€” SDK activation keys
+- `audit_logs` â€” Admin action audit trail (128 entries)
+- `feature_flags` â€” Feature toggle system
+- `custom_roles` â€” Custom RBAC roles
+- `ip_whitelists` â€” IP-based access control
+- `rate_limit_rules` â€” API rate limit config
+- `rate_limit_buckets` â€” Rate limit state
+- `abuse_reports` â€” User-reported issues
 
 **Platform:**
-- `platform_settings` — Global configuration
-- `platform_secrets` — Encrypted API keys
-- `environment_configs` — Environment-specific config
-- `support_contacts` — Support contact info + form submissions
-- `legal_content` — Dynamic legal page content
-- `app_versions` — Mobile app version tracking
-- `system_health_logs` — System monitoring
-- `backup_jobs` — Backup history
-- `registered_devices` — User device tracking
+- `platform_settings` â€” Global configuration
+- `platform_secrets` â€” Encrypted API keys
+- `environment_configs` â€” Environment-specific config
+- `support_contacts` â€” Support contact info + form submissions
+- `legal_content` â€” Dynamic legal page content
+- `app_versions` â€” Mobile app version tracking
+- `system_health_logs` â€” System monitoring
+- `backup_jobs` â€” Backup history
+- `registered_devices` â€” User device tracking
 
 **Compliance:**
-- `user_consents` — GDPR consent records
-- `user_suspensions` — Account suspension history
-- `user_accessibility_prefs` — A11y preferences
-- `user_analytics` — Analytics data
-- `data_residency_policies` — Data location rules
-- `data_subject_requests` — GDPR data requests
+- `user_consents` â€” GDPR consent records
+- `user_suspensions` â€” Account suspension history
+- `user_accessibility_prefs` â€” A11y preferences
+- `user_analytics` â€” Analytics data
+- `data_residency_policies` â€” Data location rules
+- `data_subject_requests` â€” GDPR data requests
 
 **Geography:**
-- `countries` — Country list
-- `states` — State/province list
-- `districts` — District list
-- `cities` — City list
-- `pincodes` — PIN/ZIP codes
-- `villages` — Village list
-- `supported_languages` — Language configuration
-- `org_members` — Organization membership
+- `countries` â€” Country list
+- `states` â€” State/province list
+- `districts` â€” District list
+- `cities` â€” City list
+- `pincodes` â€” PIN/ZIP codes
+- `villages` â€” Village list
+- `supported_languages` â€” Language configuration
+- `org_members` â€” Organization membership
 
 ---
 
@@ -281,8 +281,8 @@ npm install
 npm run build
 
 # This creates:
-# - dist/index.cjs (~1.8 MB) — Server bundle
-# - dist/public/ — Frontend static files
+# - dist/index.cjs (~1.8 MB) â€” Server bundle
+# - dist/public/ â€” Frontend static files
 
 # Start production server
 npm run start
@@ -292,13 +292,13 @@ npm run start
 ### Build Output
 ```
 dist/
-├── index.cjs          # Node.js server (Express + all APIs)
-└── public/            # React frontend (static files)
-    ├── index.html
-    ├── assets/
-    │   ├── index-xxxx.js
-    │   └── index-xxxx.css
-    └── ...
+â”œâ”€â”€ index.cjs          # Node.js server (Express + all APIs)
+â””â”€â”€ public/            # React frontend (static files)
+    â”œâ”€â”€ index.html
+    â”œâ”€â”€ assets/
+    â”‚   â”œâ”€â”€ index-xxxx.js
+    â”‚   â””â”€â”€ index-xxxx.css
+    â””â”€â”€ ...
 ```
 
 ---
@@ -307,7 +307,7 @@ dist/
 
 | Option | Cost | Complexity | Best For |
 |--------|------|-----------|----------|
-| Replit | $0-25/mo | Low | Dev/Staging |
+| DigitalOcean | $12+/mo | High | Production | Low | Dev/Staging |
 | AWS EC2 + RDS | $50-200/mo | Medium | Production |
 | AWS ECS/Fargate | $80-300/mo | High | Scale |
 | DigitalOcean | $24-96/mo | Low-Med | Small prod |
@@ -400,17 +400,17 @@ server {
 
 ---
 
-## 8. Replit Deployment
+## 8. DigitalOcean Deployment
 
-Already configured. Use the Replit "Deploy" button or:
+Already configured. Deploy via DigitalOcean App Platform:
 
-1. Go to the Deploy tab in Replit
+1. Go to DigitalOcean App Platform dashboard
 2. Build command: `npm run build`
 3. Run command: `npm run start`
 4. Machine type: Autoscale
 5. Custom domain: Configure in Deploy settings
 
-Deployment config is already set in `.replit` file.
+Deployment config is in .
 
 ---
 
@@ -570,23 +570,23 @@ chmod +x scripts/backup.sh
 
 # Output structure:
 backups/neuratalk_full_YYYYMMDD_HHMMSS/
-├── database/
-│   ├── full_dump.sql.gz      # Complete database dump
-│   ├── schema.sql             # Schema only (for reference)
-│   ├── table_users.sql.gz     # Individual table backups
-│   ├── table_billing_plans.sql.gz
-│   ├── ... (62 table files)
-│   ├── table_metadata.txt     # Column counts per table
-│   ├── indexes.txt            # All indexes
-│   └── foreign_keys.txt       # Foreign key relationships
-├── code/
-│   ├── server.tar.gz          # Application source code
-│   ├── flutter_app.tar.gz     # Mobile app code
-│   └── react_native_app.tar.gz
-├── config/
-│   ├── backup.sh
-│   └── restore.sh
-└── BACKUP_MANIFEST.txt        # Backup inventory
+â”œâ”€â”€ database/
+â”‚   â”œâ”€â”€ full_dump.sql.gz      # Complete database dump
+â”‚   â”œâ”€â”€ schema.sql             # Schema only (for reference)
+â”‚   â”œâ”€â”€ table_users.sql.gz     # Individual table backups
+â”‚   â”œâ”€â”€ table_billing_plans.sql.gz
+â”‚   â”œâ”€â”€ ... (62 table files)
+â”‚   â”œâ”€â”€ table_metadata.txt     # Column counts per table
+â”‚   â”œâ”€â”€ indexes.txt            # All indexes
+â”‚   â””â”€â”€ foreign_keys.txt       # Foreign key relationships
+â”œâ”€â”€ code/
+â”‚   â”œâ”€â”€ server.tar.gz          # Application source code
+â”‚   â”œâ”€â”€ flutter_app.tar.gz     # Mobile app code
+â”‚   â””â”€â”€ react_native_app.tar.gz
+â”œâ”€â”€ config/
+â”‚   â”œâ”€â”€ backup.sh
+â”‚   â””â”€â”€ restore.sh
+â””â”€â”€ BACKUP_MANIFEST.txt        # Backup inventory
 ```
 
 ### Restore Options
@@ -669,13 +669,13 @@ pm2 reload neuratalk # Zero-downtime restart
 ### Horizontal Scaling
 
 ```
-                    ┌─── Node.js Instance 1 (Port 5000)
-Load Balancer ──────┼─── Node.js Instance 2 (Port 5001)
-(nginx/ALB)         └─── Node.js Instance 3 (Port 5002)
-                              │
-                    ┌─────────┴─────────┐
-                    │  PostgreSQL (RDS)  │
-                    └───────────────────┘
+                    â”Œâ”€â”€â”€ Node.js Instance 1 (Port 5000)
+Load Balancer â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€ Node.js Instance 2 (Port 5001)
+(nginx/ALB)         â””â”€â”€â”€ Node.js Instance 3 (Port 5002)
+                              â”‚
+                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”´â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                    â”‚  PostgreSQL (RDS)  â”‚
+                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 **Considerations for multi-instance:**
@@ -755,16 +755,16 @@ curl -s http://localhost:5000/api/auth/otp/request \
 
 ### For New Developers
 
-1. **Read EMPLOYEE_GUIDE.md** — Full platform overview, architecture, role system
+1. **Read EMPLOYEE_GUIDE.md** â€” Full platform overview, architecture, role system
 2. **Set up local dev**: `npm install && npm run dev`
 3. **Login as super admin**: admin@neuratalk.com, OTP code: 123456 (dev mode)
 4. **Explore dashboards**: Navigate all 8 tabs in super admin dashboard
 5. **Test SDK**: Create an API key, activate it, test translation endpoint
 6. **Review code structure**:
-   - `server/` — Backend (Express, routes, middleware)
-   - `client/src/` — Frontend (React, pages, components)
-   - `shared/` — Shared types and schema
-   - `flutter_app/` — Mobile app
+   - `server/` â€” Backend (Express, routes, middleware)
+   - `client/src/` â€” Frontend (React, pages, components)
+   - `shared/` â€” Shared types and schema
+   - `flutter_app/` â€” Mobile app
 
 ### For QA/Testing
 
@@ -791,46 +791,47 @@ curl -s http://localhost:5000/api/auth/otp/request \
 
 ```
 neuratalk/
-├── server/                     # Backend
-│   ├── index.ts                # Server entry point
-│   ├── routes.ts               # Main route registration
-│   ├── db.ts                   # Database connection
-│   ├── storage.ts              # Data access layer
-│   ├── role-middleware.ts       # Auth & RBAC middleware
-│   ├── enterprise-api-routes.ts # Enterprise SDK & API keys
-│   ├── enterprise-routes.ts     # Enterprise analytics
-│   ├── admin-user-routes.ts     # Admin management
-│   ├── b2b-routes.ts           # B2B features
-│   ├── billing-routes.ts       # Billing & subscriptions
-│   ├── call-routes.ts          # Voice call management
-│   ├── sim-bridge.ts           # SIM-to-SIM bridging
-│   ├── signaling-server.ts     # WebRTC signaling
-│   ├── voice-training.ts       # Voice identity
-│   ├── voice-memos.ts          # Voice memos
-│   ├── meeting-links.ts        # Meetings hub
-│   ├── audit-logging.ts        # Audit trail
-│   └── replit_integrations/    # AI service clients
-│       ├── audio/              # TTS, STT, voice chat
-│       ├── chat/               # Text AI chat
-│       └── image/              # Image generation
-├── client/
-│   └── src/
-│       ├── App.tsx              # Route definitions
-│       ├── pages/               # All page components
-│       │   ├── SuperAdminDashboard.tsx
-│       │   ├── CompanyAdminDashboard.tsx
-│       │   ├── ConsumerDashboard.tsx
-│       │   ├── InvestorDashboard.tsx
-│       │   └── website/        # Public website pages
-│       ├── components/          # Shared UI components
-│       └── hooks/               # Custom React hooks
-├── shared/
-│   └── schema.ts               # Database schema (62 tables)
-├── flutter_app/                # Flutter mobile app
-├── scripts/
-│   ├── backup.sh               # Full platform backup
-│   └── restore.sh              # Database restore
-├── EMPLOYEE_GUIDE.md           # Employee documentation
-├── DEPLOYMENT_GUIDE.md         # This file
-└── replit.md                   # Project metadata
+â”œâ”€â”€ server/                     # Backend
+â”‚   â”œâ”€â”€ index.ts                # Server entry point
+â”‚   â”œâ”€â”€ routes.ts               # Main route registration
+â”‚   â”œâ”€â”€ db.ts                   # Database connection
+â”‚   â”œâ”€â”€ storage.ts              # Data access layer
+â”‚   â”œâ”€â”€ role-middleware.ts       # Auth & RBAC middleware
+â”‚   â”œâ”€â”€ enterprise-api-routes.ts # Enterprise SDK & API keys
+â”‚   â”œâ”€â”€ enterprise-routes.ts     # Enterprise analytics
+â”‚   â”œâ”€â”€ admin-user-routes.ts     # Admin management
+â”‚   â”œâ”€â”€ b2b-routes.ts           # B2B features
+â”‚   â”œâ”€â”€ billing-routes.ts       # Billing & subscriptions
+â”‚   â”œâ”€â”€ call-routes.ts          # Voice call management
+â”‚   â”œâ”€â”€ sim-bridge.ts           # SIM-to-SIM bridging
+â”‚   â”œâ”€â”€ signaling-server.ts     # WebRTC signaling
+â”‚   â”œâ”€â”€ voice-training.ts       # Voice identity
+â”‚   â”œâ”€â”€ voice-memos.ts          # Voice memos
+â”‚   â”œâ”€â”€ meeting-links.ts        # Meetings hub
+â”‚   â”œâ”€â”€ audit-logging.ts        # Audit trail
+â”‚   â””â”€â”€ ai_integrations/    # AI service clients
+â”‚       â”œâ”€â”€ audio/              # TTS, STT, voice chat
+â”‚       â”œâ”€â”€ chat/               # Text AI chat
+â”‚       â””â”€â”€ image/              # Image generation
+â”œâ”€â”€ client/
+â”‚   â””â”€â”€ src/
+â”‚       â”œâ”€â”€ App.tsx              # Route definitions
+â”‚       â”œâ”€â”€ pages/               # All page components
+â”‚       â”‚   â”œâ”€â”€ SuperAdminDashboard.tsx
+â”‚       â”‚   â”œâ”€â”€ CompanyAdminDashboard.tsx
+â”‚       â”‚   â”œâ”€â”€ ConsumerDashboard.tsx
+â”‚       â”‚   â”œâ”€â”€ InvestorDashboard.tsx
+â”‚       â”‚   â””â”€â”€ website/        # Public website pages
+â”‚       â”œâ”€â”€ components/          # Shared UI components
+â”‚       â””â”€â”€ hooks/               # Custom React hooks
+â”œâ”€â”€ shared/
+â”‚   â””â”€â”€ schema.ts               # Database schema (62 tables)
+â”œâ”€â”€ flutter_app/                # Flutter mobile app
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ backup.sh               # Full platform backup
+â”‚   â””â”€â”€ restore.sh              # Database restore
+â”œâ”€â”€ EMPLOYEE_GUIDE.md           # Employee documentation
+â”œâ”€â”€ DEPLOYMENT_GUIDE.md         # This file
+â””â”€â”€ README.md                   # Project metadata
 ```
+

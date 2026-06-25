@@ -1,4 +1,4 @@
-# NeuraTalk Employee Guide
+﻿# NeuraTalk Employee Guide
 
 **Mindwhile It Solutions Pvt Ltd**
 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503, India
@@ -71,7 +71,7 @@ NeuraTalk is a voice-first AI communication platform that provides real-time spe
 ```
                 +-----------------+
                 |  Load Balancer  |
-                | (Replit/Custom) |
+                | (DigitalOcean) |
                 +--------+--------+
                          |
           +--------------+--------------+
@@ -652,7 +652,7 @@ Update the API base URL in `flutter_app/lib/services/app_config.dart` to point t
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string (auto-configured on Replit) |
+| `DATABASE_URL` | PostgreSQL connection string (from Neon PostgreSQL) |
 | `SESSION_SECRET` | Session encryption key (32+ characters). Generate: `openssl rand -base64 32` |
 
 ### Authentication (Optional)
@@ -755,7 +755,7 @@ Update the API base URL in `flutter_app/lib/services/app_config.dart` to point t
 
 ### Log Locations
 
-- **Server logs**: stdout/stderr in the Replit console
+- **Server logs**: stdout/stderr in DigitalOcean App logs
 - **Frontend errors**: Browser developer console
 - **WebSocket events**: Logged to server console with connection/disconnect events
 - **Audit logs**: Stored in database, viewable via Enterprise Dashboard or Super Admin
@@ -775,3 +775,4 @@ Update the API base URL in `flutter_app/lib/services/app_config.dart` to point t
 | Check API docs | `/api/docs` (Swagger UI) |
 | Check system health | `GET /api/health` |
 | Build Flutter APK | `cd flutter_app && flutter build apk --release` |
+

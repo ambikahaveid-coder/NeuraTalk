@@ -1,6 +1,6 @@
-# 🚀 NEURATALK - COMPLETE PRODUCTION SETUP GUIDE
+﻿# ðŸš€ NEURATALK - COMPLETE PRODUCTION SETUP GUIDE
 
-**Everything you need to deploy NeuraTalk to production** ✅
+**Everything you need to deploy NeuraTalk to production** âœ…
 
 ---
 
@@ -14,14 +14,14 @@ Day 3 (2 hours): Final testing & submission
 
 ---
 
-## **STEP 1: Firebase Setup** (30 minutes) 🔥
+## **STEP 1: Firebase Setup** (30 minutes) ðŸ”¥
 
 ### **1.1 Create Firebase Project**
 ```
 1. Go to: https://console.firebase.google.com
 2. Click "Add Project"
 3. Project name: "NeuraTalk"
-4. Accept terms → Create Project
+4. Accept terms â†’ Create Project
 5. Wait for creation (2-3 minutes)
 ```
 
@@ -37,7 +37,7 @@ Day 3 (2 hours): Final testing & submission
 
 ### **1.3 Configure Firebase Authentication**
 ```
-1. Go to: Authentication → Sign-in method
+1. Go to: Authentication â†’ Sign-in method
 2. Enable: Phone
 3. Enable: Email/Password (optional)
 4. Leave default settings
@@ -45,30 +45,30 @@ Day 3 (2 hours): Final testing & submission
 
 ### **1.4 Download Service Account Key** (for backend)
 ```
-1. Go to: Project Settings → Service Accounts
+1. Go to: Project Settings â†’ Service Accounts
 2. Click "Generate new private key"
 3. File auto-downloads as .json
 4. Rename to: firebase-service-account.json
 5. Place in: server/firebase-service-account.json
-6. KEEP IT SECRET! 🔒
+6. KEEP IT SECRET! ðŸ”’
 ```
 
 ---
 
-## **STEP 2: Razorpay Setup** (20 minutes) 💳
+## **STEP 2: Razorpay Setup** (20 minutes) ðŸ’³
 
 ### **2.1 Create Razorpay Account**
 ```
 1. Go to: https://razorpay.com (register for India)
 2. Verify email + phone
 3. Go to: https://dashboard.razorpay.com/
-4. Navigate to: Settings → API Keys
+4. Navigate to: Settings â†’ API Keys
 ```
 
 ### **2.2 Get API Keys**
 ```
 1. Copy: Key ID (starts with rzp_live_)
-2. Copy: Key Secret (keep secret 🔒)
+2. Copy: Key Secret (keep secret ðŸ”’)
 3. Add to server/.env:
    RAZORPAY_KEY_ID=rzp_live_xxxxxxxx
    RAZORPAY_KEY_SECRET=xxxxxxxx
@@ -76,7 +76,7 @@ Day 3 (2 hours): Final testing & submission
 
 ### **2.3 Setup Webhooks** (Optional but recommended)
 ```
-1. Go to: Settings → Webhooks
+1. Go to: Settings â†’ Webhooks
 2. URL: https://your-backend.com/webhooks/razorpay
 3. Events: payment.authorized, payment.failed
 4. This auto-verifies payments in real-time
@@ -84,7 +84,7 @@ Day 3 (2 hours): Final testing & submission
 
 ---
 
-## **STEP 3: OpenAI Setup** (10 minutes) 🤖
+## **STEP 3: OpenAI Setup** (10 minutes) ðŸ¤–
 
 ### **3.1 Get OpenAI API Key**
 ```
@@ -98,7 +98,7 @@ Day 3 (2 hours): Final testing & submission
 
 ### **3.2 Enable Whisper API**
 ```
-1. Go to: Settings → Billing
+1. Go to: Settings â†’ Billing
 2. Add payment method (credit card)
 3. Set usage limits (e.g., $10/month for testing)
 4. You have $5 free credits (use for testing)
@@ -106,13 +106,13 @@ Day 3 (2 hours): Final testing & submission
 
 ---
 
-## **STEP 4: ElevenLabs Voice Setup** (10 minutes) 🎙️
+## **STEP 4: ElevenLabs Voice Setup** (10 minutes) ðŸŽ™ï¸
 
 ### **4.1 Create ElevenLabs Account**
 ```
 1. Go to: https://elevenlabs.io
 2. Sign up (free account gives 10,000 characters/month)
-3. Go to: Account → API Key
+3. Go to: Account â†’ API Key
 4. Copy your API key
 5. Add to server/.env:
    ELEVENLABS_API_KEY=xxxxxxxxxxxxxxxx
@@ -128,13 +128,13 @@ Day 3 (2 hours): Final testing & submission
 
 ---
 
-## **STEP 5: MongoDB Setup** (15 minutes) 📊
+## **STEP 5: MongoDB Setup** (15 minutes) ðŸ“Š
 
 ### **5.1 Create MongoDB Cluster**
 ```
 1. Go to: https://www.mongodb.com/cloud/atlas
-2. Sign up → Create free account
-3. Click "Build Cluster" → Choose FREE tier
+2. Sign up â†’ Create free account
+3. Click "Build Cluster" â†’ Choose FREE tier
 4. Select region (closest to your users)
 5. Create username/password for database
 6. Wait 5 minutes for cluster to deploy
@@ -154,7 +154,7 @@ Day 3 (2 hours): Final testing & submission
 
 ---
 
-## **STEP 6: Deploy Backend Server** (1 hour) 🖥️
+## **STEP 6: Deploy Backend Server** (1 hour) ðŸ–¥ï¸
 
 ### **Option A: Deploy to Render (Recommended - FREE)**
 
@@ -172,7 +172,7 @@ git remote add origin https://github.com/YOUR_USERNAME/neuratalk-backend.git
 git push -u origin main
 
 # 3. Go to: https://render.com
-# 4. Click "New +" → "Web Service"
+# 4. Click "New +" â†’ "Web Service"
 # 5. Connect GitHub account
 # 6. Select repo: neuratalk-backend
 # 7. Settings:
@@ -217,7 +217,7 @@ git push -u origin main
 
 ---
 
-## **STEP 7: Update Flutter App** (15 minutes) 📱
+## **STEP 7: Update Flutter App** (15 minutes) ðŸ“±
 
 ### **7.1 Update API Base URL**
 
@@ -225,7 +225,7 @@ Edit: `flutter_app/lib/services/app_config.dart`
 
 ```dart
 // Change this line:
-static const String _defaultBaseUrl = 'https://your-app.replit.app';
+static const String _defaultBaseUrl = 'https://neuratalk.in';
 
 // To:
 static const String _defaultBaseUrl = 'https://neuratalk-api.onrender.com';
@@ -248,7 +248,7 @@ static const String RAZORPAY_KEY_SECRET = 'xxxxxxxx';
 
 ---
 
-## **STEP 8: Rebuild & Test** (30 minutes) 🧪
+## **STEP 8: Rebuild & Test** (30 minutes) ðŸ§ª
 
 ### **8.1 Get Updated Dependencies**
 ```bash
@@ -287,7 +287,7 @@ flutter build apk --release
 
 ---
 
-## **STEP 9: Prepare for Google Play Store** (2 hours) 🎮
+## **STEP 9: Prepare for Google Play Store** (2 hours) ðŸŽ®
 
 ### **9.1 Create Google Play Account**
 ```
@@ -338,7 +338,7 @@ Create at: https://www.freeprivacypolicy.com
 
 ### **9.6 Upload APK**
 ```
-1. Go to: Release management → App releases
+1. Go to: Release management â†’ App releases
 2. Click "Create release"
 3. Upload: app-release.apk
 4. Fill rollout (start with 10%, increase over days)
@@ -348,7 +348,7 @@ Create at: https://www.freeprivacypolicy.com
 
 ---
 
-## **STEP 10: Submit for Review** ✅
+## **STEP 10: Submit for Review** âœ…
 
 ```
 1. Complete all required fields
@@ -383,7 +383,7 @@ Create at: https://www.freeprivacypolicy.com
 ```
 1. Check API keys are correct
 2. Verify key is not expired
-3. Check amount in paise (₹100 = 10000 paise)
+3. Check amount in paise (â‚¹100 = 10000 paise)
 4. Verify signature in RazorpayService
 ```
 
@@ -397,31 +397,31 @@ Create at: https://www.freeprivacypolicy.com
 
 ---
 
-## **FINAL CHECKLIST BEFORE LAUNCH** ✅
+## **FINAL CHECKLIST BEFORE LAUNCH** âœ…
 
 ```
 Backend:
-☑️ All .env variables filled
-☑️ Firebase service account added
-☑️ MongoDB cluster created
-☑️ Backend server deployed
-☑️ API endpoints tested
-☑️ Webhooks configured
+â˜‘ï¸ All .env variables filled
+â˜‘ï¸ Firebase service account added
+â˜‘ï¸ MongoDB cluster created
+â˜‘ï¸ Backend server deployed
+â˜‘ï¸ API endpoints tested
+â˜‘ï¸ Webhooks configured
 
 Flutter App:
-☑️ google-services.json added
-☑️ API base URL updated
-☑️ Razorpay keys updated
-☑️ APK built successfully
-☑️ Tested on real device
-☑️ No crashes on login/payment
+â˜‘ï¸ google-services.json added
+â˜‘ï¸ API base URL updated
+â˜‘ï¸ Razorpay keys updated
+â˜‘ï¸ APK built successfully
+â˜‘ï¸ Tested on real device
+â˜‘ï¸ No crashes on login/payment
 
 Google Play Store:
-☑️ App listing completed
-☑️ Privacy policy added
-☑️ Screenshots uploaded
-☑️ All required fields filled
-☑️ APK uploaded
+â˜‘ï¸ App listing completed
+â˜‘ï¸ Privacy policy added
+â˜‘ï¸ Screenshots uploaded
+â˜‘ï¸ All required fields filled
+â˜‘ï¸ APK uploaded
 ```
 
 ---
@@ -453,22 +453,22 @@ Week 3-4: Scale up
 Firebase: Free tier (enough for 10K users)
 MongoDB: Free tier (enough for 10K users)
 Razorpay: Transaction fee (1.5%)
-OpenAI: ~₹500 (10K transcriptions)
-ElevenLabs: ~₹1000 (100K characters)
+OpenAI: ~â‚¹500 (10K transcriptions)
+ElevenLabs: ~â‚¹1000 (100K characters)
 Backend (Render): Free tier or $7/month
-Total: ~₹1500 + variable costs
+Total: ~â‚¹1500 + variable costs
 
 At 1000 active users:
 - API server: $0-10/month
 - Database: $0/month
-- Transaction fees: ₹10K × 1.5% = ₹150/month
-- APIs: ~₹1500/month
+- Transaction fees: â‚¹10K Ã— 1.5% = â‚¹150/month
+- APIs: ~â‚¹1500/month
 Total: ~$20-30/month for 1000 users
 
 Revenue (1000 users):
-- Pro: 100 × ₹299/month = ₹30K/month
-- Premium: 50 × ₹3100/year = ₹12K/month
-Total: ₹42K/month profit at 1000 users 🎉
+- Pro: 100 Ã— â‚¹299/month = â‚¹30K/month
+- Premium: 50 Ã— â‚¹3100/year = â‚¹12K/month
+Total: â‚¹42K/month profit at 1000 users ðŸŽ‰
 ```
 
 ---
@@ -485,6 +485,7 @@ If you face issues:
 
 ---
 
-**YOU'RE NOW READY TO LAUNCH NEURATALK! 🚀**
+**YOU'RE NOW READY TO LAUNCH NEURATALK! ðŸš€**
 
-Next step: Execute this guide and deploy. Good luck! 💪
+Next step: Execute this guide and deploy. Good luck! ðŸ’ª
+

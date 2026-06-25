@@ -1,4 +1,4 @@
-# NeuraTalk Production Deployment Guide
+﻿# NeuraTalk Production Deployment Guide
 
 ## System Status Summary
 
@@ -11,30 +11,30 @@
 
 ### Application Stack
 - **Runtime**: Node.js 20 with Express
-- **Database**: PostgreSQL (Neon-backed on Replit)
+- **Database**: PostgreSQL (Neon PostgreSQL)
 - **WebSocket**: Signaling server on port 5001
 - **Frontend**: React 18 with Vite, served on port 5000
 
 ### Deployment Model
 ```
-                    ┌──────────────────┐
-                    │   Load Balancer  │
-                    │  (Replit/Custom) │
-                    └────────┬─────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              │              │              │
-         ┌────▼────┐   ┌─────▼─────┐  ┌─────▼─────┐
-         │ Web App │   │ WebSocket │  │ Static    │
-         │ :5000   │   │ :5001     │  │ Assets    │
-         └────┬────┘   └─────┬─────┘  └───────────┘
-              │              │
-              └──────┬───────┘
-                     │
-              ┌──────▼──────┐
-              │ PostgreSQL  │
-              │ (Neon)      │
-              └─────────────┘
+                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                    â”‚   Load Balancer  â”‚
+                    â”‚  (DigitalOcean) â”‚
+                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                             â”‚
+              â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+              â”‚              â”‚              â”‚
+         â”Œâ”€â”€â”€â”€â–¼â”€â”€â”€â”€â”   â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”  â”Œâ”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”
+         â”‚ Web App â”‚   â”‚ WebSocket â”‚  â”‚ Static    â”‚
+         â”‚ :5000   â”‚   â”‚ :5001     â”‚  â”‚ Assets    â”‚
+         â””â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”˜   â””â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”˜  â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+              â”‚              â”‚
+              â””â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”˜
+                     â”‚
+              â”Œâ”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”
+              â”‚ PostgreSQL  â”‚
+              â”‚ (Neon)      â”‚
+              â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ---
@@ -111,7 +111,7 @@ TRUSTED_PROXIES=<comma-separated-proxy-ips>
 
 2. **Verify Configuration**
    - Set environment variables in production
-   - Test with `GET /api/razorpay/status` — should show `configured: true`
+   - Test with `GET /api/razorpay/status` â€” should show `configured: true`
    - Create a test order to verify: `POST /api/razorpay/create-order`
 
 3. **Test Transaction**
@@ -126,11 +126,6 @@ TRUSTED_PROXIES=<comma-separated-proxy-ips>
 ---
 
 ## 6. Secrets Management
-
-### Replit Secrets
-- All secrets stored in Replit Secrets panel
-- Automatically injected as environment variables
-- Never commit secrets to repository
 
 ### Production Secrets Checklist
 - [ ] SESSION_SECRET (generate with: `openssl rand -base64 32`)
@@ -150,7 +145,7 @@ TRUSTED_PROXIES=<comma-separated-proxy-ips>
 - `/api/sla/status` - SLA status page
 
 ### Monitoring Recommendations
-- Use Replit's built-in monitoring
+- Use DigitalOcean App metrics and logs
 - Set up alerts for 5xx errors
 - Monitor WebSocket connection counts
 - Track API response times
@@ -225,3 +220,4 @@ India
 ## Support
 
 For deployment assistance, contact the development team.
+
