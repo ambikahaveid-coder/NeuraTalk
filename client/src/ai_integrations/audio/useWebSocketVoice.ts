@@ -26,8 +26,8 @@ export function useWebSocketVoice(options: WebSocketVoiceOptions = {}) {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsPort = 5001; // Fastify WebSocket port
-    const wsUrl = `${protocol}//${window.location.hostname}:${wsPort}/ws/voice/${conversationId}`;
+    // Use same host:port as the page — the main Express server proxies /ws/voice/*
+    const wsUrl = `${protocol}//${window.location.host}/ws/voice/${conversationId}`;
 
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(wsUrl);

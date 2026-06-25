@@ -64,14 +64,14 @@
       "name": "Start Voice Call",
       "short_name": "Voice Call",
       "description": "Start a new voice call with translation",
-      "url": "/call",
+      "url": "/calls/c2c",
       "icons": [{ "src": "/icons/call-icon.png", "sizes": "96x96" }]
     },
     {
       "name": "Video Call",
       "short_name": "Video",
       "description": "Start a video call with translation",
-      "url": "/video-translation",
+      "url": "/calls/video-translation",
       "icons": [{ "src": "/icons/video-icon.png", "sizes": "96x96" }]
     }
   ],

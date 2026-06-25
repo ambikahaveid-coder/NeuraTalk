@@ -394,9 +394,29 @@ app.use((req, res, next) => {
     });
     const wsPort = parseInt(process.env.WS_PORT || "5001", 10);
 
-    if (fastify && process.env.NODE_ENV !== "production") {
-      await fastify.listen({ port: wsPort, host: "0.0.0.0" });
-      log(`WebSocket server running on port ${wsPort}`, "Fastify");
+    if (fastify) {
+      await fastify.listen({ port: wsPort, host: "127.0.0.1" });
+      log(`Voice WebSocket server running on port ${wsPort}`, "Fastify");
+
+      // Proxy /ws/voice/* WebSocket upgrades from the main HTTP server to Fastify.
+      // DigitalOcean only exposes one port — this makes voice WS accessible in production.
+      const { connect: netConnect } = await import("net");
+      httpServer.on("upgrade", (req, socket, head) => {
+        if (!req.url?.startsWith("/ws/voice/")) return;
+        const proxy = netConnect(wsPort, "127.0.0.1");
+        proxy.on("connect", () => {
+          const headers = Object.entries(req.headers)
+            .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+            .join("\r\n");
+          proxy.write(`${req.method ?? "GET"} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`);
+          if (head?.length) proxy.write(head);
+          socket.pipe(proxy);
+          proxy.pipe(socket);
+        });
+        proxy.on("error", () => socket.destroy());
+        socket.on("error", () => proxy.destroy());
+      });
+      log("Voice WebSocket proxy active on /ws/voice/*", "Fastify");
     }
   } catch (error) {
     logger.error("Server", "Failed to start Fastify WebSocket server", error instanceof Error ? error : new Error(String(error)));
