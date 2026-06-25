@@ -41,10 +41,12 @@ function getPool(): pg.Pool {
   const databaseUrl = requireDatabaseUrl();
   poolInstance = new Pool({
     connectionString: databaseUrl,
-    max: 20,
-    idleTimeoutMillis: 30000,
+    max: 10,
+    idleTimeoutMillis: 10000,       // release idle conns before Neon auto-suspends
     connectionTimeoutMillis: 15000, // Neon cold-start can take 5-10s
-    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: process.env.NODE_ENV === "production" } : undefined,
+    keepAlive: true,                // TCP keepalive so dropped Neon conns fail fast
+    keepAliveInitialDelayMillis: 10000,
+    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : undefined,
   });
 
   poolInstance.on("error", (error) => {

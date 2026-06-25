@@ -8047,11 +8047,15 @@ function getPool() {
   const databaseUrl = requireDatabaseUrl();
   poolInstance = new Pool({
     connectionString: databaseUrl,
-    max: 20,
-    idleTimeoutMillis: 3e4,
+    max: 10,
+    idleTimeoutMillis: 1e4,
+    // release idle conns before Neon auto-suspends
     connectionTimeoutMillis: 15e3,
     // Neon cold-start can take 5-10s
-    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: true } : void 0
+    keepAlive: true,
+    // TCP keepalive so dropped Neon conns fail fast
+    keepAliveInitialDelayMillis: 1e4,
+    ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : void 0
   });
   poolInstance.on("error", (error) => {
     logger.error("Database", "Database pool emitted an error", error instanceof Error ? error : new Error(String(error)));
