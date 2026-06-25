@@ -37,15 +37,11 @@ export function initializeFirebaseAdmin(): boolean {
   if (!serviceAccountJson) {
     const message =
       "FIREBASE_SERVICE_ACCOUNT_JSON is not set. " +
-      "Firebase Phone Auth is the sole mobile authentication method. " +
+      "Phone OTP login will be unavailable until this is configured. " +
       "Download the service account JSON from Firebase Console → Project Settings → Service Accounts.";
 
-    if (isProduction) {
-      logger.error("FirebaseAdmin", message);
-      throw new Error(`[FATAL] ${message}`);
-    }
-
-    logger.warn("FirebaseAdmin", message + " (non-production: continuing without Firebase Phone Auth)");
+    // Degrade gracefully — phone OTP won't work but the server stays up
+    logger.warn("FirebaseAdmin", message + (isProduction ? " (production: phone auth disabled)" : " (dev: phone auth disabled)"));
     return false;
   }
 
@@ -66,10 +62,7 @@ export function initializeFirebaseAdmin(): boolean {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error("FirebaseAdmin", `Failed to initialize Firebase Admin SDK: ${errorMessage}`);
 
-    if (isProduction) {
-      throw new Error(`[FATAL] Firebase Admin SDK initialization failed: ${errorMessage}`);
-    }
-
+    logger.warn("FirebaseAdmin", `Firebase Admin SDK init failed — phone auth disabled: ${errorMessage}`);
     return false;
   }
 }

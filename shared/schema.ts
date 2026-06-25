@@ -286,8 +286,10 @@ export const messages = pgTable("messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   audioUrl: text("audio_url"),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("messages_conversation_idx").on(table.conversationId),
+]);
 
 // === PERSONAL 1:1 MULTILINGUAL CHAT ===
 export const personalChatThreads = pgTable("personal_chat_threads", {

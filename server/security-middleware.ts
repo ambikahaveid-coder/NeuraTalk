@@ -80,7 +80,16 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     "https://api.razorpay.com",
     "https://identitytoolkit.googleapis.com",
     "https://securetoken.googleapis.com",
+    "https://api.openai.com",
+    "https://api.resend.com",
   ]);
+
+  // LiveKit WSS + HTTPS REST must be in connect-src or browser blocks the socket
+  const livekitUrl = process.env.LIVEKIT_URL;
+  if (livekitUrl) {
+    connectSources.add(livekitUrl);
+    connectSources.add(livekitUrl.replace(/^wss?:\/\//, "https://"));
+  }
 
   for (const origin of allowedOrigins) {
     connectSources.add(origin);

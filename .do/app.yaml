@@ -1,6 +1,7 @@
 name: neuratalk
 region: blr
 envs:
+  # ── Runtime flags ────────────────────────────────────────────────────────────
   - key: NODE_ENV
     value: production
     scope: RUN_AND_BUILD_TIME
@@ -10,42 +11,57 @@ envs:
   - key: DOTENV_OVERRIDE
     value: "true"
     scope: RUN_AND_BUILD_TIME
+  - key: ENABLE_STARTUP_SEEDING
+    value: "true"
+    scope: RUN_TIME
   - key: PREFER_LOCAL_AI
     value: "false"
     scope: RUN_TIME
-  - key: STT_PROVIDER
-    value: azure
-    scope: RUN_TIME
-  - key: ENABLE_DEEPGRAM_STT_FALLBACK
-    value: "true"
-    scope: RUN_TIME
+
+  # ── Auth / OTP ───────────────────────────────────────────────────────────────
   - key: PHONE_OTP_PROVIDER
     value: firebase
     scope: RUN_AND_BUILD_TIME
   - key: VITE_PHONE_OTP_PROVIDER
     value: firebase
     scope: RUN_AND_BUILD_TIME
+
+  # ── Azure Speech / STT ───────────────────────────────────────────────────────
+  - key: STT_PROVIDER
+    value: azure
+    scope: RUN_TIME
+  - key: ENABLE_DEEPGRAM_STT_FALLBACK
+    value: "true"
+    scope: RUN_TIME
   - key: AZURE_SPEECH_REGION
     value: centralindia
     scope: RUN_TIME
   - key: AZURE_TRANSLATOR_REGION
     value: centralindia
     scope: RUN_TIME
+
+  # ── LiveKit ──────────────────────────────────────────────────────────────────
   - key: LIVEKIT_URL
     value: wss://neuratalk-vzgep7qq.livekit.cloud
     scope: RUN_TIME
   - key: LIVEKIT_SIP_DOMAIN
     value: 1m2u036kt9m.sip.livekit.cloud
     scope: RUN_TIME
+
+  # ── OpenAI ───────────────────────────────────────────────────────────────────
   - key: AI_INTEGRATIONS_OPENAI_BASE_URL
     value: https://api.openai.com/v1
     scope: RUN_TIME
+
+  # ── Admin seed account ───────────────────────────────────────────────────────
   - key: SUPER_ADMIN_EMAIL
     value: kiranatmakuri518@gmail.com
     scope: RUN_TIME
   - key: SUPER_ADMIN_PHONE
     value: "+918125557378"
     scope: RUN_TIME
+
+  # ── Domain / CORS ────────────────────────────────────────────────────────────
   - key: APP_BASE_URL
     value: https://neuratalk.in
     scope: RUN_TIME
@@ -58,9 +74,16 @@ envs:
   - key: ALLOWED_ORIGINS
     value: https://neuratalk.in
     scope: RUN_TIME
+
+  # ── MSG91 ────────────────────────────────────────────────────────────────────
   - key: MSG91_VOICE_CALLER_ID
     value: "+918125557378"
     scope: RUN_TIME
+
+  # ── Firebase client SDK (build-time) ─────────────────────────────────────────
+  - key: VITE_FIREBASE_API_KEY
+    value: AIzaSyDMn1dPIAAAdYiFSiAzUG65dg1o85w_A7Q
+    scope: RUN_AND_BUILD_TIME
   - key: VITE_FIREBASE_AUTH_DOMAIN
     value: neuratalk-c6683.firebaseapp.com
     scope: RUN_AND_BUILD_TIME
@@ -79,16 +102,24 @@ envs:
   - key: VITE_FIREBASE_APP_ID
     value: 1:612487293092:web:2aa2cf6d2c33e74b335e31
     scope: RUN_AND_BUILD_TIME
+
+  # ── Firebase Admin SDK (server-side) ─────────────────────────────────────────
   - key: FIREBASE_PROJECT_ID
     value: neuratalk-c6683
     scope: RUN_TIME
+
+  # ── Email OTP (Resend) ───────────────────────────────────────────────────────
+  - key: OTP_EMAIL_FROM
+    value: noreply@neuratalk.in
+    scope: RUN_TIME
+
 services:
   - name: web
     github:
       repo: ambikahaveid-coder/NeuraTalk
       branch: neuratalk-clean-release
       deploy_on_push: true
-    build_command: npm ci && npm run build
+    build_command: npm ci && npm run db:push && npm run build
     run_command: node dist/index.cjs
     environment_slug: node-js
     instance_count: 1
