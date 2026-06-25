@@ -77,9 +77,20 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   const allowedOrigins = parseAllowedOrigins();
   const connectSources = new Set<string>([
     "'self'",
+    // Razorpay payments
     "https://api.razorpay.com",
+    // Firebase Auth + reCAPTCHA (phone OTP)
     "https://identitytoolkit.googleapis.com",
     "https://securetoken.googleapis.com",
+    "https://www.googleapis.com",
+    "https://www.google.com",
+    "https://www.gstatic.com",
+    "https://recaptcha.net",
+    "https://recaptchaenterprise.googleapis.com",
+    // Google Fonts (service worker pre-cache)
+    "https://fonts.googleapis.com",
+    "https://fonts.gstatic.com",
+    // OpenAI + Resend
     "https://api.openai.com",
     "https://api.resend.com",
   ]);
@@ -123,13 +134,13 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 
   const cspDirectives = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://www.gstatic.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob: https://*.googleapis.com",
+    "img-src 'self' data: blob: https://*.googleapis.com https://www.gstatic.com",
     "media-src 'self' blob: data:",
     `connect-src ${Array.from(connectSources).join(" ")}`,
-    "frame-src 'self' https://api.razorpay.com https://*.razorpay.com https://*.firebaseapp.com",
+    "frame-src 'self' https://api.razorpay.com https://*.razorpay.com https://*.firebaseapp.com https://www.google.com https://recaptcha.net",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
