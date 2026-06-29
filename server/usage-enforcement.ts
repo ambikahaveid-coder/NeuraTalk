@@ -159,9 +159,13 @@ export function requireActiveSubscription(
 
   void (async () => {
     try {
-      const result = organizationId
-        ? await checkOrgBillingStatus(organizationId)
-        : await checkUserBillingStatus(userId);
+      const billingCheck = organizationId
+        ? checkOrgBillingStatus(organizationId)
+        : checkUserBillingStatus(userId);
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("billing_check_timeout")), 15000),
+      );
+      const result = await Promise.race([billingCheck, timeout]);
 
       if (!result.allowed) {
         logger.warn("UsageEnforcement", "Access denied by billing guard", {

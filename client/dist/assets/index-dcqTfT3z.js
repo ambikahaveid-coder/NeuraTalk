@@ -1,0 +1,1 @@
+import{r as s,aw as o,Q as u}from"./index-5HAmojQM.js";var c=o[" useId ".trim().toString()]||(()=>{}),n=0;function i(t){const[a,r]=s.useState(c());return u(()=>{r(e=>e??String(n++))},[t]),t||(a?`radix-${a}`:"")}export{i as u};

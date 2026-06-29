@@ -8089,6 +8089,9 @@ function getPool() {
   poolInstance.on("error", (error) => {
     logger.error("Database", "Database pool emitted an error", error instanceof Error ? error : new Error(String(error)));
   });
+  poolInstance.on("connect", (client) => {
+    void client.query("SET statement_timeout = 20000");
+  });
   return poolInstance;
 }
 function getDb() {
@@ -32423,13 +32426,20 @@ function getWebhookReceiver() {
   return webhookReceiverCache.receiver;
 }
 async function createCallRoom(opts) {
-  const room = await getRoomService().createRoom({
-    name: opts.callId,
-    maxParticipants: opts.maxParticipants ?? 10,
-    emptyTimeout: opts.emptyTimeoutSec ?? 300,
-    metadata: JSON.stringify(opts.metadata ?? {})
-  });
-  return room;
+  return runWithResilience(
+    () => getRoomService().createRoom({
+      name: opts.callId,
+      maxParticipants: opts.maxParticipants ?? 10,
+      emptyTimeout: opts.emptyTimeoutSec ?? 300,
+      metadata: JSON.stringify(opts.metadata ?? {})
+    }),
+    {
+      provider: "livekit",
+      operation: "createRoom",
+      timeoutMs: LIVEKIT_CREATE_ROOM_TIMEOUT_MS,
+      retries: 0
+    }
+  );
 }
 async function issueAccessToken(roomName, participant, ttlSeconds) {
   const config = requireLiveKitConfig();
@@ -32498,13 +32508,14 @@ function getClientConfig() {
     // api key/secret intentionally NOT included — tokens are issued per-session
   };
 }
-var LIVEKIT_TOKEN_MIN_TTL, LIVEKIT_TOKEN_MAX_TTL, LIVEKIT_BOT_TOKEN_TTL, roomServiceCache, webhookReceiverCache;
+var LIVEKIT_CREATE_ROOM_TIMEOUT_MS, LIVEKIT_TOKEN_MIN_TTL, LIVEKIT_TOKEN_MAX_TTL, LIVEKIT_BOT_TOKEN_TTL, roomServiceCache, webhookReceiverCache;
 var init_livekit_service = __esm({
   "server/livekit-service.ts"() {
     "use strict";
     init_dist3();
     init_voice_resilience();
     init_observability();
+    LIVEKIT_CREATE_ROOM_TIMEOUT_MS = 15e3;
     LIVEKIT_TOKEN_MIN_TTL = 3600;
     LIVEKIT_TOKEN_MAX_TTL = 86400;
     LIVEKIT_BOT_TOKEN_TTL = 14400;
@@ -132275,7 +132286,11 @@ function requireActiveSubscription(req, res, next) {
   }
   void (async () => {
     try {
-      const result = organizationId ? await checkOrgBillingStatus(organizationId) : await checkUserBillingStatus(userId);
+      const billingCheck = organizationId ? checkOrgBillingStatus(organizationId) : checkUserBillingStatus(userId);
+      const timeout = new Promise(
+        (_, reject2) => setTimeout(() => reject2(new Error("billing_check_timeout")), 15e3)
+      );
+      const result = await Promise.race([billingCheck, timeout]);
       if (!result.allowed) {
         logger.warn("UsageEnforcement", "Access denied by billing guard", {
           userId,
@@ -225473,6 +225488,12 @@ function sendAccessDenied(res) {
 }
 function respondWithInitiateError(res, error) {
   const message2 = error instanceof Error ? error.message : String(error || "Call initiate failed");
+  if (message2.includes("LIVEKIT_UNAVAILABLE") || message2.includes("livekit timed out") || message2.includes("livekit-control-plane")) {
+    return res.status(503).json({
+      message: "Call service is not configured. LiveKit API keys are required.",
+      code: "LIVEKIT_UNAVAILABLE"
+    });
+  }
   if (message2.includes("CALLEE_PHONE_REQUIRED_FOR_PSTN")) {
     return res.status(400).json({ message: "Phone number is required for PSTN calling." });
   }

@@ -53,6 +53,11 @@ function getPool(): pg.Pool {
     logger.error("Database", "Database pool emitted an error", error instanceof Error ? error : new Error(String(error)));
   });
 
+  // Prevent stale Neon connections from hanging queries indefinitely (causes 504s)
+  poolInstance.on("connect", (client) => {
+    void client.query("SET statement_timeout = 20000"); // 20s max per query
+  });
+
   return poolInstance;
 }
 

@@ -16,6 +16,8 @@
 import { AccessToken, RoomServiceClient, WebhookReceiver } from "livekit-server-sdk";
 import type { Room, ParticipantInfo } from "livekit-server-sdk";
 import { runWithResilience } from "./voice-resilience";
+
+const LIVEKIT_CREATE_ROOM_TIMEOUT_MS = 15_000;
 import { logger } from "./observability";
 
 const LIVEKIT_TOKEN_MIN_TTL = 3600;   // 1 hour minimum
@@ -110,13 +112,20 @@ export interface CreateCallRoomOptions {
  * Idempotent — re-creating with same name is safe.
  */
 export async function createCallRoom(opts: CreateCallRoomOptions): Promise<Room> {
-  const room = await getRoomService().createRoom({
-    name: opts.callId,
-    maxParticipants: opts.maxParticipants ?? 10,
-    emptyTimeout: opts.emptyTimeoutSec ?? 300,
-    metadata: JSON.stringify(opts.metadata ?? {}),
-  });
-  return room;
+  return runWithResilience(
+    () => getRoomService().createRoom({
+      name: opts.callId,
+      maxParticipants: opts.maxParticipants ?? 10,
+      emptyTimeout: opts.emptyTimeoutSec ?? 300,
+      metadata: JSON.stringify(opts.metadata ?? {}),
+    }),
+    {
+      provider: "livekit",
+      operation: "createRoom",
+      timeoutMs: LIVEKIT_CREATE_ROOM_TIMEOUT_MS,
+      retries: 0,
+    },
+  );
 }
 
 /**

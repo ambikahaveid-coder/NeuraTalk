@@ -328,6 +328,13 @@ function sendAccessDenied(res: Response) {
 function respondWithInitiateError(res: Response, error: unknown) {
   const message = error instanceof Error ? error.message : String(error || "Call initiate failed");
 
+  if (message.includes("LIVEKIT_UNAVAILABLE") || message.includes("livekit timed out") || message.includes("livekit-control-plane")) {
+    return res.status(503).json({
+      message: "Call service is not configured. LiveKit API keys are required.",
+      code: "LIVEKIT_UNAVAILABLE",
+    });
+  }
+
   if (message.includes("CALLEE_PHONE_REQUIRED_FOR_PSTN")) {
     return res.status(400).json({ message: "Phone number is required for PSTN calling." });
   }
