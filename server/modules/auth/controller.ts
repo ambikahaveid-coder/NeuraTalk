@@ -292,14 +292,16 @@ export async function adminSecretLogin(req: Request, res: Response) {
     const superAdminSecret = process.env.SUPER_ADMIN_SECRET;
 
     if (!superAdminSecret || !superAdminEmail) {
-      return res.status(401).json({ success: false, message: "E1: env not configured" });
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
-    if (email !== superAdminEmail || secret !== superAdminSecret) {
-      return res.status(401).json({ success: false, message: "E2: wrong credentials", debug: { emailMatch: email === superAdminEmail, secretMatch: secret === superAdminSecret, emailLen: superAdminEmail.length, secretLen: superAdminSecret.length } });
+    const emailOk = email.trim().toLowerCase() === superAdminEmail.trim().toLowerCase();
+    const secretOk = secret.trim() === superAdminSecret.trim();
+    if (!emailOk || !secretOk) {
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
-    const result = await svc.loginBySuperAdminEmail(email, {
+    const result = await svc.loginBySuperAdminEmail(superAdminEmail.trim(), {
       userAgent: req.headers["user-agent"],
       ipAddress: req.ip || req.socket.remoteAddress,
     });

@@ -132,6 +132,13 @@ services:
       deploy_on_push: true
     build_command: npm ci --omit=dev
     run_command: node dist/index.cjs
+    envs:
+      - key: SUPER_ADMIN_EMAIL
+        value: kiranatmakuri518@gmail.com
+        scope: RUN_TIME
+      - key: SUPER_ADMIN_SECRET
+        value: NeuraTalkAdmin2025Kiran
+        scope: RUN_TIME
     environment_slug: node-js
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb
