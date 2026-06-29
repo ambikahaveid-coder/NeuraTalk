@@ -324,6 +324,27 @@ app.use((req, res, next) => {
 
   await runStartupPhase("bootstrap validation", () => validateEnvironment({ stage: "bootstrap" }));
   await runStartupPhase("database readiness", () => retryCriticalStartupStep("database readiness", () => assertDatabaseReady()), { timeoutMs: 30000 });
+  await runStartupPhase("schema migrations", async () => {
+    const { db: _db } = await import("./db");
+    const { sql: _sql } = await import("drizzle-orm");
+    await _db.execute(_sql`
+      CREATE TABLE IF NOT EXISTS "user_notifications" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        "type" text NOT NULL,
+        "title" text NOT NULL,
+        "body" text NOT NULL,
+        "data" jsonb DEFAULT '{}',
+        "is_read" boolean NOT NULL DEFAULT false,
+        "read_at" timestamp,
+        "delivered_via_push" boolean DEFAULT false,
+        "created_at" timestamp DEFAULT now()
+      )
+    `);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_user_idx" ON "user_notifications" ("user_id")`);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_read_idx" ON "user_notifications" ("user_id", "is_read")`);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_created_idx" ON "user_notifications" ("created_at")`);
+  }, { optional: true });
   let redisOperational = false;
   try {
     await runStartupPhase("redis readiness", () => retryCriticalStartupStep("redis readiness", () => assertRedisReady()), { timeoutMs: 30000 });

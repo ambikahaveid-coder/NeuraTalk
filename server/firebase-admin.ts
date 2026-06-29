@@ -236,3 +236,51 @@ export async function sendVoIPPush(
     failed: response.failureCount,
   };
 }
+
+/**
+ * Send a general push notification to all active devices of a user.
+ * Used for missed calls, payment confirmations, subscription alerts, etc.
+ */
+export async function sendPushNotification(
+  userId: number,
+  notification: { title: string; body: string; data?: Record<string, string> },
+): Promise<{ sent: number; failed: number }> {
+  if (!firebaseAdminApp) {
+    return { sent: 0, failed: 0 };
+  }
+
+  const devices = await db
+    .select({ pushToken: registeredDevices.pushToken, platform: registeredDevices.platform })
+    .from(registeredDevices)
+    .where(and(eq(registeredDevices.userId, userId), eq(registeredDevices.isActive, true)));
+
+  const tokens = Array.from(
+    new Set(devices.map((d) => d.pushToken).filter((t): t is string => typeof t === "string" && t.length > 0)),
+  );
+
+  if (tokens.length === 0) return { sent: 0, failed: 0 };
+
+  const data: Record<string, string> = {};
+  if (notification.data) {
+    for (const [k, v] of Object.entries(notification.data)) {
+      data[k] = String(v);
+    }
+  }
+
+  const response = await firebaseAdminApp.messaging().sendEachForMulticast({
+    tokens,
+    notification: { title: notification.title, body: notification.body },
+    data,
+    android: { priority: "high" },
+    apns: { headers: { "apns-priority": "10" } },
+  });
+
+  logger.info("FirebaseAdmin", "General push notification sent", {
+    userId,
+    title: notification.title,
+    sent: response.successCount,
+    failed: response.failureCount,
+  });
+
+  return { sent: response.successCount, failed: response.failureCount };
+}

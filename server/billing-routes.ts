@@ -1559,5 +1559,204 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/billing/wallet ──────────────────────────────────────────────────
+  // Returns the caller's wallet balance and last 50 ledger transactions.
+  // B2C users have a personal balance derived from their subscription remaining
+  // minutes; B2B org members see their organisation's wallet balance.
+  app.get("/api/billing/wallet", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      const userId = user.id;
+      const orgId = (user as any).organizationId ?? null;
+
+      // ── B2B: org wallet ───────────────────────────────────────────────────────
+      if (orgId) {
+        const [account] = await db
+          .select()
+          .from(billingAccounts)
+          .where(eq(billingAccounts.organizationId, orgId))
+          .limit(1);
+
+        const ledger = await db
+          .select()
+          .from(billingLedgerEntries)
+          .where(eq(billingLedgerEntries.organizationId, orgId))
+          .orderBy(desc(billingLedgerEntries.createdAt))
+          .limit(50);
+
+        return res.json({
+          success: true,
+          walletType: "organization",
+          balancePaise: account?.walletBalancePaise ?? 0,
+          balanceInr: Number(((account?.walletBalancePaise ?? 0) / 100).toFixed(2)),
+          lockedPaise: account?.lockedBalancePaise ?? 0,
+          availablePaise: (account?.walletBalancePaise ?? 0) - (account?.lockedBalancePaise ?? 0),
+          currency: account?.currency ?? "INR",
+          isBlocked: account?.isBlocked ?? false,
+          transactions: ledger.map((e) => ({
+            id: e.id,
+            type: e.entryType,
+            direction: e.direction,
+            amountPaise: e.amountPaise,
+            amountInr: Number((e.amountPaise / 100).toFixed(2)),
+            balanceAfterPaise: e.balanceAfterPaise,
+            callId: e.callId,
+            createdAt: e.createdAt,
+            metadata: e.metadata,
+          })),
+        });
+      }
+
+      // ── B2C: personal subscription-based balance ──────────────────────────────
+      const [activeSub] = await db
+        .select({
+          id: subscriptions.id,
+          minutesRemaining: subscriptions.minutesRemaining,
+          minutesUsed: subscriptions.minutesUsed,
+          endDate: subscriptions.endDate,
+          planName: billingPlans.name,
+          priceInPaise: billingPlans.priceInPaise,
+          includedMinutes: billingPlans.callMinutesIncluded,
+        })
+        .from(subscriptions)
+        .innerJoin(billingPlans, eq(subscriptions.planId, billingPlans.id))
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, "active")))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      const ledger = await db
+        .select()
+        .from(billingLedgerEntries)
+        .where(eq(billingLedgerEntries.userId, userId))
+        .orderBy(desc(billingLedgerEntries.createdAt))
+        .limit(50);
+
+      const minutesRemaining = activeSub?.minutesRemaining ?? 0;
+
+      return res.json({
+        success: true,
+        walletType: "personal",
+        balancePaise: 0,
+        balanceInr: 0,
+        minutesRemaining,
+        minutesUsed: activeSub?.minutesUsed ?? 0,
+        hasActiveSubscription: !!activeSub,
+        subscription: activeSub
+          ? {
+              id: activeSub.id,
+              planName: activeSub.planName,
+              minutesRemaining,
+              expiresAt: activeSub.endDate,
+            }
+          : null,
+        currency: "INR",
+        transactions: ledger.map((e) => ({
+          id: e.id,
+          type: e.entryType,
+          direction: e.direction,
+          amountPaise: e.amountPaise,
+          amountInr: Number((e.amountPaise / 100).toFixed(2)),
+          callId: e.callId,
+          createdAt: e.createdAt,
+          metadata: e.metadata,
+        })),
+      });
+    } catch (err) {
+      logger.error("Billing", "Failed to fetch wallet", err as Error);
+      res.status(500).json({ success: false, message: "Failed to fetch wallet" });
+    }
+  });
+
+  // ── GET /api/billing/subscriptions ───────────────────────────────────────────
+  // Returns all subscriptions for the authenticated user (active + historical),
+  // with plan details, usage, and renewal status.
+  app.get("/api/billing/subscriptions", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = req.user!;
+      const userId = user.id;
+      const orgId = (user as any).organizationId ?? null;
+
+      const limitRaw = Math.min(Number(req.query.limit) || 20, 100);
+      const offsetRaw = Math.max(Number(req.query.offset) || 0, 0);
+      const statusFilter = (req.query.status as string) || undefined;
+
+      const conditions = orgId
+        ? [eq(subscriptions.organizationId, orgId)]
+        : [eq(subscriptions.userId, userId)];
+
+      if (statusFilter) {
+        conditions.push(eq(subscriptions.status, statusFilter));
+      }
+
+      const rows = await db
+        .select({
+          id: subscriptions.id,
+          status: subscriptions.status,
+          billingModel: subscriptions.billingModel,
+          startDate: subscriptions.startDate,
+          endDate: subscriptions.endDate,
+          minutesUsed: subscriptions.minutesUsed,
+          minutesRemaining: subscriptions.minutesRemaining,
+          autoRenew: subscriptions.autoRenew,
+          nextBillingDate: subscriptions.nextBillingDate,
+          createdAt: subscriptions.createdAt,
+          plan: {
+            id: billingPlans.id,
+            name: billingPlans.name,
+            planType: billingPlans.planType,
+            priceInPaise: billingPlans.priceInPaise,
+            currency: billingPlans.currency,
+            callMinutesIncluded: billingPlans.callMinutesIncluded,
+            duration: billingPlans.duration,
+          },
+        })
+        .from(subscriptions)
+        .innerJoin(billingPlans, eq(subscriptions.planId, billingPlans.id))
+        .where(and(...conditions))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(limitRaw)
+        .offset(offsetRaw);
+
+      const [{ total }] = await db
+        .select({ total: sql<number>`cast(count(*) as int)` })
+        .from(subscriptions)
+        .where(and(...conditions));
+
+      const active = rows.find((r) => r.status === "active") ?? null;
+
+      return res.json({
+        success: true,
+        activeSubscription: active
+          ? {
+              id: active.id,
+              planName: active.plan.name,
+              status: active.status,
+              minutesRemaining: active.minutesRemaining,
+              minutesUsed: active.minutesUsed,
+              expiresAt: active.endDate,
+              autoRenew: active.autoRenew,
+            }
+          : null,
+        subscriptions: rows.map((r) => ({
+          id: r.id,
+          status: r.status,
+          billingModel: r.billingModel,
+          plan: r.plan,
+          minutesUsed: r.minutesUsed,
+          minutesRemaining: r.minutesRemaining,
+          startDate: r.startDate,
+          endDate: r.endDate,
+          autoRenew: r.autoRenew,
+          nextBillingDate: r.nextBillingDate,
+          createdAt: r.createdAt,
+        })),
+        pagination: { total, limit: limitRaw, offset: offsetRaw },
+      });
+    } catch (err) {
+      logger.error("Billing", "Failed to fetch subscriptions", err as Error);
+      res.status(500).json({ success: false, message: "Failed to fetch subscriptions" });
+    }
+  });
+
   logger.info("Billing", "Billing routes registered");
 }

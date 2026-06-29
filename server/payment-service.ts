@@ -508,6 +508,23 @@ async function finalizeTransactionSuccess(
       },
     }).catch((err) => logger.error("PaymentService", "Failed to write payment audit log", err instanceof Error ? err : new Error(String(err))));
 
+    // Send in-app + push notification for successful payment
+    if (current.userId) {
+      import("./notification-routes").then(({ createNotification }) => {
+        const amountInr = ((current.amount ?? 0) / 100).toFixed(2);
+        const isWallet = result.kind === "wallet_topup";
+        void createNotification({
+          userId: current.userId!,
+          type: "payment_success",
+          title: isWallet ? "Wallet Recharged ✅" : "Subscription Activated ✅",
+          body: isWallet
+            ? `₹${amountInr} added to your wallet.`
+            : `Your plan has been activated. Payment of ₹${amountInr} received.`,
+          data: { transactionId: String(current.id), amountPaise: String(current.amount ?? 0) },
+        });
+      }).catch(() => {});
+    }
+
     return result;
   }, { ttlMs: 60_000, retries: 3, retryDelayMs: 200 });
 }

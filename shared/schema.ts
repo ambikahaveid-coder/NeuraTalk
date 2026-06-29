@@ -2652,3 +2652,28 @@ export const integrationAuditLogs = pgTable("integration_audit_logs", {
   index("integration_audit_logs_org_idx").on(t.organizationId),
   index("integration_audit_logs_number_idx").on(t.enterpriseNumberId),
 ]);
+
+// ── User Notifications ────────────────────────────────────────────────────────
+// In-app + push notifications. FCM delivery is handled via registeredDevices.pushToken.
+
+export const userNotifications = pgTable("user_notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // missed_call | incoming_call | payment_success | payment_failed | subscription_expiry | system | call_ended
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  data: jsonb("data").default({}),          // Arbitrary payload (callId, orderId, etc.)
+  isRead: boolean("is_read").notNull().default(false),
+  readAt: timestamp("read_at"),
+  deliveredViaPush: boolean("delivered_via_push").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("user_notifications_user_idx").on(t.userId),
+  index("user_notifications_type_idx").on(t.type),
+  index("user_notifications_read_idx").on(t.userId, t.isRead),
+  index("user_notifications_created_idx").on(t.createdAt),
+]);
+
+export const insertUserNotificationSchema = createInsertSchema(userNotifications).omit({ id: true, createdAt: true, readAt: true });
+export type UserNotification = typeof userNotifications.$inferSelect;
+export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;

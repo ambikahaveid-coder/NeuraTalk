@@ -48,6 +48,27 @@ envs:
     value: centralindia
     scope: RUN_TIME
 
+  # ── TURN / ICE (OpenRelay public TURN — free, no registration needed) ────────
+  - key: TURN_SERVER_URL
+    value: "turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turns:openrelay.metered.ca:443"
+    scope: RUN_TIME
+  - key: TURN_SERVER_USERNAME
+    value: openrelayproject
+    scope: RUN_TIME
+  - key: TURN_SERVER_CREDENTIAL
+    value: openrelayproject
+    scope: RUN_TIME
+  # Legacy gateway key (gateway.ts reads TURN_SERVER, not TURN_SERVER_URL)
+  - key: TURN_SERVER
+    value: "turn:openrelay.metered.ca:80"
+    scope: RUN_TIME
+  - key: TURN_USERNAME
+    value: openrelayproject
+    scope: RUN_TIME
+  - key: TURN_CREDENTIAL
+    value: openrelayproject
+    scope: RUN_TIME
+
   # ── LiveKit ──────────────────────────────────────────────────────────────────
   - key: LIVEKIT_URL
     value: wss://neuratalk-vzgep7qq.livekit.cloud

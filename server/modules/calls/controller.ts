@@ -632,12 +632,31 @@ export async function statusUpdate(req: Request, res: Response) {
 
 export async function reject(req: Request, res: Response) {
   try {
-    await svc.removeIncomingCall(String(req.user!.id), req.params.id);
-    if (svc.isSmartCallId(req.params.id)) {
-      void svc.updateSmartCallStatus(req.params.id, CALL_STATUS.MISSED, {
-        rejectedByUserId: req.user!.id,
+    const callId = req.params.id;
+    const rejectingUserId = req.user!.id;
+
+    // Resolve caller so we can send them a missed-call notification
+    let callerUserId: number | null = null;
+    if (svc.isSmartCallId(callId)) {
+      const smartCall = await svc.getSmartCall(callId).catch(() => null);
+      callerUserId = smartCall ? Number(smartCall.callerId) : null;
+      void svc.updateSmartCallStatus(callId, CALL_STATUS.MISSED, { rejectedByUserId: rejectingUserId });
+    }
+
+    await svc.removeIncomingCall(String(rejectingUserId), callId);
+
+    // Notify the caller that their call was missed
+    if (callerUserId && callerUserId !== rejectingUserId) {
+      const { createNotification } = await import("../../notification-routes");
+      void createNotification({
+        userId: callerUserId,
+        type: "missed_call",
+        title: "Missed Call",
+        body: `Your call was not answered.`,
+        data: { callId },
       });
     }
+
     res.json({ success: true });
   } catch {
     res.status(500).json({ message: "Reject failed" });

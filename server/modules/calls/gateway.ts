@@ -1010,20 +1010,23 @@ export function getGatewayStatus(): {
   };
 }
 
-export function getIceServers(): { urls: string; username?: string; credential?: string }[] {
-  const servers: { urls: string; username?: string; credential?: string }[] = [
-    { urls: GATEWAY_CONFIG.stunServer },
-  ];
-
-  if (GATEWAY_CONFIG.turnServer) {
-    servers.push({
-      urls: GATEWAY_CONFIG.turnServer,
-      username: GATEWAY_CONFIG.turnUsername,
-      credential: GATEWAY_CONFIG.turnCredential,
-    });
+export function getIceServers(): { urls: string | string[]; username?: string; credential?: string }[] {
+  // Use the unified turn-config which has Twilio > self-hosted > OpenRelay fallback
+  try {
+    const { getICEServersConfig } = require("../../turn-config");
+    const cfg = getICEServersConfig();
+    return cfg.iceServers;
+  } catch {
+    // Hard fallback if turn-config fails to load
+    return [
+      { urls: GATEWAY_CONFIG.stunServer },
+      {
+        urls: ["turn:openrelay.metered.ca:80", "turn:openrelay.metered.ca:443", "turns:openrelay.metered.ca:443"],
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ];
   }
-
-  return servers;
 }
 
 // Cleanup stale calls periodically

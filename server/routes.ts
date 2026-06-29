@@ -16,6 +16,7 @@ import { registerLocationRoutes } from "./location-routes";
 import { registerAdminSettingsRoutes } from "./admin-settings-routes";
 import { registerPaymentRoutes } from "./payment-routes";
 import { registerBillingRoutes } from "./billing-routes";
+import { registerNotificationRoutes } from "./notification-routes";
 import { registerTranslationRoutes } from "./translations";
 import { registerInvestorRoutes } from "./investor-routes";
 import { registerProductionRoutes } from "./production-routes";
@@ -139,6 +140,7 @@ export async function registerRoutes(
   registerAdminSettingsRoutes(app); console.log("[Routes] ✓ Admin settings routes");
   registerPaymentRoutes(app); console.log("[Routes] ✓ Payment routes");
   registerBillingRoutes(app); console.log("[Routes] ✓ Billing routes");
+  registerNotificationRoutes(app); console.log("[Routes] ✓ Notification routes");
   registerTranslationRoutes(app); console.log("[Routes] ✓ Translation routes");
   registerInvestorRoutes(app); console.log("[Routes] ✓ Investor routes");
   registerProductionRoutes(app); console.log("[Routes] ✓ Production routes");
