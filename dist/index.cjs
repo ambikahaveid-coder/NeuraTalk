@@ -224073,10 +224073,10 @@ async function adminSecretLogin(req, res) {
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const superAdminSecret = process.env.SUPER_ADMIN_SECRET;
     if (!superAdminSecret || !superAdminEmail) {
-      return res.status(401).json({ success: false, message: "Invalid credentials." });
+      return res.status(401).json({ success: false, message: "E1: env not configured" });
     }
     if (email !== superAdminEmail || secret !== superAdminSecret) {
-      return res.status(401).json({ success: false, message: "Invalid credentials." });
+      return res.status(401).json({ success: false, message: "E2: wrong credentials", debug: { emailMatch: email === superAdminEmail, secretMatch: secret === superAdminSecret, emailLen: superAdminEmail.length, secretLen: superAdminSecret.length } });
     }
     const result = await loginBySuperAdminEmail(email, {
       userAgent: req.headers["user-agent"],
