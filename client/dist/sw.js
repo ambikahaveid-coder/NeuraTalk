@@ -1,6 +1,6 @@
-const CACHE_NAME = 'neuratalk-v1';
-const STATIC_CACHE = 'neuratalk-static-v1';
-const DYNAMIC_CACHE = 'neuratalk-dynamic-v1';
+const CACHE_NAME = 'neuratalk-v2';
+const STATIC_CACHE = 'neuratalk-static-v2';
+const DYNAMIC_CACHE = 'neuratalk-dynamic-v2';
 
 const STATIC_ASSETS = [
   '/',
@@ -9,7 +9,7 @@ const STATIC_ASSETS = [
 ];
 
 const CACHE_STRATEGIES = {
-  cacheFirst: ['fonts.googleapis.com', 'fonts.gstatic.com'],
+  cacheFirst: [],
   networkFirst: ['/api/'],
   staleWhileRevalidate: ['.js', '.css', '.png', '.jpg', '.svg']
 };
