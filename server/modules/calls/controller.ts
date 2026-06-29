@@ -335,6 +335,13 @@ function respondWithInitiateError(res: Response, error: unknown) {
     });
   }
 
+  if (message.includes("PSTN_NOT_CONFIGURED")) {
+    return res.status(503).json({
+      message: "PSTN calling is not configured. Add MSG91_AUTH_KEY or TWILIO credentials to enable calling mobile numbers.",
+      code: "PSTN_NOT_CONFIGURED",
+    });
+  }
+
   if (message.includes("CALLEE_PHONE_REQUIRED_FOR_PSTN")) {
     return res.status(400).json({ message: "Phone number is required for PSTN calling." });
   }

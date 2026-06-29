@@ -53,6 +53,7 @@ import { registerFaceToFaceRoutes } from "./face-to-face-routes";
 import complianceRoutes from "./compliance-routes";
 import { registerAuthRoutes } from "./modules/auth/routes";
 import { registerCallsRoutes } from "./modules/calls/routes";
+import { registerPSTNRoutes } from "./pstn/routes";
 import { registerCallerIdRoutes } from "./modules/caller-id/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
@@ -132,6 +133,7 @@ export async function registerRoutes(
   registerObjectStorageRoutes(app); console.log("[Routes] ✓ Object storage routes");
   registerVoiceTrainingRoutes(app); console.log("[Routes] ✓ Voice training routes");
   registerCallsRoutes(app); console.log("[Routes] ✓ Calls module (LiveKit) routes");
+  registerPSTNRoutes(app); console.log("[Routes] ✓ PSTN routes (inbound/outbound webhooks, CDR, health)");
   registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");

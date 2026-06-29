@@ -11,7 +11,8 @@ import {
   setParticipantLanguagePreference,
 } from "../../universal-language-runtime";
 import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken } from "../../livekit-service";
-import { bridgeCallToLiveKitRoom } from "../../msg91-service";
+import { getPSTNProvider, isPSTNAvailable } from "../../pstn/registry";
+import { recordCallOutcome } from "../../pstn/monitor";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import { organizations } from "@shared/schema";
@@ -1020,6 +1021,9 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     if (!callee.phoneNumber) {
       throw new Error("CALLEE_PHONE_REQUIRED_FOR_PSTN");
     }
+    if (!isPSTNAvailable()) {
+      throw new Error("PSTN_NOT_CONFIGURED");
+    }
     if (!process.env.APP_BASE_URL?.trim()) {
       throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
     }
@@ -1032,7 +1036,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     const orgOutboundCallerId = await resolveOrgOutboundCallerId(callerOrgId);
     const normalizedCallerNumber = normalizePhoneNumber(req.callerNumber);
     const callerOwnNumberAllowed = Boolean((callerUser as any)?.callerIdVerified && normalizedCallerNumber);
-    const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
+    const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "") || process.env.MSG91_VOICE_CALLER_ID || "";
     callerIdentityMode = resolveCallerIdentityMode({
       joinMethod: requestedJoinMethod,
       organizationCallerId: orgOutboundCallerId,
@@ -1044,23 +1048,41 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
       operationalWarnings.push(callerIdentityDisclaimer);
     }
 
-    let pstnResult: Awaited<ReturnType<typeof bridgeCallToLiveKitRoom>> | undefined;
+    const pstnProvider = getPSTNProvider();
+    let pstnProviderCallId = "";
+    let pstnProviderStatus = "queued";
     let attempts = 0;
     while (attempts < 3) {
       try {
         stageStartNs = process.hrtime.bigint();
-        pstnResult = await bridgeCallToLiveKitRoom({
+        const pstnResult = await pstnProvider.initiateCall({
           to: callee.phoneNumber,
           from: effectiveCallerNumber,
           sipUri: buildLiveKitSipUri(callId),
-          callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
-          metadata: { internalCallId: callId, callerId: req.callerId },
+          callbackUrl: `${process.env.APP_BASE_URL}/api/pstn/status`,
+          internalCallId: callId,
+          metadata: { callerId: req.callerId },
+          timeoutSeconds: 30,
         });
+        pstnProviderCallId = pstnResult.providerCallId;
+        pstnProviderStatus = pstnResult.status;
         logSetupLatency(callId, "app_to_pstn", "bridge_pstn", elapsedMs(stageStartNs));
+        await recordCallOutcome({
+          callId,
+          success: true,
+          provider: pstnProvider.name,
+          setupLatencyMs: elapsedMs(stageStartNs),
+        });
         break;
       } catch (error) {
         attempts++;
         if (attempts >= 3) {
+          await recordCallOutcome({
+            callId,
+            success: false,
+            provider: pstnProvider.name,
+            failureReason: String(error).slice(0, 60),
+          });
           throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1069,15 +1091,15 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
 
     await mutateSmartCall(callId, (current) => ({
       ...current,
-      pstnCallId: pstnResult!.callId,
+      pstnCallId: pstnProviderCallId,
       calleeIdentifier: callee.phoneNumber || current.calleeIdentifier,
       lastProviderEventAt: nowIso(),
     }));
 
     await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
-      pstnCallId: pstnResult!.callId,
+      pstnCallId: pstnProviderCallId,
       calleeIdentifier: callee.phoneNumber,
-      providerStatus: pstnResult!.status,
+      providerStatus: pstnProviderStatus,
     });
 
     return {
@@ -1088,7 +1110,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
       callerIdentityDisclaimer,
       livekitUrl: process.env.LIVEKIT_URL,
       livekitToken: callerToken,
-      pstnCallId: pstnResult!.callId,
+      pstnCallId: pstnProviderCallId,
       estimatedRateInrPerMin: planRateInrPerMin,
       languageDetectionActive: translationEnabled,
       operationalWarnings,
@@ -1263,43 +1285,50 @@ export async function activatePstnFallback(callId: string, input: {
     callerVerifiedNumber: normalizedCallerNumber,
     callerPhoneVerified: callerOwnNumberAllowed,
   });
+  if (!isPSTNAvailable()) {
+    throw new Error("PSTN_NOT_CONFIGURED");
+  }
   if (!process.env.APP_BASE_URL?.trim()) {
     throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
   }
   if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
     throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
   }
-  const pstnResult = await bridgeCallToLiveKitRoom({
+  const pstnProvider = getPSTNProvider();
+  const pstnResult = await pstnProvider.initiateCall({
     to: input.calleePhoneNumber,
-    from: effectiveCallerNumber,
+    from: effectiveCallerNumber || process.env.MSG91_VOICE_CALLER_ID || "",
     sipUri: buildLiveKitSipUri(callId),
-    callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
-    metadata: { internalCallId: callId, callerId: current.callerId },
+    callbackUrl: `${process.env.APP_BASE_URL}/api/pstn/status`,
+    internalCallId: callId,
+    metadata: { callerId: current.callerId },
+    timeoutSeconds: 30,
   });
 
   await mutateSmartCall(callId, (record) => ({
     ...record,
     joinMethod: "app_to_pstn",
-    provider: "msg91_sip",
+    provider: pstnProvider.name === "twilio" ? "msg91_sip" : "msg91_sip",
     calleeIdentifier: input.calleePhoneNumber,
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     lastProviderEventAt: nowIso(),
     metadata: {
       ...(record.metadata || {}),
       callerIdentityMode,
       pstnFallbackActivated: true,
+      pstnProvider: pstnProvider.name,
     },
   }));
 
   await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     calleeIdentifier: input.calleePhoneNumber,
     providerStatus: pstnResult.status,
   });
 
   return {
     callId,
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     providerStatus: pstnResult.status,
   };
 }

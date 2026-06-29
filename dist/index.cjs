@@ -12058,7 +12058,7 @@ var require_node = __commonJS({
   "node_modules/debug/src/node.js"(exports2, module2) {
     var tty = require("tty");
     var util3 = require("util");
-    exports2.init = init2;
+    exports2.init = init3;
     exports2.log = log2;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
@@ -12207,7 +12207,7 @@ var require_node = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init2(debug) {
+    function init3(debug) {
       debug.inspectOpts = {};
       const keys = Object.keys(exports2.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
@@ -31767,7 +31767,7 @@ var init_TwirpRPC = __esm({
       async request(service, method, data, headers, timeout = this.requestTimeout) {
         const path4 = `${this.prefix}/${this.pkg}.${service}/${method}`;
         const url = new URL(path4, this.host);
-        const init2 = {
+        const init3 = {
           method: "POST",
           headers: {
             "Content-Type": "application/json;charset=UTF-8",
@@ -31776,9 +31776,9 @@ var init_TwirpRPC = __esm({
           body: JSON.stringify(data)
         };
         if (timeout) {
-          init2.signal = AbortSignal.timeout(timeout * 1e3);
+          init3.signal = AbortSignal.timeout(timeout * 1e3);
         }
-        const response = await fetch(url, init2);
+        const response = await fetch(url, init3);
         if (!response.ok) {
           const isJson = response.headers.get("content-type") === "application/json";
           let errorMessage = "Unknown internal error";
@@ -33836,17 +33836,17 @@ var require_util2 = __commonJS({
       return ret;
     }
     function toRawHeaders(headers) {
-      const rawHeaders = [];
+      const rawHeaders2 = [];
       for (const [name, value] of Object.entries(headers)) {
         if (Array.isArray(value)) {
           for (const entry of value) {
-            rawHeaders.push(Buffer.from(name, "latin1"), Buffer.from(`${entry}`, "latin1"));
+            rawHeaders2.push(Buffer.from(name, "latin1"), Buffer.from(`${entry}`, "latin1"));
           }
         } else {
-          rawHeaders.push(Buffer.from(name, "latin1"), Buffer.from(`${value}`, "latin1"));
+          rawHeaders2.push(Buffer.from(name, "latin1"), Buffer.from(`${value}`, "latin1"));
         }
       }
-      return rawHeaders;
+      return rawHeaders2;
     }
     function encodeRawHeaders(headers) {
       if (!Array.isArray(headers)) {
@@ -42151,12 +42151,12 @@ var require_dispatcher1_wrapper = __commonJS({
         this.#handler.onConnect?.((reason) => controller.abort(reason), context);
       }
       onRequestUpgrade(controller, statusCode, headers, socket) {
-        const rawHeaders = controller?.rawHeaders ?? toRawHeaders(headers ?? {});
-        this.#handler.onUpgrade?.(statusCode, rawHeaders, socket);
+        const rawHeaders2 = controller?.rawHeaders ?? toRawHeaders(headers ?? {});
+        this.#handler.onUpgrade?.(statusCode, rawHeaders2, socket);
       }
       onResponseStart(controller, statusCode, headers, statusMessage) {
-        const rawHeaders = controller?.rawHeaders ?? toRawHeaders(headers ?? {});
-        if (this.#handler.onHeaders?.(statusCode, rawHeaders, () => controller.resume(), statusMessage) === false) {
+        const rawHeaders2 = controller?.rawHeaders ?? toRawHeaders(headers ?? {});
+        if (this.#handler.onHeaders?.(statusCode, rawHeaders2, () => controller.resume(), statusMessage) === false) {
           controller.pause();
         }
       }
@@ -44127,8 +44127,8 @@ var require_api_request = __commonJS({
       }
       onResponseStart(controller, statusCode, headers, statusText) {
         const { callback, opaque, context, responseHeaders, highWaterMark } = this;
-        const rawHeaders = controller?.rawHeaders;
-        const responseHeaderData = responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+        const rawHeaders2 = controller?.rawHeaders;
+        const responseHeaderData = responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
         if (statusCode < 200) {
           if (this.onInfo) {
             this.onInfo({ statusCode, headers: responseHeaderData });
@@ -44370,8 +44370,8 @@ var require_api_stream = __commonJS({
       }
       onResponseStart(controller, statusCode, headers, _statusMessage) {
         const { factory, opaque, context, responseHeaders } = this;
-        const rawHeaders = controller?.rawHeaders;
-        const responseHeaderData = responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+        const rawHeaders2 = controller?.rawHeaders;
+        const responseHeaderData = responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
         if (statusCode < 200) {
           if (this.onInfo) {
             this.onInfo({ statusCode, headers: responseHeaderData });
@@ -44603,8 +44603,8 @@ var require_api_pipeline = __commonJS({
         const { opaque, handler, context } = this;
         if (statusCode < 200) {
           if (this.onInfo) {
-            const rawHeaders = controller?.rawHeaders;
-            const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+            const rawHeaders2 = controller?.rawHeaders;
+            const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
             this.onInfo({ statusCode, headers: responseHeaders });
           }
           return;
@@ -44613,8 +44613,8 @@ var require_api_pipeline = __commonJS({
         let body;
         try {
           this.handler = null;
-          const rawHeaders = controller?.rawHeaders;
-          const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+          const rawHeaders2 = controller?.rawHeaders;
+          const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
           body = this.runInAsyncScope(handler, null, {
             statusCode,
             headers: responseHeaders,
@@ -44724,8 +44724,8 @@ var require_api_upgrade = __commonJS({
         const { callback, opaque, context } = this;
         removeSignal(this);
         this.callback = null;
-        const rawHeaders = controller?.rawHeaders;
-        const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+        const rawHeaders2 = controller?.rawHeaders;
+        const responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
         this.runInAsyncScope(callback, null, null, {
           headers: responseHeaders,
           socket,
@@ -44817,9 +44817,9 @@ var require_api_connect = __commonJS({
         removeSignal(this);
         this.callback = null;
         let responseHeaders = headers;
-        const rawHeaders = controller?.rawHeaders;
+        const rawHeaders2 = controller?.rawHeaders;
         if (responseHeaders != null) {
-          responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders) ? util3.parseRawHeaders(rawHeaders) : [] : headers;
+          responseHeaders = this.responseHeaders === "raw" ? Array.isArray(rawHeaders2) ? util3.parseRawHeaders(rawHeaders2) : [] : headers;
         }
         this.runInAsyncScope(callback, null, null, {
           statusCode,
@@ -46649,10 +46649,10 @@ var require_snapshot_agent = __commonJS({
       #replaySnapshot(snapshot, handler) {
         try {
           const { response } = snapshot;
-          const rawHeaders = response.headers ? util3.toRawHeaders(response.headers) : [];
+          const rawHeaders2 = response.headers ? util3.toRawHeaders(response.headers) : [];
           const rawTrailers = response.trailers ? util3.toRawHeaders(response.trailers) : [];
           const controller = {
-            rawHeaders,
+            rawHeaders: rawHeaders2,
             rawTrailers,
             pause() {
             },
@@ -49623,24 +49623,24 @@ var require_decompress = __commonJS({
         this.#decompressors = decompressors;
         const { "content-encoding": _, "content-length": __, ...newHeaders } = headers;
         if (controller?.rawHeaders) {
-          const rawHeaders = controller.rawHeaders;
-          if (Array.isArray(rawHeaders)) {
+          const rawHeaders2 = controller.rawHeaders;
+          if (Array.isArray(rawHeaders2)) {
             const filteredHeaders = [];
-            for (let i = 0; i < rawHeaders.length; i += 2) {
-              const headerName = rawHeaders[i];
+            for (let i = 0; i < rawHeaders2.length; i += 2) {
+              const headerName = rawHeaders2[i];
               const name = Buffer.isBuffer(headerName) ? headerName.toString("latin1") : `${headerName}`;
               const lowerName = name.toLowerCase();
               if (lowerName === "content-encoding" || lowerName === "content-length") {
                 continue;
               }
-              filteredHeaders.push(rawHeaders[i], rawHeaders[i + 1]);
+              filteredHeaders.push(rawHeaders2[i], rawHeaders2[i + 1]);
             }
             controller.rawHeaders = filteredHeaders;
-          } else if (typeof rawHeaders === "object") {
-            for (const name of Object.keys(rawHeaders)) {
+          } else if (typeof rawHeaders2 === "object") {
+            for (const name of Object.keys(rawHeaders2)) {
               const lowerName = name.toLowerCase();
               if (lowerName === "content-encoding" || lowerName === "content-length") {
-                delete rawHeaders[name];
+                delete rawHeaders2[name];
               }
             }
           }
@@ -50617,13 +50617,13 @@ var require_headers = __commonJS({
       cookies = null;
       sortedMap;
       headersMap;
-      constructor(init2) {
-        if (init2 instanceof _HeadersList) {
-          this.headersMap = new Map(init2.headersMap);
-          this.sortedMap = init2.sortedMap;
-          this.cookies = init2.cookies === null ? null : [...init2.cookies];
+      constructor(init3) {
+        if (init3 instanceof _HeadersList) {
+          this.headersMap = new Map(init3.headersMap);
+          this.sortedMap = init3.sortedMap;
+          this.cookies = init3.cookies === null ? null : [...init3.cookies];
         } else {
-          this.headersMap = new Map(init2);
+          this.headersMap = new Map(init3);
           this.sortedMap = null;
         }
       }
@@ -50789,16 +50789,16 @@ var require_headers = __commonJS({
        * @param {HeadersInit|Symbol} [init]
        * @returns
        */
-      constructor(init2 = void 0) {
+      constructor(init3 = void 0) {
         webidl.util.markAsUncloneable(this);
-        if (init2 === kConstruct) {
+        if (init3 === kConstruct) {
           return;
         }
         this.#headersList = new HeadersList();
         this.#guard = "none";
-        if (init2 !== void 0) {
-          init2 = webidl.converters.HeadersInit(init2, "Headers constructor", "init");
-          fill(this, init2);
+        if (init3 !== void 0) {
+          init3 = webidl.converters.HeadersInit(init3, "Headers constructor", "init");
+          fill(this, init3);
         }
       }
       // https://fetch.spec.whatwg.org/#dom-headers-append
@@ -51011,17 +51011,17 @@ var require_response = __commonJS({
         return responseObject;
       }
       // https://fetch.spec.whatwg.org/#dom-response-json
-      static json(data, init2 = void 0) {
+      static json(data, init3 = void 0) {
         webidl.argumentLengthCheck(arguments, 1, "Response.json");
-        if (init2 !== null) {
-          init2 = webidl.converters.ResponseInit(init2);
+        if (init3 !== null) {
+          init3 = webidl.converters.ResponseInit(init3);
         }
         const bytes = textEncoder.encode(
           serializeJavascriptValueToJSONString(data)
         );
         const body = extractBody(bytes);
         const responseObject = fromInnerResponse(makeResponse({}), "response");
-        initializeResponse(responseObject, init2, { body: body[0], type: "application/json" });
+        initializeResponse(responseObject, init3, { body: body[0], type: "application/json" });
         return responseObject;
       }
       // Creates a redirect Response that redirects to url with status status.
@@ -51045,7 +51045,7 @@ var require_response = __commonJS({
         return responseObject;
       }
       // https://fetch.spec.whatwg.org/#dom-response
-      constructor(body = null, init2 = void 0) {
+      constructor(body = null, init3 = void 0) {
         webidl.util.markAsUncloneable(this);
         if (body === kConstruct) {
           return;
@@ -51053,7 +51053,7 @@ var require_response = __commonJS({
         if (body !== null) {
           body = webidl.converters.BodyInit(body, "Response", "body");
         }
-        init2 = webidl.converters.ResponseInit(init2);
+        init3 = webidl.converters.ResponseInit(init3);
         this.#state = makeResponse({});
         this.#headers = new Headers(kConstruct);
         setHeadersGuard(this.#headers, "response");
@@ -51063,7 +51063,7 @@ var require_response = __commonJS({
           const [extractedBody, type] = extractBody(body);
           bodyWithType = { body: extractedBody, type };
         }
-        initializeResponse(this, init2, bodyWithType);
+        initializeResponse(this, init3, bodyWithType);
       }
       // Returns response’s type, e.g., "cors".
       get type() {
@@ -51213,7 +51213,7 @@ var require_response = __commonJS({
       }
       return newResponse;
     }
-    function makeResponse(init2) {
+    function makeResponse(init3) {
       return {
         aborted: false,
         rangeRequested: false,
@@ -51224,9 +51224,9 @@ var require_response = __commonJS({
         timingInfo: null,
         cacheState: "",
         statusText: "",
-        ...init2,
-        headersList: init2?.headersList ? new HeadersList(init2?.headersList) : new HeadersList(),
-        urlList: init2?.urlList ? [...init2.urlList] : []
+        ...init3,
+        headersList: init3?.headersList ? new HeadersList(init3?.headersList) : new HeadersList(),
+        urlList: init3?.urlList ? [...init3.urlList] : []
       };
     }
     function makeNetworkError(reason) {
@@ -51296,23 +51296,23 @@ var require_response = __commonJS({
       assert3(isCancelled(fetchParams));
       return isAborted(fetchParams) ? makeNetworkError(Object.assign(new DOMException("The operation was aborted.", "AbortError"), { cause: err })) : makeNetworkError(Object.assign(new DOMException("Request was cancelled."), { cause: err }));
     }
-    function initializeResponse(response, init2, body) {
-      if (init2.status !== null && (init2.status < 200 || init2.status > 599)) {
+    function initializeResponse(response, init3, body) {
+      if (init3.status !== null && (init3.status < 200 || init3.status > 599)) {
         throw new RangeError('init["status"] must be in the range of 200 to 599, inclusive.');
       }
-      if ("statusText" in init2 && init2.statusText != null) {
-        if (!isValidReasonPhrase(String(init2.statusText))) {
+      if ("statusText" in init3 && init3.statusText != null) {
+        if (!isValidReasonPhrase(String(init3.statusText))) {
           throw new TypeError("Invalid statusText");
         }
       }
-      if ("status" in init2 && init2.status != null) {
-        getResponseState(response).status = init2.status;
+      if ("status" in init3 && init3.status != null) {
+        getResponseState(response).status = init3.status;
       }
-      if ("statusText" in init2 && init2.statusText != null) {
-        getResponseState(response).statusText = init2.statusText;
+      if ("statusText" in init3 && init3.statusText != null) {
+        getResponseState(response).statusText = init3.statusText;
       }
-      if ("headers" in init2 && init2.headers != null) {
-        fill(getResponseHeaders(response), init2.headers);
+      if ("headers" in init3 && init3.headers != null) {
+        fill(getResponseHeaders(response), init3.headers);
       }
       if (body) {
         if (nullBodyStatus.includes(response.status)) {
@@ -51471,7 +51471,7 @@ var require_request2 = __commonJS({
       #headers;
       #state;
       // https://fetch.spec.whatwg.org/#dom-request
-      constructor(input, init2 = void 0) {
+      constructor(input, init3 = void 0) {
         webidl.util.markAsUncloneable(this);
         if (input === kConstruct) {
           return;
@@ -51479,13 +51479,13 @@ var require_request2 = __commonJS({
         const prefix = "Request constructor";
         webidl.argumentLengthCheck(arguments, 1, prefix);
         input = webidl.converters.RequestInfo(input);
-        init2 = webidl.converters.RequestInit(init2);
+        init3 = webidl.converters.RequestInit(init3);
         let request = null;
         let fallbackMode = null;
         const baseUrl = environmentSettingsObject.settingsObject.baseUrl;
         let signal = null;
         if (typeof input === "string") {
-          this.#dispatcher = init2.dispatcher;
+          this.#dispatcher = init3.dispatcher;
           let parsedURL;
           try {
             parsedURL = new URL(input, baseUrl);
@@ -51503,17 +51503,17 @@ var require_request2 = __commonJS({
           assert3(webidl.is.Request(input));
           request = input.#state;
           signal = input.#signal;
-          this.#dispatcher = init2.dispatcher || input.#dispatcher;
+          this.#dispatcher = init3.dispatcher || input.#dispatcher;
         }
         const origin = environmentSettingsObject.settingsObject.origin;
         let window2 = "client";
         if (request.window?.constructor?.name === "EnvironmentSettingsObject" && sameOrigin(request.window, origin)) {
           window2 = request.window;
         }
-        if (init2.window != null) {
+        if (init3.window != null) {
           throw new TypeError(`'window' option '${window2}' must be null`);
         }
-        if ("window" in init2) {
+        if ("window" in init3) {
           window2 = "no-window";
         }
         request = makeRequest({
@@ -51559,7 +51559,7 @@ var require_request2 = __commonJS({
           // URL list A clone of request’s URL list.
           urlList: [...request.urlList]
         });
-        const initHasKey = Object.keys(init2).length !== 0;
+        const initHasKey = Object.keys(init3).length !== 0;
         if (initHasKey) {
           if (request.mode === "navigate") {
             request.mode = "same-origin";
@@ -51572,8 +51572,8 @@ var require_request2 = __commonJS({
           request.url = request.urlList[request.urlList.length - 1];
           request.urlList = [request.url];
         }
-        if (init2.referrer !== void 0) {
-          const referrer = init2.referrer;
+        if (init3.referrer !== void 0) {
+          const referrer = init3.referrer;
           if (referrer === "") {
             request.referrer = "no-referrer";
           } else {
@@ -51590,12 +51590,12 @@ var require_request2 = __commonJS({
             }
           }
         }
-        if (init2.referrerPolicy !== void 0) {
-          request.referrerPolicy = init2.referrerPolicy;
+        if (init3.referrerPolicy !== void 0) {
+          request.referrerPolicy = init3.referrerPolicy;
         }
         let mode;
-        if (init2.mode !== void 0) {
-          mode = init2.mode;
+        if (init3.mode !== void 0) {
+          mode = init3.mode;
         } else {
           mode = fallbackMode;
         }
@@ -51608,28 +51608,28 @@ var require_request2 = __commonJS({
         if (mode != null) {
           request.mode = mode;
         }
-        if (init2.credentials !== void 0) {
-          request.credentials = init2.credentials;
+        if (init3.credentials !== void 0) {
+          request.credentials = init3.credentials;
         }
-        if (init2.cache !== void 0) {
-          request.cache = init2.cache;
+        if (init3.cache !== void 0) {
+          request.cache = init3.cache;
         }
         if (request.cache === "only-if-cached" && request.mode !== "same-origin") {
           throw new TypeError(
             "'only-if-cached' can be set only with 'same-origin' mode"
           );
         }
-        if (init2.redirect !== void 0) {
-          request.redirect = init2.redirect;
+        if (init3.redirect !== void 0) {
+          request.redirect = init3.redirect;
         }
-        if (init2.integrity != null) {
-          request.integrity = String(init2.integrity);
+        if (init3.integrity != null) {
+          request.integrity = String(init3.integrity);
         }
-        if (init2.keepalive !== void 0) {
-          request.keepalive = Boolean(init2.keepalive);
+        if (init3.keepalive !== void 0) {
+          request.keepalive = Boolean(init3.keepalive);
         }
-        if (init2.method !== void 0) {
-          let method = init2.method;
+        if (init3.method !== void 0) {
+          let method = init3.method;
           const mayBeNormalized = normalizedMethodRecords[method];
           if (mayBeNormalized !== void 0) {
             request.method = mayBeNormalized;
@@ -51651,8 +51651,8 @@ var require_request2 = __commonJS({
             patchMethodWarning = true;
           }
         }
-        if (init2.signal !== void 0) {
-          signal = init2.signal;
+        if (init3.signal !== void 0) {
+          signal = init3.signal;
         }
         this.#state = request;
         const ac = new AbortController();
@@ -51684,7 +51684,7 @@ var require_request2 = __commonJS({
         }
         if (initHasKey) {
           const headersList = getHeadersList(this.#headers);
-          const headers = init2.headers !== void 0 ? init2.headers : new HeadersList(headersList);
+          const headers = init3.headers !== void 0 ? init3.headers : new HeadersList(headersList);
           headersList.clear();
           if (headers instanceof HeadersList) {
             for (const { name, value } of headers.rawValues()) {
@@ -51696,13 +51696,13 @@ var require_request2 = __commonJS({
           }
         }
         const inputBody = webidl.is.Request(input) ? input.#state.body : null;
-        if ((init2.body != null || inputBody != null) && (request.method === "GET" || request.method === "HEAD")) {
+        if ((init3.body != null || inputBody != null) && (request.method === "GET" || request.method === "HEAD")) {
           throw new TypeError("Request with GET/HEAD method cannot have body.");
         }
         let initBody = null;
-        if (init2.body != null) {
+        if (init3.body != null) {
           const [extractedBody, contentType] = extractBody(
-            init2.body,
+            init3.body,
             request.keepalive
           );
           initBody = extractedBody;
@@ -51712,7 +51712,7 @@ var require_request2 = __commonJS({
         }
         const inputOrInitBody = initBody ?? inputBody;
         if (inputOrInitBody != null && inputOrInitBody.source == null) {
-          if (initBody != null && init2.duplex == null) {
+          if (initBody != null && init3.duplex == null) {
             throw new TypeError("RequestInit: duplex option is required when sending a body.");
           }
           if (request.mode !== "same-origin" && request.mode !== "cors") {
@@ -51956,48 +51956,48 @@ var require_request2 = __commonJS({
     Reflect.deleteProperty(Request11, "getRequestState");
     Reflect.deleteProperty(Request11, "setRequestState");
     mixinBody(Request11, getRequestState);
-    function makeRequest(init2) {
+    function makeRequest(init3) {
       return {
-        method: init2.method ?? "GET",
-        localURLsOnly: init2.localURLsOnly ?? false,
-        unsafeRequest: init2.unsafeRequest ?? false,
-        body: init2.body ?? null,
-        client: init2.client ?? null,
-        reservedClient: init2.reservedClient ?? null,
-        replacesClientId: init2.replacesClientId ?? "",
-        window: init2.window ?? "client",
-        keepalive: init2.keepalive ?? false,
-        serviceWorkers: init2.serviceWorkers ?? "all",
-        initiator: init2.initiator ?? "",
-        destination: init2.destination ?? "",
-        priority: init2.priority ?? null,
-        origin: init2.origin ?? "client",
-        policyContainer: init2.policyContainer ?? "client",
-        referrer: init2.referrer ?? "client",
-        referrerPolicy: init2.referrerPolicy ?? "",
-        mode: init2.mode ?? "no-cors",
-        useCORSPreflightFlag: init2.useCORSPreflightFlag ?? false,
-        credentials: init2.credentials ?? "same-origin",
-        useCredentials: init2.useCredentials ?? false,
-        cache: init2.cache ?? "default",
-        redirect: init2.redirect ?? "follow",
-        integrity: init2.integrity ?? "",
-        cryptoGraphicsNonceMetadata: init2.cryptoGraphicsNonceMetadata ?? "",
-        parserMetadata: init2.parserMetadata ?? "",
-        reloadNavigation: init2.reloadNavigation ?? false,
-        historyNavigation: init2.historyNavigation ?? false,
-        userActivation: init2.userActivation ?? false,
-        taintedOrigin: init2.taintedOrigin ?? false,
-        redirectCount: init2.redirectCount ?? 0,
-        responseTainting: init2.responseTainting ?? "basic",
-        preventNoCacheCacheControlHeaderModification: init2.preventNoCacheCacheControlHeaderModification ?? false,
-        done: init2.done ?? false,
-        timingAllowFailed: init2.timingAllowFailed ?? false,
-        useURLCredentials: init2.useURLCredentials ?? void 0,
-        traversableForUserPrompts: init2.traversableForUserPrompts ?? "client",
-        urlList: init2.urlList,
-        url: init2.urlList[0],
-        headersList: init2.headersList ? new HeadersList(init2.headersList) : new HeadersList()
+        method: init3.method ?? "GET",
+        localURLsOnly: init3.localURLsOnly ?? false,
+        unsafeRequest: init3.unsafeRequest ?? false,
+        body: init3.body ?? null,
+        client: init3.client ?? null,
+        reservedClient: init3.reservedClient ?? null,
+        replacesClientId: init3.replacesClientId ?? "",
+        window: init3.window ?? "client",
+        keepalive: init3.keepalive ?? false,
+        serviceWorkers: init3.serviceWorkers ?? "all",
+        initiator: init3.initiator ?? "",
+        destination: init3.destination ?? "",
+        priority: init3.priority ?? null,
+        origin: init3.origin ?? "client",
+        policyContainer: init3.policyContainer ?? "client",
+        referrer: init3.referrer ?? "client",
+        referrerPolicy: init3.referrerPolicy ?? "",
+        mode: init3.mode ?? "no-cors",
+        useCORSPreflightFlag: init3.useCORSPreflightFlag ?? false,
+        credentials: init3.credentials ?? "same-origin",
+        useCredentials: init3.useCredentials ?? false,
+        cache: init3.cache ?? "default",
+        redirect: init3.redirect ?? "follow",
+        integrity: init3.integrity ?? "",
+        cryptoGraphicsNonceMetadata: init3.cryptoGraphicsNonceMetadata ?? "",
+        parserMetadata: init3.parserMetadata ?? "",
+        reloadNavigation: init3.reloadNavigation ?? false,
+        historyNavigation: init3.historyNavigation ?? false,
+        userActivation: init3.userActivation ?? false,
+        taintedOrigin: init3.taintedOrigin ?? false,
+        redirectCount: init3.redirectCount ?? 0,
+        responseTainting: init3.responseTainting ?? "basic",
+        preventNoCacheCacheControlHeaderModification: init3.preventNoCacheCacheControlHeaderModification ?? false,
+        done: init3.done ?? false,
+        timingAllowFailed: init3.timingAllowFailed ?? false,
+        useURLCredentials: init3.useURLCredentials ?? void 0,
+        traversableForUserPrompts: init3.traversableForUserPrompts ?? "client",
+        urlList: init3.urlList,
+        url: init3.urlList[0],
+        headersList: init3.headersList ? new HeadersList(init3.headersList) : new HeadersList()
       };
     }
     function cloneRequest(request) {
@@ -52398,12 +52398,12 @@ var require_fetch = __commonJS({
     function handleFetchDone(response) {
       finalizeAndReportTiming(response, "fetch");
     }
-    function fetch2(input, init2 = void 0) {
+    function fetch2(input, init3 = void 0) {
       webidl.argumentLengthCheck(arguments, 1, "globalThis.fetch");
       let p = createDeferredPromise();
       let requestObject;
       try {
-        requestObject = new Request11(input, init2);
+        requestObject = new Request11(input, init3);
       } catch (e) {
         p.reject(e);
         return p.promise;
@@ -53285,12 +53285,12 @@ var require_fetch = __commonJS({
                 if (status < 200) {
                   return;
                 }
-                const rawHeaders = controller?.rawHeaders ?? [];
+                const rawHeaders2 = controller?.rawHeaders ?? [];
                 const headersList = new HeadersList();
-                for (let i = 0; i < rawHeaders.length; i += 2) {
-                  const nameStr = bufferToLowerCasedHeaderName(rawHeaders[i]);
-                  const value = rawHeaders[i + 1];
-                  if (Array.isArray(value) && !Buffer.isBuffer(rawHeaders[i + 1])) {
+                for (let i = 0; i < rawHeaders2.length; i += 2) {
+                  const nameStr = bufferToLowerCasedHeaderName(rawHeaders2[i]);
+                  const value = rawHeaders2[i + 1];
+                  if (Array.isArray(value) && !Buffer.isBuffer(rawHeaders2[i + 1])) {
                     for (const val of value) {
                       headersList.append(nameStr, val.toString("latin1"), true);
                     }
@@ -53387,12 +53387,12 @@ var require_fetch = __commonJS({
                 if (socket.session != null && status !== 200 || socket.session == null && status !== 101) {
                   return false;
                 }
-                const rawHeaders = controller?.rawHeaders ?? [];
+                const rawHeaders2 = controller?.rawHeaders ?? [];
                 const headersList = new HeadersList();
-                for (let i = 0; i < rawHeaders.length; i += 2) {
-                  const nameStr = bufferToLowerCasedHeaderName(rawHeaders[i]);
-                  const value = rawHeaders[i + 1];
-                  if (Array.isArray(value) && !Buffer.isBuffer(rawHeaders[i + 1])) {
+                for (let i = 0; i < rawHeaders2.length; i += 2) {
+                  const nameStr = bufferToLowerCasedHeaderName(rawHeaders2[i]);
+                  const value = rawHeaders2[i + 1];
+                  if (Array.isArray(value) && !Buffer.isBuffer(rawHeaders2[i + 1])) {
                     for (const val of value) {
                       headersList.append(nameStr, val.toString("latin1"), true);
                     }
@@ -54629,9 +54629,9 @@ var require_events = __commonJS({
           ports
         });
       }
-      static createFastMessageEvent(type, init2) {
-        const messageEvent = new _MessageEvent(kConstruct, type, init2);
-        messageEvent.#eventInit = init2;
+      static createFastMessageEvent(type, init3) {
+        const messageEvent = new _MessageEvent(kConstruct, type, init3);
+        messageEvent.#eventInit = init3;
         messageEvent.#eventInit.data ??= null;
         messageEvent.#eventInit.origin ??= "";
         messageEvent.#eventInit.lastEventId ??= "";
@@ -54914,7 +54914,7 @@ var require_util6 = __commonJS({
     function isClosed(readyState) {
       return readyState === states2.CLOSED;
     }
-    function fireEvent(e, target, eventFactory = (type, init2) => new Event(type, init2), eventInitDict = {}) {
+    function fireEvent(e, target, eventFactory = (type, init3) => new Event(type, init3), eventInitDict = {}) {
       const event = eventFactory(e, eventInitDict);
       target.dispatchEvent(event);
     }
@@ -56193,11 +56193,11 @@ var require_websocket = __commonJS({
         this.#handler.readyState = states2.CLOSED;
         if (!this.#handler.closeState.has(sentCloseFrameState.RECEIVED)) {
           code = 1006;
-          fireEvent("error", this, (type, init2) => new ErrorEvent(type, init2), {
+          fireEvent("error", this, (type, init3) => new ErrorEvent(type, init3), {
             error: new TypeError(reason)
           });
         }
-        fireEvent("close", this, (type, init2) => new CloseEvent(type, init2), {
+        fireEvent("close", this, (type, init3) => new CloseEvent(type, init3), {
           wasClean,
           code,
           reason
@@ -56342,16 +56342,16 @@ var require_websocketerror = __commonJS({
     var WebSocketError = class _WebSocketError extends createInheritableDOMException() {
       #closeCode;
       #reason;
-      constructor(message2 = "", init2 = void 0) {
+      constructor(message2 = "", init3 = void 0) {
         message2 = webidl.converters.DOMString(message2, "WebSocketError", "message");
         super(message2, "WebSocketError");
-        if (init2 === kConstruct) {
+        if (init3 === kConstruct) {
           return;
-        } else if (init2 !== null) {
-          init2 = webidl.converters.WebSocketCloseInfo(init2);
+        } else if (init3 !== null) {
+          init3 = webidl.converters.WebSocketCloseInfo(init3);
         }
-        let code = init2.closeCode ?? null;
-        const reason = init2.reason ?? "";
+        let code = init3.closeCode ?? null;
+        const reason = init3.reason ?? "";
         validateCloseCodeAndReason(code, reason);
         if (reason.length !== 0 && code === null) {
           code = 1e3;
@@ -57398,8 +57398,8 @@ var require_undici = __commonJS({
       err.stack = stack ? `${stack}
 ${captureLines}` : capture.stack;
     }
-    module2.exports.fetch = function fetch2(init2, options = void 0) {
-      return fetchImpl(init2, options).catch((err) => {
+    module2.exports.fetch = function fetch2(init3, options = void 0) {
+      return fetchImpl(init3, options).catch((err) => {
         if (currentFilename) {
           appendFetchStackTrace(err, currentFilename);
         } else if (err && typeof err === "object") {
@@ -57668,7 +57668,7 @@ var init_azure_service = __esm({
       connect: { timeout: 3e3 }
       // TCP+TLS connect must resolve fast
     });
-    azFetch = (url, init2 = {}) => (0, import_undici.fetch)(url, { ...init2, dispatcher: azureDispatcher });
+    azFetch = (url, init3 = {}) => (0, import_undici.fetch)(url, { ...init3, dispatcher: azureDispatcher });
     AZURE_LANG_MAP = {
       en: "en",
       hi: "hi",
@@ -58489,180 +58489,648 @@ var init_universal_language_runtime = __esm({
   }
 });
 
-// server/msg91-service.ts
-var msg91_service_exports = {};
-__export(msg91_service_exports, {
-  bridgeCallToLiveKitRoom: () => bridgeCallToLiveKitRoom,
-  confirmCallerIdVerification: () => confirmCallerIdVerification,
-  getCallForwardingInstructions: () => getCallForwardingInstructions,
-  initiateOutboundCall: () => initiateOutboundCall,
-  isMSG91Healthy: () => isMSG91Healthy,
-  requestCallerIdVerification: () => requestCallerIdVerification,
-  sendOTP: () => sendOTP
-});
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-    logger.warn("MSG91", `Request timed out after ${timeoutMs}ms`);
-  }, timeoutMs);
+// server/pstn/msg91.ts
+async function fetchWithTimeout(url, init3, ms = 15e3) {
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), ms);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetch(url, { ...init3, signal: ac.signal });
   } finally {
-    clearTimeout(timer);
+    clearTimeout(t);
   }
 }
 function authKey() {
-  const key = process.env.MSG91_AUTH_KEY;
-  if (!key) throw new Error("MSG91_AUTH_KEY not configured");
-  return key;
+  const k = process.env.MSG91_AUTH_KEY?.trim();
+  if (!k) throw new Error("MSG91_AUTH_KEY is not configured. Add it to DO Dashboard encrypted secrets.");
+  return k;
 }
-function normalizePhoneNumber(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-  const normalized = raw.startsWith("+") ? `+${raw.slice(1).replace(/\D/g, "")}` : raw.replace(/\D/g, "");
-  const digits = normalized.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 15) {
-    return null;
+function normalizeE164(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const digits = s.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) return null;
+  return s.startsWith("+") ? `+${digits}` : `+${digits}`;
+}
+function resolveCallerId(to, from) {
+  const toNorm = normalizeE164(to) || "";
+  const fromNorm = normalizeE164(from);
+  const configured = normalizeE164(process.env.MSG91_VOICE_CALLER_ID);
+  const isIndia = toNorm.replace(/\D/g, "").startsWith("91") || toNorm.replace(/\D/g, "").length === 10;
+  if (isIndia) {
+    const id = fromNorm || configured;
+    if (!id) throw new Error("MSG91_VOICE_CALLER_ID must be set for India PSTN calls. Add it to DO Dashboard.");
+    return id;
   }
-  return normalized.startsWith("+") ? normalized : `+${digits}`;
+  return fromNorm || configured || (() => {
+    throw new Error("No outbound caller ID configured for MSG91");
+  })();
 }
-function isIndianNumber(value) {
-  if (!value) return false;
-  const digits = value.replace(/\D/g, "");
-  return digits.length === 10 || digits.startsWith("91");
+function mapStatus(raw) {
+  const s = (raw || "").toLowerCase().trim();
+  if (["queued", "initiated", "initiated-out"].includes(s)) return "ringing";
+  if (["ringing", "in-progress"].includes(s)) return "ringing";
+  if (["answered", "connected", "bridged"].includes(s)) return "answered";
+  if (["active"].includes(s)) return "active";
+  if (["completed", "ended", "disconnected"].includes(s)) return "ended";
+  if (["busy"].includes(s)) return "busy";
+  if (["no-answer", "no_answer", "missed"].includes(s)) return "no-answer";
+  if (["failed", "error"].includes(s)) return "failed";
+  if (["cancelled", "canceled", "rejected"].includes(s)) return "cancelled";
+  return "failed";
 }
-function resolveCallerId(to, requestedFrom) {
-  const normalizedTo = normalizePhoneNumber(to);
-  const normalizedRequestedFrom = normalizePhoneNumber(requestedFrom);
-  const configuredCallerId = normalizePhoneNumber(process.env.MSG91_VOICE_CALLER_ID);
-  if (isIndianNumber(normalizedTo)) {
-    if (normalizedRequestedFrom) {
-      return normalizedRequestedFrom;
-    }
-    if (configuredCallerId) {
-      return configuredCallerId;
-    }
-    throw new Error("MSG91_VOICE_CALLER_ID must be configured for India PSTN calls");
+var import_node_crypto8, BASE, MSG91Provider;
+var init_msg91 = __esm({
+  "server/pstn/msg91.ts"() {
+    "use strict";
+    import_node_crypto8 = require("node:crypto");
+    init_observability();
+    BASE = "https://api.msg91.com/api";
+    MSG91Provider = class {
+      name = "msg91";
+      preferredRegions = ["IN"];
+      async initiateCall(opts) {
+        const to = normalizeE164(opts.to);
+        if (!to) throw new Error(`Invalid destination number: ${opts.to}`);
+        const from = resolveCallerId(to, opts.from);
+        const payload = {
+          to,
+          from,
+          callback_url: opts.callbackUrl,
+          metadata: {
+            internal_call_id: opts.internalCallId,
+            ...opts.metadata || {}
+          }
+        };
+        if (opts.sipUri) payload["sip_bridge"] = opts.sipUri;
+        if (opts.welcomeMessage) payload["fallback_message"] = opts.welcomeMessage;
+        if (opts.timeoutSeconds) payload["timeout"] = opts.timeoutSeconds;
+        if (opts.record) payload["record"] = true;
+        logger.info("MSG91", `Initiating outbound call to ${to} from ${from} [${opts.internalCallId}]`);
+        const res = await fetchWithTimeout(`${BASE}/v5/voice/call/outbound`, {
+          method: "POST",
+          headers: { authkey: authKey(), "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`MSG91 call initiation failed: HTTP ${res.status} \u2014 ${body.slice(0, 200)}`);
+        }
+        const data = await res.json();
+        const providerCallId = String(data.call_id || data.id || data.request_id || "");
+        if (!providerCallId) {
+          throw new Error(`MSG91 returned no call ID. Response: ${JSON.stringify(data).slice(0, 200)}`);
+        }
+        logger.info("MSG91", `Call queued: providerCallId=${providerCallId} status=${data.status}`);
+        return {
+          providerCallId,
+          status: "queued",
+          provider: this.name,
+          rawResponse: data
+        };
+      }
+      parseStatusWebhook(body, _headers) {
+        const b = body;
+        const providerCallId = String(b.call_id || b.uuid || b.id || "");
+        const internalCallId = String(
+          b.metadata?.internal_call_id || b.internal_call_id || b.call_sid || ""
+        );
+        if (!providerCallId && !internalCallId) {
+          logger.warn("MSG91", "Webhook missing both call_id and internal_call_id", { body });
+          return null;
+        }
+        const status = mapStatus(String(b.status || b.call_status || ""));
+        return {
+          internalCallId,
+          providerCallId,
+          status,
+          durationSeconds: b.duration ? Number(b.duration) : void 0,
+          answeredAt: b.answered_at || b.answer_time || void 0,
+          endedAt: b.ended_at || b.end_time || void 0,
+          disconnectReason: b.disconnect_reason || b.hangup_cause || void 0,
+          direction: b.direction === "inbound" ? "inbound" : "outbound",
+          raw: body
+        };
+      }
+      parseInboundWebhook(body, _headers) {
+        const b = body;
+        const callerNumber = normalizeE164(b.caller || b.from || b.ani || "");
+        const calledNumber = normalizeE164(b.called || b.to || b.dnis || "");
+        const providerCallId = String(b.call_id || b.uuid || b.id || "");
+        if (!callerNumber || !providerCallId) {
+          logger.warn("MSG91", "Inbound webhook missing caller or call_id", { body });
+          return null;
+        }
+        return {
+          providerCallId,
+          callerNumber,
+          calledNumber: calledNumber || "",
+          provider: this.name,
+          raw: body
+        };
+      }
+      buildInboundAcceptResponse(sipUri, opts) {
+        return {
+          action: "bridge",
+          sip_uri: sipUri,
+          ...opts?.welcomeMessage ? { speak: opts.welcomeMessage } : {}
+        };
+      }
+      async hangup(providerCallId) {
+        const res = await fetchWithTimeout(`${BASE}/v5/voice/call/hangup`, {
+          method: "POST",
+          headers: { authkey: authKey(), "Content-Type": "application/json" },
+          body: JSON.stringify({ call_id: providerCallId })
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          logger.warn("MSG91", `Hangup failed for ${providerCallId}: ${res.status} ${body}`);
+        }
+      }
+      async transfer(opts) {
+        const to = normalizeE164(opts.to);
+        if (!to) throw new Error(`Invalid transfer target: ${opts.to}`);
+        const res = await fetchWithTimeout(`${BASE}/v5/voice/call/transfer`, {
+          method: "POST",
+          headers: { authkey: authKey(), "Content-Type": "application/json" },
+          body: JSON.stringify({ call_id: opts.providerCallId, to })
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          throw new Error(`MSG91 transfer failed: ${res.status} ${body.slice(0, 100)}`);
+        }
+      }
+      async sendDtmf(opts) {
+        const res = await fetchWithTimeout(`${BASE}/v5/voice/call/dtmf`, {
+          method: "POST",
+          headers: { authkey: authKey(), "Content-Type": "application/json" },
+          body: JSON.stringify({ call_id: opts.providerCallId, digits: opts.digits })
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          logger.warn("MSG91", `DTMF failed for ${opts.providerCallId}: ${res.status} ${body}`);
+        }
+      }
+      verifyWebhookSignature(body, headers) {
+        const secret = process.env.MSG91_WEBHOOK_SECRET?.trim();
+        if (!secret) {
+          logger.warn("MSG91", "MSG91_WEBHOOK_SECRET not configured \u2014 webhook signature not verified");
+          return true;
+        }
+        const providedSig = (headers["x-msg91-signature"] || headers["X-Msg91-Signature"] || headers["x-webhook-signature"] || "").trim();
+        if (!providedSig) {
+          logger.warn("MSG91", "No signature header on webhook \u2014 rejecting");
+          return false;
+        }
+        const expected = (0, import_node_crypto8.createHmac)("sha256", secret).update(body).digest("hex");
+        try {
+          return (0, import_node_crypto8.timingSafeEqual)(Buffer.from(providedSig, "hex"), Buffer.from(expected, "hex"));
+        } catch {
+          return false;
+        }
+      }
+      async healthCheck() {
+        if (!process.env.MSG91_AUTH_KEY) {
+          return { healthy: false, message: "MSG91_AUTH_KEY not configured" };
+        }
+        const start = Date.now();
+        try {
+          const res = await fetchWithTimeout(`${BASE}/v5/account/balance`, {
+            headers: { authkey: authKey() }
+          }, 5e3);
+          return {
+            healthy: res.ok,
+            latencyMs: Date.now() - start,
+            message: res.ok ? "OK" : `HTTP ${res.status}`
+          };
+        } catch (err) {
+          return { healthy: false, latencyMs: Date.now() - start, message: String(err) };
+        }
+      }
+    };
   }
-  if (normalizedRequestedFrom) {
-    return normalizedRequestedFrom;
-  }
-  if (configuredCallerId) {
-    return configuredCallerId;
-  }
-  throw new Error("No valid outbound caller ID is configured for MSG91");
+});
+
+// server/pstn/twilio.ts
+var twilio_exports = {};
+__export(twilio_exports, {
+  TwilioProvider: () => TwilioProvider
+});
+function accountSid() {
+  const s = process.env.TWILIO_ACCOUNT_SID?.trim();
+  if (!s) throw new Error("TWILIO_ACCOUNT_SID is not configured");
+  return s;
 }
-async function initiateOutboundCall(opts) {
-  const to = normalizePhoneNumber(opts.to);
-  if (!to) {
-    throw new Error("MSG91 outbound call failed: invalid destination number");
-  }
-  const from = resolveCallerId(to, opts.from);
-  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/call/outbound`, {
-    method: "POST",
-    headers: {
-      "authkey": authKey(),
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      to,
-      from,
-      callback_url: opts.callbackUrl,
-      fallback_message: opts.fallbackMessage,
-      metadata: opts.metadata
-    })
-  }, 15e3);
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`MSG91 outbound call failed: ${response.status} ${errText}`);
-  }
-  const data = await response.json();
-  return {
-    callId: data.call_id || data.id || data.request_id,
-    status: data.status || "initiated",
-    rawResponse: data
-  };
+function authToken() {
+  const t = process.env.TWILIO_AUTH_TOKEN?.trim();
+  if (!t) throw new Error("TWILIO_AUTH_TOKEN is not configured");
+  return t;
 }
-async function requestCallerIdVerification(phoneNumber) {
-  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/callerid/verify/request`, {
-    method: "POST",
-    headers: {
-      "authkey": authKey(),
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ phone: phoneNumber })
-  }, 15e3);
-  if (!response.ok) {
-    throw new Error(`Caller ID verify request failed: ${response.status}`);
-  }
-  const data = await response.json();
-  return { verificationId: data.verification_id || data.id };
+function twilioNumber() {
+  const n = process.env.TWILIO_PHONE_NUMBER?.trim();
+  if (!n) throw new Error("TWILIO_PHONE_NUMBER is not configured");
+  return n;
 }
-async function confirmCallerIdVerification(verificationId, otp) {
-  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/voice/callerid/verify/confirm`, {
-    method: "POST",
-    headers: {
-      "authkey": authKey(),
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ verification_id: verificationId, otp })
-  }, 15e3);
-  if (!response.ok) return { verified: false };
-  const data = await response.json();
-  return { verified: data.status === "verified", phoneNumber: data.phone };
+function basicAuth() {
+  return "Basic " + Buffer.from(`${accountSid()}:${authToken()}`).toString("base64");
 }
-async function bridgeCallToLiveKitRoom(opts) {
-  return initiateOutboundCall({
-    to: opts.to,
-    from: opts.from,
-    callbackUrl: opts.callbackUrl,
-    metadata: { ...opts.metadata, sip_bridge: opts.sipUri }
-  });
-}
-async function sendOTP(phoneNumber, otp, templateId) {
-  const response = await fetchWithTimeout(`${MSG91_BASE}/v5/otp`, {
-    method: "POST",
-    headers: {
-      "authkey": authKey(),
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      mobile: phoneNumber,
-      otp,
-      template_id: templateId,
-      otp_expiry: 10
-    })
-  }, 15e3);
-  if (!response.ok) {
-    throw new Error(`MSG91 OTP send failed: ${response.status}`);
-  }
-}
-function getCallForwardingInstructions(neuraTalkInboundNumber) {
-  return {
-    // Forward on no-answer (30s) — preserves direct calls for contacts
-    android: `**61*${neuraTalkInboundNumber}*11*30#`,
-    iosInstructions: `Settings > Phone > Call Forwarding > Enable > Enter: ${neuraTalkInboundNumber}`,
-    disableCode: `##61#`
-  };
-}
-async function isMSG91Healthy() {
+async function twilioPost(path4, params) {
+  const body = new URLSearchParams(params).toString();
+  const ac = new AbortController();
+  const t = setTimeout(() => ac.abort(), 15e3);
   try {
-    if (!process.env.MSG91_AUTH_KEY) return false;
-    const response = await fetchWithTimeout(`${MSG91_BASE}/v5/account/balance`, {
-      headers: { authkey: authKey() }
-    }, 5e3);
-    return response.ok;
-  } catch {
-    return false;
+    const res = await fetch(`${TWILIO_BASE}${path4}`, {
+      method: "POST",
+      headers: {
+        Authorization: basicAuth(),
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body,
+      signal: ac.signal
+    });
+    if (!res.ok) {
+      const text2 = await res.text().catch(() => "");
+      throw new Error(`Twilio API error: HTTP ${res.status} \u2014 ${text2.slice(0, 200)}`);
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(t);
   }
 }
-var MSG91_BASE;
-var init_msg91_service = __esm({
-  "server/msg91-service.ts"() {
+function mapTwilioStatus(raw) {
+  switch ((raw || "").toLowerCase()) {
+    case "queued":
+    case "initiated":
+    case "ringing":
+      return "ringing";
+    case "in-progress":
+      return "active";
+    case "answered":
+      return "answered";
+    case "completed":
+      return "ended";
+    case "busy":
+      return "busy";
+    case "no-answer":
+      return "no-answer";
+    case "canceled":
+    case "cancelled":
+      return "cancelled";
+    case "failed":
+    default:
+      return "failed";
+  }
+}
+function buildTwiml(sipUri, opts) {
+  const timeout = opts?.timeout ?? 30;
+  const speak = opts?.welcomeMessage ? `<Say voice="Polly.Aditi">${opts.welcomeMessage}</Say>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  ${speak}
+  <Dial timeout="${timeout}">
+    <Sip>${sipUri}</Sip>
+  </Dial>
+</Response>`;
+}
+var import_node_crypto9, TWILIO_BASE, TwilioProvider;
+var init_twilio = __esm({
+  "server/pstn/twilio.ts"() {
+    "use strict";
+    import_node_crypto9 = require("node:crypto");
+    init_observability();
+    TWILIO_BASE = "https://api.twilio.com/2010-04-01";
+    TwilioProvider = class {
+      name = "twilio";
+      preferredRegions = ["US", "GB", "AU", "CA", "EU"];
+      async initiateCall(opts) {
+        const to = opts.to.startsWith("+") ? opts.to : `+${opts.to.replace(/\D/g, "")}`;
+        const from = (() => {
+          const f = opts.from.startsWith("+") ? opts.from : `+${opts.from.replace(/\D/g, "")}`;
+          return f.replace(/\D/g, "").length >= 8 ? f : twilioNumber();
+        })();
+        const twimlUrl = opts.sipUri ? `${process.env.APP_BASE_URL}/api/pstn/twilio/twiml/${opts.internalCallId}` : opts.callbackUrl;
+        logger.info("Twilio", `Initiating call to ${to} from ${from} [${opts.internalCallId}]`);
+        const data = await twilioPost(`/Accounts/${accountSid()}/Calls.json`, {
+          To: to,
+          From: from,
+          Url: twimlUrl,
+          StatusCallback: opts.callbackUrl,
+          StatusCallbackEvent: "initiated ringing answered completed",
+          StatusCallbackMethod: "POST",
+          Timeout: String(opts.timeoutSeconds ?? 30),
+          ...opts.record ? { Record: "true" } : {}
+        });
+        logger.info("Twilio", `Call created: SID=${data.sid} status=${data.status}`);
+        return {
+          providerCallId: data.sid,
+          status: "queued",
+          provider: this.name,
+          rawResponse: data
+        };
+      }
+      parseStatusWebhook(body, _headers) {
+        const b = body;
+        const providerCallId = b.CallSid || "";
+        const internalCallId = b.StatusCallbackParam || b.internal_call_id || "";
+        if (!providerCallId) return null;
+        return {
+          internalCallId,
+          providerCallId,
+          status: mapTwilioStatus(b.CallStatus || ""),
+          durationSeconds: b.CallDuration ? Number(b.CallDuration) : void 0,
+          answeredAt: void 0,
+          endedAt: void 0,
+          disconnectReason: b.SipResponseCode || void 0,
+          direction: b.Direction === "inbound" ? "inbound" : "outbound",
+          raw: body
+        };
+      }
+      parseInboundWebhook(body, _headers) {
+        const b = body;
+        const callerNumber = b.From || "";
+        const calledNumber = b.To || "";
+        const providerCallId = b.CallSid || "";
+        if (!callerNumber || !providerCallId) return null;
+        return {
+          providerCallId,
+          callerNumber,
+          calledNumber,
+          provider: this.name,
+          raw: body
+        };
+      }
+      buildInboundAcceptResponse(sipUri, opts) {
+        return buildTwiml(sipUri, opts);
+      }
+      async hangup(providerCallId) {
+        await twilioPost(`/Accounts/${accountSid()}/Calls/${providerCallId}.json`, {
+          Status: "completed"
+        });
+      }
+      async transfer(opts) {
+        const to = opts.to.startsWith("+") ? opts.to : `+${opts.to.replace(/\D/g, "")}`;
+        const twiml = `<?xml version="1.0"?><Response><Dial>${to}</Dial></Response>`;
+        await twilioPost(`/Accounts/${accountSid()}/Calls/${opts.providerCallId}.json`, {
+          Twiml: twiml
+        });
+      }
+      async sendDtmf(opts) {
+        await twilioPost(`/Accounts/${accountSid()}/Calls/${opts.providerCallId}.json`, {
+          Twiml: `<?xml version="1.0"?><Response><Play digits="${opts.digits}"/></Response>`
+        });
+      }
+      verifyWebhookSignature(body, headers) {
+        const token = process.env.TWILIO_AUTH_TOKEN?.trim();
+        if (!token) {
+          logger.warn("Twilio", "TWILIO_AUTH_TOKEN not set \u2014 cannot verify webhook signature");
+          return true;
+        }
+        const sig = headers["x-twilio-signature"] || headers["X-Twilio-Signature"] || "";
+        if (!sig) {
+          logger.warn("Twilio", "No X-Twilio-Signature header \u2014 rejecting webhook");
+          return false;
+        }
+        const url = `${process.env.APP_BASE_URL}/api/pstn/twilio/webhook`;
+        const params = Object.fromEntries(new URLSearchParams(body));
+        const sorted = Object.keys(params).sort().map((k) => `${k}${params[k]}`).join("");
+        const expected = (0, import_node_crypto9.createHmac)("sha1", token).update(url + sorted).digest("base64");
+        try {
+          return (0, import_node_crypto9.timingSafeEqual)(Buffer.from(sig), Buffer.from(expected));
+        } catch {
+          return false;
+        }
+      }
+      async healthCheck() {
+        if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+          return { healthy: false, message: "Twilio credentials not configured" };
+        }
+        const start = Date.now();
+        try {
+          const ac = new AbortController();
+          const t = setTimeout(() => ac.abort(), 5e3);
+          const res = await fetch(`${TWILIO_BASE}/Accounts/${accountSid()}.json`, {
+            headers: { Authorization: basicAuth() },
+            signal: ac.signal
+          }).finally(() => clearTimeout(t));
+          return { healthy: res.ok, latencyMs: Date.now() - start, message: res.ok ? "OK" : `HTTP ${res.status}` };
+        } catch (err) {
+          return { healthy: false, latencyMs: Date.now() - start, message: String(err) };
+        }
+      }
+    };
+  }
+});
+
+// server/pstn/registry.ts
+function buildProvider(name) {
+  switch (name.toLowerCase().trim()) {
+    case "msg91":
+      return new MSG91Provider();
+    case "twilio":
+      return new TwilioProvider();
+    default:
+      throw new Error(`Unknown PSTN provider: "${name}". Valid values: msg91, twilio`);
+  }
+}
+function init2() {
+  if (_primary) return;
+  const primaryName = (process.env.PSTN_PROVIDER || "msg91").toLowerCase().trim();
+  const failoverName = (process.env.PSTN_FAILOVER_PROVIDER || "").toLowerCase().trim();
+  _primary = buildProvider(primaryName);
+  logger.info("PSTNRegistry", `Primary PSTN provider: ${_primary.name}`);
+  if (failoverName && failoverName !== primaryName) {
+    try {
+      _failover = buildProvider(failoverName);
+      logger.info("PSTNRegistry", `Failover PSTN provider: ${_failover.name}`);
+    } catch (err) {
+      logger.warn("PSTNRegistry", `Failover provider "${failoverName}" failed to initialize: ${err}`);
+    }
+  }
+}
+function getPSTNProvider() {
+  init2();
+  if (_usingFailover && Date.now() - _failoverActivatedAt > FAILOVER_RESET_MS) {
+    logger.info("PSTNRegistry", `Failover window expired \u2014 switching back to primary (${_primary.name})`);
+    _usingFailover = false;
+  }
+  return _usingFailover && _failover ? _failover : _primary;
+}
+async function checkProviderHealth() {
+  init2();
+  const primaryHealth = await _primary.healthCheck();
+  if (!primaryHealth.healthy && _failover && !_usingFailover) {
+    logger.warn(
+      "PSTNRegistry",
+      `Primary provider ${_primary.name} is unhealthy (${primaryHealth.message}). Activating failover to ${_failover.name}.`
+    );
+    _usingFailover = true;
+    _failoverActivatedAt = Date.now();
+  } else if (primaryHealth.healthy && _usingFailover) {
+    logger.info("PSTNRegistry", `Primary provider ${_primary.name} recovered. Switching back.`);
+    _usingFailover = false;
+  }
+  const result = {
+    primary: { name: _primary.name, ...primaryHealth },
+    usingFailover: _usingFailover
+  };
+  if (_failover) {
+    const fh = await _failover.healthCheck();
+    result.failover = { name: _failover.name, ...fh };
+  }
+  return result;
+}
+function isPSTNAvailable() {
+  const primaryName = (process.env.PSTN_PROVIDER || "msg91").toLowerCase();
+  if (primaryName === "msg91" && !process.env.MSG91_AUTH_KEY) return false;
+  if (primaryName === "twilio" && (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN)) return false;
+  return true;
+}
+function getPSTNStatus() {
+  const providerName = (process.env.PSTN_PROVIDER || "msg91").toLowerCase();
+  const configured = isPSTNAvailable();
+  return {
+    configured,
+    provider: providerName,
+    failoverProvider: process.env.PSTN_FAILOVER_PROVIDER || void 0,
+    voiceCallerId: process.env.MSG91_VOICE_CALLER_ID || process.env.TWILIO_PHONE_NUMBER || void 0
+  };
+}
+var FAILOVER_RESET_MS, _primary, _failover, _usingFailover, _failoverActivatedAt;
+var init_registry = __esm({
+  "server/pstn/registry.ts"() {
     "use strict";
     init_observability();
-    MSG91_BASE = "https://api.msg91.com/api";
+    init_msg91();
+    init_twilio();
+    FAILOVER_RESET_MS = (parseInt(process.env.PSTN_FAILOVER_RESET_MINUTES || "10", 10) || 10) * 6e4;
+    _primary = null;
+    _failover = null;
+    _usingFailover = false;
+    _failoverActivatedAt = 0;
+  }
+});
+
+// server/pstn/monitor.ts
+function windowKey(metric) {
+  const windowId = Math.floor(Date.now() / (WINDOW_SECONDS * 1e3));
+  return `pstn:metrics:${windowId}:${metric}`;
+}
+async function recordCallOutcome(outcome) {
+  const redis = getRedisClient();
+  const multi = redis.multi();
+  const wk = windowKey;
+  multi.incr(wk("calls_total"));
+  multi.expire(wk("calls_total"), WINDOW_SECONDS * 2);
+  if (outcome.success) {
+    multi.incr(wk("calls_success"));
+    multi.expire(wk("calls_success"), WINDOW_SECONDS * 2);
+  } else {
+    multi.incr(wk("calls_failed"));
+    multi.expire(wk("calls_failed"), WINDOW_SECONDS * 2);
+    if (outcome.failureReason) {
+      const reasonKey = wk(`fail:${outcome.failureReason.slice(0, 40)}`);
+      multi.incr(reasonKey);
+      multi.expire(reasonKey, WINDOW_SECONDS * 2);
+    }
+  }
+  if (outcome.setupLatencyMs !== void 0) {
+    multi.rpush(wk("setup_latency_ms"), String(outcome.setupLatencyMs));
+    multi.expire(wk("setup_latency_ms"), WINDOW_SECONDS * 2);
+  }
+  try {
+    await multi.exec();
+  } catch (err) {
+    logger.warn("PSTNMonitor", `Failed to record call outcome: ${String(err)}`);
+  }
+}
+async function percentile(values, p) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.ceil(p / 100 * sorted.length) - 1;
+  return sorted[Math.max(0, idx)];
+}
+async function getPSTNMetrics() {
+  const redis = getRedisClient();
+  let providerStatus;
+  try {
+    providerStatus = await checkProviderHealth();
+  } catch (err) {
+    logger.warn("PSTNMonitor", `Health check failed: ${String(err)}`);
+    providerStatus = {
+      primary: { name: "unknown", healthy: false, message: String(err) },
+      usingFailover: false
+    };
+  }
+  const get = async (key) => {
+    try {
+      const v = await redis.get(windowKey(key));
+      return v ? parseInt(v, 10) : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const [callsTotal, callsSuccess, callsFailed, failoverActivations] = await Promise.all([
+    get("calls_total"),
+    get("calls_success"),
+    get("calls_failed"),
+    get("failover_activations")
+  ]);
+  let latencyValues = [];
+  try {
+    const raw = await redis.lrange(windowKey("setup_latency_ms"), 0, -1);
+    latencyValues = raw.map(Number).filter((n) => Number.isFinite(n));
+  } catch {
+    latencyValues = [];
+  }
+  let failoverLog = [];
+  try {
+    const raw = await redis.lrange("pstn:failover_log", -20, -1);
+    failoverLog = raw.flatMap((r) => {
+      try {
+        return [JSON.parse(r)];
+      } catch {
+        return [];
+      }
+    });
+  } catch {
+    failoverLog = [];
+  }
+  const successRate = callsTotal > 0 ? Math.round(callsSuccess / callsTotal * 1e4) / 100 : 100;
+  return {
+    providerStatus,
+    config: getPSTNStatus(),
+    windowSeconds: WINDOW_SECONDS,
+    callsTotal,
+    callsSuccess,
+    callsFailed,
+    successRate,
+    setupLatencyP50Ms: await percentile(latencyValues, 50),
+    setupLatencyP95Ms: await percentile(latencyValues, 95),
+    failoverActivations,
+    failoverLog
+  };
+}
+async function runScheduledHealthCheck() {
+  try {
+    const { providerStatus, successRate, setupLatencyP95Ms } = await getPSTNMetrics();
+    logger.info("PSTNMonitor", "health_check", {
+      primary: providerStatus.primary,
+      failover: providerStatus.failover ?? null,
+      usingFailover: providerStatus.usingFailover,
+      successRate,
+      setupLatencyP95Ms
+    });
+  } catch (err) {
+    logger.warn("PSTNMonitor", `Scheduled health check failed: ${String(err)}`);
+  }
+}
+var WINDOW_SECONDS;
+var init_monitor = __esm({
+  "server/pstn/monitor.ts"() {
+    "use strict";
+    init_registry();
+    init_redis();
+    init_observability();
+    WINDOW_SECONDS = 3600;
   }
 });
 
@@ -58782,7 +59250,7 @@ function resolveDefaultDialCode(defaultCountryCode, defaultDialCode) {
   const fallbackCountry = getCountryByCode(DEFAULT_COUNTRY_CODE);
   return normalizeDialCode(fallbackCountry?.dialCode || "+91");
 }
-function normalizePhoneNumber2(input, options) {
+function normalizePhoneNumber(input, options) {
   const raw = String(input ?? "").trim();
   if (!raw) {
     return "";
@@ -58831,7 +59299,7 @@ var init_storage = __esm({
     DatabaseStorage = class {
       normalizeInsertUser(payload) {
         if (typeof payload.phone === "string") {
-          const normalized = normalizePhoneNumber2(payload.phone);
+          const normalized = normalizePhoneNumber(payload.phone);
           return { ...payload, phone: normalized || null };
         }
         return payload;
@@ -58846,7 +59314,7 @@ var init_storage = __esm({
         return user2;
       }
       async getUserByPhone(phone) {
-        const normalized = normalizePhoneNumber2(phone);
+        const normalized = normalizePhoneNumber(phone);
         const [user2] = await db.select().from(users).where((0, import_drizzle_orm9.eq)(users.phone, normalized));
         return user2;
       }
@@ -59999,7 +60467,7 @@ function recordStageLatency(callId, stage, latencyMs) {
   } catch {
   }
 }
-function percentile(sorted, p) {
+function percentile2(sorted, p) {
   if (sorted.length === 0) return 0;
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p / 100 * sorted.length) - 1));
   return Math.round(sorted[idx]);
@@ -60008,9 +60476,9 @@ function statsFor(stage) {
   const copy = buffers[stage].slice().sort((a, b) => a - b);
   return {
     count: copy.length,
-    p50: percentile(copy, 50),
-    p95: percentile(copy, 95),
-    p99: percentile(copy, 99)
+    p50: percentile2(copy, 50),
+    p95: percentile2(copy, 95),
+    p99: percentile2(copy, 99)
   };
 }
 function getMetricsSnapshot() {
@@ -60073,9 +60541,9 @@ function statsForBuffer(values) {
   const copy = values.slice().sort((a, b) => a - b);
   return {
     count: copy.length,
-    p50: percentile(copy, 50),
-    p95: percentile(copy, 95),
-    p99: percentile(copy, 99)
+    p50: percentile2(copy, 50),
+    p95: percentile2(copy, 95),
+    p99: percentile2(copy, 99)
   };
 }
 var import_events2, WINDOW_SIZE, buffers, voiceLatencyBuffers, voiceCounters, transcriptConfidenceSamples, metricsEmitter;
@@ -80168,7 +80636,7 @@ var require_ConversationManager = __commonJS({
           const correlationId = args.getProperty(Exports_js_2.PropertyId.ConversationTranslator_CorrelationId);
           const subscriptionKey = args.getProperty(Exports_js_2.PropertyId.SpeechServiceConnection_Key);
           const subscriptionRegion = args.getProperty(Exports_js_2.PropertyId.SpeechServiceConnection_Region);
-          const authToken = args.getProperty(Exports_js_2.PropertyId.SpeechServiceAuthorization_Token);
+          const authToken2 = args.getProperty(Exports_js_2.PropertyId.SpeechServiceAuthorization_Token);
           Contracts_js_1.Contracts.throwIfNullOrWhitespace(languageCode, "languageCode");
           Contracts_js_1.Contracts.throwIfNullOrWhitespace(nickname, "nickname");
           Contracts_js_1.Contracts.throwIfNullOrWhitespace(endpointHost, "endpointHost");
@@ -80188,8 +80656,8 @@ var require_ConversationManager = __commonJS({
             headers[this.privRequestParams.subscriptionRegion] = subscriptionRegion;
             if (subscriptionKey) {
               headers[this.privRequestParams.subscriptionKey] = subscriptionKey;
-            } else if (authToken) {
-              headers[this.privRequestParams.authorization] = `Bearer ${authToken}`;
+            } else if (authToken2) {
+              headers[this.privRequestParams.authorization] = `Bearer ${authToken2}`;
             } else {
               Contracts_js_1.Contracts.throwIfNullOrUndefined(subscriptionKey, this.privErrors.authInvalidSubscriptionKey);
             }
@@ -86894,7 +87362,7 @@ async function spawnTranslatorBot(callId, botToken) {
   }
 }
 async function initiateCall(req) {
-  const callId = req.sessionIdOverride?.trim() || `call_${(0, import_node_crypto8.randomUUID)()}`;
+  const callId = req.sessionIdOverride?.trim() || `call_${(0, import_node_crypto10.randomUUID)()}`;
   const callerLanguage = (req.callerLanguage || "auto").trim().toLowerCase() || "auto";
   const activeCallKey = `user:active_call:${req.callerId}`;
   const alreadyInCall = await redisClient2().get(activeCallKey);
@@ -87067,6 +87535,9 @@ async function initiateCall(req) {
     if (!callee.phoneNumber) {
       throw new Error("CALLEE_PHONE_REQUIRED_FOR_PSTN");
     }
+    if (!isPSTNAvailable()) {
+      throw new Error("PSTN_NOT_CONFIGURED");
+    }
     if (!process.env.APP_BASE_URL?.trim()) {
       throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
     }
@@ -87075,9 +87546,9 @@ async function initiateCall(req) {
     }
     const callerOrgId = req.callerOrganizationIdOverride ?? callerUser?.organizationId ?? null;
     const orgOutboundCallerId = await resolveOrgOutboundCallerId(callerOrgId);
-    const normalizedCallerNumber = normalizePhoneNumber2(req.callerNumber);
+    const normalizedCallerNumber = normalizePhoneNumber(req.callerNumber);
     const callerOwnNumberAllowed = Boolean(callerUser?.callerIdVerified && normalizedCallerNumber);
-    const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
+    const effectiveCallerNumber = orgOutboundCallerId || (callerOwnNumberAllowed ? normalizedCallerNumber : "") || process.env.MSG91_VOICE_CALLER_ID || "";
     callerIdentityMode = resolveCallerIdentityMode({
       joinMethod: requestedJoinMethod,
       organizationCallerId: orgOutboundCallerId,
@@ -87088,23 +87559,41 @@ async function initiateCall(req) {
     if (callerIdentityDisclaimer) {
       operationalWarnings.push(callerIdentityDisclaimer);
     }
-    let pstnResult;
+    const pstnProvider = getPSTNProvider();
+    let pstnProviderCallId = "";
+    let pstnProviderStatus = "queued";
     let attempts = 0;
     while (attempts < 3) {
       try {
         stageStartNs = process.hrtime.bigint();
-        pstnResult = await bridgeCallToLiveKitRoom({
+        const pstnResult = await pstnProvider.initiateCall({
           to: callee.phoneNumber,
           from: effectiveCallerNumber,
           sipUri: buildLiveKitSipUri(callId),
-          callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
-          metadata: { internalCallId: callId, callerId: req.callerId }
+          callbackUrl: `${process.env.APP_BASE_URL}/api/pstn/status`,
+          internalCallId: callId,
+          metadata: { callerId: req.callerId },
+          timeoutSeconds: 30
         });
+        pstnProviderCallId = pstnResult.providerCallId;
+        pstnProviderStatus = pstnResult.status;
         logSetupLatency(callId, "app_to_pstn", "bridge_pstn", elapsedMs(stageStartNs));
+        await recordCallOutcome({
+          callId,
+          success: true,
+          provider: pstnProvider.name,
+          setupLatencyMs: elapsedMs(stageStartNs)
+        });
         break;
       } catch (error) {
         attempts++;
         if (attempts >= 3) {
+          await recordCallOutcome({
+            callId,
+            success: false,
+            provider: pstnProvider.name,
+            failureReason: String(error).slice(0, 60)
+          });
           throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 1e3));
@@ -87112,14 +87601,14 @@ async function initiateCall(req) {
     }
     await mutateSmartCall(callId, (current) => ({
       ...current,
-      pstnCallId: pstnResult.callId,
+      pstnCallId: pstnProviderCallId,
       calleeIdentifier: callee.phoneNumber || current.calleeIdentifier,
       lastProviderEventAt: nowIso()
     }));
     await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
-      pstnCallId: pstnResult.callId,
+      pstnCallId: pstnProviderCallId,
       calleeIdentifier: callee.phoneNumber,
-      providerStatus: pstnResult.status
+      providerStatus: pstnProviderStatus
     });
     return {
       callId,
@@ -87129,7 +87618,7 @@ async function initiateCall(req) {
       callerIdentityDisclaimer,
       livekitUrl: process.env.LIVEKIT_URL,
       livekitToken: callerToken,
-      pstnCallId: pstnResult.callId,
+      pstnCallId: pstnProviderCallId,
       estimatedRateInrPerMin: planRateInrPerMin,
       languageDetectionActive: translationEnabled,
       operationalWarnings
@@ -87154,7 +87643,7 @@ async function initiateCall(req) {
 async function initiateConference(params) {
   const hostUserId = Number.isFinite(Number(params.hostId)) ? Number(params.hostId) : null;
   const hostUser = hostUserId ? await storage.getUser(hostUserId) : void 0;
-  const callId = `conf_${(0, import_node_crypto8.randomUUID)()}`;
+  const callId = `conf_${(0, import_node_crypto10.randomUUID)()}`;
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: hostUserId,
@@ -87274,7 +87763,7 @@ async function activatePstnFallback(callId, input) {
     };
   }
   const orgOutboundFallback = await resolveOrgOutboundCallerId(current.callerOrganizationId ?? null);
-  const normalizedCallerNumber = normalizePhoneNumber2(input.callerNumber);
+  const normalizedCallerNumber = normalizePhoneNumber(input.callerNumber);
   const callerOwnNumberAllowed = Boolean(normalizedCallerNumber);
   const effectiveCallerNumber = orgOutboundFallback || (callerOwnNumberAllowed ? normalizedCallerNumber : "");
   const callerIdentityMode = resolveCallerIdentityMode({
@@ -87283,40 +87772,47 @@ async function activatePstnFallback(callId, input) {
     callerVerifiedNumber: normalizedCallerNumber,
     callerPhoneVerified: callerOwnNumberAllowed
   });
+  if (!isPSTNAvailable()) {
+    throw new Error("PSTN_NOT_CONFIGURED");
+  }
   if (!process.env.APP_BASE_URL?.trim()) {
     throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
   }
   if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
     throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
   }
-  const pstnResult = await bridgeCallToLiveKitRoom({
+  const pstnProvider = getPSTNProvider();
+  const pstnResult = await pstnProvider.initiateCall({
     to: input.calleePhoneNumber,
-    from: effectiveCallerNumber,
+    from: effectiveCallerNumber || process.env.MSG91_VOICE_CALLER_ID || "",
     sipUri: buildLiveKitSipUri(callId),
-    callbackUrl: `${process.env.APP_BASE_URL}/api/calls/${callId}/msg91-webhook`,
-    metadata: { internalCallId: callId, callerId: current.callerId }
+    callbackUrl: `${process.env.APP_BASE_URL}/api/pstn/status`,
+    internalCallId: callId,
+    metadata: { callerId: current.callerId },
+    timeoutSeconds: 30
   });
   await mutateSmartCall(callId, (record) => ({
     ...record,
     joinMethod: "app_to_pstn",
-    provider: "msg91_sip",
+    provider: pstnProvider.name === "twilio" ? "msg91_sip" : "msg91_sip",
     calleeIdentifier: input.calleePhoneNumber,
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     lastProviderEventAt: nowIso(),
     metadata: {
       ...record.metadata || {},
       callerIdentityMode,
-      pstnFallbackActivated: true
+      pstnFallbackActivated: true,
+      pstnProvider: pstnProvider.name
     }
   }));
   await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     calleeIdentifier: input.calleePhoneNumber,
     providerStatus: pstnResult.status
   });
   return {
     callId,
-    pstnCallId: pstnResult.callId,
+    pstnCallId: pstnResult.providerCallId,
     providerStatus: pstnResult.status
   };
 }
@@ -87454,16 +87950,17 @@ async function isActiveSmartCall(callId) {
   const state = normalizeSmartCallState(record.status);
   return !!state && isActiveSmartCallState(state);
 }
-var import_node_crypto8, import_node_events2, import_drizzle_orm11, SMART_CALL_TTL_SECONDS, PROVIDER_TIMEOUT_ACTIVE_MS, PROVIDER_TIMEOUT_RINGING_MS, MEDIA_HEARTBEAT_INTERVAL_MS, MEDIA_STALL_WARN_MS, billingTerminationBound, watchdogStarted, smartCallEvents;
+var import_node_crypto10, import_node_events2, import_drizzle_orm11, SMART_CALL_TTL_SECONDS, PROVIDER_TIMEOUT_ACTIVE_MS, PROVIDER_TIMEOUT_RINGING_MS, MEDIA_HEARTBEAT_INTERVAL_MS, MEDIA_STALL_WARN_MS, billingTerminationBound, watchdogStarted, smartCallEvents;
 var init_smart_router = __esm({
   "server/modules/calls/smart-router.ts"() {
     "use strict";
-    import_node_crypto8 = require("node:crypto");
+    import_node_crypto10 = require("node:crypto");
     import_node_events2 = require("node:events");
     init_billing_engine();
     init_universal_language_runtime();
     init_livekit_service();
-    init_msg91_service();
+    init_registry();
+    init_monitor();
     init_db();
     import_drizzle_orm11 = require("drizzle-orm");
     init_schema();
@@ -88248,7 +88745,7 @@ async function createCommunicationCallSession(apiKey2, input) {
   }
   const pricing = await getPricingProfile(apiKey2);
   await incrementConcurrentCounter(apiKey2.id, pricing.maxConcurrentSessions);
-  const sessionId = `call_${(0, import_node_crypto9.randomUUID)()}`;
+  const sessionId = `call_${(0, import_node_crypto11.randomUUID)()}`;
   let initiated = false;
   try {
     const mapping = await assignMaskedNumber({
@@ -88708,12 +89205,12 @@ async function handleCommunicationPstnWebhook(sessionId, payload) {
   }
   return { handled: true };
 }
-var import_node_events4, import_node_crypto9, import_drizzle_orm13, CONCURRENT_COUNTER_PREFIX, CONCURRENT_RELEASE_PREFIX, RESOURCE_RELEASE_PREFIX, communicationApiEvents, mirrorBound;
+var import_node_events4, import_node_crypto11, import_drizzle_orm13, CONCURRENT_COUNTER_PREFIX, CONCURRENT_RELEASE_PREFIX, RESOURCE_RELEASE_PREFIX, communicationApiEvents, mirrorBound;
 var init_communication_api_service = __esm({
   "server/communication-api-service.ts"() {
     "use strict";
     import_node_events4 = require("node:events");
-    import_node_crypto9 = require("node:crypto");
+    import_node_crypto11 = require("node:crypto");
     import_drizzle_orm13 = require("drizzle-orm");
     init_db();
     init_billing_plan_utils();
@@ -121133,7 +121630,7 @@ var require_parse_url = __commonJS({
 var require_form_data = __commonJS({
   "node_modules/light-my-request/lib/form-data.js"(exports2, module2) {
     "use strict";
-    var { randomUUID: randomUUID11 } = require("node:crypto");
+    var { randomUUID: randomUUID12 } = require("node:crypto");
     var { Readable } = require("node:stream");
     var textEncoder;
     function isFormDataLike(payload) {
@@ -121141,7 +121638,7 @@ var require_form_data = __commonJS({
     }
     function formDataToStream(formdata) {
       textEncoder = textEncoder ?? new TextEncoder();
-      const boundary = `----formdata-${randomUUID11()}`;
+      const boundary = `----formdata-${randomUUID12()}`;
       const prefix = `--${boundary}\r
 Content-Disposition: form-data`;
       const escape2 = (str) => str.replace(/\n/g, "%0A").replace(/\r/g, "%0D").replace(/"/g, "%22");
@@ -127536,9 +128033,9 @@ function isTwilioConfigured() {
   return true;
 }
 async function getTwilioIceServers() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) {
+  const accountSid2 = process.env.TWILIO_ACCOUNT_SID;
+  const authToken2 = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid2 || !authToken2) {
     return [];
   }
   const now = Date.now();
@@ -127549,7 +128046,7 @@ async function getTwilioIceServers() {
     return [];
   }
   try {
-    const client = (0, import_twilio.default)(accountSid, authToken);
+    const client = (0, import_twilio2.default)(accountSid2, authToken2);
     const tokenPromise = client.tokens.create({ ttl: 86400 });
     const timeoutPromise = new Promise(
       (_, reject2) => setTimeout(() => reject2(new Error("Twilio token fetch timeout")), 3e3)
@@ -127674,11 +128171,11 @@ function getTurnStatus() {
     hasCredentials: true
   };
 }
-var import_twilio, PUBLIC_STUN_SERVERS, FREE_TURN_SERVERS, twilioTokenCache, twilioFailCache, TWILIO_FAIL_RETRY_MS;
+var import_twilio2, PUBLIC_STUN_SERVERS, FREE_TURN_SERVERS, twilioTokenCache, twilioFailCache, TWILIO_FAIL_RETRY_MS;
 var init_turn_config = __esm({
   "server/turn-config.ts"() {
     "use strict";
-    import_twilio = __toESM(require("twilio"));
+    import_twilio2 = __toESM(require("twilio"));
     PUBLIC_STUN_SERVERS = [
       { urls: "stun:stun.l.google.com:19302" },
       { urls: "stun:stun1.l.google.com:19302" },
@@ -129100,12 +129597,12 @@ function clearSimLatencyTrace(bridge, direction) {
   bridge.appActiveTrace = null;
 }
 function getTwilioClient() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) {
+  const accountSid2 = process.env.TWILIO_ACCOUNT_SID;
+  const authToken2 = process.env.TWILIO_AUTH_TOKEN;
+  if (!accountSid2 || !authToken2) {
     throw new Error("Twilio credentials not configured");
   }
-  return (0, import_twilio2.default)(accountSid, authToken);
+  return (0, import_twilio3.default)(accountSid2, authToken2);
 }
 async function initiateSimCall(options) {
   const client = getTwilioClient();
@@ -129128,9 +129625,9 @@ async function initiateSimCall(options) {
   }
   const wsHost = baseUrl.replace(/^https?:\/\//, "");
   logger.info("SimBridge", `Call setup: baseUrl=${baseUrl}, wsHost=${wsHost}`);
-  const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
+  const twilioNumber2 = process.env.TWILIO_PHONE_NUMBER;
   const isPaidAccount = !process.env.TWILIO_TRIAL || process.env.TWILIO_TRIAL === "false";
-  const fromNumber = isPaidAccount && options.callerIdentifier.startsWith("+") ? options.callerIdentifier : twilioNumber || options.callerIdentifier;
+  const fromNumber = isPaidAccount && options.callerIdentifier.startsWith("+") ? options.callerIdentifier : twilioNumber2 || options.callerIdentifier;
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -129965,11 +130462,11 @@ function setupAppWebSocket(wss) {
     });
   });
 }
-var import_twilio2, import_ws3, import_child_process2, import_fs2, import_os, import_path3, import_drizzle_orm18, MULAW_SAMPLE_RATE, PIPELINE_CONFIG, activeSimCalls;
+var import_twilio3, import_ws3, import_child_process2, import_fs2, import_os, import_path3, import_drizzle_orm18, MULAW_SAMPLE_RATE, PIPELINE_CONFIG, activeSimCalls;
 var init_twilio_sim_bridge = __esm({
   "server/legacy/twilio-sim-bridge.ts"() {
     "use strict";
-    import_twilio2 = __toESM(require("twilio"));
+    import_twilio3 = __toESM(require("twilio"));
     import_ws3 = require("ws");
     import_child_process2 = require("child_process");
     import_fs2 = require("fs");
@@ -130995,6 +131492,183 @@ var init_media_relay = __esm({
       }
     };
     mediaRelayServer = MediaRelayServer.getInstance();
+  }
+});
+
+// server/msg91-service.ts
+var msg91_service_exports = {};
+__export(msg91_service_exports, {
+  bridgeCallToLiveKitRoom: () => bridgeCallToLiveKitRoom,
+  confirmCallerIdVerification: () => confirmCallerIdVerification,
+  getCallForwardingInstructions: () => getCallForwardingInstructions,
+  initiateOutboundCall: () => initiateOutboundCall,
+  isMSG91Healthy: () => isMSG91Healthy,
+  requestCallerIdVerification: () => requestCallerIdVerification,
+  sendOTP: () => sendOTP
+});
+async function fetchWithTimeout3(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+    logger.warn("MSG91", `Request timed out after ${timeoutMs}ms`);
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+function authKey2() {
+  const key = process.env.MSG91_AUTH_KEY;
+  if (!key) throw new Error("MSG91_AUTH_KEY not configured");
+  return key;
+}
+function normalizePhoneNumber2(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const normalized = raw.startsWith("+") ? `+${raw.slice(1).replace(/\D/g, "")}` : raw.replace(/\D/g, "");
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 15) {
+    return null;
+  }
+  return normalized.startsWith("+") ? normalized : `+${digits}`;
+}
+function isIndianNumber(value) {
+  if (!value) return false;
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 10 || digits.startsWith("91");
+}
+function resolveCallerId2(to, requestedFrom) {
+  const normalizedTo = normalizePhoneNumber2(to);
+  const normalizedRequestedFrom = normalizePhoneNumber2(requestedFrom);
+  const configuredCallerId = normalizePhoneNumber2(process.env.MSG91_VOICE_CALLER_ID);
+  if (isIndianNumber(normalizedTo)) {
+    if (normalizedRequestedFrom) {
+      return normalizedRequestedFrom;
+    }
+    if (configuredCallerId) {
+      return configuredCallerId;
+    }
+    throw new Error("MSG91_VOICE_CALLER_ID must be configured for India PSTN calls");
+  }
+  if (normalizedRequestedFrom) {
+    return normalizedRequestedFrom;
+  }
+  if (configuredCallerId) {
+    return configuredCallerId;
+  }
+  throw new Error("No valid outbound caller ID is configured for MSG91");
+}
+async function initiateOutboundCall(opts) {
+  const to = normalizePhoneNumber2(opts.to);
+  if (!to) {
+    throw new Error("MSG91 outbound call failed: invalid destination number");
+  }
+  const from = resolveCallerId2(to, opts.from);
+  const response = await fetchWithTimeout3(`${MSG91_BASE}/v5/voice/call/outbound`, {
+    method: "POST",
+    headers: {
+      "authkey": authKey2(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      to,
+      from,
+      callback_url: opts.callbackUrl,
+      fallback_message: opts.fallbackMessage,
+      metadata: opts.metadata
+    })
+  }, 15e3);
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`MSG91 outbound call failed: ${response.status} ${errText}`);
+  }
+  const data = await response.json();
+  return {
+    callId: data.call_id || data.id || data.request_id,
+    status: data.status || "initiated",
+    rawResponse: data
+  };
+}
+async function requestCallerIdVerification(phoneNumber) {
+  const response = await fetchWithTimeout3(`${MSG91_BASE}/v5/voice/callerid/verify/request`, {
+    method: "POST",
+    headers: {
+      "authkey": authKey2(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ phone: phoneNumber })
+  }, 15e3);
+  if (!response.ok) {
+    throw new Error(`Caller ID verify request failed: ${response.status}`);
+  }
+  const data = await response.json();
+  return { verificationId: data.verification_id || data.id };
+}
+async function confirmCallerIdVerification(verificationId, otp) {
+  const response = await fetchWithTimeout3(`${MSG91_BASE}/v5/voice/callerid/verify/confirm`, {
+    method: "POST",
+    headers: {
+      "authkey": authKey2(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ verification_id: verificationId, otp })
+  }, 15e3);
+  if (!response.ok) return { verified: false };
+  const data = await response.json();
+  return { verified: data.status === "verified", phoneNumber: data.phone };
+}
+async function bridgeCallToLiveKitRoom(opts) {
+  return initiateOutboundCall({
+    to: opts.to,
+    from: opts.from,
+    callbackUrl: opts.callbackUrl,
+    metadata: { ...opts.metadata, sip_bridge: opts.sipUri }
+  });
+}
+async function sendOTP(phoneNumber, otp, templateId) {
+  const response = await fetchWithTimeout3(`${MSG91_BASE}/v5/otp`, {
+    method: "POST",
+    headers: {
+      "authkey": authKey2(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      mobile: phoneNumber,
+      otp,
+      template_id: templateId,
+      otp_expiry: 10
+    })
+  }, 15e3);
+  if (!response.ok) {
+    throw new Error(`MSG91 OTP send failed: ${response.status}`);
+  }
+}
+function getCallForwardingInstructions(neuraTalkInboundNumber) {
+  return {
+    // Forward on no-answer (30s) — preserves direct calls for contacts
+    android: `**61*${neuraTalkInboundNumber}*11*30#`,
+    iosInstructions: `Settings > Phone > Call Forwarding > Enable > Enter: ${neuraTalkInboundNumber}`,
+    disableCode: `##61#`
+  };
+}
+async function isMSG91Healthy() {
+  try {
+    if (!process.env.MSG91_AUTH_KEY) return false;
+    const response = await fetchWithTimeout3(`${MSG91_BASE}/v5/account/balance`, {
+      headers: { authkey: authKey2() }
+    }, 5e3);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+var MSG91_BASE;
+var init_msg91_service = __esm({
+  "server/msg91-service.ts"() {
+    "use strict";
+    init_observability();
+    MSG91_BASE = "https://api.msg91.com/api";
   }
 });
 
@@ -141929,27 +142603,27 @@ var require_lib4 = __commonJS({
        * @return  Void
        */
       constructor() {
-        let init2 = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : void 0;
+        let init3 = arguments.length > 0 && arguments[0] !== void 0 ? arguments[0] : void 0;
         this[MAP] = /* @__PURE__ */ Object.create(null);
-        if (init2 instanceof _Headers) {
-          const rawHeaders = init2.raw();
-          const headerNames = Object.keys(rawHeaders);
+        if (init3 instanceof _Headers) {
+          const rawHeaders2 = init3.raw();
+          const headerNames = Object.keys(rawHeaders2);
           for (const headerName of headerNames) {
-            for (const value of rawHeaders[headerName]) {
+            for (const value of rawHeaders2[headerName]) {
               this.append(headerName, value);
             }
           }
           return;
         }
-        if (init2 == null) ;
-        else if (typeof init2 === "object") {
-          const method = init2[Symbol.iterator];
+        if (init3 == null) ;
+        else if (typeof init3 === "object") {
+          const method = init3[Symbol.iterator];
           if (method != null) {
             if (typeof method !== "function") {
               throw new TypeError("Header pairs must be iterable");
             }
             const pairs = [];
-            for (const pair of init2) {
+            for (const pair of init3) {
               if (typeof pair !== "object" || typeof pair[Symbol.iterator] !== "function") {
                 throw new TypeError("Each header pair must be iterable");
               }
@@ -141962,8 +142636,8 @@ var require_lib4 = __commonJS({
               this.append(pair[0], pair[1]);
             }
           } else {
-            for (const key of Object.keys(init2)) {
-              const value = init2[key];
+            for (const key of Object.keys(init3)) {
+              const value = init3[key];
               this.append(key, value);
             }
           }
@@ -142293,7 +142967,7 @@ var require_lib4 = __commonJS({
     }
     var Request11 = class _Request {
       constructor(input) {
-        let init2 = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {};
+        let init3 = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {};
         let parsedURL;
         if (!isRequest(input)) {
           if (input && input.href) {
@@ -142305,17 +142979,17 @@ var require_lib4 = __commonJS({
         } else {
           parsedURL = parseURL(input.url);
         }
-        let method = init2.method || input.method || "GET";
+        let method = init3.method || input.method || "GET";
         method = method.toUpperCase();
-        if ((init2.body != null || isRequest(input) && input.body !== null) && (method === "GET" || method === "HEAD")) {
+        if ((init3.body != null || isRequest(input) && input.body !== null) && (method === "GET" || method === "HEAD")) {
           throw new TypeError("Request with GET/HEAD method cannot have body");
         }
-        let inputBody = init2.body != null ? init2.body : isRequest(input) && input.body !== null ? clone(input) : null;
+        let inputBody = init3.body != null ? init3.body : isRequest(input) && input.body !== null ? clone(input) : null;
         Body.call(this, inputBody, {
-          timeout: init2.timeout || input.timeout || 0,
-          size: init2.size || input.size || 0
+          timeout: init3.timeout || input.timeout || 0,
+          size: init3.size || input.size || 0
         });
-        const headers = new Headers(init2.headers || input.headers || {});
+        const headers = new Headers(init3.headers || input.headers || {});
         if (inputBody != null && !headers.has("Content-Type")) {
           const contentType = extractContentType(inputBody);
           if (contentType) {
@@ -142323,21 +142997,21 @@ var require_lib4 = __commonJS({
           }
         }
         let signal = isRequest(input) ? input.signal : null;
-        if ("signal" in init2) signal = init2.signal;
+        if ("signal" in init3) signal = init3.signal;
         if (signal != null && !isAbortSignal(signal)) {
           throw new TypeError("Expected signal to be an instanceof AbortSignal");
         }
         this[INTERNALS$2] = {
           method,
-          redirect: init2.redirect || input.redirect || "follow",
+          redirect: init3.redirect || input.redirect || "follow",
           headers,
           parsedURL,
           signal
         };
-        this.follow = init2.follow !== void 0 ? init2.follow : input.follow !== void 0 ? input.follow : 20;
-        this.compress = init2.compress !== void 0 ? init2.compress : input.compress !== void 0 ? input.compress : true;
-        this.counter = init2.counter || input.counter || 0;
-        this.agent = init2.agent || input.agent;
+        this.follow = init3.follow !== void 0 ? init3.follow : input.follow !== void 0 ? input.follow : 20;
+        this.compress = init3.compress !== void 0 ? init3.compress : input.compress !== void 0 ? input.compress : true;
+        this.counter = init3.counter || input.counter || 0;
+        this.agent = init3.agent || input.agent;
       }
       get method() {
         return this[INTERNALS$2].method;
@@ -143413,7 +144087,7 @@ var require_node5 = __commonJS({
   "server/node_modules/https-proxy-agent/node_modules/debug/src/node.js"(exports2, module2) {
     var tty = require("tty");
     var util3 = require("util");
-    exports2.init = init2;
+    exports2.init = init3;
     exports2.log = log2;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
@@ -143562,7 +144236,7 @@ var require_node5 = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init2(debug) {
+    function init3(debug) {
       debug.inspectOpts = {};
       const keys = Object.keys(exports2.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
@@ -144061,7 +144735,7 @@ var require_node6 = __commonJS({
   "server/node_modules/agent-base/node_modules/debug/src/node.js"(exports2, module2) {
     var tty = require("tty");
     var util3 = require("util");
-    exports2.init = init2;
+    exports2.init = init3;
     exports2.log = log2;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
@@ -144210,7 +144884,7 @@ var require_node6 = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init2(debug) {
+    function init3(debug) {
       debug.inspectOpts = {};
       const keys = Object.keys(exports2.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
@@ -144998,7 +145672,7 @@ var require_bignumber = __commonJS({
   "server/node_modules/bignumber.js/bignumber.js"(exports2, module2) {
     (function(globalObject) {
       "use strict";
-      var BigNumber, isNumeric = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i, mathceil = Math.ceil, mathfloor = Math.floor, bignumberError = "[BigNumber Error] ", tooManyDigits = bignumberError + "Number primitive has more than 15 significant digits: ", BASE = 1e14, LOG_BASE = 14, MAX_SAFE_INTEGER = 9007199254740991, POWS_TEN = [1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13], SQRT_BASE = 1e7, MAX = 1e9;
+      var BigNumber, isNumeric = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i, mathceil = Math.ceil, mathfloor = Math.floor, bignumberError = "[BigNumber Error] ", tooManyDigits = bignumberError + "Number primitive has more than 15 significant digits: ", BASE2 = 1e14, LOG_BASE = 14, MAX_SAFE_INTEGER = 9007199254740991, POWS_TEN = [1, 10, 100, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13], SQRT_BASE = 1e7, MAX = 1e9;
       function clone(configObject) {
         var div, convertBase, parseNumeric, P = BigNumber2.prototype = { constructor: BigNumber2, toString: null, valueOf: null }, ONE = new BigNumber2(1), DECIMAL_PLACES = 20, ROUNDING_MODE = 4, TO_EXP_NEG = -7, TO_EXP_POS = 21, MIN_EXP = -1e7, MAX_EXP = 1e7, CRYPTO = false, MODULO_MODE = 1, POW_PRECISION = 0, FORMAT = {
           prefix: "",
@@ -145250,7 +145924,7 @@ var require_bignumber = __commonJS({
               if (String(c[0]).length == i) {
                 for (i = 0; i < c.length; i++) {
                   n = c[i];
-                  if (n < 0 || n >= BASE || n !== mathfloor(n)) break out;
+                  if (n < 0 || n >= BASE2 || n !== mathfloor(n)) break out;
                 }
                 if (n !== 0) return true;
               }
@@ -145467,7 +146141,7 @@ var require_bignumber = __commonJS({
             e = x.e - y.e;
             s = dp + e + 1;
             if (!base) {
-              base = BASE;
+              base = BASE2;
               e = bitFloor(x.e / LOG_BASE) - bitFloor(y.e / LOG_BASE);
               s = s / LOG_BASE | 0;
             }
@@ -145546,7 +146220,7 @@ var require_bignumber = __commonJS({
               more = rem[0] != null;
               if (!qc[0]) qc.splice(0, 1);
             }
-            if (base == BASE) {
+            if (base == BASE2) {
               for (i = 1, s = qc[0]; s >= 10; s /= 10, i++) ;
               round(q, dp + (q.e = i + e * LOG_BASE - 1) + 1, rm, more);
             } else {
@@ -145705,12 +146379,12 @@ var require_bignumber = __commonJS({
                     for (k = 1; j >= 10; j /= 10, k++) ;
                     if (i != k) {
                       x.e++;
-                      if (xc[0] == BASE) xc[0] = 1;
+                      if (xc[0] == BASE2) xc[0] = 1;
                     }
                     break;
                   } else {
                     xc[ni] += k;
-                    if (xc[ni] != BASE) break;
+                    if (xc[ni] != BASE2) break;
                     xc[ni--] = 0;
                     k = 1;
                   }
@@ -145919,12 +146593,12 @@ var require_bignumber = __commonJS({
           }
           b = (j = yc.length) - (i = xc.length);
           if (b > 0) for (; b--; xc[i++] = 0) ;
-          b = BASE - 1;
+          b = BASE2 - 1;
           for (; j > a; ) {
             if (xc[--j] < yc[j]) {
               for (i = j; i && !xc[--i]; xc[i] = b) ;
               --xc[i];
-              xc[j] += BASE;
+              xc[j] += BASE2;
             }
             xc[j] -= yc[j];
           }
@@ -145986,7 +146660,7 @@ var require_bignumber = __commonJS({
             ycL = i;
           }
           for (i = xcL + ycL, zc = []; i--; zc.push(0)) ;
-          base = BASE;
+          base = BASE2;
           sqrtBase = SQRT_BASE;
           for (i = ycL; --i >= 0; ) {
             c = 0;
@@ -146052,8 +146726,8 @@ var require_bignumber = __commonJS({
             b = a;
           }
           for (a = 0; b; ) {
-            a = (xc[--b] = xc[b] + yc[b] + a) / BASE | 0;
-            xc[b] = BASE === xc[b] ? 0 : xc[b] % BASE;
+            a = (xc[--b] = xc[b] + yc[b] + a) / BASE2 | 0;
+            xc[b] = BASE2 === xc[b] ? 0 : xc[b] % BASE2;
           }
           if (a) {
             xc = [a].concat(xc);
@@ -148989,12 +149663,12 @@ var require_jwa = __commonJS({
       };
     }
     var bufferEqual;
-    var timingSafeEqual5 = "timingSafeEqual" in crypto15 ? function timingSafeEqual6(a, b) {
+    var timingSafeEqual7 = "timingSafeEqual" in crypto15 ? function timingSafeEqual8(a, b) {
       if (a.byteLength !== b.byteLength) {
         return false;
       }
       return crypto15.timingSafeEqual(a, b);
-    } : function timingSafeEqual6(a, b) {
+    } : function timingSafeEqual8(a, b) {
       if (!bufferEqual) {
         bufferEqual = require_buffer_equal_constant_time();
       }
@@ -149003,7 +149677,7 @@ var require_jwa = __commonJS({
     function createHmacVerifier(bits) {
       return function verify3(thing, signature, secret) {
         var computedSig = createHmacSigner(bits)(thing, secret);
-        return timingSafeEqual5(Buffer4.from(signature), Buffer4.from(computedSig));
+        return timingSafeEqual7(Buffer4.from(signature), Buffer4.from(computedSig));
       };
     }
     function createKeySigner(bits) {
@@ -151662,7 +152336,7 @@ var require_aes = __commonJS({
       });
     };
     forge.aes.Algorithm = function(name, mode) {
-      if (!init2) {
+      if (!init3) {
         initialize();
       }
       var self2 = this;
@@ -151715,7 +152389,7 @@ var require_aes = __commonJS({
       this._init = true;
     };
     forge.aes._expandKey = function(key, decrypt5) {
-      if (!init2) {
+      if (!init3) {
         initialize();
       }
       return _expandKey(key, decrypt5);
@@ -151733,7 +152407,7 @@ var require_aes = __commonJS({
       };
       forge.cipher.registerAlgorithm(name, factory);
     }
-    var init2 = false;
+    var init3 = false;
     var Nb = 4;
     var sbox;
     var isbox;
@@ -151741,7 +152415,7 @@ var require_aes = __commonJS({
     var mix;
     var imix;
     function initialize() {
-      init2 = true;
+      init3 = true;
       rcon = [0, 1, 2, 4, 8, 16, 32, 64, 128, 27, 54];
       var xtime = new Array(256);
       for (var i = 0; i < 128; ++i) {
@@ -165331,11 +166005,11 @@ var require_ed25519 = __commonJS({
         q[i] ^= t;
       }
     }
-    function gf(init2) {
+    function gf(init3) {
       var i, r = new Float64Array(16);
-      if (init2) {
-        for (i = 0; i < init2.length; ++i) {
-          r[i] = init2[i];
+      if (init3) {
+        for (i = 0; i < init3.length; ++i) {
+          r[i] = init3[i];
         }
       }
       return r;
@@ -171737,7 +172411,7 @@ var require_node7 = __commonJS({
   "server/node_modules/retry-request/node_modules/debug/src/node.js"(exports2, module2) {
     var tty = require("tty");
     var util3 = require("util");
-    exports2.init = init2;
+    exports2.init = init3;
     exports2.log = log2;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
@@ -171886,7 +172560,7 @@ var require_node7 = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init2(debug) {
+    function init3(debug) {
       debug.inspectOpts = {};
       const keys = Object.keys(exports2.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
@@ -172595,7 +173269,7 @@ var require_node8 = __commonJS({
   "server/node_modules/http-proxy-agent/node_modules/debug/src/node.js"(exports2, module2) {
     var tty = require("tty");
     var util3 = require("util");
-    exports2.init = init2;
+    exports2.init = init3;
     exports2.log = log2;
     exports2.formatArgs = formatArgs;
     exports2.save = save;
@@ -172744,7 +173418,7 @@ var require_node8 = __commonJS({
     function load() {
       return process.env.DEBUG;
     }
-    function init2(debug) {
+    function init3(debug) {
       debug.inspectOpts = {};
       const keys = Object.keys(exports2.inspectOpts);
       for (let i = 0; i < keys.length; i++) {
@@ -216317,7 +216991,7 @@ function registerAdminUserRoutes(app2) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: validation.error.errors });
       }
       const data = validation.data;
-      const normalizedPhone = data.phone ? normalizePhoneNumber2(data.phone) : void 0;
+      const normalizedPhone = data.phone ? normalizePhoneNumber(data.phone) : void 0;
       if (data.email) {
         const [existing] = await db.select().from(users).where((0, import_drizzle_orm40.eq)(users.email, data.email));
         if (existing) {
@@ -216363,7 +217037,7 @@ function registerAdminUserRoutes(app2) {
       }
       const updateData = {};
       const data = validation.data;
-      const normalizedPhone = data.phone !== void 0 ? normalizePhoneNumber2(data.phone) : void 0;
+      const normalizedPhone = data.phone !== void 0 ? normalizePhoneNumber(data.phone) : void 0;
       if (data.email !== void 0 && data.email !== existing.email) {
         const [emailExists] = await db.select().from(users).where(
           (0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(users.email, data.email), import_drizzle_orm40.sql`${users.id} != ${userId}`)
@@ -219196,7 +219870,7 @@ async function resolveRecipientUser(currentUserId, payload) {
   }
   const identifier = String(payload.identifier || "").trim();
   if (!identifier) return null;
-  const normalizedPhone = normalizePhoneNumber2(identifier);
+  const normalizedPhone = normalizePhoneNumber(identifier);
   const candidates = await db.select().from(users).where((0, import_drizzle_orm49.or)(
     (0, import_drizzle_orm49.eq)(users.username, identifier),
     (0, import_drizzle_orm49.eq)(users.email, identifier),
@@ -219233,10 +219907,10 @@ function formatMessage(message2, viewerId, viewerLanguage) {
 async function findBestContact(ownerUserId, peer) {
   if (!peer) return null;
   const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm49.eq)(userContacts.userId, ownerUserId));
-  const phone = peer.phone ? normalizePhoneNumber2(peer.phone) : "";
+  const phone = peer.phone ? normalizePhoneNumber(peer.phone) : "";
   return contacts.find((contact) => {
     const identifier = String(contact.identifier || "").trim();
-    return identifier === peer.username || identifier === peer.email || normalizePhoneNumber2(identifier) === phone;
+    return identifier === peer.username || identifier === peer.email || normalizePhoneNumber(identifier) === phone;
   }) || null;
 }
 var import_express11, import_node_events5, import_drizzle_orm49, import_zod15, router11, createThreadSchema, sendMessageSchema, typingSchema, TYPING_TTL_MS, typingState, activePresence, personalChatBus, personal_chat_routes_default;
@@ -219285,7 +219959,7 @@ var init_personal_chat_routes = __esm({
         if (query.length < 2) {
           return res.json({ results: [] });
         }
-        const normalizedPhone = normalizePhoneNumber2(query);
+        const normalizedPhone = normalizePhoneNumber(query);
         const candidates = await db.select({
           id: users.id,
           username: users.username,
@@ -219339,7 +220013,7 @@ var init_personal_chat_routes = __esm({
           const peer = peerById.get(context.peerUserId);
           const matchingContact = viewerContacts.find((contact) => {
             const identifier = String(contact.identifier || "").trim();
-            return identifier === peer?.username || identifier === peer?.email || normalizePhoneNumber2(identifier) === normalizePhoneNumber2(peer?.phone || "");
+            return identifier === peer?.username || identifier === peer?.email || normalizePhoneNumber(identifier) === normalizePhoneNumber(peer?.phone || "");
           });
           const unreadCount = unreadMessages.filter(
             (message2) => message2.threadId === thread.id && message2.senderUserId !== viewerId && !message2.seenAt
@@ -223964,7 +224638,7 @@ async function forgotPassword(identifier, channel) {
   if (channel === "mobile" && usesFirebasePhoneOtp()) {
     return { error: "PHONE_RESET_USES_FIREBASE" };
   }
-  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber2(identifier) : identifier;
+  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
   const whereClause = channel === "email" ? (0, import_drizzle_orm55.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm55.eq)(users.phone, normalizedIdentifier);
   const user2 = await db.query.users.findFirst({ where: whereClause });
   if (!user2) return { success: true };
@@ -223972,7 +224646,7 @@ async function forgotPassword(identifier, channel) {
   return { success: true };
 }
 async function resetPassword(identifier, channel, code, newPassword) {
-  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber2(identifier) : identifier;
+  const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
   const otpResult = await verifyOtp(normalizedIdentifier, channel, code);
   if (!otpResult.success) {
     return { error: "INVALID_OTP", message: otpResult.message };
@@ -225494,6 +226168,12 @@ function respondWithInitiateError(res, error) {
       code: "LIVEKIT_UNAVAILABLE"
     });
   }
+  if (message2.includes("PSTN_NOT_CONFIGURED")) {
+    return res.status(503).json({
+      message: "PSTN calling is not configured. Add MSG91_AUTH_KEY or TWILIO credentials to enable calling mobile numbers.",
+      code: "PSTN_NOT_CONFIGURED"
+    });
+  }
   if (message2.includes("CALLEE_PHONE_REQUIRED_FOR_PSTN")) {
     return res.status(400).json({ message: "Phone number is required for PSTN calling." });
   }
@@ -225820,11 +226500,11 @@ function verifyMsg91WebhookSignature(req) {
   }
   try {
     const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-    const expected = (0, import_node_crypto10.createHmac)("sha256", secret).update(body).digest("hex");
+    const expected = (0, import_node_crypto12.createHmac)("sha256", secret).update(body).digest("hex");
     const sigBuffer = Buffer.from(signature.replace(/^sha256=/, ""), "hex");
     const expBuffer = Buffer.from(expected, "hex");
     if (sigBuffer.length !== expBuffer.length) return false;
-    return (0, import_node_crypto10.timingSafeEqual)(sigBuffer, expBuffer);
+    return (0, import_node_crypto12.timingSafeEqual)(sigBuffer, expBuffer);
   } catch {
     return false;
   }
@@ -225864,7 +226544,7 @@ function mapMsg91FailureReasonToSmartState(reason) {
   return null;
 }
 function buildMsg91WebhookFingerprint(callId, body) {
-  return (0, import_node_crypto10.createHash)("sha256").update(JSON.stringify({
+  return (0, import_node_crypto12.createHash)("sha256").update(JSON.stringify({
     callId: callId || "unknown",
     providerCallId: body?.uuid ?? body?.call_id ?? null,
     providerStatus: body?.status ?? body?.event ?? body?.call_status ?? null,
@@ -227061,11 +227741,11 @@ async function transferCall(req, res) {
     res.status(500).json({ error: "Transfer failed" });
   }
 }
-var import_node_crypto10, import_drizzle_orm57, import_zod23, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
+var import_node_crypto12, import_drizzle_orm57, import_zod23, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
 var init_controller2 = __esm({
   "server/modules/calls/controller.ts"() {
     "use strict";
-    import_node_crypto10 = require("node:crypto");
+    import_node_crypto12 = require("node:crypto");
     import_drizzle_orm57 = require("drizzle-orm");
     import_zod23 = require("zod");
     init_observability();
@@ -227163,7 +227843,7 @@ var init_controller2 = __esm({
 
 // server/modules/calls/validation.ts
 async function runTelecomValidationSimulation() {
-  const sessionId = `validate_${(0, import_node_crypto11.randomUUID)()}`;
+  const sessionId = `validate_${(0, import_node_crypto13.randomUUID)()}`;
   const transitions = [
     SMART_CALL_STATE.CREATED,
     SMART_CALL_STATE.RINGING,
@@ -227210,11 +227890,11 @@ async function runTelecomValidationSimulation() {
     telecomE2EChecklist: TELECOM_E2E_CHECKLIST
   };
 }
-var import_node_crypto11, TELECOM_E2E_CHECKLIST;
+var import_node_crypto13, TELECOM_E2E_CHECKLIST;
 var init_validation2 = __esm({
   "server/modules/calls/validation.ts"() {
     "use strict";
-    import_node_crypto11 = require("node:crypto");
+    import_node_crypto13 = require("node:crypto");
     init_lifecycle();
     init_billing_engine();
     TELECOM_E2E_CHECKLIST = [
@@ -227341,6 +228021,440 @@ var init_routes7 = __esm({
     init_schema();
     init_controller2();
     init_validation2();
+  }
+});
+
+// server/pstn/inbound-store.ts
+function keyByCallId(callId) {
+  return `pstn_inbound:call:${callId}`;
+}
+function keyByProviderCallId(providerCallId) {
+  return `pstn_inbound:provider:${providerCallId}`;
+}
+async function storeInboundCall(record) {
+  const redis = getRedisClient();
+  const value = JSON.stringify(record);
+  await redis.multi().set(keyByCallId(record.callId), value, "EX", TTL_SECONDS).set(keyByProviderCallId(record.providerCallId), record.callId, "EX", TTL_SECONDS).exec();
+}
+async function getInboundCallByDID(callId) {
+  const raw = await getRedisClient().get(keyByCallId(callId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function getInboundCallByProviderCallId(providerCallId) {
+  const callId = await getRedisClient().get(keyByProviderCallId(providerCallId));
+  if (!callId) return null;
+  return getInboundCallByDID(callId);
+}
+var TTL_SECONDS;
+var init_inbound_store = __esm({
+  "server/pstn/inbound-store.ts"() {
+    "use strict";
+    init_redis();
+    TTL_SECONDS = 7200;
+  }
+});
+
+// server/pstn/inbound.ts
+function buildSipUri(callId) {
+  return `sip:${callId}@${LIVEKIT_SIP_DOMAIN()}`;
+}
+async function findUserByDID(calledNumber) {
+  if (!calledNumber) return null;
+  try {
+    const user2 = await storage.getUserByPhone(calledNumber);
+    if (user2) {
+      return {
+        userId: String(user2.id),
+        organizationId: user2.organizationId ?? null,
+        preferredLanguage: user2.preferredLanguage || "auto"
+      };
+    }
+  } catch (err) {
+    logger.warn("PSTNInbound", `DID lookup failed for ${calledNumber}: ${String(err)}`);
+  }
+  return null;
+}
+async function sendInboundPush(userId, payload) {
+  try {
+    const mod = await Promise.resolve().then(() => (init_firebase_admin(), firebase_admin_exports)).catch(() => ({}));
+    if (typeof mod.sendVoIPPush === "function") {
+      await mod.sendVoIPPush(userId, {
+        callId: payload.callId,
+        callerId: payload.callerNumber,
+        callType: payload.callType,
+        callerName: payload.callerNumber
+      });
+    }
+  } catch (err) {
+    logger.warn("PSTNInbound", `push failed for ${userId}: ${String(err)}`);
+  }
+}
+async function handleInboundCall(body, headers) {
+  const provider = getPSTNProvider();
+  const event = provider.parseInboundWebhook(body, headers);
+  if (!event) {
+    logger.warn("PSTNInbound", "Could not parse inbound webhook", { body });
+    return { status: 400, body: { error: "unrecognised_payload" } };
+  }
+  logger.info("PSTNInbound", `Inbound call from ${event.callerNumber} \u2192 ${event.calledNumber} [${event.providerCallId}]`);
+  const target = await findUserByDID(event.calledNumber);
+  if (!target) {
+    logger.warn("PSTNInbound", `No NeuraTalk user owns DID ${event.calledNumber} \u2014 rejecting`);
+    return { status: 200, body: { action: "reject", reason: "busy" } };
+  }
+  const callId = `call_${(0, import_node_crypto14.randomUUID)()}`;
+  try {
+    const auth = await BillingEngine.startCallSession({
+      sessionId: callId,
+      userId: Number.isFinite(Number(target.userId)) ? Number(target.userId) : null,
+      organizationId: target.organizationId,
+      callType: "voice",
+      translationEnabled: false,
+      recordingEnabled: false,
+      joinMethod: "app_to_pstn",
+      activateOnAnswer: true
+    });
+    if (!auth.allowed) {
+      logger.warn("PSTNInbound", `Billing blocked inbound call for user ${target.userId}: ${auth.reason}`);
+      return { status: 200, body: { action: "reject", reason: "busy" } };
+    }
+  } catch (err) {
+    logger.warn("PSTNInbound", `Billing check failed, allowing call anyway: ${String(err)}`);
+  }
+  await createCallRoom({
+    callId,
+    maxParticipants: 4,
+    emptyTimeoutSec: 120,
+    metadata: {
+      callerId: event.callerNumber,
+      calleeIdentifier: target.userId,
+      callType: "voice",
+      inboundPstn: true,
+      providerCallId: event.providerCallId
+    }
+  });
+  await initCallLanguageTracking(callId, [
+    { speakerId: target.userId, preferredLanguage: target.preferredLanguage },
+    { speakerId: `pstn:${event.callerNumber}`, preferredLanguage: "auto" }
+  ]);
+  const userToken = await issueAccessToken(callId, {
+    userId: target.userId,
+    displayName: target.userId,
+    language: target.preferredLanguage,
+    role: "caller"
+  });
+  const record = {
+    callId,
+    providerCallId: event.providerCallId,
+    provider: provider.name,
+    callerNumber: event.callerNumber,
+    calledNumber: event.calledNumber,
+    targetUserId: target.userId,
+    targetOrganizationId: target.organizationId,
+    livekitToken: userToken,
+    livekitUrl: process.env.LIVEKIT_URL || "",
+    sipUri: buildSipUri(callId),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "ringing"
+  };
+  await storeInboundCall(record);
+  await sendInboundPush(target.userId, {
+    callId,
+    callerNumber: event.callerNumber,
+    callType: "voice"
+  });
+  try {
+    const botToken = await issueBotToken(callId);
+    const mod = await Promise.resolve().then(() => (init_translator_bot(), translator_bot_exports)).catch(() => ({}));
+    if (typeof mod.startBotWorker === "function") {
+      void mod.startBotWorker(callId, botToken);
+    }
+  } catch (err) {
+    logger.warn("PSTNInbound", `translator bot spawn failed: ${String(err)}`);
+  }
+  const welcomeMsg = process.env.PSTN_INBOUND_WELCOME_MESSAGE || "";
+  const acceptResponse = provider.buildInboundAcceptResponse(buildSipUri(callId), {
+    ...welcomeMsg ? { welcomeMessage: welcomeMsg } : {}
+  });
+  logger.info("PSTNInbound", `Bridging inbound ${event.providerCallId} \u2192 ${callId} for user ${target.userId}`);
+  return { status: 200, body: acceptResponse };
+}
+async function getInboundCallJoinInfo(callId) {
+  const record = await getInboundCallByDID(callId);
+  if (!record) return null;
+  return {
+    livekitUrl: record.livekitUrl,
+    livekitToken: record.livekitToken,
+    callerNumber: record.callerNumber
+  };
+}
+var import_node_crypto14, LIVEKIT_SIP_DOMAIN;
+var init_inbound = __esm({
+  "server/pstn/inbound.ts"() {
+    "use strict";
+    import_node_crypto14 = require("node:crypto");
+    init_registry();
+    init_livekit_service();
+    init_billing_engine();
+    init_universal_language_runtime();
+    init_storage();
+    init_observability();
+    init_inbound_store();
+    LIVEKIT_SIP_DOMAIN = () => process.env.LIVEKIT_SIP_DOMAIN || "sip.livekit.local";
+  }
+});
+
+// server/pstn/cdr.ts
+async function listRecentCDRsForOrg(organizationId, limit = 50) {
+  const redis = getRedisClient();
+  try {
+    const key = `cdr:org:${organizationId}`;
+    const items = await redis.lrange(key, 0, limit - 1);
+    return items.flatMap((raw) => {
+      try {
+        return [JSON.parse(raw)];
+      } catch {
+        return [];
+      }
+    });
+  } catch (err) {
+    logger.warn("PSTNCDR", `Failed to fetch CDRs for org ${organizationId}: ${String(err)}`);
+    return [];
+  }
+}
+function cdrsToCSV(cdrs) {
+  const headers = [
+    "callId",
+    "direction",
+    "provider",
+    "route",
+    "callerNumber",
+    "calleeNumber",
+    "durationSeconds",
+    "costPaise",
+    "currency",
+    "result",
+    "disconnectReason",
+    "callerLanguage",
+    "calleeLanguage",
+    "translationEnabled",
+    "startedAt",
+    "answeredAt",
+    "endedAt",
+    "organizationId",
+    "userId"
+  ];
+  const escape2 = (v) => {
+    const s = String(v ?? "");
+    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = cdrs.map(
+    (r) => headers.map((h) => escape2(r[h])).join(",")
+  );
+  return [headers.join(","), ...rows].join("\n");
+}
+var init_cdr = __esm({
+  "server/pstn/cdr.ts"() {
+    "use strict";
+    init_redis();
+    init_observability();
+  }
+});
+
+// server/pstn/routes.ts
+async function processStatusEvent(event) {
+  const callId = event.internalCallId;
+  if (!callId) {
+    const inbound = await getInboundCallByProviderCallId(event.providerCallId);
+    if (!inbound) {
+      logger.warn("PSTNRoutes", `Status event for unknown providerCallId ${event.providerCallId}`);
+      return;
+    }
+    const statusMap2 = {
+      answered: "answered",
+      active: "active",
+      ended: "ended",
+      failed: "failed",
+      busy: "busy",
+      "no-answer": "missed",
+      cancelled: "cancelled"
+    };
+    const mappedStatus2 = statusMap2[event.status] || "ended";
+    await updateSmartCallStatus(inbound.callId, mappedStatus2, {
+      providerCallId: event.providerCallId,
+      providerStatus: event.status,
+      durationSeconds: event.durationSeconds,
+      disconnectReason: event.disconnectReason
+    }).catch((err) => {
+      logger.warn("PSTNRoutes", `Status update failed for inbound ${inbound.callId}: ${String(err)}`);
+    });
+    return;
+  }
+  const statusMap = {
+    ringing: "ringing",
+    answered: "answered",
+    active: "active",
+    ended: "ended",
+    failed: "failed",
+    busy: "busy",
+    "no-answer": "missed",
+    cancelled: "cancelled"
+  };
+  const mappedStatus = statusMap[event.status] || "ended";
+  await updateSmartCallStatus(callId, mappedStatus, {
+    providerCallId: event.providerCallId,
+    providerStatus: event.status,
+    durationSeconds: event.durationSeconds,
+    disconnectReason: event.disconnectReason,
+    answeredAt: event.answeredAt,
+    endedAt: event.endedAt
+  }).catch((err) => {
+    logger.warn("PSTNRoutes", `Status update failed for ${callId}: ${String(err)}`);
+  });
+}
+function rawHeaders(req) {
+  const out = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v)) out[k] = v[0] || "";
+  }
+  return out;
+}
+function registerPSTNRoutes(app2) {
+  app2.post("/api/pstn/inbound", async (req, res) => {
+    if (!isPSTNAvailable()) {
+      return res.status(503).json({ error: "pstn_not_configured" });
+    }
+    try {
+      const provider = getPSTNProvider();
+      const headers = rawHeaders(req);
+      const rawBody = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+      if (!provider.verifyWebhookSignature(rawBody, headers)) {
+        logger.warn("PSTNRoutes", "Inbound webhook signature verification failed");
+        return res.status(403).json({ error: "invalid_signature" });
+      }
+      const { status, body } = await handleInboundCall(req.body, headers);
+      return res.status(status).json(body);
+    } catch (err) {
+      logger.error("PSTNRoutes", `Inbound webhook handler failed: ${String(err)}`);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+  app2.post("/api/pstn/status", async (req, res) => {
+    if (!isPSTNAvailable()) {
+      return res.status(200).json({ ok: false });
+    }
+    try {
+      const provider = getPSTNProvider();
+      const headers = rawHeaders(req);
+      const event = provider.parseStatusWebhook(req.body, headers);
+      if (event) {
+        await processStatusEvent(event);
+      }
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      logger.warn("PSTNRoutes", `Status webhook error: ${String(err)}`);
+      return res.status(200).json({ ok: false });
+    }
+  });
+  app2.post("/api/pstn/twilio/webhook", async (req, res) => {
+    try {
+      const { TwilioProvider: TwilioProvider2 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
+      const provider = new TwilioProvider2();
+      const headers = rawHeaders(req);
+      const rawBody = typeof req.body === "string" ? req.body : new URLSearchParams(req.body).toString();
+      if (!provider.verifyWebhookSignature(rawBody, headers)) {
+        logger.warn("PSTNRoutes", "Twilio webhook signature verification failed");
+        return res.status(403).send("Forbidden");
+      }
+      const event = provider.parseStatusWebhook(req.body, headers);
+      if (event) {
+        await processStatusEvent(event);
+      }
+      return res.status(200).send("<Response/>");
+    } catch (err) {
+      logger.warn("PSTNRoutes", `Twilio webhook error: ${String(err)}`);
+      return res.status(200).send("<Response/>");
+    }
+  });
+  app2.post("/api/pstn/twilio/twiml/:callId", async (req, res) => {
+    const { callId } = req.params;
+    const sipDomain = process.env.LIVEKIT_SIP_DOMAIN || "sip.livekit.local";
+    const sipUri = `sip:${callId}@${sipDomain}`;
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Dial timeout="30">
+    <Sip>${sipUri}</Sip>
+  </Dial>
+</Response>`;
+    res.set("Content-Type", "text/xml");
+    return res.status(200).send(twiml);
+  });
+  app2.get("/api/pstn/calls/:callId/join", loadUser, requireAuth, async (req, res) => {
+    try {
+      const info = await getInboundCallJoinInfo(req.params.callId);
+      if (!info) {
+        return res.status(404).json({ error: "call_not_found" });
+      }
+      return res.json(info);
+    } catch (err) {
+      logger.warn("PSTNRoutes", `Join info fetch failed: ${String(err)}`);
+      return res.status(500).json({ error: "internal_error" });
+    }
+  });
+  app2.get("/api/pstn/health", loadUser, requireAuth, requireSuperAdmin, async (_req, res) => {
+    try {
+      const metrics3 = await getPSTNMetrics();
+      return res.json(metrics3);
+    } catch (err) {
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  app2.get("/api/pstn/metrics", loadUser, requireAuth, requireSuperAdmin, async (_req, res) => {
+    try {
+      const metrics3 = await getPSTNMetrics();
+      return res.json(metrics3);
+    } catch (err) {
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  app2.get("/api/pstn/cdrs", loadUser, requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const orgId2 = req.query.orgId ? parseInt(String(req.query.orgId), 10) : null;
+      const format = String(req.query.format || "json").toLowerCase();
+      const limit = Math.min(500, parseInt(String(req.query.limit || "100"), 10) || 100);
+      if (!orgId2 || !Number.isFinite(orgId2)) {
+        return res.status(400).json({ error: "orgId required" });
+      }
+      const cdrs = await listRecentCDRsForOrg(orgId2, limit);
+      if (format === "csv") {
+        res.set("Content-Type", "text/csv");
+        res.set("Content-Disposition", `attachment; filename="cdrs-org-${orgId2}.csv"`);
+        return res.send(cdrsToCSV(cdrs));
+      }
+      return res.json({ cdrs, count: cdrs.length });
+    } catch (err) {
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  logger.info("PSTNRoutes", "PSTN routes registered");
+}
+var init_routes8 = __esm({
+  "server/pstn/routes.ts"() {
+    "use strict";
+    init_registry();
+    init_inbound();
+    init_inbound_store();
+    init_monitor();
+    init_cdr();
+    init_smart_router();
+    init_role_middleware();
+    init_observability();
   }
 });
 
@@ -227550,7 +228664,7 @@ function registerCallerIdRoutes(app2) {
   app2.post("/api/caller-id/verify/confirm", loadUser, requireAuth, confirmVerification);
   app2.post("/api/calls/inbound", inboundCallWebhook);
 }
-var init_routes8 = __esm({
+var init_routes9 = __esm({
   "server/modules/caller-id/routes.ts"() {
     "use strict";
     init_role_middleware();
@@ -227830,7 +228944,7 @@ function registerB2BAdminRoutes(app2) {
   app2.delete("/api/admin/orgs/:orgId/agent-skills/:userId", requireAuth, deleteAgentSkill);
 }
 var import_drizzle_orm59, import_zod24;
-var init_routes9 = __esm({
+var init_routes10 = __esm({
   "server/modules/b2b-admin/routes.ts"() {
     "use strict";
     import_drizzle_orm59 = require("drizzle-orm");
@@ -228341,7 +229455,7 @@ function registerEnterpriseHubRoutes(app2) {
   app2.get("/api/enterprise-hub/audit-logs", ...guard, getAuditLogs2);
 }
 var guard;
-var init_routes10 = __esm({
+var init_routes11 = __esm({
   "server/modules/enterprise-hub/routes.ts"() {
     "use strict";
     init_role_middleware();
@@ -228361,7 +229475,7 @@ function preferredAppIdentifier2(user2) {
 async function resolveAppLinkedContact(identifier) {
   const trimmed = String(identifier || "").trim();
   if (!trimmed) return null;
-  const normalizedPhone = normalizePhoneNumber2(trimmed);
+  const normalizedPhone = normalizePhoneNumber(trimmed);
   const [matchedUser] = await db.select({
     id: users.id,
     username: users.username,
@@ -228577,6 +229691,8 @@ async function registerRoutes(httpServer2, app2) {
   console.log("[Routes] \u2713 Voice training routes");
   registerCallsRoutes(app2);
   console.log("[Routes] \u2713 Calls module (LiveKit) routes");
+  registerPSTNRoutes(app2);
+  console.log("[Routes] \u2713 PSTN routes (inbound/outbound webhooks, CDR, health)");
   registerCallerIdRoutes(app2);
   console.log("[Routes] \u2713 Caller ID verification + inbound call routes");
   registerB2BAdminRoutes(app2);
@@ -228945,7 +230061,7 @@ Your personality:
   return httpServer2;
 }
 var import_openai8;
-var init_routes11 = __esm({
+var init_routes12 = __esm({
   "server/routes.ts"() {
     "use strict";
     init_storage();
@@ -229003,6 +230119,7 @@ var init_routes11 = __esm({
     init_routes8();
     init_routes9();
     init_routes10();
+    init_routes11();
     init_role_middleware();
     init_tenant_context();
     init_rate_limit();
@@ -229212,6 +230329,7 @@ init_communication_api_service();
 init_call_platform_config();
 init_config_service();
 init_smart_router();
+init_monitor();
 var app = (0, import_express14.default)();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -229400,6 +230518,9 @@ function startRedisDependentRuntime() {
   BillingEngine.startRuntimeSupervisor();
   startCommunicationBillingLoop();
   startSmartCallWatchdog();
+  setInterval(() => {
+    void runScheduledHealthCheck();
+  }, 6e4).unref?.();
 }
 function bindProcessHandlers() {
   if (processHandlersBound) {
@@ -229653,7 +230774,7 @@ ${headers}\r
   } catch (error) {
     logger.error("Server", "Failed to attach WebSocket servers", error instanceof Error ? error : new Error(String(error)));
   }
-  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes11(), routes_exports)), {
+  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes12(), routes_exports)), {
     timeoutMs: 2e4,
     skip: isStartupSubsystemDisabled("routes")
   });

@@ -14,6 +14,7 @@ import { startCommunicationBillingLoop } from "./communication-api-service";
 import { isLegacyTwilioBridgeEnabled } from "./call-platform-config";
 import { configService } from "./config-service";
 import { startSmartCallWatchdog } from "./modules/calls/smart-router";
+import { runScheduledHealthCheck } from "./pstn/monitor";
 
 const app = express();
 app.set("trust proxy", 1); // trust Cloudflare/DO proxy so req.ip is the real client IP
@@ -255,6 +256,7 @@ function startRedisDependentRuntime(): void {
   BillingEngine.startRuntimeSupervisor();
   startCommunicationBillingLoop();
   startSmartCallWatchdog();
+  setInterval(() => { void runScheduledHealthCheck(); }, 60_000).unref?.();
 }
 
 function bindProcessHandlers() {
