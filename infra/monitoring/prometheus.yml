@@ -1,0 +1,92 @@
+##############################################################################
+# Prometheus Configuration — NeuraTalk SIP Core Monitoring
+#
+# Scraped targets:
+#   - Kamailio (via kamailio-exporter, MI HTTP)
+#   - RTPEngine (via rtpengine-exporter / native Prometheus endpoint)
+#   - Node Exporter (host metrics: CPU, memory, disk, network)
+#   - NeuraTalk API (custom /metrics endpoint)
+#
+# Access: http://localhost:9090
+# Retention: 30 days (set via --storage.tsdb.retention.time=30d)
+##############################################################################
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+
+  external_labels:
+    env:     production
+    service: neuratalk-sip-core
+    region:  in-blr
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
+
+rule_files: []
+
+scrape_configs:
+
+  # ── Prometheus self-monitoring ─────────────────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          component: prometheus
+
+  # ── Host metrics (CPU, memory, disk, network) ──────────────────────────
+  - job_name: node
+    static_configs:
+      - targets: ['localhost:9100']
+        labels:
+          component: host
+
+  # ── Kamailio SIP Core metrics ──────────────────────────────────────────
+  # Via kamailio-exporter (reads Kamailio MI HTTP statistics endpoint)
+  - job_name: kamailio
+    static_configs:
+      - targets: ['localhost:9494']
+        labels:
+          component: sip-core
+    metrics_path: /metrics
+
+  # ── RTPEngine media proxy metrics ──────────────────────────────────────
+  # RTPEngine has native Prometheus endpoint at /metrics
+  - job_name: rtpengine
+    static_configs:
+      - targets: ['localhost:9309']
+        labels:
+          component: rtp-media
+    metrics_path: /metrics
+
+  # ── NeuraTalk Node.js API ──────────────────────────────────────────────
+  # Custom metrics: call success rate, PSTN provider health, AI latency
+  - job_name: neuratalk-api
+    static_configs:
+      - targets: ['${NEURATALK_API_HOST:-neuratalk.in:443}']
+        labels:
+          component: api
+    metrics_path: /metrics
+    scheme: https
+    tls_config:
+      insecure_skip_verify: false
+    scrape_interval: 30s
+
+  # ── Kamailio RTPEngine exporter ────────────────────────────────────────
+  - job_name: rtpengine-exporter
+    static_configs:
+      - targets: ['localhost:9495']
+        labels:
+          component: rtp-stats
+
+  # ── FreeSWITCH (if deployed) ───────────────────────────────────────────
+  # Uncomment when FreeSWITCH is added:
+  # - job_name: freeswitch
+  #   static_configs:
+  #     - targets: ['localhost:9282']
+  #       labels:
+  #         component: b2bua

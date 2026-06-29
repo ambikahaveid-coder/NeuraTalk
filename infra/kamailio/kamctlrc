@@ -1,0 +1,43 @@
+##############################################################################
+# kamctl configuration — NeuraTalk Kamailio control tool
+##############################################################################
+
+# SIP domain
+SIP_DOMAIN="$KAMAILIO_DOMAIN"
+
+# Database backend (comment out if not using DB for usrloc/auth)
+# DBENGINE=MYSQL
+# DBHOST=127.0.0.1
+# DBPORT=3306
+# DBNAME=kamailio
+# DBRWUSER=kamailio
+# DBRWPW=kamailio_password
+# DBROUSER=kamailioro
+# DBROPW=kamailio_ro_password
+
+# For PostgreSQL:
+# DBENGINE=POSTGRES
+# DBHOST=127.0.0.1
+# DBPORT=5432
+# DBNAME=kamailio
+# DBRWUSER=kamailio
+# DBRWPW=kamailio_password
+
+# FIFO transport (for kamctl to talk to Kamailio)
+CTLENGINE="FIFO"
+FIFO="/var/run/kamailio/kamailio_fifo"
+
+# Binary path
+KAMBIN=/usr/sbin/kamailio
+
+# Config file
+KAMCFG=/etc/kamailio/kamailio.cfg
+
+# Extra args
+KAMARGS="-DD -P /var/run/kamailio/kamailio.pid"
+
+# Log level (0=emergency, 1=alert, 2=crit, 3=error, 4=warn, 5=notice, 6=info, 7=debug)
+LOG_LEVEL=2
+
+# RTP proxy socket (for kamctl to manage rtpengine)
+RTP_PROXY_SOCK="udp:127.0.0.1:22222"

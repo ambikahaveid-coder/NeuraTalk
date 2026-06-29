@@ -1,0 +1,236 @@
+##############################################################################
+# NeuraTalk SIP Core — Docker Compose
+#
+# Services:
+#   kamailio     - SIP Core (SBC + LCR + registrar)
+#   rtpengine    - RTP proxy + AI fork + SRTP bridge
+#   prometheus   - Metrics collection
+#   grafana      - Dashboards
+#
+# Prerequisites:
+#   cp infra/docker/.env.example infra/docker/.env
+#   # Edit .env with real values
+#   docker compose up -d
+#
+# The Node.js app (NeuraTalk API) is deployed separately on DigitalOcean
+# App Platform. These services are the SIP/media infrastructure layer.
+#
+# Production deployment: dedicated VM (2 vCPU, 4GB RAM minimum)
+# Recommended: DigitalOcean Droplet Premium AMD 4vCPU/8GB in BLR1 region
+##############################################################################
+
+version: "3.9"
+
+networks:
+  sip-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  kamailio-data:
+  rtpengine-recordings:
+  prometheus-data:
+  grafana-data:
+
+x-healthcheck-defaults: &healthcheck_defaults
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 15s
+
+services:
+
+  ##############################################################################
+  # KAMAILIO — SIP Core
+  ##############################################################################
+  kamailio:
+    image: kamailio/kamailio:5.8-bullseye
+    container_name: neuratalk-kamailio
+    restart: unless-stopped
+    network_mode: host
+    # IMPORTANT: network_mode: host is required for SIP/RTP to work correctly.
+    # SIP signaling and RTP media must see the real source IPs of callers.
+    # Bridge networking breaks NAT detection and ICE.
+
+    environment:
+      KAMAILIO_DOMAIN:      ${KAMAILIO_DOMAIN}
+      KAMAILIO_PUBLIC_IP:   ${KAMAILIO_PUBLIC_IP}
+      KAMAILIO_PRIVATE_IP:  ${KAMAILIO_PRIVATE_IP:-127.0.0.1}
+      KAMAILIO_DB_URL:      ${KAMAILIO_DB_URL:-}
+      RTPENGINE_HOST:       ${RTPENGINE_HOST:-127.0.0.1:22222}
+      FREESWITCH_HOST:      ${FREESWITCH_HOST:-127.0.0.1}
+      FREESWITCH_PORT:      ${FREESWITCH_PORT:-5080}
+      NEURATALK_API_HOST:   ${NEURATALK_API_HOST}
+      KAMAILIO_LOG_LEVEL:   ${KAMAILIO_LOG_LEVEL:-2}
+
+    volumes:
+      - ../../infra/kamailio/kamailio.cfg:/etc/kamailio/kamailio.cfg:ro
+      - ../../infra/kamailio/tls.cfg:/etc/kamailio/tls.cfg:ro
+      - ../../infra/kamailio/dispatcher.list:/etc/kamailio/dispatcher.list:ro
+      - ../../infra/kamailio/kamctlrc:/etc/kamailio/kamctlrc:ro
+      - kamailio-data:/var/run/kamailio
+      - ${TLS_CERT_DIR:-/etc/letsencrypt/live}:/etc/kamailio/tls:ro
+
+    ports:
+      # UDP + TCP SIP signaling
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      # TLS SIP
+      - "5061:5061/tcp"
+      # MI HTTP (management — bind to localhost only in production!)
+      - "127.0.0.1:8080:8080/tcp"
+
+    healthcheck:
+      test: ["CMD", "kamctl", "monitor", "1"]
+      <<: *healthcheck_defaults
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ##############################################################################
+  # RTPENGINE — RTP Media Proxy
+  ##############################################################################
+  rtpengine:
+    image: drachtio/rtpengine:latest
+    container_name: neuratalk-rtpengine
+    restart: unless-stopped
+    network_mode: host
+    # host mode required — RTP ports (30000-40000) need to be reachable
+    # and source IPs must be visible for ICE/NAT traversal
+
+    environment:
+      PRIVATE_IP: ${KAMAILIO_PRIVATE_IP:-127.0.0.1}
+      PUBLIC_IP:  ${KAMAILIO_PUBLIC_IP}
+
+    volumes:
+      - ../../infra/rtpengine/rtpengine.conf:/etc/rtpengine/rtpengine.conf:ro
+      - rtpengine-recordings:/var/lib/rtpengine/recordings
+
+    # RTP port range (must match rtpengine.conf port-min/port-max)
+    # With network_mode: host, these are opened directly on the host
+    # Add to firewall: ufw allow 30000:40000/udp
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8088/"]
+      <<: *healthcheck_defaults
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  ##############################################################################
+  # PROMETHEUS — Metrics
+  ##############################################################################
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: neuratalk-prometheus
+    restart: unless-stopped
+    networks:
+      - sip-net
+
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+
+    volumes:
+      - ../../infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    ports:
+      - "127.0.0.1:9090:9090"
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:9090/-/healthy"]
+      <<: *healthcheck_defaults
+
+  ##############################################################################
+  # GRAFANA — Dashboards
+  ##############################################################################
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: neuratalk-grafana
+    restart: unless-stopped
+    networks:
+      - sip-net
+
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_SERVER_ROOT_URL:         ${GRAFANA_URL:-http://localhost:3001}
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../../infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    ports:
+      - "127.0.0.1:3001:3000"
+
+    depends_on:
+      - prometheus
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3000/api/health"]
+      <<: *healthcheck_defaults
+
+  ##############################################################################
+  # KAMAILIO EXPORTER — Prometheus metrics bridge
+  ##############################################################################
+  kamailio-exporter:
+    image: florentchauveau/kamailio-exporter:latest
+    container_name: neuratalk-kam-exporter
+    restart: unless-stopped
+    networks:
+      - sip-net
+
+    environment:
+      KAMAILIO_URL: "http://host.docker.internal:8080/mi"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "127.0.0.1:9494:9494"
+
+    depends_on:
+      - kamailio
+
+  ##############################################################################
+  # RTPENGINE EXPORTER — Prometheus metrics bridge
+  ##############################################################################
+  rtpengine-exporter:
+    image: nfnty/rtpengine-exporter:latest
+    container_name: neuratalk-rtpe-exporter
+    restart: unless-stopped
+    networks:
+      - sip-net
+
+    environment:
+      RTPENGINE_URL: "http://host.docker.internal:8088"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "127.0.0.1:9495:9495"
+
+    depends_on:
+      - rtpengine

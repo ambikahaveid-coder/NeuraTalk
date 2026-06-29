@@ -1,0 +1,77 @@
+##############################################################################
+# Kamailio Dispatcher List — NeuraTalk LCR Provider Table
+#
+# Format:
+#   setid  URI  flags  priority  attrs
+#
+# SetID Groups:
+#   1 = Primary PSTN (Jio Business SIP, Airtel Business SIP)
+#   2 = Fallback PSTN (Tata Communications, BSNL)
+#   3 = CPaaS REST bridges (MSG91 SIP gateway, Twilio SIP)
+#   4 = FreeSWITCH B2BUA pool
+#   5 = Enterprise PBX destinations (dynamic — loaded from DB or updated via MI)
+#
+# Flags:
+#   0 = active
+#   1 = inactive (manual)
+#   2 = probing (auto health-check via OPTIONS)
+#   4 = disabled (removed from selection)
+#
+# Priority: lower number = preferred route
+# Weight: higher = selected more often when priority is equal (for load balancing)
+#
+# Attrs format: key=value pairs separated by semicolons
+#   duid = unique identifier for this destination
+#   weight = 0-100 for weighted selection when priority equal
+#   rweight = 0-100 (relative weight)
+#
+# IMPORTANT: Add real carrier SIP addresses from your contracts.
+# These are placeholder addresses — replace with actual carrier SIP server IPs.
+#
+# After editing, reload without restart:
+#   kamctl dispatcher reload
+#   OR via MI HTTP: curl http://localhost:8080/mi/dispatcher.reload
+##############################################################################
+
+# ── GROUP 1: Primary PSTN Trunks ─────────────────────────────────────────
+# Jio Business SIP — lowest cost for India (₹0.28/min)
+# Replace with actual SIP server IP from Jio Business portal
+1  sip:sip.jio.com:5060     0  10  duid=jio_primary;weight=100;carrier=jio
+
+# Airtel Business SIP — (₹0.32/min)
+# Replace with actual SIP server from Airtel Business portal
+1  sip:sip.airtel.in:5060   0  20  duid=airtel_primary;weight=80;carrier=airtel
+
+# ── GROUP 2: Fallback PSTN Trunks ────────────────────────────────────────
+# Tata Communications SIP — (₹0.35/min)
+2  sip:sip.tatacommunications.com:5060  0  10  duid=tata_fallback;weight=60;carrier=tata
+
+# BSNL SIP — (₹0.25/min but unreliable uptime)
+2  sip:sip.bsnl.in:5060     0  20  duid=bsnl_fallback;weight=40;carrier=bsnl
+
+# ── GROUP 3: CPaaS SIP Gateways ──────────────────────────────────────────
+# MSG91 Voice SIP gateway (REST-backed)
+3  sip:sip.msg91.com:5060   0  10  duid=msg91_cpaas;weight=50;carrier=msg91
+
+# Twilio SIP interconnect — global fallback (₹3.82/min India)
+3  sip:india.pstn.twilio.com:5060  0  20  duid=twilio_cpaas;weight=30;carrier=twilio
+
+# ── GROUP 4: FreeSWITCH B2BUA Pool ───────────────────────────────────────
+# FreeSWITCH handles recording, IVR, conferencing, DTMF
+# Internal network — always healthy
+4  sip:127.0.0.1:5080       0  0   duid=fss_local;weight=100
+
+# ── GROUP 5: Enterprise PBX Destinations (examples) ──────────────────────
+# These are managed dynamically via MI API (dispatcher.add / dispatcher.reload)
+# Uncomment and add real enterprise PBX addresses here OR manage via API:
+#   curl http://localhost:8080/mi/dispatcher.add?group=5&address=sip:10.10.1.5:5060&flags=0&priority=10&attrs=duid=enterprise_acme
+#
+# Example: Customer ACME Corp's Cisco CUCM
+# 5  sip:10.10.1.5:5060    0  10  duid=enterprise_acme;org_id=42
+#
+# Example: Customer XYZ's Asterisk PBX
+# 5  sip:10.20.2.10:5060   0  10  duid=enterprise_xyz;org_id=43
+
+# ── GROUP 6: AirNetra (Future) ───────────────────────────────────────────
+# Placeholder for AirNetra IoT/satellite SIP when provisioned
+# 6  sip:gateway.airnetra.in:5060  0  10  duid=airnetra_gw;weight=100

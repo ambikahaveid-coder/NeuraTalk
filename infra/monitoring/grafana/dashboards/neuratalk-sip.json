@@ -1,0 +1,124 @@
+{
+  "__inputs": [
+    { "name": "DS_PROMETHEUS", "label": "Prometheus", "type": "datasource", "pluginId": "prometheus" }
+  ],
+  "title": "NeuraTalk SIP Core",
+  "uid": "neuratalk-sip-core",
+  "version": 1,
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["neuratalk", "kamailio", "sip", "rtpengine"],
+
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Active SIP Dialogs",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "kamailio_dialog_active", "legendFormat": "Dialogs" }],
+      "options": { "colorMode": "background", "graphMode": "area" },
+      "fieldConfig": { "defaults": { "thresholds": {
+        "steps": [{"value": 0, "color": "green"}, {"value": 100, "color": "yellow"}, {"value": 500, "color": "red"}]
+      }}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "SIP Transactions/s",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "rate(kamailio_tmx_UAC_transactions_total[1m])", "legendFormat": "TPS" }],
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 3, "type": "stat", "title": "RTPEngine Active Calls",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "rtpengine_sessions_owned", "legendFormat": "Calls" }],
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Registered SIP Users",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "kamailio_usrloc_registered_users", "legendFormat": "Registered" }],
+      "options": { "colorMode": "value" }
+    },
+    {
+      "id": 5, "type": "stat", "title": "Failed Auth Attempts",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "increase(kamailio_sl_failures_total[5m])", "legendFormat": "Auth Fail/5m" }],
+      "options": { "colorMode": "background" },
+      "fieldConfig": { "defaults": { "thresholds": {
+        "steps": [{"value": 0, "color": "green"}, {"value": 10, "color": "yellow"}, {"value": 50, "color": "red"}]
+      }}}
+    },
+    {
+      "id": 6, "type": "stat", "title": "Kamailio Uptime",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "kamailio_core_uptime_seconds", "legendFormat": "Uptime" }],
+      "options": { "colorMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "s" }}
+    },
+
+    {
+      "id": 10, "type": "timeseries", "title": "SIP Requests/s by Method",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(kamailio_core_rcv_requests_total{method='INVITE'}[1m])", "legendFormat": "INVITE" },
+        { "expr": "rate(kamailio_core_rcv_requests_total{method='REGISTER'}[1m])", "legendFormat": "REGISTER" },
+        { "expr": "rate(kamailio_core_rcv_requests_total{method='OPTIONS'}[1m])", "legendFormat": "OPTIONS" },
+        { "expr": "rate(kamailio_core_rcv_requests_total{method='BYE'}[1m])", "legendFormat": "BYE" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }}
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "RTPEngine: Packet Loss & Jitter",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(rtpengine_packets_lost_total[1m])", "legendFormat": "Packets Lost/s" },
+        { "expr": "rtpengine_jitter_ms", "legendFormat": "Jitter (ms)" }
+      ],
+      "fieldConfig": { "defaults": {
+        "unit": "short",
+        "thresholds": { "steps": [{"value": 0, "color": "green"}, {"value": 5, "color": "yellow"}, {"value": 20, "color": "red"}] }
+      }}
+    },
+
+    {
+      "id": 20, "type": "timeseries", "title": "Dispatcher Trunk Status",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "kamailio_dispatcher_active_destinations", "legendFormat": "Active Trunks" },
+        { "expr": "kamailio_dispatcher_probing_destinations", "legendFormat": "Probing Trunks" },
+        { "expr": "kamailio_dispatcher_inactive_destinations", "legendFormat": "Inactive Trunks" }
+      ]
+    },
+    {
+      "id": 21, "type": "timeseries", "title": "Call Success Rate",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "100 * rate(kamailio_core_rcv_replies_total{status='2xx'}[5m]) / rate(kamailio_core_rcv_requests_total{method='INVITE'}[5m])",
+          "legendFormat": "Success Rate %"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+        "thresholds": { "steps": [{"value": 0, "color": "red"}, {"value": 80, "color": "yellow"}, {"value": 95, "color": "green"}] }
+      }}
+    },
+
+    {
+      "id": 30, "type": "timeseries", "title": "Host: CPU & Memory",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "100 - (avg by(instance)(rate(node_cpu_seconds_total{mode='idle'}[1m])) * 100)", "legendFormat": "CPU %" },
+        { "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "Memory %" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" }}
+    },
+    {
+      "id": 31, "type": "timeseries", "title": "Network: SIP + RTP Bandwidth",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(node_network_receive_bytes_total{device!='lo'}[1m]) * 8", "legendFormat": "RX (bps)" },
+        { "expr": "rate(node_network_transmit_bytes_total{device!='lo'}[1m]) * 8", "legendFormat": "TX (bps)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bps" }}
+    }
+  ]
+}
