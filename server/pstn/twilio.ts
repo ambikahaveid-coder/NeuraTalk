@@ -230,7 +230,14 @@ export class TwilioProvider implements PSTNProvider {
     const expected = createHmac("sha1", token).update(url + sorted).digest("base64");
 
     try {
-      return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+      const expectedBuf = Buffer.from(expected);
+      const sigBuf = Buffer.from(sig);
+      // Constant-length comparison to prevent timing oracle on buffer length mismatch
+      if (sigBuf.length !== expectedBuf.length) {
+        timingSafeEqual(expectedBuf, expectedBuf); // burn time
+        return false;
+      }
+      return timingSafeEqual(sigBuf, expectedBuf);
     } catch {
       return false;
     }

@@ -35,7 +35,12 @@ const SERVICE_VARS: Record<string, string> = {
   VITE_FIREBASE_APP_ID: "Firebase client SDK (build-time var — ignore at runtime)",
   MSG91_AUTH_KEY: "Outbound PSTN calls unavailable",
   MSG91_VOICE_CALLER_ID: "PSTN caller ID unavailable",
-  MSG91_WEBHOOK_SECRET: "Inbound telephony webhooks unauthenticated",
+  // MSG91_WEBHOOK_SECRET intentionally omitted from SERVICE_VARS — treated as startup error when PSTN is active
+  KAMAILIO_MI_URL: "Kamailio management interface not configured — SIP core control unavailable",
+  FREESWITCH_ESL_HOST: "FreeSWITCH ESL not configured — media gateway unavailable",
+  FREESWITCH_ESL_PASSWORD: "FreeSWITCH ESL password not configured",
+  RTPENGINE_HOST: "RTPEngine not configured — RTP proxy/fork unavailable",
+  LIVEKIT_SIP_DOMAIN: "LiveKit SIP domain not configured — PSTN bridge unavailable",
   LOCAL_WHISPER_URL: "Local STT acceleration unavailable",
   LOCAL_TRANSLATION_URL: "Local translation acceleration unavailable",
   LOCAL_TTS_URL: "Local TTS acceleration unavailable",

@@ -30,14 +30,83 @@ function setRedisRuntimeStatus(next: Partial<RedisRuntimeStatus>): void {
   };
 }
 
+/**
+ * Parse a Redis Sentinel URL into ioredis Sentinel config.
+ * Format: redis-sentinel://password@host1:port1,host2:port2/master_name
+ * OR:     sentinel://host1:port1,host2:port2?name=master&password=pass
+ */
+function parseSentinelUrl(url: string): { sentinels: Array<{ host: string; port: number }>; name: string; password?: string } | null {
+  try {
+    const sentinelPrefixes = ["redis-sentinel://", "sentinel://", "rediss-sentinel://"];
+    const matched = sentinelPrefixes.find((p) => url.toLowerCase().startsWith(p));
+    if (!matched) return null;
+
+    const stripped = url.slice(matched.length);
+    // Extract password if present: password@hosts/name
+    let password: string | undefined;
+    let remainder = stripped;
+    if (remainder.includes("@")) {
+      const atIdx = remainder.indexOf("@");
+      password = decodeURIComponent(remainder.slice(0, atIdx));
+      remainder = remainder.slice(atIdx + 1);
+    }
+    // Extract master name from path
+    let masterName = "mymaster";
+    if (remainder.includes("/")) {
+      const slashIdx = remainder.lastIndexOf("/");
+      masterName = remainder.slice(slashIdx + 1).split("?")[0] || "mymaster";
+      remainder = remainder.slice(0, slashIdx);
+    }
+    // Parse query for name override
+    if (url.includes("?name=")) {
+      const match = url.match(/[?&]name=([^&]+)/);
+      if (match) masterName = decodeURIComponent(match[1]);
+    }
+    // Parse sentinel hosts
+    const hosts = remainder.split(",").map((h) => {
+      const parts = h.trim().split(":");
+      return { host: parts[0] || "127.0.0.1", port: parseInt(parts[1] || "26379", 10) };
+    });
+
+    return { sentinels: hosts, name: masterName, password };
+  } catch {
+    return null;
+  }
+}
+
 function createRemoteRedisClient(url: string): Redis {
+  // Sentinel mode
+  const sentinelConfig = parseSentinelUrl(url);
+  if (sentinelConfig) {
+    logger.info("Redis", `Connecting via Redis Sentinel: master=${sentinelConfig.name}, nodes=${sentinelConfig.sentinels.length}`);
+    const client = new Redis({
+      sentinels: sentinelConfig.sentinels,
+      name: sentinelConfig.name,
+      password: sentinelConfig.password,
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      enableReadyCheck: false,
+      connectTimeout: 5_000,
+      retryStrategy: (attempt: number) => {
+        if (attempt >= 8) return null;
+        return Math.min(attempt * 500, 5_000);
+      },
+      reconnectOnError: () => true,
+      sentinelRetryStrategy: (attempt: number) => Math.min(attempt * 200, 2_000),
+    } as any);
+    bindLifecycle(client);
+    return client;
+  }
+
+  // Standard single-node mode
   const client = new Redis(url, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
     enableReadyCheck: false,
     connectTimeout: 5_000,
-    retryStrategy: (attempt) => {
+    retryStrategy: (attempt: number) => {
       if (attempt >= 8) {
         return null;
       }

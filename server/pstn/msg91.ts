@@ -228,9 +228,10 @@ export class MSG91Provider implements PSTNProvider {
   verifyWebhookSignature(body: string, headers: Record<string, string>): boolean {
     const secret = process.env.MSG91_WEBHOOK_SECRET?.trim();
     if (!secret) {
-      // No secret configured — warn but allow (degrade gracefully until secret is set)
-      logger.warn("MSG91", "MSG91_WEBHOOK_SECRET not configured — webhook signature not verified");
-      return true;
+      // Fail CLOSED: if PSTN is active but no secret is set, reject all webhooks.
+      // This prevents unauthenticated call injection. Set MSG91_WEBHOOK_SECRET to enable inbound.
+      logger.error("MSG91", "MSG91_WEBHOOK_SECRET is not configured — rejecting webhook (fail-closed). Set MSG91_WEBHOOK_SECRET in DO Dashboard.");
+      return false;
     }
 
     const providedSig = (
@@ -241,13 +242,26 @@ export class MSG91Provider implements PSTNProvider {
     ).trim();
 
     if (!providedSig) {
-      logger.warn("MSG91", "No signature header on webhook — rejecting");
+      logger.warn("MSG91", "No signature header on webhook — rejecting (fail-closed)");
       return false;
     }
 
     const expected = createHmac("sha256", secret).update(body).digest("hex");
     try {
-      return timingSafeEqual(Buffer.from(providedSig, "hex"), Buffer.from(expected, "hex"));
+      // Ensure same-length buffers before timingSafeEqual to prevent timing oracle on length
+      const expectedBuf = Buffer.from(expected, "hex");
+      let sigBuf: Buffer;
+      try {
+        sigBuf = Buffer.from(providedSig, "hex");
+      } catch {
+        return false;
+      }
+      if (sigBuf.length !== expectedBuf.length) {
+        // Still do a comparison to avoid timing oracle — compare against a known-length buffer
+        timingSafeEqual(expectedBuf, expectedBuf);
+        return false;
+      }
+      return timingSafeEqual(sigBuf, expectedBuf);
     } catch {
       return false;
     }

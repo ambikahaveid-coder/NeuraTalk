@@ -57,6 +57,7 @@ import { registerPSTNRoutes } from "./pstn/routes";
 import { registerCallerIdRoutes } from "./modules/caller-id/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
+import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
 import { loadUser, requireAuth } from "./role-middleware";
 import { loadTenantContext } from "./tenant-context";
 import { rateLimit } from "./rate-limit";
@@ -137,6 +138,7 @@ export async function registerRoutes(
   registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
+  registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
   registerB2BRoutes(app); console.log("[Routes] ✓ B2B routes");
   registerLocationRoutes(app); console.log("[Routes] ✓ Location routes");
   registerAdminSettingsRoutes(app); console.log("[Routes] ✓ Admin settings routes");

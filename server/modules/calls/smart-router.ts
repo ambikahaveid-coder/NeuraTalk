@@ -299,13 +299,18 @@ async function resolveCallee(identifier: string): Promise<{
 
 async function storeSmartCall(record: SmartCallRecord): Promise<void> {
   const score = Date.parse(record.createdAt) || Date.now();
+  // Use expiry timestamp as ZSET score so watchdog uses ZRANGEBYSCORE instead of SMEMBERS (O(log N) vs O(N))
+  const expiryScore = score + SMART_CALL_TTL_SECONDS * 1000;
   const multi = redisClient().multi();
 
   multi.set(smartCallKey(record.callId), JSON.stringify(record), "EX", SMART_CALL_TTL_SECONDS);
 
   if (isActiveSmartCallStatus(record.status)) {
-    multi.sadd("smart_call:active", record.callId);
+    // ZADD with expiry score — watchdog queries ZRANGEBYSCORE(0, now) to find expired, ZRANGEBYSCORE(0, +inf) to find active
+    multi.zadd("smart_call:active_z", expiryScore, record.callId);
   } else {
+    multi.zrem("smart_call:active_z", record.callId);
+    // Backward compat: also remove from legacy SET key if it exists
     multi.srem("smart_call:active", record.callId);
   }
 
@@ -381,7 +386,8 @@ async function clearProvisionedCall(callId: string, callerId?: string | null): P
 
   const multi = redisClient().multi();
   multi.del(`call_metadata:${callId}:caller`);
-  multi.srem("smart_call:active", callId);
+  multi.srem("smart_call:active", callId);       // legacy SET (backward compat)
+  multi.zrem("smart_call:active_z", callId);     // new ZSET
   await multi.exec();
 
   try {
@@ -633,27 +639,38 @@ export async function listSmartCallsForUser(userId: string): Promise<SmartCallRe
 export async function listSmartActiveCalls(): Promise<SmartCallRecord[]> {
   let callIds: string[] = [];
   try {
-    callIds = await redisClient().smembers("smart_call:active");
+    // ZRANGEBYSCORE with +inf ceiling — O(log N + M) vs SMEMBERS O(N)
+    // Score = expiry timestamp so expired ghosts are naturally excluded by TTL
+    callIds = await redisClient().zrangebyscore("smart_call:active_z", "-inf", "+inf");
   } catch (error) {
-    logger.warn("SmartCallRouter", `failed to list active smart calls: ${String(error)}`);
-    return [];
+    logger.warn("SmartCallRouter", `failed to list active smart calls (ZSET): ${String(error)}`);
+    // Fallback to legacy SET key during migration
+    try {
+      callIds = await redisClient().smembers("smart_call:active");
+    } catch (fallbackErr) {
+      logger.warn("SmartCallRouter", `fallback SMEMBERS also failed: ${String(fallbackErr)}`);
+      return [];
+    }
   }
   if (callIds.length === 0) {
     return [];
   }
 
-  let rawRecords: (string | null)[] = [];
-  try {
-    rawRecords = await redisClient().mget(callIds.map((callId) => smartCallKey(callId)));
-  } catch (error) {
-    logger.warn("SmartCallRouter", `failed to load active smart call records: ${String(error)}`);
-    return [];
-  }
-  return rawRecords.flatMap((raw) => {
-    if (!raw) {
-      return [];
+  // Fetch in batches of 100 to avoid blocking Redis with huge MGET
+  const BATCH = 100;
+  const allRaw: (string | null)[] = [];
+  for (let i = 0; i < callIds.length; i += BATCH) {
+    const batch = callIds.slice(i, i + BATCH);
+    try {
+      const results = await redisClient().mget(batch.map((id) => smartCallKey(id)));
+      allRaw.push(...results);
+    } catch (error) {
+      logger.warn("SmartCallRouter", `failed to load active smart call batch: ${String(error)}`);
     }
+  }
 
+  return allRaw.flatMap((raw) => {
+    if (!raw) return [];
     try {
       const record = parseSmartCallRecord(raw);
       return isActiveSmartCallStatus(record.status) ? [record] : [];
@@ -840,11 +857,18 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     throw new Error("CONCURRENT_CALL_RESTRICTED");
   }
 
-  const callee = await resolveCallee(req.calleeIdentifier);
   const callerUserId = Number.isFinite(Number(req.callerId)) ? Number(req.callerId) : null;
-  const callerUser = callerUserId ? await storage.getUser(callerUserId) : undefined;
+
+  // Parallelize: callee resolution + caller user lookup are independent DB reads
+  const [callee, callerUser] = await Promise.all([
+    resolveCallee(req.calleeIdentifier),
+    callerUserId ? storage.getUser(callerUserId) : Promise.resolve(undefined),
+  ]);
+
   const calleeUserId = callee.userId && Number.isFinite(Number(callee.userId)) ? Number(callee.userId) : null;
-  const calleeUser = calleeUserId ? await storage.getUser(calleeUserId) : undefined;
+  // Fetch callee user in background — only needed for org routing, non-blocking
+  const calleeUserPromise = calleeUserId ? storage.getUser(calleeUserId) : Promise.resolve(undefined);
+
   const effectiveCalleeLanguage = (req.calleeLanguage ?? callee.preferredLanguage ?? "auto")?.trim().toLowerCase() || "auto";
   const requestedJoinMethod = resolveRequestedJoinMethod({
     transportPreference: req.transportPreference ?? "auto",
@@ -958,7 +982,7 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     callerNumber: req.callerNumber,
     calleeIdentifier: callee.phoneNumber || req.calleeIdentifier,
     calleeUserId: requestedJoinMethod === "app_to_app" ? callee.userId ?? null : null,
-    calleeOrganizationId: calleeUser?.organizationId ?? null,
+    calleeOrganizationId: (await calleeUserPromise)?.organizationId ?? null,
     callType: effectiveCallType,
     callerLanguage,
     calleeLanguage: effectiveCalleeLanguage ?? null,
