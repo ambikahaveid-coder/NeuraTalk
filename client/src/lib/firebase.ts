@@ -80,17 +80,22 @@ export function isFirebaseAvailable(): boolean {
 export function setupRecaptcha(containerId: string): RecaptchaVerifier | null {
   if (!auth) return null;
 
+  // Always clear and recreate to avoid "already rendered" error
   if (recaptchaVerifier) {
-    recaptchaVerifier.clear();
+    try { recaptchaVerifier.clear(); } catch (_) {}
+    recaptchaVerifier = null;
   }
+
+  // Ensure the container element is empty before creating verifier
+  const container = document.getElementById(containerId);
+  if (container) container.innerHTML = "";
 
   recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
     size: "invisible",
-    callback: () => {
-      console.log("reCAPTCHA verified");
-    },
+    callback: () => {},
     "expired-callback": () => {
-      console.log("reCAPTCHA expired");
+      try { recaptchaVerifier?.clear(); } catch (_) {}
+      recaptchaVerifier = null;
     },
   });
 
