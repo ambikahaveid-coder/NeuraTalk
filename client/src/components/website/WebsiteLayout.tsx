@@ -161,7 +161,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
                   <Linkedin className="w-5 h-5" />
                 </a>
-                <a href="https://twitter.com/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
+                <a href="https://twitter.com/neuratalk_in" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
                   <Twitter className="w-5 h-5" />
                 </a>
                 <a href="https://youtube.com/@neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
@@ -245,7 +245,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <h5 className="font-medium text-sm">Contact Information</h5>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Mail className="w-4 h-4" />
-                  <span>support@neuratalk.com</span>
+                  <span>support@neuratalk.in</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Phone className="w-4 h-4" />

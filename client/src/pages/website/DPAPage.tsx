@@ -40,7 +40,7 @@ export default function DPAPage() {
               <p className="text-sm">
                 This Data Processing Agreement (DPA) is designed for B2B enterprise customers 
                 who need contractual assurances regarding data protection. Download the template 
-                and contact legal@neuratalk.com to execute a signed copy.
+                and contact legal@neuratalk.in to execute a signed copy.
               </p>
             </div>
           </div>
@@ -285,7 +285,7 @@ export default function DPAPage() {
               Download DPA Template
             </Button>
             <p className="text-sm text-muted-foreground mt-4">
-              For executed copies, contact: legal@neuratalk.com
+              For executed copies, contact: legal@neuratalk.in
             </p>
           </div>
         </div>
@@ -464,7 +464,7 @@ Signature: _______________________
 
 ================================================================================
 
-For executed copies, contact: legal@neuratalk.com
+For executed copies, contact: legal@neuratalk.in
 
 ================================================================================
 `;

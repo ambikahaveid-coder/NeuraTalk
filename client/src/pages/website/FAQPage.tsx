@@ -172,7 +172,7 @@ export default function FAQPage() {
           <p className="text-muted-foreground mb-6">
             Our support team is available 24/7 to help you with any technical or billing issues.
           </p>
-          <Button className="gap-2" onClick={() => window.location.href = 'mailto:support@neuratalk.com'}>
+          <Button className="gap-2" onClick={() => window.location.href = 'mailto:support@neuratalk.in'}>
             <Mail className="w-4 h-4" />
             Contact Support
           </Button>

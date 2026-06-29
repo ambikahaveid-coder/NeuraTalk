@@ -566,7 +566,7 @@ export function SupportSection() {
                 </Select>
               </div>
               <div className="space-y-2"><Label>Label</Label><Input value={newContact.label} onChange={e => setNewContact({ ...newContact, label: e.target.value })} placeholder="e.g. General Support" /></div>
-              <div className="space-y-2"><Label>Value</Label><Input value={newContact.value} onChange={e => setNewContact({ ...newContact, value: e.target.value })} placeholder="e.g. support@neuratalk.com" /></div>
+              <div className="space-y-2"><Label>Value</Label><Input value={newContact.value} onChange={e => setNewContact({ ...newContact, value: e.target.value })} placeholder="e.g. support@neuratalk.in" /></div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
                 <Button onClick={() => createMutation.mutate(newContact)} disabled={!newContact.label || !newContact.value || createMutation.isPending}>

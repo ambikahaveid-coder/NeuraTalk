@@ -372,7 +372,7 @@ export interface TranslationEvent {
  * import { NeuraTalkClient } from '@neuratalk/sdk';
  * 
  * const client = new NeuraTalkClient({
- *   baseUrl: 'https://api.neuratalk.com',
+ *   baseUrl: 'https://api.neuratalk.in',
  *   token: 'your-auth-token'
  * });
  * 

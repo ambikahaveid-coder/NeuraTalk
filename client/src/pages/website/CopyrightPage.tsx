@@ -102,7 +102,7 @@ export default function CopyrightPage() {
               contact our designated agent at:
             </p>
             <ul>
-              <li>Email: legal@neuratalk.com</li>
+              <li>Email: legal@neuratalk.in</li>
               <li>Subject: "Copyright Complaint"</li>
             </ul>
             <p>
@@ -129,7 +129,7 @@ export default function CopyrightPage() {
               For legal inquiries, trademark permissions, or licensing requests:
             </p>
             <ul>
-              <li>Email: legal@neuratalk.com</li>
+              <li>Email: legal@neuratalk.in</li>
               <li>Address: Mindwhile It Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503</li>
             </ul>
           </div>

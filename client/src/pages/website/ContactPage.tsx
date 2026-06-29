@@ -154,9 +154,9 @@ export default function ContactPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground mb-2">For general inquiries:</p>
-                <p className="font-medium">support@neuratalk.com</p>
+                <p className="font-medium">support@neuratalk.in</p>
                 <p className="text-muted-foreground mt-4 mb-2">For enterprise sales:</p>
-                <p className="font-medium">sales@neuratalk.com</p>
+                <p className="font-medium">sales@neuratalk.in</p>
               </CardContent>
             </Card>
 

@@ -652,7 +652,7 @@ export default function BillingPage() {
                         } ${isContactSales(plan) ? "border-amber-500/50 bg-amber-500/5" : ""}`}
                         onClick={() => {
                           if (isContactSales(plan)) {
-                            window.open("mailto:sales@neuratalk.com?subject=Enterprise Plan Inquiry", "_blank");
+                            window.open("mailto:sales@neuratalk.in?subject=Enterprise Plan Inquiry", "_blank");
                             return;
                           }
                           setSelectedPlan(plan);

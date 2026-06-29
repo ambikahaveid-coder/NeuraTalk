@@ -66,7 +66,7 @@ router.get("/api/gdpr/export", requireAuth, async (req: Request, res: Response) 
       exportVersion: "1.0",
       dataController: {
         name: "Mindwhile IT Solutions Pvt Ltd",
-        contact: "dpo@neuratalk.com",
+        contact: "dpo@neuratalk.in",
       },
       personalData: {
         profile: {
@@ -101,11 +101,11 @@ router.get("/api/gdpr/export", requireAuth, async (req: Request, res: Response) 
       },
       yourRights: {
         access: "This export fulfills your right to access",
-        rectification: "Contact dpo@neuratalk.com to correct data",
-        erasure: "Use the 'Delete Account' feature or contact dpo@neuratalk.com",
+        rectification: "Contact dpo@neuratalk.in to correct data",
+        erasure: "Use the 'Delete Account' feature or contact dpo@neuratalk.in",
         portability: "This export is in machine-readable JSON format",
-        restriction: "Contact dpo@neuratalk.com to restrict processing",
-        objection: "Contact dpo@neuratalk.com to object to processing",
+        restriction: "Contact dpo@neuratalk.in to restrict processing",
+        objection: "Contact dpo@neuratalk.in to object to processing",
       },
     };
 

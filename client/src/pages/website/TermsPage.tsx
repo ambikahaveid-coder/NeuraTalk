@@ -373,8 +373,8 @@ export default function TermsPage() {
 
           <h2>21. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Legal Inquiries:</strong> legal@neuratalk.com</p>
-            <p><strong>Support:</strong> support@neuratalk.com</p>
+            <p><strong>Legal Inquiries:</strong> legal@neuratalk.in</p>
+            <p><strong>Support:</strong> support@neuratalk.in</p>
             <p><strong>Address:</strong> Mindwhile It Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503</p>
             <p><strong>Company Registration:</strong> [Registration Number]</p>
           </div>

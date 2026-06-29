@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Key, Zap, AlertTriangle, Code2, BookOpen, ArrowRight, Copy, Check, ChevronRight } from "lucide-react";
 
-const BASE_URL = "https://api.neuratalk.com";
+const BASE_URL = "https://neuratalk.in/api";
 
 const tocItems = [
   { id: "authentication", label: "Authentication" },

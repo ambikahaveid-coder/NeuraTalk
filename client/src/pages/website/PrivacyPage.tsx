@@ -34,8 +34,8 @@ export default function PrivacyPage() {
           <p>
             <strong>Mindwhile IT Solutions Pvt Ltd</strong><br />
             Registered Address: 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503<br />
-            Data Protection Officer: dpo@neuratalk.com<br />
-            Grievance Officer: grievance@neuratalk.com
+            Data Protection Officer: dpo@neuratalk.in<br />
+            Grievance Officer: grievance@neuratalk.in
           </p>
 
           <h2>3. Information We Collect</h2>
@@ -212,12 +212,12 @@ export default function PrivacyPage() {
               <tr>
                 <td className="border p-2"><strong>Restrict Processing</strong></td>
                 <td className="border p-2">Limit how we process your data</td>
-                <td className="border p-2">Email: privacy@neuratalk.com</td>
+                <td className="border p-2">Email: privacy@neuratalk.in</td>
               </tr>
               <tr>
                 <td className="border p-2"><strong>Object</strong></td>
                 <td className="border p-2">Object to certain processing activities</td>
-                <td className="border p-2">Email: privacy@neuratalk.com</td>
+                <td className="border p-2">Email: privacy@neuratalk.in</td>
               </tr>
               <tr>
                 <td className="border p-2"><strong>Withdraw Consent</strong></td>
@@ -227,7 +227,7 @@ export default function PrivacyPage() {
               <tr>
                 <td className="border p-2"><strong>Nominate</strong></td>
                 <td className="border p-2">Nominate someone to exercise rights on your behalf</td>
-                <td className="border p-2">Email: privacy@neuratalk.com</td>
+                <td className="border p-2">Email: privacy@neuratalk.in</td>
               </tr>
             </tbody>
           </table>
@@ -362,9 +362,9 @@ export default function PrivacyPage() {
 
           <h2>16. Contact Us</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Data Protection Officer:</strong> dpo@neuratalk.com</p>
-            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.com</p>
-            <p><strong>Grievance Officer (India):</strong> grievance@neuratalk.com</p>
+            <p><strong>Data Protection Officer:</strong> dpo@neuratalk.in</p>
+            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.in</p>
+            <p><strong>Grievance Officer (India):</strong> grievance@neuratalk.in</p>
             <p><strong>Address:</strong> Mindwhile It Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503</p>
             <p className="mt-2">
               <strong>Response Time:</strong> We aim to respond to all privacy inquiries within 30 days.

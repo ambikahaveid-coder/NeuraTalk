@@ -212601,7 +212601,7 @@ async function generateInvoiceHtml(invoiceId) {
 
     <div class="footer">
       <p>This is a computer-generated invoice and does not require a signature.</p>
-      <p style="margin-top: 8px;">For any queries, please contact support@neuratalk.com</p>
+      <p style="margin-top: 8px;">For any queries, please contact support@neuratalk.in</p>
     </div>
   </div>
 </body>
@@ -216836,7 +216836,7 @@ var init_gdpr_routes = __esm({
           exportVersion: "1.0",
           dataController: {
             name: "Mindwhile IT Solutions Pvt Ltd",
-            contact: "dpo@neuratalk.com"
+            contact: "dpo@neuratalk.in"
           },
           personalData: {
             profile: {
@@ -216871,11 +216871,11 @@ var init_gdpr_routes = __esm({
           },
           yourRights: {
             access: "This export fulfills your right to access",
-            rectification: "Contact dpo@neuratalk.com to correct data",
-            erasure: "Use the 'Delete Account' feature or contact dpo@neuratalk.com",
+            rectification: "Contact dpo@neuratalk.in to correct data",
+            erasure: "Use the 'Delete Account' feature or contact dpo@neuratalk.in",
             portability: "This export is in machine-readable JSON format",
-            restriction: "Contact dpo@neuratalk.com to restrict processing",
-            objection: "Contact dpo@neuratalk.com to object to processing"
+            restriction: "Contact dpo@neuratalk.in to restrict processing",
+            objection: "Contact dpo@neuratalk.in to object to processing"
           }
         };
         res.setHeader("Content-Type", "application/json");
@@ -219638,12 +219638,12 @@ Authorization: Bearer <your-token>
     `,
         contact: {
           name: "Mindwhile IT Solutions Pvt Ltd",
-          email: "support@neuratalk.com",
-          url: "https://neuratalk.com"
+          email: "support@neuratalk.in",
+          url: "https://neuratalk.in"
         },
         license: {
           name: "Proprietary",
-          url: "https://neuratalk.com/terms"
+          url: "https://neuratalk.in/terms"
         }
       },
       servers: [
