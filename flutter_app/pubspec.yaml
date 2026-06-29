@@ -1,7 +1,7 @@
 name: neuratalk
-description: NeuraTalk live thin-client shell for the production platform
+description: NeuraTalk - Real-time multilingual voice AI communication
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -10,15 +10,42 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # Runtime permissions for mic/camera prompts surfaced through WebView.
+  # State management
+  provider: ^6.1.2
+
+  # HTTP
+  http: ^1.2.2
+
+  # Local storage
+  shared_preferences: ^2.3.3
+
+  # Permissions
   permission_handler: ^11.3.1
 
-  # Network reachability and retry UX.
-  connectivity_plus: ^5.0.2
+  # Connectivity
+  connectivity_plus: ^7.2.0
 
-  # Thin-client live shell.
-  webview_flutter: ^4.7.0
-  webview_flutter_android: ^3.16.0
+  # Page indicator for onboarding
+  smooth_page_indicator: ^1.2.0
+
+  # Icons
+  cupertino_icons: ^1.0.8
+
+  # LiveKit for calls
+  livekit_client: ^2.4.3
+
+  # Firebase (phone OTP)
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.3.4
+
+  # URL launcher
+  url_launcher: ^6.3.1
+
+  # Image
+  cached_network_image: ^3.4.1
+
+  # Intl (date formatting)
+  intl: ^0.19.0
 
 dev_dependencies:
   flutter_test:

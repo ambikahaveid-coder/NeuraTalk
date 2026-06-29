@@ -38,12 +38,12 @@ function createRemoteRedisClient(url: string): Redis {
     enableReadyCheck: false,
     connectTimeout: 5_000,
     retryStrategy: (attempt) => {
-      if (attempt >= 4) {
+      if (attempt >= 8) {
         return null;
       }
-      return Math.min(attempt * 500, 2_000);
+      return Math.min(attempt * 500, 5_000);
     },
-    reconnectOnError: () => false,
+    reconnectOnError: () => true,
   });
   bindLifecycle(client);
   return client;
