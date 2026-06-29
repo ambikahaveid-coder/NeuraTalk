@@ -224073,7 +224073,7 @@ async function adminSecretLogin(req, res) {
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const superAdminSecret = process.env.SUPER_ADMIN_SECRET;
     if (!superAdminSecret || !superAdminEmail) {
-      return res.status(503).json({ success: false, message: "Admin secret login is not configured." });
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
     if (email !== superAdminEmail || secret !== superAdminSecret) {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
@@ -228810,6 +228810,7 @@ init_call_platform_config();
 init_config_service();
 init_smart_router();
 var app = (0, import_express14.default)();
+app.set("trust proxy", 1);
 var httpServer = (0, import_http.createServer)(app);
 var processHandlersBound = false;
 var shuttingDown = false;

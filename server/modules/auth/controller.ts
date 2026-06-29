@@ -292,7 +292,7 @@ export async function adminSecretLogin(req: Request, res: Response) {
     const superAdminSecret = process.env.SUPER_ADMIN_SECRET;
 
     if (!superAdminSecret || !superAdminEmail) {
-      return res.status(503).json({ success: false, message: "Admin secret login is not configured." });
+      return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
     if (email !== superAdminEmail || secret !== superAdminSecret) {

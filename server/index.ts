@@ -16,6 +16,7 @@ import { configService } from "./config-service";
 import { startSmartCallWatchdog } from "./modules/calls/smart-router";
 
 const app = express();
+app.set("trust proxy", 1); // trust Cloudflare/DO proxy so req.ip is the real client IP
 const httpServer = createServer(app);
 let processHandlersBound = false;
 let shuttingDown = false;
