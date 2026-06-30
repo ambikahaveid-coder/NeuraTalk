@@ -1616,7 +1616,7 @@ export function registerBillingRoutes(app: Express) {
           endDate: subscriptions.endDate,
           planName: billingPlans.name,
           priceInPaise: billingPlans.priceInPaise,
-          includedMinutes: billingPlans.callMinutesIncluded,
+          includedMinutes: billingPlans.includedMinutes,
         })
         .from(subscriptions)
         .innerJoin(billingPlans, eq(subscriptions.planId, billingPlans.id))
@@ -1706,7 +1706,7 @@ export function registerBillingRoutes(app: Express) {
             planType: billingPlans.planType,
             priceInPaise: billingPlans.priceInPaise,
             currency: billingPlans.currency,
-            callMinutesIncluded: billingPlans.callMinutesIncluded,
+            includedMinutes: billingPlans.includedMinutes,
             duration: billingPlans.duration,
           },
         })
