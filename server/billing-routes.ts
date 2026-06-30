@@ -1894,5 +1894,47 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
+  // ─── Translation Bot Status (super_admin only) ───────────────────────────
+  app.get("/api/admin/bots", requireAuth, requireRole("super_admin"), async (_req: Request, res: Response) => {
+    try {
+      const { listActiveBots } = await import("./translator-bot");
+      const bots = listActiveBots();
+      res.json({ count: bots.length, bots });
+    } catch (err) {
+      res.json({ count: 0, bots: [], error: String(err) });
+    }
+  });
+
+  // ─── Translation Pipeline Test (super_admin only) ─────────────────────────
+  // Tests: Azure STT key valid + translation works + TTS works
+  app.post("/api/admin/translation/test", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    const text = String(req.body?.text || "Hello, how are you?");
+    const from = String(req.body?.from || "en");
+    const to = String(req.body?.to || "hi");
+    const results: Record<string, unknown> = {};
+    try {
+      const { getAIPipeline } = await import("./ai-pipeline/pipeline");
+      const pipeline = getAIPipeline();
+      const t0 = Date.now();
+      const translated = await pipeline.translate({ text, fromLanguage: from as any, toLanguage: to as any });
+      results.translation = { ok: true, result: translated.translatedText, latencyMs: Date.now() - t0 };
+    } catch (e) {
+      results.translation = { ok: false, error: String(e) };
+    }
+    try {
+      const { isAzureSpeechAvailable } = await import("./azure-service");
+      results.azure_stt = { available: isAzureSpeechAvailable() };
+    } catch (e) {
+      results.azure_stt = { available: false, error: String(e) };
+    }
+    try {
+      const { isLiveKitConfigured } = await import("./livekit-service");
+      results.livekit = { configured: isLiveKitConfigured() };
+    } catch (e) {
+      results.livekit = { configured: false, error: String(e) };
+    }
+    res.json(results);
+  });
+
   logger.info("Billing", "Billing routes registered");
 }

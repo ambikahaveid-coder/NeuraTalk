@@ -90535,6 +90535,10 @@ var init_openai_translate = __esm({
 });
 
 // server/ai-pipeline/pipeline.ts
+var pipeline_exports = {};
+__export(pipeline_exports, {
+  getAIPipeline: () => getAIPipeline
+});
 function preferredSTT() {
   return process.env.AI_STT_PROVIDER?.trim() || "openai";
 }
@@ -216947,6 +216951,43 @@ function registerBillingRoutes(app2) {
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch contract" });
     }
+  });
+  app2.get("/api/admin/bots", requireAuth, requireRole("super_admin"), async (_req, res) => {
+    try {
+      const { listActiveBots: listActiveBots2 } = await Promise.resolve().then(() => (init_translator_bot(), translator_bot_exports));
+      const bots = listActiveBots2();
+      res.json({ count: bots.length, bots });
+    } catch (err) {
+      res.json({ count: 0, bots: [], error: String(err) });
+    }
+  });
+  app2.post("/api/admin/translation/test", requireAuth, requireRole("super_admin"), async (req, res) => {
+    const text2 = String(req.body?.text || "Hello, how are you?");
+    const from = String(req.body?.from || "en");
+    const to = String(req.body?.to || "hi");
+    const results = {};
+    try {
+      const { getAIPipeline: getAIPipeline2 } = await Promise.resolve().then(() => (init_pipeline(), pipeline_exports));
+      const pipeline = getAIPipeline2();
+      const t0 = Date.now();
+      const translated = await pipeline.translate({ text: text2, fromLanguage: from, toLanguage: to });
+      results.translation = { ok: true, result: translated.translatedText, latencyMs: Date.now() - t0 };
+    } catch (e) {
+      results.translation = { ok: false, error: String(e) };
+    }
+    try {
+      const { isAzureSpeechAvailable: isAzureSpeechAvailable2 } = await Promise.resolve().then(() => (init_azure_service(), azure_service_exports));
+      results.azure_stt = { available: isAzureSpeechAvailable2() };
+    } catch (e) {
+      results.azure_stt = { available: false, error: String(e) };
+    }
+    try {
+      const { isLiveKitConfigured: isLiveKitConfigured2 } = await Promise.resolve().then(() => (init_livekit_service(), livekit_service_exports));
+      results.livekit = { configured: isLiveKitConfigured2() };
+    } catch (e) {
+      results.livekit = { configured: false, error: String(e) };
+    }
+    res.json(results);
   });
   logger.info("Billing", "Billing routes registered");
 }
