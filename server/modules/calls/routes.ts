@@ -59,6 +59,7 @@ export function registerCallsRoutes(app: Express): void {
   app.post("/api/msg91/voice", ctrl.msg91VoiceWebhook);
 
   app.get("/api/calls/gateway-status", loadUser, requireAuth, requireCallAccess, ctrl.gatewayStatus);
+  app.get("/api/calls/capabilities", loadUser, requireAuth, ctrl.capabilities);
   app.get("/api/calls/history", loadUser, requireAuth, requireCallAccess, ctrl.callHistory);
   app.get("/api/calls/active", loadUser, requireAuth, requireCallAccess, ctrl.activeCalls);
   app.get("/api/calls/user/:userId", loadUser, requireAuth, requireCallAccess, ctrl.userCalls);

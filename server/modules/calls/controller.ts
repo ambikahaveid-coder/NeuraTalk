@@ -61,6 +61,8 @@ import {
   buildUnifiedSessionFromInitiateResponse,
   buildUnifiedSessionFromSmartCall,
 } from "./session-view";
+import { isPSTNAvailable } from "../../pstn/registry";
+import { isLegacyTwilioBridgeEnabled } from "../../call-platform-config";
 
 const initiateSchema = z.object({
   calleeIdentifier: z.string().min(1),
@@ -1020,6 +1022,16 @@ export function gatewayStatus(_req: Request, res: Response) {
   }
 }
 
+export function capabilities(_req: Request, res: Response) {
+  res.json({
+    pstnAvailable: isPSTNAvailable(),
+    simAvailable: isLegacyTwilioBridgeEnabled(),
+    c2cAvailable: true,
+    faceToFaceAvailable: true,
+    b2bAvailable: true,
+  });
+}
+
 export async function activeCalls(req: Request, res: Response) {
   try {
     const user = req.user!;
@@ -1097,6 +1109,11 @@ export async function callHistory(req: Request, res: Response) {
       callType: c.callType,
       status: c.status,
       joinMethod: c.joinMethod,
+      displayCategory: c.joinMethod === "app_to_pstn"
+        ? "PSTN (Phone)"
+        : c.joinMethod === "conference"
+        ? "B2B (Conference)"
+        : "C2C (App-to-App)",
       callerId: c.callerId,
       calleeIdentifier: c.calleeIdentifier,
       callerLanguage: c.callerLanguage,

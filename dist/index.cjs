@@ -227686,6 +227686,15 @@ function gatewayStatus(_req, res) {
     res.status(500).json({ error: "Failed to get gateway status" });
   }
 }
+function capabilities(_req, res) {
+  res.json({
+    pstnAvailable: isPSTNAvailable(),
+    simAvailable: isLegacyTwilioBridgeEnabled(),
+    c2cAvailable: true,
+    faceToFaceAvailable: true,
+    b2bAvailable: true
+  });
+}
 async function activeCalls(req, res) {
   try {
     const user2 = req.user;
@@ -227746,6 +227755,7 @@ async function callHistory(req, res) {
       callType: c.callType,
       status: c.status,
       joinMethod: c.joinMethod,
+      displayCategory: c.joinMethod === "app_to_pstn" ? "PSTN (Phone)" : c.joinMethod === "conference" ? "B2B (Conference)" : "C2C (App-to-App)",
       callerId: c.callerId,
       calleeIdentifier: c.calleeIdentifier,
       callerLanguage: c.callerLanguage,
@@ -228715,6 +228725,8 @@ var init_controller2 = __esm({
     init_metrics();
     init_lifecycle();
     init_session_view();
+    init_registry();
+    init_call_platform_config();
     initiateSchema = import_zod23.z.object({
       calleeIdentifier: import_zod23.z.string().min(1),
       callType: import_zod23.z.enum(["voice", "video"]),
@@ -228913,6 +228925,7 @@ function registerCallsRoutes(app2) {
   app2.post("/api/calls/:id/msg91-webhook", msg91Webhook);
   app2.post("/api/msg91/voice", msg91VoiceWebhook);
   app2.get("/api/calls/gateway-status", loadUser, requireAuth, requireCallAccess, gatewayStatus);
+  app2.get("/api/calls/capabilities", loadUser, requireAuth, capabilities);
   app2.get("/api/calls/history", loadUser, requireAuth, requireCallAccess, callHistory);
   app2.get("/api/calls/active", loadUser, requireAuth, requireCallAccess, activeCalls);
   app2.get("/api/calls/user/:userId", loadUser, requireAuth, requireCallAccess, userCalls);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import AppNavigation from "@/components/AppNavigation";
 import IncomingCallRing from "@/components/IncomingCallRing";
@@ -144,6 +145,12 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
 
   const call = useLiveKitCall();
   const isInCall = call.status === "connecting" || call.status === "ringing" || call.status === "active";
+
+  const { data: capabilities } = useQuery<{ pstnAvailable: boolean; simAvailable: boolean }>({
+    queryKey: ["/api/calls/capabilities"],
+    queryFn: () => fetch("/api/calls/capabilities", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
   const isActive = call.status === "active";
 
   useEffect(() => {
@@ -533,9 +540,15 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                       <Phone className="w-4 h-4 mr-2" /> Call
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Direct mobile numbers use the PSTN bridge and are voice-only. Video is available for app-to-app contacts.
-                  </p>
+                  {looksLikePhoneTarget(dialNumber) && capabilities?.pstnAvailable === false ? (
+                    <p className="text-xs text-amber-500 font-medium">
+                      Carrier integration required — PSTN is not configured. Contact your admin to add MSG91 credentials before calling mobile numbers.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Direct mobile numbers use the PSTN bridge and are voice-only. Video is available for app-to-app contacts.
+                    </p>
+                  )}
                 </div>
               )}
             </Card>
