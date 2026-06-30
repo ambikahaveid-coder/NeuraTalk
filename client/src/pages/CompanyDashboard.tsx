@@ -458,6 +458,30 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                   Number Integration Hub
                 </Button>
               </Link>
+              <Link href="/enterprise/org-structure">
+                <Button variant="outline" className="w-full justify-start bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 text-blue-400">
+                  <Building2 className="mr-3 h-4 w-4" />
+                  Org Structure
+                </Button>
+              </Link>
+              <Link href="/enterprise/telephony">
+                <Button variant="outline" className="w-full justify-start bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-400">
+                  <Phone className="mr-3 h-4 w-4" />
+                  IVR &amp; Call Queues
+                </Button>
+              </Link>
+              <Link href="/enterprise/pbx">
+                <Button variant="outline" className="w-full justify-start bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20 text-orange-400">
+                  <Monitor className="mr-3 h-4 w-4" />
+                  PBX Integration
+                </Button>
+              </Link>
+              <Link href="/enterprise/presence">
+                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-400">
+                  <Activity className="mr-3 h-4 w-4" />
+                  Agent Presence
+                </Button>
+              </Link>
               <p className="text-[11px] text-muted-foreground">
                 PSTN caller identity is best-effort. Final number display depends on provider verification and telecom rules.
               </p>
@@ -976,7 +1000,17 @@ function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-bold">Team Members</h2>
-        <Button size="sm" onClick={() => setShowAddForm(true)}><UserPlus className="w-4 h-4 mr-2" /> Add Member</Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={async () => {
+            const token = getAuthToken();
+            const res = await fetch("/api/organization/import/template", { headers: { Authorization: `Bearer ${token}` } });
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = "user_import_template.csv"; a.click();
+          }}>CSV Template</Button>
+          <Button size="sm" variant="outline" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = ".csv"; input.onchange = async (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return; const token = getAuthToken(); const fd = new FormData(); fd.append("file", file); const res = await fetch("/api/organization/import/validate", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd }); const data = await res.json(); if (data.valid) { if (confirm(`Import ${data.summary?.validRows} users? (${data.summary?.invalidRows} invalid rows will be skipped)`)) { const exRes = await fetch("/api/organization/import/execute", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ users: data.validUsers }) }); const exData = await exRes.json(); toast({ title: exData.success ? "Import Complete" : "Import Failed", description: exData.message }); queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] }); } } else { toast({ title: "CSV Validation Failed", description: data.errors?.join(", ") ?? "Invalid file", variant: "destructive" }); } }; input.click(); }}><FileText className="w-4 h-4 mr-1" />Bulk Import</Button>
+          <Button size="sm" onClick={() => setShowAddForm(true)}><UserPlus className="w-4 h-4 mr-2" /> Add Member</Button>
+        </div>
       </div>
 
       {showAddForm && (

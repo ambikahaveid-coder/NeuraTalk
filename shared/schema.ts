@@ -2677,3 +2677,329 @@ export const userNotifications = pgTable("user_notifications", {
 export const insertUserNotificationSchema = createInsertSchema(userNotifications).omit({ id: true, createdAt: true, readAt: true });
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// ENTERPRISE ORGANIZATION HIERARCHY — Departments, Branches, Teams
+// ═══════════════════════════════════════════════════════════════════════
+
+export const departments = pgTable("departments", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  headUserId: integer("head_user_id").references(() => users.id, { onDelete: "set null" }),
+  parentDepartmentId: integer("parent_department_id"),
+  costCenter: text("cost_center"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("departments_org_idx").on(t.organizationId),
+  index("departments_head_idx").on(t.headUserId),
+]);
+
+export const insertDepartmentSchema = createInsertSchema(departments).omit({ id: true, createdAt: true, updatedAt: true });
+export type Department = typeof departments.$inferSelect;
+export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
+
+export const branches = pgTable("branches", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  country: text("country").default("IN"),
+  pincode: text("pincode"),
+  phone: text("phone"),
+  timezone: text("timezone").default("Asia/Kolkata"),
+  isHeadquarters: boolean("is_headquarters").default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("branches_org_idx").on(t.organizationId),
+]);
+
+export const insertBranchSchema = createInsertSchema(branches).omit({ id: true, createdAt: true, updatedAt: true });
+export type Branch = typeof branches.$inferSelect;
+export type InsertBranch = z.infer<typeof insertBranchSchema>;
+
+export const teams = pgTable("teams", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  departmentId: integer("department_id").references(() => departments.id, { onDelete: "set null" }),
+  branchId: integer("branch_id").references(() => branches.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  leadUserId: integer("lead_user_id").references(() => users.id, { onDelete: "set null" }),
+  skills: jsonb("skills").default([]),
+  maxQueueSize: integer("max_queue_size").default(50),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("teams_org_idx").on(t.organizationId),
+  index("teams_dept_idx").on(t.departmentId),
+]);
+
+export const insertTeamSchema = createInsertSchema(teams).omit({ id: true, createdAt: true, updatedAt: true });
+export type Team = typeof teams.$inferSelect;
+export type InsertTeam = z.infer<typeof insertTeamSchema>;
+
+export const teamMembers = pgTable("team_members", {
+  id: serial("id").primaryKey(),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").default("member"),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("team_members_unique_idx").on(t.teamId, t.userId),
+  index("team_members_user_idx").on(t.userId),
+]);
+
+export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({ id: true, joinedAt: true });
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS HOURS & HOLIDAY CALENDAR
+// ═══════════════════════════════════════════════════════════════════════
+
+export const businessHours = pgTable("business_hours", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  branchId: integer("branch_id").references(() => branches.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default("Default"),
+  timezone: text("timezone").notNull().default("Asia/Kolkata"),
+  // Day schedules stored as JSONB: { mon: { open: "09:00", close: "18:00", enabled: true }, ... }
+  schedule: jsonb("schedule").notNull().default({
+    mon: { open: "09:00", close: "18:00", enabled: true },
+    tue: { open: "09:00", close: "18:00", enabled: true },
+    wed: { open: "09:00", close: "18:00", enabled: true },
+    thu: { open: "09:00", close: "18:00", enabled: true },
+    fri: { open: "09:00", close: "18:00", enabled: true },
+    sat: { open: "10:00", close: "14:00", enabled: false },
+    sun: { open: "00:00", close: "00:00", enabled: false },
+  }),
+  afterHoursAction: text("after_hours_action").default("voicemail"), // voicemail | forward | ivr | busy
+  afterHoursTarget: text("after_hours_target"),
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("business_hours_org_idx").on(t.organizationId),
+  index("business_hours_branch_idx").on(t.branchId),
+]);
+
+export const insertBusinessHoursSchema = createInsertSchema(businessHours).omit({ id: true, createdAt: true, updatedAt: true });
+export type BusinessHours = typeof businessHours.$inferSelect;
+export type InsertBusinessHours = z.infer<typeof insertBusinessHoursSchema>;
+
+export const holidayCalendar = pgTable("holiday_calendar", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  branchId: integer("branch_id").references(() => branches.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  date: text("date").notNull(), // YYYY-MM-DD
+  recurring: boolean("recurring").default(false), // repeat annually
+  afterHoursAction: text("after_hours_action").default("voicemail"),
+  afterHoursTarget: text("after_hours_target"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("holiday_calendar_org_idx").on(t.organizationId),
+  index("holiday_calendar_date_idx").on(t.date),
+]);
+
+export const insertHolidayCalendarSchema = createInsertSchema(holidayCalendar).omit({ id: true, createdAt: true });
+export type HolidayCalendar = typeof holidayCalendar.$inferSelect;
+export type InsertHolidayCalendar = z.infer<typeof insertHolidayCalendarSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// IVR MENUS — Interactive Voice Response Tree Builder
+// ═══════════════════════════════════════════════════════════════════════
+
+export const ivrMenus = pgTable("ivr_menus", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  greetingText: text("greeting_text"),
+  greetingAudioUrl: text("greeting_audio_url"),
+  timeoutSeconds: integer("timeout_seconds").default(5),
+  maxRetries: integer("max_retries").default(3),
+  language: text("language").default("en-IN"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("ivr_menus_org_idx").on(t.organizationId),
+]);
+
+export const insertIvrMenuSchema = createInsertSchema(ivrMenus).omit({ id: true, createdAt: true, updatedAt: true });
+export type IvrMenu = typeof ivrMenus.$inferSelect;
+export type InsertIvrMenu = z.infer<typeof insertIvrMenuSchema>;
+
+export const ivrOptions = pgTable("ivr_options", {
+  id: serial("id").primaryKey(),
+  menuId: integer("menu_id").notNull().references(() => ivrMenus.id, { onDelete: "cascade" }),
+  digit: text("digit").notNull(), // 0-9, *, #
+  label: text("label").notNull(),
+  action: text("action").notNull(), // queue | team | agent | submenu | forward | voicemail | hangup | repeat
+  actionTarget: text("action_target"), // queueId/teamId/userId/menuId/phoneNumber
+  sayText: text("say_text"),
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("ivr_options_menu_idx").on(t.menuId),
+  uniqueIndex("ivr_options_menu_digit_idx").on(t.menuId, t.digit),
+]);
+
+export const insertIvrOptionSchema = createInsertSchema(ivrOptions).omit({ id: true, createdAt: true });
+export type IvrOption = typeof ivrOptions.$inferSelect;
+export type InsertIvrOption = z.infer<typeof insertIvrOptionSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// CALL QUEUES (ACD) — Automatic Call Distribution
+// ═══════════════════════════════════════════════════════════════════════
+
+export const callQueues = pgTable("call_queues", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  strategy: text("strategy").notNull().default("round_robin"), // round_robin | least_busy | priority | skills_based
+  maxQueueSize: integer("max_queue_size").default(20),
+  maxWaitSeconds: integer("max_wait_seconds").default(300),
+  holdMusicUrl: text("hold_music_url"),
+  announcePosition: boolean("announce_position").default(true),
+  announceWaitTime: boolean("announce_wait_time").default(true),
+  afterQueueAction: text("after_queue_action").default("voicemail"), // voicemail | forward | hangup
+  afterQueueTarget: text("after_queue_target"),
+  wrapUpSeconds: integer("wrap_up_seconds").default(30),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("call_queues_org_idx").on(t.organizationId),
+  index("call_queues_team_idx").on(t.teamId),
+]);
+
+export const insertCallQueueSchema = createInsertSchema(callQueues).omit({ id: true, createdAt: true, updatedAt: true });
+export type CallQueue = typeof callQueues.$inferSelect;
+export type InsertCallQueue = z.infer<typeof insertCallQueueSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// AGENT PRESENCE — Real-time agent status tracking
+// ═══════════════════════════════════════════════════════════════════════
+
+export const agentPresence = pgTable("agent_presence", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("offline"), // online | available | busy | away | break | dnd | offline
+  statusMessage: text("status_message"),
+  currentCallId: text("current_call_id"),
+  queueId: integer("queue_id").references(() => callQueues.id, { onDelete: "set null" }),
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "set null" }),
+  lastStatusChangeAt: timestamp("last_status_change_at").defaultNow(),
+  lastHeartbeatAt: timestamp("last_heartbeat_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("agent_presence_org_idx").on(t.organizationId),
+  index("agent_presence_status_idx").on(t.status),
+  index("agent_presence_queue_idx").on(t.queueId),
+]);
+
+export const insertAgentPresenceSchema = createInsertSchema(agentPresence).omit({ id: true, updatedAt: true });
+export type AgentPresence = typeof agentPresence.$inferSelect;
+export type InsertAgentPresence = z.infer<typeof insertAgentPresenceSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// PBX INTEGRATIONS — Asterisk, FreePBX, CUCM, Avaya, Genesys, 3CX, Yeastar
+// ═══════════════════════════════════════════════════════════════════════
+
+export const pbxIntegrations = pgTable("pbx_integrations", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  pbxType: text("pbx_type").notNull(), // asterisk | freepbx | cucm | avaya | genesys | 3cx | yeastar | generic_sip
+  host: text("host").notNull(),
+  port: integer("port").default(5060),
+  username: text("username"),
+  password: text("password"),       // encrypted
+  apiUrl: text("api_url"),          // REST API endpoint if supported
+  apiKey: text("api_key"),          // encrypted
+  transport: text("transport").default("udp"), // udp | tcp | tls | ws | wss
+  region: text("region"),
+  context: text("context").default("from-internal"), // Asterisk dialplan context
+  sipTrunkId: text("sip_trunk_id"), // trunk identifier on the PBX side
+  extensionRange: text("extension_range"), // e.g. "1000-1999"
+  connectionStatus: text("connection_status").default("unknown"), // connected | disconnected | error | unknown
+  lastCheckedAt: timestamp("last_checked_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("pbx_integrations_org_idx").on(t.organizationId),
+  index("pbx_integrations_type_idx").on(t.pbxType),
+]);
+
+export const insertPbxIntegrationSchema = createInsertSchema(pbxIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
+export type PbxIntegration = typeof pbxIntegrations.$inferSelect;
+export type InsertPbxIntegration = z.infer<typeof insertPbxIntegrationSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// SUPERVISOR SESSIONS — Monitor, Whisper, Barge
+// ═══════════════════════════════════════════════════════════════════════
+
+export const supervisorSessions = pgTable("supervisor_sessions", {
+  id: serial("id").primaryKey(),
+  supervisorId: integer("supervisor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  agentId: integer("agent_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  callId: text("call_id").notNull(),
+  mode: text("mode").notNull().default("listen"), // listen | whisper | barge
+  livekitRoomName: text("livekit_room_name"),
+  startedAt: timestamp("started_at").defaultNow(),
+  endedAt: timestamp("ended_at"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => [
+  index("supervisor_sessions_org_idx").on(t.organizationId),
+  index("supervisor_sessions_call_idx").on(t.callId),
+  index("supervisor_sessions_supervisor_idx").on(t.supervisorId),
+]);
+
+export const insertSupervisorSessionSchema = createInsertSchema(supervisorSessions).omit({ id: true, startedAt: true });
+export type SupervisorSession = typeof supervisorSessions.$inferSelect;
+export type InsertSupervisorSession = z.infer<typeof insertSupervisorSessionSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// ENTERPRISE COST CENTERS & BUDGETS
+// ═══════════════════════════════════════════════════════════════════════
+
+export const costCenters = pgTable("cost_centers", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  departmentId: integer("department_id").references(() => departments.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  monthlyBudgetPaise: integer("monthly_budget_paise").default(0),
+  currentMonthSpendPaise: integer("current_month_spend_paise").default(0),
+  alertThresholdPercent: integer("alert_threshold_percent").default(80),
+  alertEmailSent: boolean("alert_email_sent").default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("cost_centers_org_idx").on(t.organizationId),
+  uniqueIndex("cost_centers_org_code_idx").on(t.organizationId, t.code),
+]);
+
+export const insertCostCenterSchema = createInsertSchema(costCenters).omit({ id: true, createdAt: true, updatedAt: true });
+export type CostCenter = typeof costCenters.$inferSelect;
+export type InsertCostCenter = z.infer<typeof insertCostCenterSchema>;

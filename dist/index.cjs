@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc29) => {
+var __copyProps = (to, from, except, desc30) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key2 of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key2) && key2 !== except)
-        __defProp(to, key2, { get: () => from[key2], enumerable: !(desc29 = __getOwnPropDesc(from, key2)) || desc29.enumerable });
+        __defProp(to, key2, { get: () => from[key2], enumerable: !(desc30 = __getOwnPropDesc(from, key2)) || desc30.enumerable });
   }
   return to;
 };
@@ -5514,6 +5514,7 @@ __export(schema_exports, {
   SUSPENSION_STATUS: () => SUSPENSION_STATUS,
   USER_ROLES: () => USER_ROLES,
   abuseReports: () => abuseReports,
+  agentPresence: () => agentPresence,
   agentSkills: () => agentSkills,
   aiConfigurations: () => aiConfigurations,
   aiPersonas: () => aiPersonas,
@@ -5526,13 +5527,16 @@ __export(schema_exports, {
   billingPlans: () => billingPlans,
   billingReservations: () => billingReservations,
   billingSettings: () => billingSettings,
+  branches: () => branches,
   bridgedCalls: () => bridgedCalls,
   bridgedCallsRelations: () => bridgedCallsRelations,
+  businessHours: () => businessHours,
   callBillingRecords: () => callBillingRecords,
   callConsents: () => callConsents,
   callConsentsRelations: () => callConsentsRelations,
   callParticipants: () => callParticipants,
   callParticipantsRelations: () => callParticipantsRelations,
+  callQueues: () => callQueues,
   callTelemetry: () => callTelemetry,
   callTelemetryRelations: () => callTelemetryRelations,
   callTranslations: () => callTranslations,
@@ -5545,10 +5549,12 @@ __export(schema_exports, {
   communicationVirtualNumbers: () => communicationVirtualNumbers,
   conversations: () => conversations,
   conversationsRelations: () => conversationsRelations,
+  costCenters: () => costCenters,
   countries: () => countries,
   customRoles: () => customRoles,
   dataResidencyPolicies: () => dataResidencyPolicies,
   dataSubjectRequests: () => dataSubjectRequests,
+  departments: () => departments,
   districts: () => districts,
   enterpriseApiKeys: () => enterpriseApiKeys,
   enterpriseApiKeysRelations: () => enterpriseApiKeysRelations,
@@ -5563,7 +5569,9 @@ __export(schema_exports, {
   groupChats: () => groupChats,
   groupChatsRelations: () => groupChatsRelations,
   gstSettings: () => gstSettings,
+  holidayCalendar: () => holidayCalendar,
   insertAbuseReportSchema: () => insertAbuseReportSchema,
+  insertAgentPresenceSchema: () => insertAgentPresenceSchema,
   insertAgentSkillSchema: () => insertAgentSkillSchema,
   insertAiConfigurationSchema: () => insertAiConfigurationSchema,
   insertAiPersonaSchema: () => insertAiPersonaSchema,
@@ -5575,10 +5583,13 @@ __export(schema_exports, {
   insertBillingPlanSchema: () => insertBillingPlanSchema,
   insertBillingReservationSchema: () => insertBillingReservationSchema,
   insertBillingSettingsSchema: () => insertBillingSettingsSchema,
+  insertBranchSchema: () => insertBranchSchema,
   insertBridgedCallSchema: () => insertBridgedCallSchema,
+  insertBusinessHoursSchema: () => insertBusinessHoursSchema,
   insertCallBillingRecordSchema: () => insertCallBillingRecordSchema,
   insertCallConsentSchema: () => insertCallConsentSchema,
   insertCallParticipantSchema: () => insertCallParticipantSchema,
+  insertCallQueueSchema: () => insertCallQueueSchema,
   insertCallTelemetrySchema: () => insertCallTelemetrySchema,
   insertCallTranslationSchema: () => insertCallTranslationSchema,
   insertCitySchema: () => insertCitySchema,
@@ -5588,10 +5599,12 @@ __export(schema_exports, {
   insertCommunicationSessionSchema: () => insertCommunicationSessionSchema,
   insertCommunicationVirtualNumberSchema: () => insertCommunicationVirtualNumberSchema,
   insertConversationSchema: () => insertConversationSchema,
+  insertCostCenterSchema: () => insertCostCenterSchema,
   insertCountrySchema: () => insertCountrySchema,
   insertCustomRoleSchema: () => insertCustomRoleSchema,
   insertDataResidencyPolicySchema: () => insertDataResidencyPolicySchema,
   insertDataSubjectRequestSchema: () => insertDataSubjectRequestSchema,
+  insertDepartmentSchema: () => insertDepartmentSchema,
   insertDistrictSchema: () => insertDistrictSchema,
   insertEnterpriseApiKeySchema: () => insertEnterpriseApiKeySchema,
   insertEnterpriseNumberSchema: () => insertEnterpriseNumberSchema,
@@ -5600,9 +5613,12 @@ __export(schema_exports, {
   insertGroupChatMessageSchema: () => insertGroupChatMessageSchema,
   insertGroupChatSchema: () => insertGroupChatSchema,
   insertGstSettingsSchema: () => insertGstSettingsSchema,
+  insertHolidayCalendarSchema: () => insertHolidayCalendarSchema,
   insertInvoiceLineItemSchema: () => insertInvoiceLineItemSchema,
   insertInvoiceSchema: () => insertInvoiceSchema,
   insertIpWhitelistSchema: () => insertIpWhitelistSchema,
+  insertIvrMenuSchema: () => insertIvrMenuSchema,
+  insertIvrOptionSchema: () => insertIvrOptionSchema,
   insertLanguageRuleSchema: () => insertLanguageRuleSchema,
   insertLegalContentSchema: () => insertLegalContentSchema,
   insertMeetingParticipantSchema: () => insertMeetingParticipantSchema,
@@ -5615,6 +5631,7 @@ __export(schema_exports, {
   insertOtpChallengeSchema: () => insertOtpChallengeSchema,
   insertPaymentGatewaySchema: () => insertPaymentGatewaySchema,
   insertPaymentTransactionSchema: () => insertPaymentTransactionSchema,
+  insertPbxIntegrationSchema: () => insertPbxIntegrationSchema,
   insertPersonalChatMessageSchema: () => insertPersonalChatMessageSchema,
   insertPersonalChatThreadSchema: () => insertPersonalChatThreadSchema,
   insertPincodeSchema: () => insertPincodeSchema,
@@ -5626,9 +5643,12 @@ __export(schema_exports, {
   insertSipIntegrationSchema: () => insertSipIntegrationSchema,
   insertStateSchema: () => insertStateSchema,
   insertSubscriptionSchema: () => insertSubscriptionSchema,
+  insertSupervisorSessionSchema: () => insertSupervisorSessionSchema,
   insertSupportContactSchema: () => insertSupportContactSchema,
   insertSupportedLanguageSchema: () => insertSupportedLanguageSchema,
   insertSystemHealthLogSchema: () => insertSystemHealthLogSchema,
+  insertTeamMemberSchema: () => insertTeamMemberSchema,
+  insertTeamSchema: () => insertTeamSchema,
   insertTenantDatabaseSchema: () => insertTenantDatabaseSchema,
   insertTenantSecurityPolicySchema: () => insertTenantSecurityPolicySchema,
   insertUsageRecordSchema: () => insertUsageRecordSchema,
@@ -5647,6 +5667,8 @@ __export(schema_exports, {
   invoiceLineItems: () => invoiceLineItems,
   invoices: () => invoices,
   ipWhitelists: () => ipWhitelists,
+  ivrMenus: () => ivrMenus,
+  ivrOptions: () => ivrOptions,
   languageRules: () => languageRules,
   legalContent: () => legalContent,
   meetingParticipants: () => meetingParticipants,
@@ -5664,6 +5686,7 @@ __export(schema_exports, {
   otpChallenges: () => otpChallenges,
   paymentGateways: () => paymentGateways,
   paymentTransactions: () => paymentTransactions,
+  pbxIntegrations: () => pbxIntegrations,
   personalChatMessages: () => personalChatMessages,
   personalChatThreads: () => personalChatThreads,
   pincodes: () => pincodes,
@@ -5677,9 +5700,12 @@ __export(schema_exports, {
   sipIntegrations: () => sipIntegrations,
   states: () => states,
   subscriptions: () => subscriptions,
+  supervisorSessions: () => supervisorSessions,
   supportContacts: () => supportContacts,
   supportedLanguages: () => supportedLanguages,
   systemHealthLogs: () => systemHealthLogs,
+  teamMembers: () => teamMembers,
+  teams: () => teams,
   tenantDatabases: () => tenantDatabases,
   tenantSecurityPolicies: () => tenantSecurityPolicies,
   usageRecords: () => usageRecords,
@@ -5706,7 +5732,7 @@ function getCallSessionIds(call) {
     mediaSessionId: call.outboundCallSid
   };
 }
-var import_pg_core, import_drizzle_orm, import_drizzle_zod, USER_ROLES, COMPANY_STATUS, OTP_CHANNEL, organizations, otpChallenges, platformSettings, userSessions, featureFlagsDb, users, orgMembers, customRoles, insertCustomRoleSchema, PERMISSIONS, voiceProfiles, voiceSamples, conversations, messages, personalChatThreads, personalChatMessages, voiceMemos, groupChats, groupChatMembers, groupChatMessages, MEETING_STATUS, meetingRooms, meetingParticipants, CALL_STATUS, bridgedCalls, callTranslations, callParticipants, callConsents, ipWhitelists, insertIpWhitelistSchema, registeredDevices, callTelemetry, organizationsRelations, usersRelations, orgMembersRelations, voiceProfilesRelations, voiceSamplesRelations, conversationsRelations, messagesRelations, voiceMemosRelations, groupChatsRelations, groupChatMembersRelations, groupChatMessagesRelations, bridgedCallsRelations, callTranslationsRelations, callParticipantsRelations, callConsentsRelations, registeredDevicesRelations, callTelemetryRelations, meetingRoomsRelations, meetingParticipantsRelations, countries, states, districts, cities, villages, pincodes, AUDIT_ACTION, auditLogs, supportedLanguages, tenantDatabases, tenantSecurityPolicies, paymentGateways, PLAN_TYPE, BILLING_MODEL, PLAN_DURATION, billingPlans, SUBSCRIPTION_STATUS, subscriptions, usageRecords, INVOICE_STATUS, invoices, invoiceLineItems, gstSettings, billingSettings, billingAccounts, billingReservations, billingLedgerEntries, callBillingRecords, PAYMENT_STATUS, paymentTransactions, legalContent, supportContacts, APP_VERSION_STATUS, appVersions, rateLimitRules, rateLimitBuckets, REPORT_STATUS, abuseReports, SUSPENSION_STATUS, userSuspensions, CONSENT_TYPE, userConsents, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS, dataSubjectRequests, BACKUP_STATUS, backupJobs, HEALTH_STATUS, systemHealthLogs, userAccessibilityPrefs, DATA_REGION, dataResidencyPolicies, ENVIRONMENT_TYPE, environmentConfigs, billingAnomalies, insertOrganizationSchema, insertUserSchema, insertOrgMemberSchema, insertVoiceProfileSchema, insertBridgedCallSchema, insertCallTranslationSchema, insertCallParticipantSchema, insertCallConsentSchema, insertRegisteredDeviceSchema, insertCallTelemetrySchema, insertVoiceSampleSchema, insertConversationSchema, insertMessageSchema, insertPersonalChatThreadSchema, insertPersonalChatMessageSchema, insertVoiceMemoSchema, insertGroupChatSchema, insertGroupChatMemberSchema, insertGroupChatMessageSchema, insertOtpChallengeSchema, insertPlatformSettingSchema, insertMeetingRoomSchema, insertMeetingParticipantSchema, insertCountrySchema, insertStateSchema, insertDistrictSchema, insertCitySchema, insertVillageSchema, insertPincodeSchema, insertAuditLogSchema, insertSupportedLanguageSchema, insertTenantDatabaseSchema, insertTenantSecurityPolicySchema, insertBillingPlanSchema, insertSubscriptionSchema, insertUsageRecordSchema, insertInvoiceSchema, insertInvoiceLineItemSchema, insertGstSettingsSchema, insertBillingSettingsSchema, insertBillingAccountSchema, insertBillingReservationSchema, insertBillingLedgerEntrySchema, insertCallBillingRecordSchema, insertPaymentGatewaySchema, insertPaymentTransactionSchema, insertLegalContentSchema, insertSupportContactSchema, insertAppVersionSchema, insertRateLimitRuleSchema, insertAbuseReportSchema, insertUserSuspensionSchema, insertUserConsentSchema, insertDataSubjectRequestSchema, insertBackupJobSchema, insertSystemHealthLogSchema, insertUserAccessibilityPrefsSchema, insertDataResidencyPolicySchema, insertEnvironmentConfigSchema, platformSecrets, insertPlatformSecretSchema, signalingSessions, insertSignalingSessionSchema, aiPersonas, insertAiPersonaSchema, userAnalytics, insertUserAnalyticsSchema, enterpriseApiKeys, enterpriseApiKeysRelations, insertEnterpriseApiKeySchema, communicationVirtualNumbers, communicationMaskedNumberMappings, communicationApiKeyPricing, communicationSessions, communicationSessionEvents, insertCommunicationVirtualNumberSchema, insertCommunicationMaskedNumberMappingSchema, insertCommunicationApiKeyPricingSchema, insertCommunicationSessionSchema, insertCommunicationSessionEventSchema, userContacts, insertUserContactSchema, agentSkills, insertAgentSkillSchema, orgDIDNumbers, insertOrgDIDNumberSchema, enterpriseNumbers, insertEnterpriseNumberSchema, numberVerifications, insertNumberVerificationSchema, sipIntegrations, insertSipIntegrationSchema, languageRules, insertLanguageRuleSchema, aiConfigurations, insertAiConfigurationSchema, integrationAuditLogs, userNotifications, insertUserNotificationSchema;
+var import_pg_core, import_drizzle_orm, import_drizzle_zod, USER_ROLES, COMPANY_STATUS, OTP_CHANNEL, organizations, otpChallenges, platformSettings, userSessions, featureFlagsDb, users, orgMembers, customRoles, insertCustomRoleSchema, PERMISSIONS, voiceProfiles, voiceSamples, conversations, messages, personalChatThreads, personalChatMessages, voiceMemos, groupChats, groupChatMembers, groupChatMessages, MEETING_STATUS, meetingRooms, meetingParticipants, CALL_STATUS, bridgedCalls, callTranslations, callParticipants, callConsents, ipWhitelists, insertIpWhitelistSchema, registeredDevices, callTelemetry, organizationsRelations, usersRelations, orgMembersRelations, voiceProfilesRelations, voiceSamplesRelations, conversationsRelations, messagesRelations, voiceMemosRelations, groupChatsRelations, groupChatMembersRelations, groupChatMessagesRelations, bridgedCallsRelations, callTranslationsRelations, callParticipantsRelations, callConsentsRelations, registeredDevicesRelations, callTelemetryRelations, meetingRoomsRelations, meetingParticipantsRelations, countries, states, districts, cities, villages, pincodes, AUDIT_ACTION, auditLogs, supportedLanguages, tenantDatabases, tenantSecurityPolicies, paymentGateways, PLAN_TYPE, BILLING_MODEL, PLAN_DURATION, billingPlans, SUBSCRIPTION_STATUS, subscriptions, usageRecords, INVOICE_STATUS, invoices, invoiceLineItems, gstSettings, billingSettings, billingAccounts, billingReservations, billingLedgerEntries, callBillingRecords, PAYMENT_STATUS, paymentTransactions, legalContent, supportContacts, APP_VERSION_STATUS, appVersions, rateLimitRules, rateLimitBuckets, REPORT_STATUS, abuseReports, SUSPENSION_STATUS, userSuspensions, CONSENT_TYPE, userConsents, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS, dataSubjectRequests, BACKUP_STATUS, backupJobs, HEALTH_STATUS, systemHealthLogs, userAccessibilityPrefs, DATA_REGION, dataResidencyPolicies, ENVIRONMENT_TYPE, environmentConfigs, billingAnomalies, insertOrganizationSchema, insertUserSchema, insertOrgMemberSchema, insertVoiceProfileSchema, insertBridgedCallSchema, insertCallTranslationSchema, insertCallParticipantSchema, insertCallConsentSchema, insertRegisteredDeviceSchema, insertCallTelemetrySchema, insertVoiceSampleSchema, insertConversationSchema, insertMessageSchema, insertPersonalChatThreadSchema, insertPersonalChatMessageSchema, insertVoiceMemoSchema, insertGroupChatSchema, insertGroupChatMemberSchema, insertGroupChatMessageSchema, insertOtpChallengeSchema, insertPlatformSettingSchema, insertMeetingRoomSchema, insertMeetingParticipantSchema, insertCountrySchema, insertStateSchema, insertDistrictSchema, insertCitySchema, insertVillageSchema, insertPincodeSchema, insertAuditLogSchema, insertSupportedLanguageSchema, insertTenantDatabaseSchema, insertTenantSecurityPolicySchema, insertBillingPlanSchema, insertSubscriptionSchema, insertUsageRecordSchema, insertInvoiceSchema, insertInvoiceLineItemSchema, insertGstSettingsSchema, insertBillingSettingsSchema, insertBillingAccountSchema, insertBillingReservationSchema, insertBillingLedgerEntrySchema, insertCallBillingRecordSchema, insertPaymentGatewaySchema, insertPaymentTransactionSchema, insertLegalContentSchema, insertSupportContactSchema, insertAppVersionSchema, insertRateLimitRuleSchema, insertAbuseReportSchema, insertUserSuspensionSchema, insertUserConsentSchema, insertDataSubjectRequestSchema, insertBackupJobSchema, insertSystemHealthLogSchema, insertUserAccessibilityPrefsSchema, insertDataResidencyPolicySchema, insertEnvironmentConfigSchema, platformSecrets, insertPlatformSecretSchema, signalingSessions, insertSignalingSessionSchema, aiPersonas, insertAiPersonaSchema, userAnalytics, insertUserAnalyticsSchema, enterpriseApiKeys, enterpriseApiKeysRelations, insertEnterpriseApiKeySchema, communicationVirtualNumbers, communicationMaskedNumberMappings, communicationApiKeyPricing, communicationSessions, communicationSessionEvents, insertCommunicationVirtualNumberSchema, insertCommunicationMaskedNumberMappingSchema, insertCommunicationApiKeyPricingSchema, insertCommunicationSessionSchema, insertCommunicationSessionEventSchema, userContacts, insertUserContactSchema, agentSkills, insertAgentSkillSchema, orgDIDNumbers, insertOrgDIDNumberSchema, enterpriseNumbers, insertEnterpriseNumberSchema, numberVerifications, insertNumberVerificationSchema, sipIntegrations, insertSipIntegrationSchema, languageRules, insertLanguageRuleSchema, aiConfigurations, insertAiConfigurationSchema, integrationAuditLogs, userNotifications, insertUserNotificationSchema, departments, insertDepartmentSchema, branches, insertBranchSchema, teams, insertTeamSchema, teamMembers, insertTeamMemberSchema, businessHours, insertBusinessHoursSchema, holidayCalendar, insertHolidayCalendarSchema, ivrMenus, insertIvrMenuSchema, ivrOptions, insertIvrOptionSchema, callQueues, insertCallQueueSchema, agentPresence, insertAgentPresenceSchema, pbxIntegrations, insertPbxIntegrationSchema, supervisorSessions, insertSupervisorSessionSchema, costCenters, insertCostCenterSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -8042,6 +8068,267 @@ var init_schema = __esm({
       (0, import_pg_core.index)("user_notifications_created_idx").on(t.createdAt)
     ]);
     insertUserNotificationSchema = (0, import_drizzle_zod.createInsertSchema)(userNotifications).omit({ id: true, createdAt: true, readAt: true });
+    departments = (0, import_pg_core.pgTable)("departments", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      description: (0, import_pg_core.text)("description"),
+      headUserId: (0, import_pg_core.integer)("head_user_id").references(() => users.id, { onDelete: "set null" }),
+      parentDepartmentId: (0, import_pg_core.integer)("parent_department_id"),
+      costCenter: (0, import_pg_core.text)("cost_center"),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("departments_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("departments_head_idx").on(t.headUserId)
+    ]);
+    insertDepartmentSchema = (0, import_drizzle_zod.createInsertSchema)(departments).omit({ id: true, createdAt: true, updatedAt: true });
+    branches = (0, import_pg_core.pgTable)("branches", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      address: (0, import_pg_core.text)("address"),
+      city: (0, import_pg_core.text)("city"),
+      state: (0, import_pg_core.text)("state"),
+      country: (0, import_pg_core.text)("country").default("IN"),
+      pincode: (0, import_pg_core.text)("pincode"),
+      phone: (0, import_pg_core.text)("phone"),
+      timezone: (0, import_pg_core.text)("timezone").default("Asia/Kolkata"),
+      isHeadquarters: (0, import_pg_core.boolean)("is_headquarters").default(false),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("branches_org_idx").on(t.organizationId)
+    ]);
+    insertBranchSchema = (0, import_drizzle_zod.createInsertSchema)(branches).omit({ id: true, createdAt: true, updatedAt: true });
+    teams = (0, import_pg_core.pgTable)("teams", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      departmentId: (0, import_pg_core.integer)("department_id").references(() => departments.id, { onDelete: "set null" }),
+      branchId: (0, import_pg_core.integer)("branch_id").references(() => branches.id, { onDelete: "set null" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      description: (0, import_pg_core.text)("description"),
+      leadUserId: (0, import_pg_core.integer)("lead_user_id").references(() => users.id, { onDelete: "set null" }),
+      skills: (0, import_pg_core.jsonb)("skills").default([]),
+      maxQueueSize: (0, import_pg_core.integer)("max_queue_size").default(50),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("teams_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("teams_dept_idx").on(t.departmentId)
+    ]);
+    insertTeamSchema = (0, import_drizzle_zod.createInsertSchema)(teams).omit({ id: true, createdAt: true, updatedAt: true });
+    teamMembers = (0, import_pg_core.pgTable)("team_members", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      teamId: (0, import_pg_core.integer)("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+      userId: (0, import_pg_core.integer)("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+      role: (0, import_pg_core.text)("role").default("member"),
+      joinedAt: (0, import_pg_core.timestamp)("joined_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.uniqueIndex)("team_members_unique_idx").on(t.teamId, t.userId),
+      (0, import_pg_core.index)("team_members_user_idx").on(t.userId)
+    ]);
+    insertTeamMemberSchema = (0, import_drizzle_zod.createInsertSchema)(teamMembers).omit({ id: true, joinedAt: true });
+    businessHours = (0, import_pg_core.pgTable)("business_hours", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      branchId: (0, import_pg_core.integer)("branch_id").references(() => branches.id, { onDelete: "cascade" }),
+      enterpriseNumberId: (0, import_pg_core.integer)("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "cascade" }),
+      name: (0, import_pg_core.text)("name").notNull().default("Default"),
+      timezone: (0, import_pg_core.text)("timezone").notNull().default("Asia/Kolkata"),
+      // Day schedules stored as JSONB: { mon: { open: "09:00", close: "18:00", enabled: true }, ... }
+      schedule: (0, import_pg_core.jsonb)("schedule").notNull().default({
+        mon: { open: "09:00", close: "18:00", enabled: true },
+        tue: { open: "09:00", close: "18:00", enabled: true },
+        wed: { open: "09:00", close: "18:00", enabled: true },
+        thu: { open: "09:00", close: "18:00", enabled: true },
+        fri: { open: "09:00", close: "18:00", enabled: true },
+        sat: { open: "10:00", close: "14:00", enabled: false },
+        sun: { open: "00:00", close: "00:00", enabled: false }
+      }),
+      afterHoursAction: (0, import_pg_core.text)("after_hours_action").default("voicemail"),
+      // voicemail | forward | ivr | busy
+      afterHoursTarget: (0, import_pg_core.text)("after_hours_target"),
+      isDefault: (0, import_pg_core.boolean)("is_default").default(false),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("business_hours_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("business_hours_branch_idx").on(t.branchId)
+    ]);
+    insertBusinessHoursSchema = (0, import_drizzle_zod.createInsertSchema)(businessHours).omit({ id: true, createdAt: true, updatedAt: true });
+    holidayCalendar = (0, import_pg_core.pgTable)("holiday_calendar", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      branchId: (0, import_pg_core.integer)("branch_id").references(() => branches.id, { onDelete: "cascade" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      date: (0, import_pg_core.text)("date").notNull(),
+      // YYYY-MM-DD
+      recurring: (0, import_pg_core.boolean)("recurring").default(false),
+      // repeat annually
+      afterHoursAction: (0, import_pg_core.text)("after_hours_action").default("voicemail"),
+      afterHoursTarget: (0, import_pg_core.text)("after_hours_target"),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("holiday_calendar_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("holiday_calendar_date_idx").on(t.date)
+    ]);
+    insertHolidayCalendarSchema = (0, import_drizzle_zod.createInsertSchema)(holidayCalendar).omit({ id: true, createdAt: true });
+    ivrMenus = (0, import_pg_core.pgTable)("ivr_menus", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      enterpriseNumberId: (0, import_pg_core.integer)("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "set null" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      description: (0, import_pg_core.text)("description"),
+      greetingText: (0, import_pg_core.text)("greeting_text"),
+      greetingAudioUrl: (0, import_pg_core.text)("greeting_audio_url"),
+      timeoutSeconds: (0, import_pg_core.integer)("timeout_seconds").default(5),
+      maxRetries: (0, import_pg_core.integer)("max_retries").default(3),
+      language: (0, import_pg_core.text)("language").default("en-IN"),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("ivr_menus_org_idx").on(t.organizationId)
+    ]);
+    insertIvrMenuSchema = (0, import_drizzle_zod.createInsertSchema)(ivrMenus).omit({ id: true, createdAt: true, updatedAt: true });
+    ivrOptions = (0, import_pg_core.pgTable)("ivr_options", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      menuId: (0, import_pg_core.integer)("menu_id").notNull().references(() => ivrMenus.id, { onDelete: "cascade" }),
+      digit: (0, import_pg_core.text)("digit").notNull(),
+      // 0-9, *, #
+      label: (0, import_pg_core.text)("label").notNull(),
+      action: (0, import_pg_core.text)("action").notNull(),
+      // queue | team | agent | submenu | forward | voicemail | hangup | repeat
+      actionTarget: (0, import_pg_core.text)("action_target"),
+      // queueId/teamId/userId/menuId/phoneNumber
+      sayText: (0, import_pg_core.text)("say_text"),
+      displayOrder: (0, import_pg_core.integer)("display_order").default(0),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("ivr_options_menu_idx").on(t.menuId),
+      (0, import_pg_core.uniqueIndex)("ivr_options_menu_digit_idx").on(t.menuId, t.digit)
+    ]);
+    insertIvrOptionSchema = (0, import_drizzle_zod.createInsertSchema)(ivrOptions).omit({ id: true, createdAt: true });
+    callQueues = (0, import_pg_core.pgTable)("call_queues", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      teamId: (0, import_pg_core.integer)("team_id").references(() => teams.id, { onDelete: "set null" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      description: (0, import_pg_core.text)("description"),
+      strategy: (0, import_pg_core.text)("strategy").notNull().default("round_robin"),
+      // round_robin | least_busy | priority | skills_based
+      maxQueueSize: (0, import_pg_core.integer)("max_queue_size").default(20),
+      maxWaitSeconds: (0, import_pg_core.integer)("max_wait_seconds").default(300),
+      holdMusicUrl: (0, import_pg_core.text)("hold_music_url"),
+      announcePosition: (0, import_pg_core.boolean)("announce_position").default(true),
+      announceWaitTime: (0, import_pg_core.boolean)("announce_wait_time").default(true),
+      afterQueueAction: (0, import_pg_core.text)("after_queue_action").default("voicemail"),
+      // voicemail | forward | hangup
+      afterQueueTarget: (0, import_pg_core.text)("after_queue_target"),
+      wrapUpSeconds: (0, import_pg_core.integer)("wrap_up_seconds").default(30),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("call_queues_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("call_queues_team_idx").on(t.teamId)
+    ]);
+    insertCallQueueSchema = (0, import_drizzle_zod.createInsertSchema)(callQueues).omit({ id: true, createdAt: true, updatedAt: true });
+    agentPresence = (0, import_pg_core.pgTable)("agent_presence", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      userId: (0, import_pg_core.integer)("user_id").notNull().references(() => users.id, { onDelete: "cascade" }).unique(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      status: (0, import_pg_core.text)("status").notNull().default("offline"),
+      // online | available | busy | away | break | dnd | offline
+      statusMessage: (0, import_pg_core.text)("status_message"),
+      currentCallId: (0, import_pg_core.text)("current_call_id"),
+      queueId: (0, import_pg_core.integer)("queue_id").references(() => callQueues.id, { onDelete: "set null" }),
+      teamId: (0, import_pg_core.integer)("team_id").references(() => teams.id, { onDelete: "set null" }),
+      lastStatusChangeAt: (0, import_pg_core.timestamp)("last_status_change_at").defaultNow(),
+      lastHeartbeatAt: (0, import_pg_core.timestamp)("last_heartbeat_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("agent_presence_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("agent_presence_status_idx").on(t.status),
+      (0, import_pg_core.index)("agent_presence_queue_idx").on(t.queueId)
+    ]);
+    insertAgentPresenceSchema = (0, import_drizzle_zod.createInsertSchema)(agentPresence).omit({ id: true, updatedAt: true });
+    pbxIntegrations = (0, import_pg_core.pgTable)("pbx_integrations", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      pbxType: (0, import_pg_core.text)("pbx_type").notNull(),
+      // asterisk | freepbx | cucm | avaya | genesys | 3cx | yeastar | generic_sip
+      host: (0, import_pg_core.text)("host").notNull(),
+      port: (0, import_pg_core.integer)("port").default(5060),
+      username: (0, import_pg_core.text)("username"),
+      password: (0, import_pg_core.text)("password"),
+      // encrypted
+      apiUrl: (0, import_pg_core.text)("api_url"),
+      // REST API endpoint if supported
+      apiKey: (0, import_pg_core.text)("api_key"),
+      // encrypted
+      transport: (0, import_pg_core.text)("transport").default("udp"),
+      // udp | tcp | tls | ws | wss
+      region: (0, import_pg_core.text)("region"),
+      context: (0, import_pg_core.text)("context").default("from-internal"),
+      // Asterisk dialplan context
+      sipTrunkId: (0, import_pg_core.text)("sip_trunk_id"),
+      // trunk identifier on the PBX side
+      extensionRange: (0, import_pg_core.text)("extension_range"),
+      // e.g. "1000-1999"
+      connectionStatus: (0, import_pg_core.text)("connection_status").default("unknown"),
+      // connected | disconnected | error | unknown
+      lastCheckedAt: (0, import_pg_core.timestamp)("last_checked_at"),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      metadata: (0, import_pg_core.jsonb)("metadata").default({}),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("pbx_integrations_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("pbx_integrations_type_idx").on(t.pbxType)
+    ]);
+    insertPbxIntegrationSchema = (0, import_drizzle_zod.createInsertSchema)(pbxIntegrations).omit({ id: true, createdAt: true, updatedAt: true });
+    supervisorSessions = (0, import_pg_core.pgTable)("supervisor_sessions", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      supervisorId: (0, import_pg_core.integer)("supervisor_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      agentId: (0, import_pg_core.integer)("agent_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+      callId: (0, import_pg_core.text)("call_id").notNull(),
+      mode: (0, import_pg_core.text)("mode").notNull().default("listen"),
+      // listen | whisper | barge
+      livekitRoomName: (0, import_pg_core.text)("livekit_room_name"),
+      startedAt: (0, import_pg_core.timestamp)("started_at").defaultNow(),
+      endedAt: (0, import_pg_core.timestamp)("ended_at"),
+      metadata: (0, import_pg_core.jsonb)("metadata").default({})
+    }, (t) => [
+      (0, import_pg_core.index)("supervisor_sessions_org_idx").on(t.organizationId),
+      (0, import_pg_core.index)("supervisor_sessions_call_idx").on(t.callId),
+      (0, import_pg_core.index)("supervisor_sessions_supervisor_idx").on(t.supervisorId)
+    ]);
+    insertSupervisorSessionSchema = (0, import_drizzle_zod.createInsertSchema)(supervisorSessions).omit({ id: true, startedAt: true });
+    costCenters = (0, import_pg_core.pgTable)("cost_centers", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      organizationId: (0, import_pg_core.integer)("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+      departmentId: (0, import_pg_core.integer)("department_id").references(() => departments.id, { onDelete: "set null" }),
+      name: (0, import_pg_core.text)("name").notNull(),
+      code: (0, import_pg_core.text)("code").notNull(),
+      monthlyBudgetPaise: (0, import_pg_core.integer)("monthly_budget_paise").default(0),
+      currentMonthSpendPaise: (0, import_pg_core.integer)("current_month_spend_paise").default(0),
+      alertThresholdPercent: (0, import_pg_core.integer)("alert_threshold_percent").default(80),
+      alertEmailSent: (0, import_pg_core.boolean)("alert_email_sent").default(false),
+      isActive: (0, import_pg_core.boolean)("is_active").notNull().default(true),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
+      updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
+    }, (t) => [
+      (0, import_pg_core.index)("cost_centers_org_idx").on(t.organizationId),
+      (0, import_pg_core.uniqueIndex)("cost_centers_org_code_idx").on(t.organizationId, t.code)
+    ]);
+    insertCostCenterSchema = (0, import_drizzle_zod.createInsertSchema)(costCenters).omit({ id: true, createdAt: true, updatedAt: true });
   }
 });
 
@@ -11416,14 +11703,14 @@ var require_lodash = __commonJS({
       return result;
     }
     function assignInDefaults(objValue, srcValue, key2, object) {
-      if (objValue === void 0 || eq60(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
+      if (objValue === void 0 || eq61(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
         return srcValue;
       }
       return objValue;
     }
     function assignValue(object, key2, value) {
       var objValue = object[key2];
-      if (!(hasOwnProperty.call(object, key2) && eq60(objValue, value)) || value === void 0 && !(key2 in object)) {
+      if (!(hasOwnProperty.call(object, key2) && eq61(objValue, value)) || value === void 0 && !(key2 in object)) {
         object[key2] = value;
       }
     }
@@ -11467,9 +11754,9 @@ var require_lodash = __commonJS({
     }
     function createAssigner(assigner) {
       return baseRest(function(object, sources) {
-        var index2 = -1, length = sources.length, customizer = length > 1 ? sources[length - 1] : void 0, guard2 = length > 2 ? sources[2] : void 0;
+        var index2 = -1, length = sources.length, customizer = length > 1 ? sources[length - 1] : void 0, guard3 = length > 2 ? sources[2] : void 0;
         customizer = assigner.length > 3 && typeof customizer == "function" ? (length--, customizer) : void 0;
-        if (guard2 && isIterateeCall(sources[0], sources[1], guard2)) {
+        if (guard3 && isIterateeCall(sources[0], sources[1], guard3)) {
           customizer = length < 3 ? void 0 : customizer;
           length = 1;
         }
@@ -11493,7 +11780,7 @@ var require_lodash = __commonJS({
       }
       var type = typeof index2;
       if (type == "number" ? isArrayLike(object) && isIndex(index2, object.length) : type == "string" && index2 in object) {
-        return eq60(object[index2], value);
+        return eq61(object[index2], value);
       }
       return false;
     }
@@ -11510,7 +11797,7 @@ var require_lodash = __commonJS({
       }
       return result;
     }
-    function eq60(value, other) {
+    function eq61(value, other) {
       return value === other || value !== value && other !== other;
     }
     function isArguments(value) {
@@ -18983,14 +19270,14 @@ var init_session_management = __esm({
           return res.status(400).json({ error: "No organization associated with user" });
         }
         const { maxSessionsPerUser } = req.body;
-        const orgId3 = organizationId || req.body.organizationId;
-        if (!orgId3) {
+        const orgId4 = organizationId || req.body.organizationId;
+        if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
         if (maxSessionsPerUser !== void 0 && (maxSessionsPerUser < 1 || maxSessionsPerUser > 20)) {
           return res.status(400).json({ error: "Max sessions must be between 1 and 20" });
         }
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm2.eq)(organizations.id, orgId3));
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm2.eq)(organizations.id, orgId4));
         if (!org) {
           return res.status(404).json({ error: "Organization not found" });
         }
@@ -18999,7 +19286,7 @@ var init_session_management = __esm({
           ...currentSettings,
           maxSessionsPerUser: maxSessionsPerUser || DEFAULT_MAX_SESSIONS
         };
-        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm2.eq)(organizations.id, orgId3));
+        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm2.eq)(organizations.id, orgId4));
         res.json({
           success: true,
           maxSessionsPerUser: newSettings.maxSessionsPerUser,
@@ -19016,11 +19303,11 @@ var init_session_management = __esm({
         if (!organizationId && req.user.role !== "super_admin") {
           return res.status(400).json({ error: "No organization associated with user" });
         }
-        const orgId3 = organizationId || parseInt(req.query.organizationId);
-        if (!orgId3) {
+        const orgId4 = organizationId || parseInt(req.query.organizationId);
+        if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
-        const maxSessions = await getMaxSessions(orgId3);
+        const maxSessions = await getMaxSessions(orgId4);
         res.json({
           maxSessionsPerUser: maxSessions,
           default: DEFAULT_MAX_SESSIONS,
@@ -37139,8 +37426,8 @@ var require_webidl = __commonJS({
         }
         const keys = Reflect.ownKeys(O);
         for (const key2 of keys) {
-          const desc29 = Reflect.getOwnPropertyDescriptor(O, key2);
-          if (desc29?.enumerable) {
+          const desc30 = Reflect.getOwnPropertyDescriptor(O, key2);
+          if (desc30?.enumerable) {
             const typedKey = keyConverter(key2, prefix, argument);
             const typedValue = valueConverter(O[key2], prefix, argument);
             result[typedKey] = typedValue;
@@ -50971,8 +51258,8 @@ var require_headers = __commonJS({
       static getHeadersGuard(o) {
         return o.#guard;
       }
-      static setHeadersGuard(o, guard2) {
-        o.#guard = guard2;
+      static setHeadersGuard(o, guard3) {
+        o.#guard = guard3;
       }
       /**
        * @param {Headers} o
@@ -51395,13 +51682,13 @@ var require_response = __commonJS({
         }
       }
     }
-    function fromInnerResponse(innerResponse, guard2) {
+    function fromInnerResponse(innerResponse, guard3) {
       const response = new Response13(kConstruct);
       setResponseState(response, innerResponse);
       const headers = new Headers(kConstruct);
       setResponseHeaders(response, headers);
       setHeadersList(headers, innerResponse.headersList);
-      setHeadersGuard(headers, guard2);
+      setHeadersGuard(headers, guard3);
       if (innerResponse.urlList.length !== 0 && innerResponse.body?.stream) {
         streamRegistry.register(response, new WeakRef(innerResponse.body.stream));
       }
@@ -52075,7 +52362,7 @@ var require_request2 = __commonJS({
       }
       return newRequest;
     }
-    function fromInnerRequest(innerRequest, dispatcher, signal, guard2) {
+    function fromInnerRequest(innerRequest, dispatcher, signal, guard3) {
       const request = new Request11(kConstruct);
       setRequestState(request, innerRequest);
       setRequestDispatcher(request, dispatcher);
@@ -52083,7 +52370,7 @@ var require_request2 = __commonJS({
       const headers = new Headers(kConstruct);
       setRequestHeaders(request, headers);
       setHeadersList(headers, innerRequest.headersList);
-      setHeadersGuard(headers, guard2);
+      setHeadersGuard(headers, guard3);
       return request;
     }
     Object.defineProperties(Request11.prototype, {
@@ -59405,8 +59692,8 @@ var init_storage = __esm({
       async getAllUsers() {
         return db.select().from(users);
       }
-      async getUsersByOrg(orgId3) {
-        return db.select().from(users).where((0, import_drizzle_orm9.eq)(users.organizationId, orgId3));
+      async getUsersByOrg(orgId4) {
+        return db.select().from(users).where((0, import_drizzle_orm9.eq)(users.organizationId, orgId4));
       }
       // === ORGANIZATIONS ===
       async getOrganization(id) {
@@ -59429,24 +59716,24 @@ var init_storage = __esm({
         return updated;
       }
       // === ORG MEMBERS ===
-      async getOrgMembers(orgId3) {
-        return db.select().from(orgMembers).where((0, import_drizzle_orm9.eq)(orgMembers.organizationId, orgId3));
+      async getOrgMembers(orgId4) {
+        return db.select().from(orgMembers).where((0, import_drizzle_orm9.eq)(orgMembers.organizationId, orgId4));
       }
       async addOrgMember(member) {
         const [created] = await db.insert(orgMembers).values(member).returning();
         return created;
       }
-      async removeOrgMember(orgId3, userId) {
+      async removeOrgMember(orgId4, userId) {
         await db.delete(orgMembers).where(
-          (0, import_drizzle_orm9.and)((0, import_drizzle_orm9.eq)(orgMembers.organizationId, orgId3), (0, import_drizzle_orm9.eq)(orgMembers.userId, userId))
+          (0, import_drizzle_orm9.and)((0, import_drizzle_orm9.eq)(orgMembers.organizationId, orgId4), (0, import_drizzle_orm9.eq)(orgMembers.userId, userId))
         );
       }
       // === VOICE PROFILES ===
       async getVoiceProfiles(userId) {
         return db.select().from(voiceProfiles).where((0, import_drizzle_orm9.eq)(voiceProfiles.userId, userId));
       }
-      async getOrgVoiceProfiles(orgId3) {
-        return db.select().from(voiceProfiles).where((0, import_drizzle_orm9.eq)(voiceProfiles.organizationId, orgId3));
+      async getOrgVoiceProfiles(orgId4) {
+        return db.select().from(voiceProfiles).where((0, import_drizzle_orm9.eq)(voiceProfiles.organizationId, orgId4));
       }
       async createVoiceProfile(profile) {
         const [res] = await db.insert(voiceProfiles).values(profile).returning();
@@ -87006,10 +87293,10 @@ async function resolveCallee(identifier) {
   }
   const loweredIdentifier = rawIdentifier.toLowerCase();
   const byIdentity = await db.query.users.findFirst({
-    where: (users5, { and: and41, eq: eq60, or: or12, sql: sql19 }) => and41(
-      eq60(users5.isActive, true),
+    where: (users5, { and: and42, eq: eq61, or: or12, sql: sql19 }) => and42(
+      eq61(users5.isActive, true),
       or12(
-        eq60(users5.username, rawIdentifier),
+        eq61(users5.username, rawIdentifier),
         sql19`LOWER(${users5.email}) = ${loweredIdentifier}`,
         sql19`REPLACE(COALESCE(${users5.phone}, ''), ' ', '') = ${normalizedPhone}`
       )
@@ -87404,10 +87691,10 @@ async function sendIncomingCallPush(userId, payload) {
     logger.warn("SmartCallRouter", `push failed for ${userId}: ${String(error)}`);
   }
 }
-async function resolveOrgOutboundCallerId(orgId3) {
-  if (!orgId3) return null;
+async function resolveOrgOutboundCallerId(orgId4) {
+  if (!orgId4) return null;
   try {
-    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm11.eq)(organizations.id, orgId3));
+    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm11.eq)(organizations.id, orgId4));
     const callerId = org?.settings?.outboundCallerId;
     return typeof callerId === "string" && callerId.length > 0 ? callerId : null;
   } catch {
@@ -104142,10 +104429,10 @@ var require_codegen = __commonJS({
     }
     exports2.not = not;
     var andCode = mappend(exports2.operators.AND);
-    function and41(...args) {
+    function and42(...args) {
       return args.reduce(andCode);
     }
-    exports2.and = and41;
+    exports2.and = and42;
     var orCode = mappend(exports2.operators.OR);
     function or12(...args) {
       return args.reduce(orCode);
@@ -115778,8 +116065,8 @@ var require_eq = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/eq.js"(exports2, module2) {
     "use strict";
     var compare = require_compare();
-    var eq60 = (a, b, loose) => compare(a, b, loose) === 0;
-    module2.exports = eq60;
+    var eq61 = (a, b, loose) => compare(a, b, loose) === 0;
+    module2.exports = eq61;
   }
 });
 
@@ -115817,7 +116104,7 @@ var require_lte = __commonJS({
 var require_cmp = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/cmp.js"(exports2, module2) {
     "use strict";
-    var eq60 = require_eq();
+    var eq61 = require_eq();
     var neq = require_neq();
     var gt5 = require_gt();
     var gte9 = require_gte();
@@ -115844,7 +116131,7 @@ var require_cmp = __commonJS({
         case "":
         case "=":
         case "==":
-          return eq60(a, b, loose);
+          return eq61(a, b, loose);
         case "!=":
           return neq(a, b, loose);
         case ">":
@@ -116825,15 +117112,15 @@ var require_subset = __commonJS({
           return null;
         }
       }
-      for (const eq60 of eqSet) {
-        if (gt5 && !satisfies(eq60, String(gt5), options)) {
+      for (const eq61 of eqSet) {
+        if (gt5 && !satisfies(eq61, String(gt5), options)) {
           return null;
         }
-        if (lt7 && !satisfies(eq60, String(lt7), options)) {
+        if (lt7 && !satisfies(eq61, String(lt7), options)) {
           return null;
         }
         for (const c of dom) {
-          if (!satisfies(eq60, String(c), options)) {
+          if (!satisfies(eq61, String(c), options)) {
             return false;
           }
         }
@@ -116937,7 +117224,7 @@ var require_semver2 = __commonJS({
     var rsort = require_rsort();
     var gt5 = require_gt();
     var lt7 = require_lt();
-    var eq60 = require_eq();
+    var eq61 = require_eq();
     var neq = require_neq();
     var gte9 = require_gte();
     var lte5 = require_lte();
@@ -116975,7 +117262,7 @@ var require_semver2 = __commonJS({
       rsort,
       gt: gt5,
       lt: lt7,
-      eq: eq60,
+      eq: eq61,
       neq,
       gte: gte9,
       lte: lte5,
@@ -133255,7 +133542,7 @@ function setupAdminMonitor(wss) {
     adminClients.push(client);
     console.log(`[AdminMonitor] Admin connected (userId: ${userId}), total: ${adminClients.length}`);
     ws.send(JSON.stringify(getSnapshot()));
-    const heartbeat = setInterval(() => {
+    const heartbeat2 = setInterval(() => {
       if (ws.readyState === import_ws4.WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: "heartbeat",
@@ -133284,7 +133571,7 @@ function setupAdminMonitor(wss) {
     const removeClient2 = () => {
       const idx = adminClients.indexOf(client);
       if (idx !== -1) adminClients.splice(idx, 1);
-      clearInterval(heartbeat);
+      clearInterval(heartbeat2);
       clearInterval(statsInterval);
     };
     ws.on("close", () => {
@@ -133706,7 +133993,7 @@ function setupCommunicationApiWebSocket(wss) {
       client.ws.send(JSON.stringify({ type: "event", data: event }));
     };
     communicationApiEvents.on("event", forwardEvent);
-    const heartbeat = setInterval(async () => {
+    const heartbeat2 = setInterval(async () => {
       if (ws.readyState !== import_ws5.WebSocket.OPEN) return;
       try {
         const snapshot = await getCommunicationCallStatus(auth.apiKey, sessionId);
@@ -133727,7 +134014,7 @@ function setupCommunicationApiWebSocket(wss) {
       }
     });
     const cleanup = () => {
-      clearInterval(heartbeat);
+      clearInterval(heartbeat2);
       communicationApiEvents.off("event", forwardEvent);
       removeClient(client);
     };
@@ -137119,14 +137406,14 @@ var require_get = __commonJS({
         throw e;
       }
     }
-    var desc29 = !!hasProtoAccessor && gOPD && gOPD(
+    var desc30 = !!hasProtoAccessor && gOPD && gOPD(
       Object.prototype,
       /** @type {keyof typeof Object.prototype} */
       "__proto__"
     );
     var $Object = Object;
     var $getPrototypeOf = $Object.getPrototypeOf;
-    module2.exports = desc29 && typeof desc29.get === "function" ? callBind([desc29.get]) : typeof $getPrototypeOf === "function" ? (
+    module2.exports = desc30 && typeof desc30.get === "function" ? callBind([desc30.get]) : typeof $getPrototypeOf === "function" ? (
       /** @type {import('./get')} */
       function getDunder(value) {
         return $getPrototypeOf(value == null ? value : $Object(value));
@@ -137476,10 +137763,10 @@ var require_get_intrinsic = __commonJS({
             return void undefined2;
           }
           if ($gOPD && i + 1 >= parts.length) {
-            var desc29 = $gOPD(value, part);
-            isOwn = !!desc29;
-            if (isOwn && "get" in desc29 && !("originalValue" in desc29.get)) {
-              value = desc29.get;
+            var desc30 = $gOPD(value, part);
+            isOwn = !!desc30;
+            if (isOwn && "get" in desc30 && !("originalValue" in desc30.get)) {
+              value = desc30.get;
             } else {
               value = value[part];
             }
@@ -143304,8 +143591,8 @@ var require_lib4 = __commonJS({
     Body.mixIn = function(proto) {
       for (const name of Object.getOwnPropertyNames(Body.prototype)) {
         if (!(name in proto)) {
-          const desc29 = Object.getOwnPropertyDescriptor(Body.prototype, name);
-          Object.defineProperty(proto, name, desc29);
+          const desc30 = Object.getOwnPropertyDescriptor(Body.prototype, name);
+          Object.defineProperty(proto, name, desc30);
         }
       }
     };
@@ -148409,13 +148696,13 @@ var require_src9 = __commonJS({
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
-      var desc29 = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc29 || ("get" in desc29 ? !m.__esModule : desc29.writable || desc29.configurable)) {
-        desc29 = { enumerable: true, get: function() {
+      var desc30 = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc30 || ("get" in desc30 ? !m.__esModule : desc30.writable || desc30.configurable)) {
+        desc30 = { enumerable: true, get: function() {
           return m[k];
         } };
       }
-      Object.defineProperty(o, k2, desc29);
+      Object.defineProperty(o, k2, desc30);
     }) : (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       o[k2] = m[k];
@@ -165173,8 +165460,8 @@ var require_tls = __commonJS({
           return tls.Alert.Description.bad_certificate;
       }
     };
-    var _alertDescToCertError = function(desc29) {
-      switch (desc29) {
+    var _alertDescToCertError = function(desc30) {
+      switch (desc30) {
         case true:
           return true;
         case tls.Alert.Description.bad_certificate:
@@ -165200,7 +165487,7 @@ var require_tls = __commonJS({
           options[key3] = c.verifyOptions[key3];
         }
         options.verify = function(vfd, depth, chain2) {
-          var desc29 = _certErrorToAlertDesc(vfd);
+          var desc30 = _certErrorToAlertDesc(vfd);
           var ret = c.verify(c, vfd, depth, chain2);
           if (ret !== true) {
             if (typeof ret === "object" && !forge.util.isArray(ret)) {
@@ -169042,8 +169329,8 @@ var require_src11 = __commonJS({
           this.tokenExpires = void 0;
           const body = e.response && ((_a = e.response) === null || _a === void 0 ? void 0 : _a.data) ? (_b = e.response) === null || _b === void 0 ? void 0 : _b.data : {};
           if (body.error) {
-            const desc29 = body.error_description ? `: ${body.error_description}` : "";
-            e.message = `${body.error}${desc29}`;
+            const desc30 = body.error_description ? `: ${body.error_description}` : "";
+            e.message = `${body.error}${desc30}`;
           }
           throw e;
         }
@@ -210994,13 +211281,13 @@ var require_src18 = __commonJS({
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
-      var desc29 = Object.getOwnPropertyDescriptor(m, k);
-      if (!desc29 || ("get" in desc29 ? !m.__esModule : desc29.writable || desc29.configurable)) {
-        desc29 = { enumerable: true, get: function() {
+      var desc30 = Object.getOwnPropertyDescriptor(m, k);
+      if (!desc30 || ("get" in desc30 ? !m.__esModule : desc30.writable || desc30.configurable)) {
+        desc30 = { enumerable: true, get: function() {
           return m[k];
         } };
       }
-      Object.defineProperty(o, k2, desc29);
+      Object.defineProperty(o, k2, desc30);
     }) : (function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
       o[k2] = m[k];
@@ -213939,8 +214226,8 @@ function calculateGst(taxableAmountPaise, gstPercentage, isInterState) {
   const halfTax = Math.round(totalTax / 2);
   return { cgst: halfTax, sgst: halfTax, igst: 0, totalTax };
 }
-function formatPricePaise(cents) {
-  return `$${(cents / 100).toFixed(2)}`;
+function formatPricePaise(paise) {
+  return `\u20B9${(paise / 100).toFixed(2)}`;
 }
 function formatDate(date) {
   return date.toLocaleDateString("en-US", {
@@ -214283,11 +214570,16 @@ async function generateInvoiceHtml(invoiceId) {
       ${invoice.notes ? `<p style="margin-top: 8px;"><strong>Notes:</strong> ${invoice.notes}</p>` : ""}
     </div>
 
+    <div style="margin-top: 40px; text-align: center; display: flex; justify-content: center; gap: 12px;" class="no-print">
+      <button onclick="window.print()" style="background: #0891b2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">\u2B07 Download / Print PDF</button>
+    </div>
+
     <div class="footer">
       <p>This is a computer-generated invoice and does not require a signature.</p>
       <p style="margin-top: 8px;">For any queries, please contact support@neuratalk.in</p>
     </div>
   </div>
+  <style>@media print { .no-print { display: none !important; } body { padding: 20px; } }</style>
 </body>
 </html>
     `;
@@ -216245,10 +216537,10 @@ function registerBillingRoutes(app2) {
     try {
       const user2 = req.user;
       const userId = user2.id;
-      const orgId3 = user2.organizationId ?? null;
-      if (orgId3) {
-        const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm34.eq)(billingAccounts.organizationId, orgId3)).limit(1);
-        const ledger2 = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm34.eq)(billingLedgerEntries.organizationId, orgId3)).orderBy((0, import_drizzle_orm34.desc)(billingLedgerEntries.createdAt)).limit(50);
+      const orgId4 = user2.organizationId ?? null;
+      if (orgId4) {
+        const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm34.eq)(billingAccounts.organizationId, orgId4)).limit(1);
+        const ledger2 = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm34.eq)(billingLedgerEntries.organizationId, orgId4)).orderBy((0, import_drizzle_orm34.desc)(billingLedgerEntries.createdAt)).limit(50);
         return res.json({
           success: true,
           walletType: "organization",
@@ -216317,11 +216609,11 @@ function registerBillingRoutes(app2) {
     try {
       const user2 = req.user;
       const userId = user2.id;
-      const orgId3 = user2.organizationId ?? null;
+      const orgId4 = user2.organizationId ?? null;
       const limitRaw = Math.min(Number(req.query.limit) || 20, 100);
       const offsetRaw = Math.max(Number(req.query.offset) || 0, 0);
       const statusFilter = req.query.status || void 0;
-      const conditions = orgId3 ? [(0, import_drizzle_orm34.eq)(subscriptions.organizationId, orgId3)] : [(0, import_drizzle_orm34.eq)(subscriptions.userId, userId)];
+      const conditions = orgId4 ? [(0, import_drizzle_orm34.eq)(subscriptions.organizationId, orgId4)] : [(0, import_drizzle_orm34.eq)(subscriptions.userId, userId)];
       if (statusFilter) {
         conditions.push((0, import_drizzle_orm34.eq)(subscriptions.status, statusFilter));
       }
@@ -217161,11 +217453,11 @@ function registerEnterpriseRoutes(app2) {
     try {
       const range = req.query.range || "7d";
       const user2 = req.user;
-      const orgId3 = user2.organizationId;
+      const orgId4 = user2.organizationId;
       const isSuperAdmin3 = user2.role === "super_admin";
       let userCountCondition = (0, import_drizzle_orm38.eq)(users.isActive, true);
-      if (!isSuperAdmin3 && orgId3) {
-        userCountCondition = (0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(users.isActive, true), (0, import_drizzle_orm38.eq)(users.organizationId, orgId3));
+      if (!isSuperAdmin3 && orgId4) {
+        userCountCondition = (0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(users.isActive, true), (0, import_drizzle_orm38.eq)(users.organizationId, orgId4));
       }
       const [userStats] = await db.select({
         activeUsers: (0, import_drizzle_orm38.count)(users.id)
@@ -217243,13 +217535,13 @@ function registerEnterpriseRoutes(app2) {
   app2.get("/api/enterprise/team", loadUser, requireCompanyAdminOrAbove, async (req, res) => {
     try {
       const user2 = req.user;
-      const orgId3 = user2.organizationId;
+      const orgId4 = user2.organizationId;
       const isSuperAdmin3 = user2.role === "super_admin";
       let queryCondition = void 0;
-      if (!isSuperAdmin3 && orgId3) {
-        queryCondition = (0, import_drizzle_orm38.eq)(users.organizationId, orgId3);
+      if (!isSuperAdmin3 && orgId4) {
+        queryCondition = (0, import_drizzle_orm38.eq)(users.organizationId, orgId4);
       }
-      const teamMembers = await db.select({
+      const teamMembers2 = await db.select({
         id: users.id,
         name: users.username,
         email: users.email,
@@ -217266,7 +217558,7 @@ function registerEnterpriseRoutes(app2) {
       `);
       const callCountMap = /* @__PURE__ */ new Map();
       callCountRows.rows.forEach((r) => callCountMap.set(Number(r.uid), Number(r.calls)));
-      const formattedMembers = teamMembers.map((member) => ({
+      const formattedMembers = teamMembers2.map((member) => ({
         id: member.id,
         name: member.name || `User ${member.id}`,
         email: member.email || `user${member.id}@company.com`,
@@ -217276,16 +217568,16 @@ function registerEnterpriseRoutes(app2) {
         lastActive: member.lastLoginAt ? getRelativeTime(member.lastLoginAt) : "Never",
         calls: callCountMap.get(member.id) || 0
       }));
-      const adminCount = teamMembers.filter((m) => m.role === "super_admin" || m.role === "company_admin").length;
-      const activeCount = teamMembers.filter((m) => m.isActive).length;
+      const adminCount = teamMembers2.filter((m) => m.role === "super_admin" || m.role === "company_admin").length;
+      const activeCount = teamMembers2.filter((m) => m.isActive).length;
       res.json({
         members: formattedMembers,
         stats: {
-          total: teamMembers.length,
+          total: teamMembers2.length,
           active: activeCount,
           admins: adminCount,
-          managers: teamMembers.filter((m) => m.role === "company_admin").length,
-          agents: teamMembers.filter((m) => m.role === "agent" || m.role === "consumer").length
+          managers: teamMembers2.filter((m) => m.role === "company_admin").length,
+          agents: teamMembers2.filter((m) => m.role === "agent" || m.role === "consumer").length
         }
       });
     } catch (error) {
@@ -217296,7 +217588,7 @@ function registerEnterpriseRoutes(app2) {
   app2.get("/api/enterprise/audit-logs", loadUser, requireCompanyAdminOrAbove, async (req, res) => {
     try {
       const user2 = req.user;
-      const orgId3 = user2.organizationId;
+      const orgId4 = user2.organizationId;
       const isSuperAdmin3 = user2.role === "super_admin";
       let logsQuery = db.select({
         id: auditLogs.id,
@@ -217308,13 +217600,13 @@ function registerEnterpriseRoutes(app2) {
         ipAddress: auditLogs.ipAddress,
         createdAt: auditLogs.createdAt
       }).from(auditLogs);
-      if (!isSuperAdmin3 && orgId3) {
-        logsQuery = logsQuery.where((0, import_drizzle_orm38.eq)(auditLogs.organizationId, orgId3));
+      if (!isSuperAdmin3 && orgId4) {
+        logsQuery = logsQuery.where((0, import_drizzle_orm38.eq)(auditLogs.organizationId, orgId4));
       }
       const logs = await logsQuery.orderBy((0, import_drizzle_orm38.desc)(auditLogs.createdAt)).limit(50);
       let orgUserIds = [];
-      if (!isSuperAdmin3 && orgId3) {
-        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm38.eq)(users.organizationId, orgId3));
+      if (!isSuperAdmin3 && orgId4) {
+        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm38.eq)(users.organizationId, orgId4));
         orgUserIds = orgUsers.map((u) => u.id);
       }
       const usersMap = /* @__PURE__ */ new Map();
@@ -217323,7 +217615,7 @@ function registerEnterpriseRoutes(app2) {
         username: users.username
       }).from(users);
       usersList.forEach((u) => usersMap.set(u.id, u.username));
-      const filteredLogs = !isSuperAdmin3 && orgId3 ? logs.filter((log2) => log2.organizationId === orgId3 || log2.userId !== null && orgUserIds.includes(log2.userId)) : logs;
+      const filteredLogs = !isSuperAdmin3 && orgId4 ? logs.filter((log2) => log2.organizationId === orgId4 || log2.userId !== null && orgUserIds.includes(log2.userId)) : logs;
       const formattedLogs = filteredLogs.map((log2) => ({
         id: log2.id,
         user: log2.userId ? usersMap.get(log2.userId) || "Unknown" : "System",
@@ -217342,11 +217634,11 @@ function registerEnterpriseRoutes(app2) {
   app2.get("/api/enterprise/recordings", loadUser, requireCompanyAdminOrAbove, async (req, res) => {
     try {
       const user2 = req.user;
-      const orgId3 = user2.organizationId;
+      const orgId4 = user2.organizationId;
       const isSuperAdmin3 = user2.role === "super_admin";
       let orgUserIds = [];
-      if (!isSuperAdmin3 && orgId3) {
-        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm38.eq)(users.organizationId, orgId3));
+      if (!isSuperAdmin3 && orgId4) {
+        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm38.eq)(users.organizationId, orgId4));
         orgUserIds = orgUsers.map((u) => u.id);
       }
       const calls = await db.select({
@@ -217362,7 +217654,7 @@ function registerEnterpriseRoutes(app2) {
         createdAt: bridgedCalls.createdAt
       }).from(bridgedCalls).orderBy((0, import_drizzle_orm38.desc)(bridgedCalls.createdAt)).limit(50);
       let filteredCalls = calls;
-      if (!isSuperAdmin3 && orgId3) {
+      if (!isSuperAdmin3 && orgId4) {
         filteredCalls = calls.filter(
           (call) => call.callerUserId && orgUserIds.includes(call.callerUserId) || call.receiverUserId && orgUserIds.includes(call.receiverUserId)
         );
@@ -219081,11 +219373,11 @@ var init_ip_whitelist = __esm({
         if (!organizationId && req.user.role !== "super_admin") {
           return res.status(400).json({ error: "No organization associated with user" });
         }
-        const orgId3 = organizationId || parseInt(req.query.organizationId);
-        if (!orgId3) {
+        const orgId4 = organizationId || parseInt(req.query.organizationId);
+        if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
-        const whitelist = await db.select().from(ipWhitelists).where((0, import_drizzle_orm43.eq)(ipWhitelists.organizationId, orgId3));
+        const whitelist = await db.select().from(ipWhitelists).where((0, import_drizzle_orm43.eq)(ipWhitelists.organizationId, orgId4));
         res.json(whitelist);
       } catch (error) {
         console.error("Error fetching IP whitelist:", error);
@@ -219107,9 +219399,9 @@ var init_ip_whitelist = __esm({
           return res.status(400).json({ error: "Invalid input", details: parsed.error.errors });
         }
         const { ipAddress, description } = parsed.data;
-        const orgId3 = organizationId || req.body.organizationId;
+        const orgId4 = organizationId || req.body.organizationId;
         const [entry] = await db.insert(ipWhitelists).values({
-          organizationId: orgId3,
+          organizationId: orgId4,
           ipAddress,
           description,
           createdBy: req.user.id
@@ -219145,14 +219437,14 @@ var init_ip_whitelist = __esm({
           return res.status(400).json({ error: "No organization associated with user" });
         }
         const { enabled } = req.body;
-        const orgId3 = organizationId || req.body.organizationId;
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm43.eq)(organizations.id, orgId3));
+        const orgId4 = organizationId || req.body.organizationId;
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm43.eq)(organizations.id, orgId4));
         if (!org) {
           return res.status(404).json({ error: "Organization not found" });
         }
         const currentSettings = org.settings || {};
         const newSettings = { ...currentSettings, ipWhitelistEnabled: Boolean(enabled) };
-        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm43.eq)(organizations.id, orgId3));
+        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm43.eq)(organizations.id, orgId4));
         res.json({
           success: true,
           enabled: Boolean(enabled),
@@ -219169,8 +219461,8 @@ var init_ip_whitelist = __esm({
         if (!organizationId && req.user.role !== "super_admin") {
           return res.status(400).json({ error: "No organization associated with user" });
         }
-        const orgId3 = organizationId || parseInt(req.query.organizationId);
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm43.eq)(organizations.id, orgId3));
+        const orgId4 = organizationId || parseInt(req.query.organizationId);
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm43.eq)(organizations.id, orgId4));
         if (!org) {
           return res.status(404).json({ error: "Organization not found" });
         }
@@ -219208,11 +219500,11 @@ var init_custom_roles = __esm({
         if (!organizationId && req.user.role !== "super_admin") {
           return res.status(400).json({ error: "No organization associated with user" });
         }
-        const orgId3 = organizationId || parseInt(req.query.organizationId);
-        if (!orgId3) {
+        const orgId4 = organizationId || parseInt(req.query.organizationId);
+        if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
-        const roles = await db.select().from(customRoles).where((0, import_drizzle_orm44.eq)(customRoles.organizationId, orgId3));
+        const roles = await db.select().from(customRoles).where((0, import_drizzle_orm44.eq)(customRoles.organizationId, orgId4));
         res.json({
           roles,
           availablePermissions: Object.values(PERMISSIONS)
@@ -219239,7 +219531,7 @@ var init_custom_roles = __esm({
         if (!parsed.success) {
           return res.status(400).json({ error: "Invalid input", details: parsed.error.errors });
         }
-        const orgId3 = organizationId || req.body.organizationId;
+        const orgId4 = organizationId || req.body.organizationId;
         const { name, description, permissions, isDefault, priority } = parsed.data;
         const validPermissions = Object.values(PERMISSIONS);
         const invalidPerms = permissions.filter((p) => !validPermissions.includes(p));
@@ -219251,10 +219543,10 @@ var init_custom_roles = __esm({
           });
         }
         if (isDefault) {
-          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm44.eq)(customRoles.organizationId, orgId3));
+          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm44.eq)(customRoles.organizationId, orgId4));
         }
         const [role] = await db.insert(customRoles).values({
-          organizationId: orgId3,
+          organizationId: orgId4,
           name,
           description,
           permissions,
@@ -219525,12 +219817,12 @@ bob.wilson,bob.wilson@company.com,,consumer,`;
         if (!usersToImport || !Array.isArray(usersToImport) || usersToImport.length === 0) {
           return res.status(400).json({ error: "No users to import" });
         }
-        const orgId3 = organizationId || req.body.organizationId;
+        const orgId4 = organizationId || req.body.organizationId;
         const results = [];
         let customRolesMap = {};
         const roleNames = Array.from(new Set(usersToImport.map((u) => u.customRoleName).filter(Boolean)));
         if (roleNames.length > 0) {
-          const roles = await db.select().from(customRoles).where((0, import_drizzle_orm45.eq)(customRoles.organizationId, orgId3));
+          const roles = await db.select().from(customRoles).where((0, import_drizzle_orm45.eq)(customRoles.organizationId, orgId4));
           customRolesMap = roles.reduce((acc, role) => {
             acc[role.name.toLowerCase()] = role.id;
             return acc;
@@ -219554,12 +219846,12 @@ bob.wilson,bob.wilson@company.com,,consumer,`;
               email: userData.email || null,
               phone: userData.phone || null,
               role: userData.role || "agent",
-              organizationId: orgId3,
+              organizationId: orgId4,
               isActive: true
             }).returning();
             await db.insert(orgMembers).values({
               userId: newUser.id,
-              organizationId: orgId3,
+              organizationId: orgId4,
               memberRole: userData.role === "company_admin" ? "admin" : "member",
               permissions: []
             });
@@ -220992,7 +221284,7 @@ var init_personal_chat_routes = __esm({
 `);
       };
       send({ type: "ready", viewerId, emittedAt: (/* @__PURE__ */ new Date()).toISOString() });
-      const heartbeat = setInterval(() => {
+      const heartbeat2 = setInterval(() => {
         send({ type: "heartbeat", ts: Date.now() });
       }, 2e4);
       const listener = (payload) => {
@@ -221000,7 +221292,7 @@ var init_personal_chat_routes = __esm({
       };
       personalChatBus.on(personalChatEventKey(viewerId), listener);
       req.on("close", () => {
-        clearInterval(heartbeat);
+        clearInterval(heartbeat2);
         personalChatBus.off(personalChatEventKey(viewerId), listener);
         res.end();
       });
@@ -227414,7 +227706,7 @@ async function incomingStream(req, res) {
 
 `);
   }
-  const heartbeat = setInterval(() => {
+  const heartbeat2 = setInterval(() => {
     if (!res.writableEnded) res.write(`: heartbeat
 
 `);
@@ -227428,7 +227720,7 @@ async function incomingStream(req, res) {
   };
   incomingCallBus.on(`incoming:${userId}`, onIncoming);
   const cleanup = () => {
-    clearInterval(heartbeat);
+    clearInterval(heartbeat2);
     incomingCallBus.off(`incoming:${userId}`, onIncoming);
   };
   req.on("close", cleanup);
@@ -229384,16 +229676,16 @@ function registerPSTNRoutes(app2) {
   });
   app2.get("/api/pstn/cdrs", loadUser, requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const orgId3 = req.query.orgId ? parseInt(String(req.query.orgId), 10) : null;
+      const orgId4 = req.query.orgId ? parseInt(String(req.query.orgId), 10) : null;
       const format = String(req.query.format || "json").toLowerCase();
       const limit = Math.min(500, parseInt(String(req.query.limit || "100"), 10) || 100);
-      if (!orgId3 || !Number.isFinite(orgId3)) {
+      if (!orgId4 || !Number.isFinite(orgId4)) {
         return res.status(400).json({ error: "orgId required" });
       }
-      const cdrs = await listRecentCDRsForOrg(orgId3, limit);
+      const cdrs = await listRecentCDRsForOrg(orgId4, limit);
       if (format === "csv") {
         res.set("Content-Type", "text/csv");
-        res.set("Content-Disposition", `attachment; filename="cdrs-org-${orgId3}.csv"`);
+        res.set("Content-Disposition", `attachment; filename="cdrs-org-${orgId4}.csv"`);
         return res.send(cdrsToCSV(cdrs));
       }
       return res.json({ cdrs, count: cdrs.length });
@@ -229532,11 +229824,11 @@ async function inboundCallWebhook(req, res) {
   if (toDID) {
     const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm58.eq)(orgDIDNumbers.phoneNumber, toDID)).limit(1).catch(() => []);
     if (did && did.isActive && (did.type === "inbound" || did.type === "both")) {
-      const orgId3 = did.organizationId;
+      const orgId4 = did.organizationId;
       const ivrCfg = did.ivrConfig ?? {};
       if (did.ivrEnabled && !digit) {
         const greeting = ivrCfg.greeting || "Welcome. Press 1 for Sales, 2 for Support.";
-        logger.info("InboundCall", `IVR menu shown for org ${orgId3}, DID ${toDID}`);
+        logger.info("InboundCall", `IVR menu shown for org ${orgId4}, DID ${toDID}`);
         return res.json({
           status: "ivr",
           ivr: { greeting, collectDigit: true, timeoutSeconds: 10 }
@@ -229547,9 +229839,9 @@ async function inboundCallWebhook(req, res) {
         const match = ivrCfg.menuOptions.find((o) => o.digit === digit);
         if (match?.targetSkill) requiredSkills = [match.targetSkill];
       }
-      const agentUserId = await routeToSkillAgent(orgId3, requiredSkills).catch(() => null);
+      const agentUserId = await routeToSkillAgent(orgId4, requiredSkills).catch(() => null);
       if (!agentUserId) {
-        logger.warn("InboundCall", `No available agent for org ${orgId3}, skills=${JSON.stringify(requiredSkills)}`);
+        logger.warn("InboundCall", `No available agent for org ${orgId4}, skills=${JSON.stringify(requiredSkills)}`);
         return res.json({ status: "no_agent_available" });
       }
       try {
@@ -229561,12 +229853,12 @@ async function inboundCallWebhook(req, res) {
           callType: "voice",
           transportPreference: "app_to_app",
           sessionIdOverride: providerCallId ? `call_inb_${providerCallId}` : void 0,
-          organizationIdOverride: orgId3
+          organizationIdOverride: orgId4
         });
-        logger.info("InboundCall", `B2B call routed to agent ${agentUserId} for org ${orgId3}, callId=${result.callId}`);
+        logger.info("InboundCall", `B2B call routed to agent ${agentUserId} for org ${orgId4}, callId=${result.callId}`);
         return res.json({ status: "routed", callId: result.callId, agentUserId });
       } catch (e) {
-        logger.error("InboundCall", `B2B routing failed org=${orgId3} agent=${agentUserId}: ${e.message}`);
+        logger.error("InboundCall", `B2B routing failed org=${orgId4} agent=${agentUserId}: ${e.message}`);
         return res.json({ status: "error", error: e.message });
       }
     }
@@ -229638,8 +229930,8 @@ function getUser(req) {
 function isSuperAdmin2(user2) {
   return user2.role === "super_admin" || user2.isSuperAdmin === true;
 }
-function isOrgAdmin(user2, orgId3) {
-  return isSuperAdmin2(user2) || user2.organizationId === orgId3 && (user2.role === "company_admin" || user2.role === "org_admin");
+function isOrgAdmin(user2, orgId4) {
+  return isSuperAdmin2(user2) || user2.organizationId === orgId4 && (user2.role === "company_admin" || user2.role === "org_admin");
 }
 function badRequest(res, msg) {
   return res.status(400).json({ success: false, error: msg });
@@ -229696,17 +229988,17 @@ async function updateVirtualNumberStatus(req, res) {
 }
 async function listOrgDIDs(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
-  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId3)).orderBy(orgDIDNumbers.createdAt);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
+  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId4)).orderBy(orgDIDNumbers.createdAt);
   return res.json({ success: true, data: dids });
 }
 async function addOrgDID(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const schema = import_zod24.z.object({
     phoneNumber: import_zod24.z.string().min(8),
     label: import_zod24.z.string().optional(),
@@ -229717,10 +230009,10 @@ async function addOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
+  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const [inserted] = await db.insert(orgDIDNumbers).values({
-    organizationId: orgId3,
+    organizationId: orgId4,
     phoneNumber: parsed.data.phoneNumber,
     label: parsed.data.label,
     type: parsed.data.type,
@@ -229729,15 +230021,15 @@ async function addOrgDID(req, res) {
     ivrConfig: parsed.data.ivrConfig ?? {},
     isActive: true
   }).returning();
-  logger.info("B2BAdmin", "Org DID added", { orgId: orgId3, phoneNumber: parsed.data.phoneNumber });
+  logger.info("B2BAdmin", "Org DID added", { orgId: orgId4, phoneNumber: parsed.data.phoneNumber });
   return res.status(201).json({ success: true, data: inserted });
 }
 async function updateOrgDID(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
+  const orgId4 = Number(req.params.orgId);
   const didId = Number(req.params.didId);
-  if (!Number.isFinite(orgId3) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  if (!Number.isFinite(orgId4) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const schema = import_zod24.z.object({
     label: import_zod24.z.string().optional(),
     type: import_zod24.z.enum(["inbound", "outbound", "both"]).optional(),
@@ -229747,43 +230039,43 @@ async function updateOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId3))).returning();
+  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId4))).returning();
   if (!updated) return res.status(404).json({ success: false, error: "DID not found" });
   return res.json({ success: true, data: updated });
 }
 async function deleteOrgDID(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
+  const orgId4 = Number(req.params.orgId);
   const didId = Number(req.params.didId);
-  if (!Number.isFinite(orgId3) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
-  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId3)));
+  if (!Number.isFinite(orgId4) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
+  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm59.eq)(orgDIDNumbers.organizationId, orgId4)));
   return res.json({ success: true });
 }
 async function setOrgOutboundCallerId(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const schema = import_zod24.z.object({
     callerId: import_zod24.z.string().min(8)
     // E.164 phone number
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
+  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const existingSettings = org.settings ?? {};
   const newSettings = { ...existingSettings, outboundCallerId: parsed.data.callerId };
-  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
-  logger.info("B2BAdmin", "Org outbound caller ID set", { orgId: orgId3, callerId: parsed.data.callerId });
+  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
+  logger.info("B2BAdmin", "Org outbound caller ID set", { orgId: orgId4, callerId: parsed.data.callerId });
   return res.json({ success: true, callerId: parsed.data.callerId });
 }
 async function setOrgSipTrunk(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const schema = import_zod24.z.object({
     host: import_zod24.z.string().min(3),
     port: import_zod24.z.number().int().optional(),
@@ -229794,7 +230086,7 @@ async function setOrgSipTrunk(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
+  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const existingSettings = org.settings ?? {};
   const sipTrunk = {
@@ -229806,22 +230098,22 @@ async function setOrgSipTrunk(req, res) {
     enabled: parsed.data.enabled
   };
   const newSettings = { ...existingSettings, sipTrunk };
-  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
-  logger.info("B2BAdmin", "Org SIP trunk configured", { orgId: orgId3, host: parsed.data.host });
+  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
+  logger.info("B2BAdmin", "Org SIP trunk configured", { orgId: orgId4, host: parsed.data.host });
   return res.json({ success: true, sipTrunk });
 }
 async function getOrgSettings(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const [org] = await db.select({
     id: organizations.id,
     name: organizations.name,
     settings: organizations.settings,
     plan: organizations.plan,
     status: organizations.status
-  }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId3));
+  }).from(organizations).where((0, import_drizzle_orm59.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const settings = org.settings ?? {};
   return res.json({
@@ -229835,9 +230127,9 @@ async function getOrgSettings(req, res) {
 }
 async function listAgentSkills(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
-  if (!Number.isFinite(orgId3)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  const orgId4 = Number(req.params.orgId);
+  if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const rows = await db.select({
     id: agentSkills.id,
     userId: agentSkills.userId,
@@ -229848,15 +230140,15 @@ async function listAgentSkills(req, res) {
     updatedAt: agentSkills.updatedAt,
     userName: users.username,
     userEmail: users.email
-  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm59.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId3));
+  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm59.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId4));
   return res.json({ success: true, data: rows });
 }
 async function upsertAgentSkill(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
+  const orgId4 = Number(req.params.orgId);
   const agentUserId = Number(req.params.userId);
-  if (!Number.isFinite(orgId3) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
+  if (!Number.isFinite(orgId4) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
   const schema = import_zod24.z.object({
     skills: import_zod24.z.array(import_zod24.z.string()).min(1),
     maxConcurrentCalls: import_zod24.z.number().int().min(1).max(20).default(3),
@@ -229865,14 +230157,14 @@ async function upsertAgentSkill(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId3)));
+  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId4)));
   let row;
   if (existing.length > 0) {
-    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId3))).returning();
+    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId4))).returning();
   } else {
     [row] = await db.insert(agentSkills).values({
       userId: agentUserId,
-      organizationId: orgId3,
+      organizationId: orgId4,
       ...parsed.data
     }).returning();
   }
@@ -229880,11 +230172,11 @@ async function upsertAgentSkill(req, res) {
 }
 async function deleteAgentSkill(req, res) {
   const user2 = getUser(req);
-  const orgId3 = Number(req.params.orgId);
+  const orgId4 = Number(req.params.orgId);
   const agentUserId = Number(req.params.userId);
-  if (!Number.isFinite(orgId3) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
-  if (!isOrgAdmin(user2, orgId3)) return forbidden(res);
-  await db.delete(agentSkills).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId3)));
+  if (!Number.isFinite(orgId4) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
+  await db.delete(agentSkills).where((0, import_drizzle_orm59.and)((0, import_drizzle_orm59.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm59.eq)(agentSkills.organizationId, orgId4)));
   return res.json({ success: true });
 }
 function registerB2BAdminRoutes(app2) {
@@ -229933,36 +230225,36 @@ async function getEnterpriseNumber(id, organizationId) {
   const [row] = await db.select().from(enterpriseNumbers).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(enterpriseNumbers.id, id), (0, import_drizzle_orm60.eq)(enterpriseNumbers.organizationId, organizationId)));
   return row ?? null;
 }
-async function registerEnterpriseNumber(data, actorId2, ipAddress) {
+async function registerEnterpriseNumber(data, actorId3, ipAddress) {
   const [created] = await db.insert(enterpriseNumbers).values(data).returning();
   await logHubAudit({
     organizationId: data.organizationId,
     enterpriseNumberId: created.id,
-    actorId: actorId2,
+    actorId: actorId3,
     action: "number_registered",
     details: { phoneNumber: data.phoneNumber, integrationType: data.integrationType },
     ipAddress
   });
   return created;
 }
-async function updateEnterpriseNumber(id, organizationId, patch, actorId2) {
+async function updateEnterpriseNumber(id, organizationId, patch, actorId3) {
   const [updated] = await db.update(enterpriseNumbers).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(enterpriseNumbers.id, id), (0, import_drizzle_orm60.eq)(enterpriseNumbers.organizationId, organizationId))).returning();
   if (updated) {
-    await logHubAudit({ organizationId, enterpriseNumberId: id, actorId: actorId2, action: "number_updated", details: patch });
+    await logHubAudit({ organizationId, enterpriseNumberId: id, actorId: actorId3, action: "number_updated", details: patch });
   }
   return updated ?? null;
 }
-async function deleteEnterpriseNumber(id, organizationId, actorId2) {
+async function deleteEnterpriseNumber(id, organizationId, actorId3) {
   const [deleted] = await db.delete(enterpriseNumbers).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(enterpriseNumbers.id, id), (0, import_drizzle_orm60.eq)(enterpriseNumbers.organizationId, organizationId))).returning();
   if (deleted) {
-    await logHubAudit({ organizationId, enterpriseNumberId: id, actorId: actorId2, action: "number_deleted" });
+    await logHubAudit({ organizationId, enterpriseNumberId: id, actorId: actorId3, action: "number_deleted" });
   }
   return !!deleted;
 }
 function generateOtp() {
   return String((0, import_crypto19.randomInt)(1e5, 999999));
 }
-async function initiateVerification(enterpriseNumberId, organizationId, method, actorId2) {
+async function initiateVerification(enterpriseNumberId, organizationId, method, actorId3) {
   const number = await getEnterpriseNumber(enterpriseNumberId, organizationId);
   if (!number) throw new Error("Enterprise number not found");
   const otp = generateOtp();
@@ -229978,14 +230270,14 @@ async function initiateVerification(enterpriseNumberId, organizationId, method, 
   await logHubAudit({
     organizationId,
     enterpriseNumberId,
-    actorId: actorId2,
+    actorId: actorId3,
     action: "verification_initiated",
     details: { method, verificationId: verification.id }
   });
   logger.info("EnterpriseHub", `Verification OTP for ${number.phoneNumber}: ${otp} (method: ${method})`);
   return { verificationId: verification.id, method, expiresAt: otpExpiresAt };
 }
-async function confirmVerification2(verificationId, organizationId, otp, actorId2) {
+async function confirmVerification2(verificationId, organizationId, otp, actorId3) {
   const [verification] = await db.select().from(numberVerifications).where(
     (0, import_drizzle_orm60.and)(
       (0, import_drizzle_orm60.eq)(numberVerifications.id, verificationId),
@@ -230016,7 +230308,7 @@ async function confirmVerification2(verificationId, organizationId, otp, actorId
     await logHubAudit({
       organizationId,
       enterpriseNumberId: verification.enterpriseNumberId,
-      actorId: actorId2,
+      actorId: actorId3,
       action: "number_verified",
       details: { verificationId }
     });
@@ -230026,28 +230318,28 @@ async function confirmVerification2(verificationId, organizationId, otp, actorId
 async function listSipIntegrations(organizationId) {
   return db.select().from(sipIntegrations).where((0, import_drizzle_orm60.eq)(sipIntegrations.organizationId, organizationId)).orderBy((0, import_drizzle_orm60.desc)(sipIntegrations.createdAt));
 }
-async function upsertSipIntegration(data, actorId2) {
+async function upsertSipIntegration(data, actorId3) {
   const [result] = await db.insert(sipIntegrations).values(data).returning();
   await logHubAudit({
     organizationId: data.organizationId,
     enterpriseNumberId: data.enterpriseNumberId ?? null,
-    actorId: actorId2,
+    actorId: actorId3,
     action: "sip_config_created",
     details: { sipServer: data.sipServer, label: data.label }
   });
   return result;
 }
-async function updateSipIntegration(id, organizationId, patch, actorId2) {
+async function updateSipIntegration(id, organizationId, patch, actorId3) {
   const [updated] = await db.update(sipIntegrations).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(sipIntegrations.id, id), (0, import_drizzle_orm60.eq)(sipIntegrations.organizationId, organizationId))).returning();
   if (updated) {
-    await logHubAudit({ organizationId, enterpriseNumberId: updated.enterpriseNumberId ?? null, actorId: actorId2, action: "sip_config_updated" });
+    await logHubAudit({ organizationId, enterpriseNumberId: updated.enterpriseNumberId ?? null, actorId: actorId3, action: "sip_config_updated" });
   }
   return updated ?? null;
 }
-async function deleteSipIntegration(id, organizationId, actorId2) {
+async function deleteSipIntegration(id, organizationId, actorId3) {
   const [deleted] = await db.delete(sipIntegrations).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(sipIntegrations.id, id), (0, import_drizzle_orm60.eq)(sipIntegrations.organizationId, organizationId))).returning();
   if (deleted) {
-    await logHubAudit({ organizationId, actorId: actorId2, action: "sip_config_deleted", details: { id } });
+    await logHubAudit({ organizationId, actorId: actorId3, action: "sip_config_deleted", details: { id } });
   }
   return !!deleted;
 }
@@ -230055,21 +230347,21 @@ async function listLanguageRules(organizationId, enterpriseNumberId) {
   const conditions = enterpriseNumberId ? (0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(languageRules.organizationId, organizationId), (0, import_drizzle_orm60.eq)(languageRules.enterpriseNumberId, enterpriseNumberId)) : (0, import_drizzle_orm60.eq)(languageRules.organizationId, organizationId);
   return db.select().from(languageRules).where(conditions);
 }
-async function upsertLanguageRule(data, actorId2) {
+async function upsertLanguageRule(data, actorId3) {
   const [result] = await db.insert(languageRules).values(data).returning();
   await logHubAudit({
     organizationId: data.organizationId,
     enterpriseNumberId: data.enterpriseNumberId,
-    actorId: actorId2,
+    actorId: actorId3,
     action: "language_rule_created",
     details: { callerLanguage: data.callerLanguage, agentLanguage: data.agentLanguage }
   });
   return result;
 }
-async function deleteLanguageRule(id, organizationId, actorId2) {
+async function deleteLanguageRule(id, organizationId, actorId3) {
   const [deleted] = await db.delete(languageRules).where((0, import_drizzle_orm60.and)((0, import_drizzle_orm60.eq)(languageRules.id, id), (0, import_drizzle_orm60.eq)(languageRules.organizationId, organizationId))).returning();
   if (deleted) {
-    await logHubAudit({ organizationId, actorId: actorId2, action: "language_rule_deleted", details: { id } });
+    await logHubAudit({ organizationId, actorId: actorId3, action: "language_rule_deleted", details: { id } });
   }
   return !!deleted;
 }
@@ -230082,7 +230374,7 @@ async function getAiConfiguration(enterpriseNumberId, organizationId) {
   );
   return row ?? null;
 }
-async function upsertAiConfiguration(data, actorId2) {
+async function upsertAiConfiguration(data, actorId3) {
   const existing = await getAiConfiguration(data.enterpriseNumberId, data.organizationId);
   let result;
   if (existing) {
@@ -230095,7 +230387,7 @@ async function upsertAiConfiguration(data, actorId2) {
   await logHubAudit({
     organizationId: data.organizationId,
     enterpriseNumberId: data.enterpriseNumberId,
-    actorId: actorId2,
+    actorId: actorId3,
     action: "ai_config_updated",
     details: data
   });
@@ -231586,6 +231878,399 @@ var init_routes12 = __esm({
   }
 });
 
+// server/modules/enterprise-admin/routes.ts
+function requireOrgAdmin(req, res, next) {
+  const role = req.user?.role;
+  if (role === "super_admin" || role === "company_admin") return next();
+  return res.status(403).json({ error: "Company admin or above required" });
+}
+function orgId3(req) {
+  return req.user.organizationId;
+}
+function actorId2(req) {
+  return req.user.id;
+}
+async function listDepartments(req, res) {
+  const rows = await db.select().from(departments).where((0, import_drizzle_orm61.eq)(departments.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(departments.name));
+  res.json(rows);
+}
+async function createDepartment(req, res) {
+  const parsed = insertDepartmentSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(departments).values(parsed.data).returning();
+  await logAuditEvent({ userId: actorId2(req), organizationId: orgId3(req), action: "admin_action", details: { entity: "department", entityId: row.id, op: "create" } });
+  res.status(201).json(row);
+}
+async function updateDepartment(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(departments.id, id), (0, import_drizzle_orm61.eq)(departments.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(departments).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(departments.id, id)).returning();
+  res.json(row);
+}
+async function deleteDepartment(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(departments.id, id), (0, import_drizzle_orm61.eq)(departments.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(departments).where((0, import_drizzle_orm61.eq)(departments.id, id));
+  res.json({ success: true });
+}
+async function listBranches(req, res) {
+  const rows = await db.select().from(branches).where((0, import_drizzle_orm61.eq)(branches.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(branches.name));
+  res.json(rows);
+}
+async function createBranch(req, res) {
+  const parsed = insertBranchSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(branches).values(parsed.data).returning();
+  await logAuditEvent({ userId: actorId2(req), organizationId: orgId3(req), action: "admin_action", details: { entity: "branch", entityId: row.id, op: "create" } });
+  res.status(201).json(row);
+}
+async function updateBranch(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(branches.id, id), (0, import_drizzle_orm61.eq)(branches.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(branches).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(branches.id, id)).returning();
+  res.json(row);
+}
+async function deleteBranch(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(branches.id, id), (0, import_drizzle_orm61.eq)(branches.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(branches).where((0, import_drizzle_orm61.eq)(branches.id, id));
+  res.json({ success: true });
+}
+async function listTeams(req, res) {
+  const rows = await db.select().from(teams).where((0, import_drizzle_orm61.eq)(teams.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(teams.name));
+  res.json(rows);
+}
+async function createTeam(req, res) {
+  const parsed = insertTeamSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(teams).values(parsed.data).returning();
+  await logAuditEvent({ userId: actorId2(req), organizationId: orgId3(req), action: "admin_action", details: { entity: "team", entityId: row.id, op: "create" } });
+  res.status(201).json(row);
+}
+async function updateTeam(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(teams.id, id), (0, import_drizzle_orm61.eq)(teams.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(teams).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(teams.id, id)).returning();
+  res.json(row);
+}
+async function deleteTeam(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(teams.id, id), (0, import_drizzle_orm61.eq)(teams.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(teams).where((0, import_drizzle_orm61.eq)(teams.id, id));
+  res.json({ success: true });
+}
+async function listTeamMembers(req, res) {
+  const teamId = parseInt(req.params.teamId);
+  const rows = await db.select({
+    id: teamMembers.id,
+    teamId: teamMembers.teamId,
+    userId: teamMembers.userId,
+    role: teamMembers.role,
+    joinedAt: teamMembers.joinedAt,
+    userName: users.username,
+    userEmail: users.email
+  }).from(teamMembers).innerJoin(users, (0, import_drizzle_orm61.eq)(teamMembers.userId, users.id)).where((0, import_drizzle_orm61.eq)(teamMembers.teamId, teamId));
+  res.json(rows);
+}
+async function addTeamMember(req, res) {
+  const teamId = parseInt(req.params.teamId);
+  const parsed = insertTeamMemberSchema.safeParse({ ...req.body, teamId });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(teamMembers).values(parsed.data).onConflictDoNothing().returning();
+  res.status(201).json(row ?? { message: "Already a member" });
+}
+async function removeTeamMember(req, res) {
+  const teamId = parseInt(req.params.teamId);
+  const userId = parseInt(req.params.userId);
+  await db.delete(teamMembers).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(teamMembers.teamId, teamId), (0, import_drizzle_orm61.eq)(teamMembers.userId, userId)));
+  res.json({ success: true });
+}
+async function listBusinessHours(req, res) {
+  const rows = await db.select().from(businessHours).where((0, import_drizzle_orm61.eq)(businessHours.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(businessHours.name));
+  res.json(rows);
+}
+async function createBusinessHours(req, res) {
+  const parsed = insertBusinessHoursSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(businessHours).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function updateBusinessHours(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(businessHours.id, id), (0, import_drizzle_orm61.eq)(businessHours.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(businessHours.id, id)).returning();
+  res.json(row);
+}
+async function deleteBusinessHours(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(businessHours.id, id), (0, import_drizzle_orm61.eq)(businessHours.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(businessHours).where((0, import_drizzle_orm61.eq)(businessHours.id, id));
+  res.json({ success: true });
+}
+async function listHolidays(req, res) {
+  const rows = await db.select().from(holidayCalendar).where((0, import_drizzle_orm61.eq)(holidayCalendar.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(holidayCalendar.date));
+  res.json(rows);
+}
+async function createHoliday(req, res) {
+  const parsed = insertHolidayCalendarSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(holidayCalendar).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function deleteHoliday(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(holidayCalendar).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(holidayCalendar.id, id), (0, import_drizzle_orm61.eq)(holidayCalendar.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(holidayCalendar).where((0, import_drizzle_orm61.eq)(holidayCalendar.id, id));
+  res.json({ success: true });
+}
+async function listIvrMenus(req, res) {
+  const rows = await db.select().from(ivrMenus).where((0, import_drizzle_orm61.eq)(ivrMenus.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(ivrMenus.name));
+  res.json(rows);
+}
+async function createIvrMenu(req, res) {
+  const parsed = insertIvrMenuSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(ivrMenus).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function updateIvrMenu(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(ivrMenus.id, id), (0, import_drizzle_orm61.eq)(ivrMenus.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(ivrMenus.id, id)).returning();
+  res.json(row);
+}
+async function deleteIvrMenu(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(ivrMenus.id, id), (0, import_drizzle_orm61.eq)(ivrMenus.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(ivrMenus).where((0, import_drizzle_orm61.eq)(ivrMenus.id, id));
+  res.json({ success: true });
+}
+async function listIvrOptions(req, res) {
+  const menuId = parseInt(req.params.menuId);
+  const rows = await db.select().from(ivrOptions).where((0, import_drizzle_orm61.eq)(ivrOptions.menuId, menuId)).orderBy((0, import_drizzle_orm61.asc)(ivrOptions.displayOrder));
+  res.json(rows);
+}
+async function createIvrOption(req, res) {
+  const menuId = parseInt(req.params.menuId);
+  const parsed = insertIvrOptionSchema.safeParse({ ...req.body, menuId });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(ivrOptions).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function deleteIvrOption(req, res) {
+  const id = parseInt(req.params.optionId);
+  await db.delete(ivrOptions).where((0, import_drizzle_orm61.eq)(ivrOptions.id, id));
+  res.json({ success: true });
+}
+async function listCallQueues(req, res) {
+  const rows = await db.select().from(callQueues).where((0, import_drizzle_orm61.eq)(callQueues.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(callQueues.name));
+  res.json(rows);
+}
+async function createCallQueue(req, res) {
+  const parsed = insertCallQueueSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(callQueues).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function updateCallQueue(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(callQueues.id, id), (0, import_drizzle_orm61.eq)(callQueues.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(callQueues.id, id)).returning();
+  res.json(row);
+}
+async function deleteCallQueue(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(callQueues.id, id), (0, import_drizzle_orm61.eq)(callQueues.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(callQueues).where((0, import_drizzle_orm61.eq)(callQueues.id, id));
+  res.json({ success: true });
+}
+async function getOrgPresence(req, res) {
+  const rows = await db.select({
+    id: agentPresence.id,
+    userId: agentPresence.userId,
+    status: agentPresence.status,
+    statusMessage: agentPresence.statusMessage,
+    currentCallId: agentPresence.currentCallId,
+    queueId: agentPresence.queueId,
+    teamId: agentPresence.teamId,
+    lastStatusChangeAt: agentPresence.lastStatusChangeAt,
+    lastHeartbeatAt: agentPresence.lastHeartbeatAt,
+    userName: users.username,
+    userEmail: users.email,
+    avatarUrl: users.avatarUrl
+  }).from(agentPresence).innerJoin(users, (0, import_drizzle_orm61.eq)(agentPresence.userId, users.id)).where((0, import_drizzle_orm61.eq)(agentPresence.organizationId, orgId3(req)));
+  res.json(rows);
+}
+async function updateMyPresence(req, res) {
+  const userId = actorId2(req);
+  const oId = orgId3(req);
+  const { status, statusMessage, queueId, teamId } = req.body;
+  const allowed = ["online", "available", "busy", "away", "break", "dnd", "offline"];
+  if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });
+  const [row] = await db.insert(agentPresence).values({ userId, organizationId: oId, status, statusMessage, queueId, teamId, lastStatusChangeAt: /* @__PURE__ */ new Date(), lastHeartbeatAt: /* @__PURE__ */ new Date() }).onConflictDoUpdate({
+    target: agentPresence.userId,
+    set: { status, statusMessage, queueId, teamId, lastStatusChangeAt: /* @__PURE__ */ new Date(), lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }
+  }).returning();
+  res.json(row);
+}
+async function heartbeat(req, res) {
+  await db.update(agentPresence).set({ lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(agentPresence.userId, actorId2(req)));
+  res.json({ ok: true });
+}
+async function listPbxIntegrations(req, res) {
+  const rows = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm61.eq)(pbxIntegrations.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(pbxIntegrations.name));
+  res.json(rows.map((r) => ({ ...r, password: r.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: r.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null })));
+}
+async function createPbxIntegration(req, res) {
+  const parsed = insertPbxIntegrationSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(pbxIntegrations).values(parsed.data).returning();
+  await logAuditEvent({ userId: actorId2(req), organizationId: orgId3(req), action: "admin_action", details: { entity: "pbx_integration", entityId: row.id, op: "create" } });
+  res.status(201).json({ ...row, password: row.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: row.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null });
+}
+async function updatePbxIntegration(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm61.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const update = { ...req.body, updatedAt: /* @__PURE__ */ new Date() };
+  if (update.password === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.password;
+  if (update.apiKey === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.apiKey;
+  const [row] = await db.update(pbxIntegrations).set(update).where((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id)).returning();
+  res.json({ ...row, password: row.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: row.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null });
+}
+async function deletePbxIntegration(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm61.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(pbxIntegrations).where((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id));
+  res.json({ success: true });
+}
+async function testPbxConnection(req, res) {
+  const id = parseInt(req.params.id);
+  const [pbx] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm61.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  if (!pbx) return res.status(404).json({ error: "Not found" });
+  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id));
+  const net2 = await import("net");
+  const socket = new net2.Socket();
+  const host = pbx.host;
+  const port = pbx.port ?? 5060;
+  let connected = false;
+  const result = await new Promise((resolve) => {
+    socket.setTimeout(5e3);
+    socket.connect(port, host, () => {
+      connected = true;
+      socket.destroy();
+      resolve({ success: true, message: `TCP connection to ${host}:${port} succeeded` });
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      resolve({ success: false, message: `Timeout connecting to ${host}:${port}` });
+    });
+    socket.on("error", (err) => {
+      resolve({ success: false, message: `Connection error: ${err.message}` });
+    });
+  });
+  const status = result.success ? "connected" : "disconnected";
+  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(pbxIntegrations.id, id));
+  res.json(result);
+}
+async function listCostCenters(req, res) {
+  const rows = await db.select().from(costCenters).where((0, import_drizzle_orm61.eq)(costCenters.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm61.asc)(costCenters.name));
+  res.json(rows);
+}
+async function createCostCenter(req, res) {
+  const parsed = insertCostCenterSchema.safeParse({ ...req.body, organizationId: orgId3(req) });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.insert(costCenters).values(parsed.data).returning();
+  res.status(201).json(row);
+}
+async function updateCostCenter(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(costCenters.id, id), (0, import_drizzle_orm61.eq)(costCenters.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(costCenters.id, id)).returning();
+  res.json(row);
+}
+async function deleteCostCenter(req, res) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(costCenters.id, id), (0, import_drizzle_orm61.eq)(costCenters.organizationId, orgId3(req))));
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  await db.delete(costCenters).where((0, import_drizzle_orm61.eq)(costCenters.id, id));
+  res.json({ success: true });
+}
+function registerEnterpriseAdminRoutes(app2) {
+  app2.get("/api/enterprise/departments", ...guard2, listDepartments);
+  app2.post("/api/enterprise/departments", ...guard2, createDepartment);
+  app2.patch("/api/enterprise/departments/:id", ...guard2, updateDepartment);
+  app2.delete("/api/enterprise/departments/:id", ...guard2, deleteDepartment);
+  app2.get("/api/enterprise/branches", ...guard2, listBranches);
+  app2.post("/api/enterprise/branches", ...guard2, createBranch);
+  app2.patch("/api/enterprise/branches/:id", ...guard2, updateBranch);
+  app2.delete("/api/enterprise/branches/:id", ...guard2, deleteBranch);
+  app2.get("/api/enterprise/teams", ...guard2, listTeams);
+  app2.post("/api/enterprise/teams", ...guard2, createTeam);
+  app2.patch("/api/enterprise/teams/:id", ...guard2, updateTeam);
+  app2.delete("/api/enterprise/teams/:id", ...guard2, deleteTeam);
+  app2.get("/api/enterprise/teams/:teamId/members", ...guard2, listTeamMembers);
+  app2.post("/api/enterprise/teams/:teamId/members", ...guard2, addTeamMember);
+  app2.delete("/api/enterprise/teams/:teamId/members/:userId", ...guard2, removeTeamMember);
+  app2.get("/api/enterprise/business-hours", ...guard2, listBusinessHours);
+  app2.post("/api/enterprise/business-hours", ...guard2, createBusinessHours);
+  app2.patch("/api/enterprise/business-hours/:id", ...guard2, updateBusinessHours);
+  app2.delete("/api/enterprise/business-hours/:id", ...guard2, deleteBusinessHours);
+  app2.get("/api/enterprise/holidays", ...guard2, listHolidays);
+  app2.post("/api/enterprise/holidays", ...guard2, createHoliday);
+  app2.delete("/api/enterprise/holidays/:id", ...guard2, deleteHoliday);
+  app2.get("/api/enterprise/ivr", ...guard2, listIvrMenus);
+  app2.post("/api/enterprise/ivr", ...guard2, createIvrMenu);
+  app2.patch("/api/enterprise/ivr/:id", ...guard2, updateIvrMenu);
+  app2.delete("/api/enterprise/ivr/:id", ...guard2, deleteIvrMenu);
+  app2.get("/api/enterprise/ivr/:menuId/options", ...guard2, listIvrOptions);
+  app2.post("/api/enterprise/ivr/:menuId/options", ...guard2, createIvrOption);
+  app2.delete("/api/enterprise/ivr/:menuId/options/:optionId", ...guard2, deleteIvrOption);
+  app2.get("/api/enterprise/call-queues", ...guard2, listCallQueues);
+  app2.post("/api/enterprise/call-queues", ...guard2, createCallQueue);
+  app2.patch("/api/enterprise/call-queues/:id", ...guard2, updateCallQueue);
+  app2.delete("/api/enterprise/call-queues/:id", ...guard2, deleteCallQueue);
+  app2.get("/api/enterprise/presence", requireAuth, getOrgPresence);
+  app2.post("/api/enterprise/presence", requireAuth, updateMyPresence);
+  app2.post("/api/enterprise/presence/heartbeat", requireAuth, heartbeat);
+  app2.get("/api/enterprise/pbx", ...guard2, listPbxIntegrations);
+  app2.post("/api/enterprise/pbx", ...guard2, createPbxIntegration);
+  app2.patch("/api/enterprise/pbx/:id", ...guard2, updatePbxIntegration);
+  app2.delete("/api/enterprise/pbx/:id", ...guard2, deletePbxIntegration);
+  app2.post("/api/enterprise/pbx/:id/test", ...guard2, testPbxConnection);
+  app2.get("/api/enterprise/cost-centers", ...guard2, listCostCenters);
+  app2.post("/api/enterprise/cost-centers", ...guard2, createCostCenter);
+  app2.patch("/api/enterprise/cost-centers/:id", ...guard2, updateCostCenter);
+  app2.delete("/api/enterprise/cost-centers/:id", ...guard2, deleteCostCenter);
+}
+var import_drizzle_orm61, guard2;
+var init_routes13 = __esm({
+  "server/modules/enterprise-admin/routes.ts"() {
+    "use strict";
+    import_drizzle_orm61 = require("drizzle-orm");
+    init_db();
+    init_role_middleware();
+    init_schema();
+    init_audit_logging();
+    guard2 = [requireAuth, requireOrgAdmin];
+  }
+});
+
 // server/contact-routes.ts
 var contact_routes_exports = {};
 __export(contact_routes_exports, {
@@ -231604,10 +232289,10 @@ async function resolveAppLinkedContact(identifier) {
     email: users.email,
     phone: users.phone,
     preferredLanguage: users.preferredRegion
-  }).from(users).where((0, import_drizzle_orm61.or)(
-    (0, import_drizzle_orm61.eq)(users.username, trimmed),
-    (0, import_drizzle_orm61.eq)(users.email, trimmed),
-    (0, import_drizzle_orm61.eq)(users.phone, normalizedPhone)
+  }).from(users).where((0, import_drizzle_orm62.or)(
+    (0, import_drizzle_orm62.eq)(users.username, trimmed),
+    (0, import_drizzle_orm62.eq)(users.email, trimmed),
+    (0, import_drizzle_orm62.eq)(users.phone, normalizedPhone)
   ));
   if (!matchedUser) return null;
   return {
@@ -231623,7 +232308,7 @@ function registerContactRoutes(app2) {
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
-      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm61.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm61.desc)(userContacts.isFavorite), (0, import_drizzle_orm61.desc)(userContacts.lastCalledAt));
+      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm62.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm62.desc)(userContacts.isFavorite), (0, import_drizzle_orm62.desc)(userContacts.lastCalledAt));
       const hydratedContacts = await Promise.all(
         contacts.map(async (contact) => ({
           ...contact,
@@ -231675,7 +232360,7 @@ function registerContactRoutes(app2) {
       if (isFavorite !== void 0) updates.isFavorite = Boolean(isFavorite);
       if (notes !== void 0) updates.notes = notes ? String(notes).slice(0, 500) : null;
       if (avatarUrl !== void 0) updates.avatarUrl = avatarUrl;
-      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(userContacts.id, contactId), (0, import_drizzle_orm61.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm62.and)((0, import_drizzle_orm62.eq)(userContacts.id, contactId), (0, import_drizzle_orm62.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -231693,7 +232378,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(userContacts.id, contactId), (0, import_drizzle_orm61.eq)(userContacts.userId, userId))).returning();
+      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm62.and)((0, import_drizzle_orm62.eq)(userContacts.id, contactId), (0, import_drizzle_orm62.eq)(userContacts.userId, userId))).returning();
       if (!deleted) return res.status(404).json({ error: "Contact not found" });
       res.json({ message: "Contact deleted" });
     } catch (error) {
@@ -231706,9 +232391,9 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(userContacts.id, contactId), (0, import_drizzle_orm61.eq)(userContacts.userId, userId)));
+      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm62.and)((0, import_drizzle_orm62.eq)(userContacts.id, contactId), (0, import_drizzle_orm62.eq)(userContacts.userId, userId)));
       if (!existing) return res.status(404).json({ error: "Contact not found" });
-      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.eq)(userContacts.id, contactId)).returning();
+      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm62.eq)(userContacts.id, contactId)).returning();
       res.json({
         contact: {
           ...updated,
@@ -231725,7 +232410,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm61.and)((0, import_drizzle_orm61.eq)(userContacts.id, contactId), (0, import_drizzle_orm61.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm62.and)((0, import_drizzle_orm62.eq)(userContacts.id, contactId), (0, import_drizzle_orm62.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -231740,13 +232425,13 @@ function registerContactRoutes(app2) {
   });
   console.log("[Routes] \u2714 Contact routes");
 }
-var import_drizzle_orm61;
+var import_drizzle_orm62;
 var init_contact_routes = __esm({
   "server/contact-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm61 = require("drizzle-orm");
+    import_drizzle_orm62 = require("drizzle-orm");
     init_phone();
   }
 });
@@ -231823,6 +232508,8 @@ async function registerRoutes(httpServer2, app2) {
   console.log("[Routes] \u2713 Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app2);
   console.log("[Routes] \u2713 Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
+  registerEnterpriseAdminRoutes(app2);
+  console.log("[Routes] \u2713 Enterprise Admin routes (departments/branches/teams/IVR/queues/PBX/presence)");
   registerB2BRoutes(app2);
   console.log("[Routes] \u2713 B2B routes");
   registerLocationRoutes(app2);
@@ -232061,11 +232748,11 @@ Your personality:
     res.json(orgs);
   });
   app2.get(api.organizations.get.path, requireAuth, async (req, res) => {
-    const orgId3 = Number(req.params.id);
-    if (!req.user || !["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId3) {
+    const orgId4 = Number(req.params.id);
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId4) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    const org = await storage.getOrganization(orgId3);
+    const org = await storage.getOrganization(orgId4);
     if (!org) {
       return res.status(404).json({ message: "Organization not found" });
     }
@@ -232104,11 +232791,11 @@ Your personality:
     }
   });
   app2.get(api.organizations.members.path, requireAuth, async (req, res) => {
-    const orgId3 = Number(req.params.id);
-    if (!req.user || !["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId3) {
+    const orgId4 = Number(req.params.id);
+    if (!req.user || !["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId4) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    const users5 = await storage.getUsersByOrg(orgId3);
+    const users5 = await storage.getUsersByOrg(orgId4);
     res.json(users5);
   });
   app2.post(api.organizations.addMember.path, requireAuth, async (req, res) => {
@@ -232117,13 +232804,13 @@ Your personality:
     }
     try {
       const { userId, memberRole } = req.body;
-      const orgId3 = Number(req.params.id);
+      const orgId4 = Number(req.params.id);
       await storage.addOrgMember({
-        organizationId: orgId3,
+        organizationId: orgId4,
         userId,
         memberRole: memberRole || "member"
       });
-      await storage.updateUser(userId, { organizationId: orgId3 });
+      await storage.updateUser(userId, { organizationId: orgId4 });
       res.status(201).json({ success: true });
     } catch (err) {
       res.status(400).json({ message: "Failed to add member" });
@@ -232185,7 +232872,7 @@ Your personality:
   return httpServer2;
 }
 var import_openai12;
-var init_routes13 = __esm({
+var init_routes14 = __esm({
   "server/routes.ts"() {
     "use strict";
     init_storage();
@@ -232245,6 +232932,7 @@ var init_routes13 = __esm({
     init_routes10();
     init_routes11();
     init_routes12();
+    init_routes13();
     init_role_middleware();
     init_tenant_context();
     init_rate_limit();
@@ -233120,7 +233808,7 @@ ${headers}\r
   } catch (error) {
     logger.error("Server", "Failed to attach WebSocket servers", error instanceof Error ? error : new Error(String(error)));
   }
-  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes13(), routes_exports)), {
+  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes14(), routes_exports)), {
     timeoutMs: 2e4,
     skip: isStartupSubsystemDisabled("routes")
   });

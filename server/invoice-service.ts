@@ -114,8 +114,8 @@ function calculateGst(
 /**
  * Format price for display
  */
-export function formatPricePaise(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+export function formatPricePaise(paise: number): string {
+  return `₹${(paise / 100).toFixed(2)}`;
 }
 
 /**
@@ -555,11 +555,16 @@ export async function generateInvoiceHtml(invoiceId: number): Promise<string | n
       ${invoice.notes ? `<p style="margin-top: 8px;"><strong>Notes:</strong> ${invoice.notes}</p>` : ""}
     </div>
 
+    <div style="margin-top: 40px; text-align: center; display: flex; justify-content: center; gap: 12px;" class="no-print">
+      <button onclick="window.print()" style="background: #0891b2; color: white; border: none; padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">⬇ Download / Print PDF</button>
+    </div>
+
     <div class="footer">
       <p>This is a computer-generated invoice and does not require a signature.</p>
       <p style="margin-top: 8px;">For any queries, please contact support@neuratalk.in</p>
     </div>
   </div>
+  <style>@media print { .no-print { display: none !important; } body { padding: 20px; } }</style>
 </body>
 </html>
     `;
