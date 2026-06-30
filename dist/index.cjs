@@ -5441,7 +5441,7 @@ function securityHeaders(req, res, next) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
   }
   const frameAncestors = isDev ? "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*" : "frame-ancestors 'self'";
-  const scriptSrc = isDev ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com" : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
+  const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
   const cspDirectives = [
     "default-src 'self'",
     scriptSrc,

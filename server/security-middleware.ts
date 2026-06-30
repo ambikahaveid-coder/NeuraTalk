@@ -145,15 +145,12 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
     ? "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*"
     : "frame-ancestors 'self'";
 
-  // 'unsafe-inline' is required because:
-  //   - Vite dev server injects HMR scripts inline
-  //   - Firebase reCAPTCHA v3 injects inline scripts
-  //   - Razorpay checkout uses inline handlers
-  // 'unsafe-eval' is restricted to development only — Vite HMR requires eval in dev.
-  // Production builds do NOT use eval; React and all dependencies are pre-bundled.
-  const scriptSrc = isDev
-    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com"
-    : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
+  // 'unsafe-inline' is required: Firebase reCAPTCHA v3 injects inline scripts,
+  // Razorpay checkout uses inline handlers.
+  // 'unsafe-eval' is required in production: Firebase Phone Auth reCAPTCHA invisible
+  // verifier uses eval() internally (Firebase SDK limitation — cannot be avoided).
+  // Removing unsafe-eval causes auth/internal-error on OTP send.
+  const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
 
   const cspDirectives = [
     "default-src 'self'",
