@@ -455,12 +455,13 @@ async function getActiveCalls(req: Request, res: Response) {
     .select({
       agentPresenceId: agentPresence.id,
       userId: agentPresence.userId,
-      userName: agentPresence.userName,
+      userName: users.username,
       callId: agentPresence.currentCallId,
       status: agentPresence.status,
       lastHeartbeatAt: agentPresence.lastHeartbeatAt,
     })
     .from(agentPresence)
+    .leftJoin(users, eq(agentPresence.userId, users.id))
     .where(
       and(
         eq(agentPresence.organizationId, orgId(req)),
@@ -511,7 +512,7 @@ async function startSupervisorSession(req: Request, res: Response) {
       userId: `supervisor-${supervisorUser.id}`,
       displayName: supervisorName,
       language: "en",
-      role: mode === "barge" ? "caller" : "observer",
+      role: "caller",
       translationMode: "off",
     });
   } catch {

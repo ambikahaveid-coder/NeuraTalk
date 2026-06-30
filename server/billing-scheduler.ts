@@ -58,9 +58,8 @@ async function promoteExpiredToGrace(now: Date): Promise<void> {
     const orgId = sub.organizationId;
     if (orgId) {
       await logAuditEvent({
-        userId: null,
         organizationId: orgId,
-        action: "billing_event",
+        action: "admin_action",
         details: {
           event: "subscription_grace_period_started",
           subscriptionId: sub.id,
@@ -113,13 +112,12 @@ async function suspendExpiredGrace(now: Date): Promise<void> {
     // Suspend org
     await db
       .update(organizations)
-      .set({ status: "suspended", updatedAt: now })
+      .set({ status: "suspended" })
       .where(eq(organizations.id, orgId));
 
     await logAuditEvent({
-      userId: null,
       organizationId: orgId,
-      action: "billing_event",
+      action: "admin_action",
       details: {
         event: "org_auto_suspended",
         subscriptionId: sub.id,
@@ -149,13 +147,12 @@ export async function autoResumeAfterPayment(organizationId: number, subscriptio
 
   await db
     .update(organizations)
-    .set({ status: "approved", updatedAt: now })
+    .set({ status: "approved" })
     .where(eq(organizations.id, organizationId));
 
   await logAuditEvent({
-    userId: null,
     organizationId,
-    action: "billing_event",
+    action: "admin_action",
     details: { event: "org_auto_resumed", subscriptionId, reason: "Payment received" },
   });
 

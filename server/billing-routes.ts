@@ -1861,11 +1861,7 @@ export function registerBillingRoutes(app: Express) {
         .where(eq(billingAccounts.organizationId, orgId));
 
       const actorUser = req.user as { id: number };
-      await AuditHelpers.log(actorUser.id, "update_contract", `enterprise_contract_org_${orgId}`, {
-        organizationId: orgId,
-        discountPercent: parsed.data.discountPercent,
-        contractEnd: parsed.data.contractEndDate,
-      });
+      await AuditHelpers.logUpdate(actorUser.id, "enterprise_contract", orgId, existingOverride as Record<string, any>, updatedOverride as Record<string, any>);
 
       res.json({ success: true, contract: parsed.data });
     } catch (err) {

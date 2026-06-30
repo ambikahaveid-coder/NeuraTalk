@@ -91188,9 +91188,8 @@ async function promoteExpiredToGrace(now) {
     const orgId4 = sub.organizationId;
     if (orgId4) {
       await logAuditEvent({
-        userId: null,
         organizationId: orgId4,
-        action: "billing_event",
+        action: "admin_action",
         details: {
           event: "subscription_grace_period_started",
           subscriptionId: sub.id,
@@ -91220,11 +91219,10 @@ async function suspendExpiredGrace(now) {
       status: "suspended",
       updatedAt: now
     }).where((0, import_drizzle_orm17.eq)(billingAccounts.organizationId, orgId4));
-    await db.update(organizations).set({ status: "suspended", updatedAt: now }).where((0, import_drizzle_orm17.eq)(organizations.id, orgId4));
+    await db.update(organizations).set({ status: "suspended" }).where((0, import_drizzle_orm17.eq)(organizations.id, orgId4));
     await logAuditEvent({
-      userId: null,
       organizationId: orgId4,
-      action: "billing_event",
+      action: "admin_action",
       details: {
         event: "org_auto_suspended",
         subscriptionId: sub.id,
@@ -91238,11 +91236,10 @@ async function autoResumeAfterPayment(organizationId, subscriptionId) {
   const now = /* @__PURE__ */ new Date();
   await db.update(subscriptions).set({ status: "active", updatedAt: now }).where((0, import_drizzle_orm17.eq)(subscriptions.id, subscriptionId));
   await db.update(billingAccounts).set({ isBlocked: false, blockedReason: null, blockedAt: null, status: "active", updatedAt: now }).where((0, import_drizzle_orm17.eq)(billingAccounts.organizationId, organizationId));
-  await db.update(organizations).set({ status: "approved", updatedAt: now }).where((0, import_drizzle_orm17.eq)(organizations.id, organizationId));
+  await db.update(organizations).set({ status: "approved" }).where((0, import_drizzle_orm17.eq)(organizations.id, organizationId));
   await logAuditEvent({
-    userId: null,
     organizationId,
-    action: "billing_event",
+    action: "admin_action",
     details: { event: "org_auto_resumed", subscriptionId, reason: "Payment received" }
   });
   logger.info("BillingScheduler", `Org ${organizationId} auto-resumed after payment`);
@@ -216924,11 +216921,7 @@ function registerBillingRoutes(app2) {
       const updatedOverride = { ...existingOverride, ...parsed.data };
       await db.update(billingAccounts).set({ customPricingOverride: updatedOverride, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm35.eq)(billingAccounts.organizationId, orgId4));
       const actorUser = req.user;
-      await AuditHelpers.log(actorUser.id, "update_contract", `enterprise_contract_org_${orgId4}`, {
-        organizationId: orgId4,
-        discountPercent: parsed.data.discountPercent,
-        contractEnd: parsed.data.contractEndDate
-      });
+      await AuditHelpers.logUpdate(actorUser.id, "enterprise_contract", orgId4, existingOverride, updatedOverride);
       res.json({ success: true, contract: parsed.data });
     } catch (err) {
       res.status(500).json({ error: "Failed to save contract" });
@@ -232504,11 +232497,11 @@ async function getActiveCalls2(req, res) {
   const rows = await db.select({
     agentPresenceId: agentPresence.id,
     userId: agentPresence.userId,
-    userName: agentPresence.userName,
+    userName: users.username,
     callId: agentPresence.currentCallId,
     status: agentPresence.status,
     lastHeartbeatAt: agentPresence.lastHeartbeatAt
-  }).from(agentPresence).where(
+  }).from(agentPresence).leftJoin(users, (0, import_drizzle_orm62.eq)(agentPresence.userId, users.id)).where(
     (0, import_drizzle_orm62.and)(
       (0, import_drizzle_orm62.eq)(agentPresence.organizationId, orgId3(req)),
       (0, import_drizzle_orm62.isNotNull)(agentPresence.currentCallId)
@@ -232544,7 +232537,7 @@ async function startSupervisorSession(req, res) {
       userId: `supervisor-${supervisorUser.id}`,
       displayName: supervisorName,
       language: "en",
-      role: mode === "barge" ? "caller" : "observer",
+      role: "caller",
       translationMode: "off"
     });
   } catch {
