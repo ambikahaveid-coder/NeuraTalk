@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+
+# Block authenticated-only application routes — these are not public content
+Disallow: /admin
+Disallow: /admin/
+Disallow: /sys
+Disallow: /investor
+Disallow: /investor/
+Disallow: /dashboard
+Disallow: /company
+Disallow: /calls/
+Disallow: /chat
+Disallow: /billing
+Disallow: /personas
+Disallow: /diagnostics
+Disallow: /call-diagnostics
+Disallow: /call-history
+Disallow: /meetings
+Disallow: /enterprise
+Disallow: /enterprise/
+Disallow: /api/
+Disallow: /video/
+Disallow: /join/
+
+# Sitemap
+Sitemap: https://neuratalk.in/sitemap.xml

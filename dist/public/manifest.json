@@ -6,7 +6,7 @@
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#6366f1",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "scope": "/",
   "icons": [
     {
@@ -71,7 +71,7 @@
       "name": "Video Call",
       "short_name": "Video",
       "description": "Start a video call with translation",
-      "url": "/calls/video-translation",
+      "url": "/calls/c2c",
       "icons": [{ "src": "/icons/video-icon.png", "sizes": "96x96" }]
     }
   ],
