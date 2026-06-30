@@ -20,6 +20,7 @@ import { logger } from "./observability";
 import { AuditHelpers } from "./audit";
 import { configService } from "./config-service";
 import { normalizePhoneNumber } from "@shared/phone";
+import { getRedisClient } from "./redis";
 
 const USER_ROLES = ["consumer", "agent", "company_admin", "investor", "super_admin"] as const;
 
@@ -575,6 +576,26 @@ export function registerAdminUserRoutes(app: Express) {
     } catch (err) {
       logger.error("AdminUsers", "Failed to fetch integrations", err as Error);
       res.status(500).json({ success: false, message: "Failed to fetch integrations" });
+    }
+  });
+
+  /**
+   * Clear stale active-call Redis lock for a user.
+   * Use when a server crash leaves user:active_call:{id} orphaned.
+   */
+  app.delete("/api/admin/users/:id/active-call", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const userId = req.params.id;
+      const redis = getRedisClient();
+      const key = `user:active_call:${userId}`;
+      const existing = await redis.get(key);
+      await redis.del(key);
+      await redis.del(`call_metadata:${existing || ""}:caller`);
+      logger.info("AdminUsers", `Cleared stale active-call lock for user ${userId}`, { key, existing });
+      res.json({ success: true, cleared: key, hadValue: existing });
+    } catch (err) {
+      logger.error("AdminUsers", "Failed to clear active-call lock", err as Error);
+      res.status(500).json({ success: false, message: "Failed to clear active-call lock" });
     }
   });
 

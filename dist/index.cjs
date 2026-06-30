@@ -218241,6 +218241,21 @@ function registerAdminUserRoutes(app2) {
       res.status(500).json({ success: false, message: "Failed to fetch integrations" });
     }
   });
+  app2.delete("/api/admin/users/:id/active-call", requireAuth, requireRole("super_admin"), async (req, res) => {
+    try {
+      const userId = req.params.id;
+      const redis = getRedisClient();
+      const key2 = `user:active_call:${userId}`;
+      const existing = await redis.get(key2);
+      await redis.del(key2);
+      await redis.del(`call_metadata:${existing || ""}:caller`);
+      logger.info("AdminUsers", `Cleared stale active-call lock for user ${userId}`, { key: key2, existing });
+      res.json({ success: true, cleared: key2, hadValue: existing });
+    } catch (err) {
+      logger.error("AdminUsers", "Failed to clear active-call lock", err);
+      res.status(500).json({ success: false, message: "Failed to clear active-call lock" });
+    }
+  });
   logger.info("AdminUsers", "Admin user routes registered");
 }
 var import_zod12, import_drizzle_orm40, USER_ROLES3, createUserSchema, updateUserSchema;
@@ -218256,6 +218271,7 @@ var init_admin_user_routes = __esm({
     init_audit();
     init_config_service();
     init_phone();
+    init_redis();
     USER_ROLES3 = ["consumer", "agent", "company_admin", "investor", "super_admin"];
     createUserSchema = import_zod12.z.object({
       email: import_zod12.z.string().email().optional(),
