@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+    <!-- viewport: user-scalable=yes is required for WCAG 2.1 SC 1.4.4 (Resize text) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#6366f1" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -10,8 +11,90 @@
     <meta name="application-name" content="NeuraTalk" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="format-detection" content="telephone=no" />
-    <meta name="description" content="Real-time multilingual voice and video communication with AI translation" />
-    
+
+    <!-- Primary SEO -->
+    <title>NeuraTalk — AI Voice Translation &amp; Communication Platform</title>
+    <meta name="description" content="NeuraTalk enables real-time AI voice translation across 50+ languages for calls, meetings, and enterprise communication. Break language barriers instantly." />
+    <meta name="keywords" content="AI voice translation, real-time translation, multilingual calling, voice AI, enterprise communication, SIP telephony, India" />
+    <meta name="author" content="Mindwhile IT Solutions Pvt Ltd" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://neuratalk.in/" />
+
+    <!-- Open Graph (Facebook, LinkedIn, WhatsApp) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="NeuraTalk" />
+    <meta property="og:title" content="NeuraTalk — AI Voice Translation &amp; Communication Platform" />
+    <meta property="og:description" content="Real-time AI voice translation across 50+ languages. Enterprise calls, meetings, and SIP telephony — with AI that speaks every language." />
+    <meta property="og:url" content="https://neuratalk.in/" />
+    <meta property="og:image" content="https://neuratalk.in/icons/icon-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="NeuraTalk logo" />
+    <meta property="og:locale" content="en_IN" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@NeuraTalkAI" />
+    <meta name="twitter:title" content="NeuraTalk — AI Voice Translation Platform" />
+    <meta name="twitter:description" content="Real-time AI voice translation across 50+ languages. Enterprise calls and meetings with AI that speaks every language." />
+    <meta name="twitter:image" content="https://neuratalk.in/icons/icon-512x512.png" />
+
+    <!-- JSON-LD: Organization -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "NeuraTalk",
+      "legalName": "Mindwhile IT Solutions Pvt Ltd",
+      "url": "https://neuratalk.in",
+      "logo": "https://neuratalk.in/icons/icon-512x512.png",
+      "description": "AI-powered real-time voice translation and communication platform",
+      "foundingDate": "2024",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "4th Floor, Mayuri Tech Park",
+        "addressLocality": "Mangalagiri",
+        "addressRegion": "Andhra Pradesh",
+        "postalCode": "522503",
+        "addressCountry": "IN"
+      },
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "telephone": "+91-80-4567-8900",
+        "contactType": "customer support",
+        "email": "support@neuratalk.in",
+        "availableLanguage": ["English", "Hindi", "Telugu"]
+      },
+      "sameAs": [
+        "https://www.linkedin.com/company/neuratalk",
+        "https://twitter.com/NeuraTalkAI"
+      ]
+    }
+    </script>
+
+    <!-- JSON-LD: SoftwareApplication -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "NeuraTalk",
+      "applicationCategory": "CommunicationApplication",
+      "operatingSystem": "Web, Android, iOS",
+      "url": "https://neuratalk.in",
+      "description": "Real-time AI voice translation for calls, meetings, and enterprise communication across 50+ languages",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "INR",
+        "description": "Free tier available"
+      },
+      "creator": {
+        "@type": "Organization",
+        "name": "Mindwhile IT Solutions Pvt Ltd"
+      }
+    }
+    </script>
+
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
