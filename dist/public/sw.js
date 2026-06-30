@@ -1,6 +1,6 @@
-const CACHE_NAME = 'neuratalk-v2';
-const STATIC_CACHE = 'neuratalk-static-v2';
-const DYNAMIC_CACHE = 'neuratalk-dynamic-v2';
+const CACHE_NAME = 'neuratalk-v3';
+const STATIC_CACHE = 'neuratalk-static-v3';
+const DYNAMIC_CACHE = 'neuratalk-dynamic-v3';
 
 const STATIC_ASSETS = [
   '/',
@@ -108,14 +108,13 @@ async function networkFirst(request) {
 
 async function staleWhileRevalidate(request) {
   const cached = await caches.match(request);
-  
+
   const fetchPromise = fetch(request).then(response => {
     if (response.ok) {
-      const cache = caches.open(DYNAMIC_CACHE);
-      cache.then(c => c.put(request, response.clone()));
+      caches.open(DYNAMIC_CACHE).then(c => c.put(request, response.clone()));
     }
     return response;
-  }).catch(() => cached);
+  }).catch(() => cached || new Response('Network error', { status: 503, headers: { 'Content-Type': 'text/plain' } }));
 
   return cached || fetchPromise;
 }

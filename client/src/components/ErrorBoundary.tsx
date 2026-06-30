@@ -90,7 +90,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   data-testid="button-go-home"
                 >
                   <Home className="w-4 h-4 mr-2" />
-                  Back to Terminal
+                  Back to Home
                 </Button>
               </div>
             </CardContent>
