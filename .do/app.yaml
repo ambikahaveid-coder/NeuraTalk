@@ -138,7 +138,7 @@ envs:
 services:
   - name: web
     github:
-      repo: ambikahaveid-coder/NeuraTalk
+      repo: jagopro452-cloud/Neura-Talk
       branch: neuratalk-clean-release
       deploy_on_push: true
     build_command: npm ci --omit=dev
