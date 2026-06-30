@@ -94,6 +94,25 @@ export async function registerRoutes(
     });
   });
 
+  // Keys status — shows which services are configured (true/false, never exposes actual keys)
+  app.get("/api/health/keys", (req, res) => {
+    const e = process.env;
+    const has = (k: string) => !!(e[k] && e[k]!.trim().length > 0);
+    res.json({
+      database:       has("DATABASE_URL"),
+      redis:          has("REDIS_URL"),
+      livekit:        has("LIVEKIT_API_KEY") && has("LIVEKIT_API_SECRET"),
+      openai:         has("OPENAI_API_KEY") || has("AI_INTEGRATIONS_OPENAI_API_KEY"),
+      azure_stt:      has("AZURE_SPEECH_KEY"),
+      azure_translate:has("AZURE_TRANSLATOR_KEY"),
+      msg91:          has("MSG91_AUTH_KEY"),
+      razorpay:       has("RAZORPAY_KEY_ID") && has("RAZORPAY_KEY_SECRET"),
+      firebase_admin: has("FIREBASE_SERVICE_ACCOUNT_JSON"),
+      session:        has("SESSION_SECRET"),
+      super_admin:    has("SUPER_ADMIN_EMAIL") && has("SUPER_ADMIN_SECRET"),
+    });
+  });
+
   const demoTTSCache = new Map<string, Buffer>();
   const demoTtsLimiter = rateLimit({ windowMs: 60_000, max: 10, message: "Too many demo TTS requests." });
 

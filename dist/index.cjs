@@ -232830,6 +232830,23 @@ async function registerRoutes(httpServer2, app2) {
       uptime: process.uptime()
     });
   });
+  app2.get("/api/health/keys", (req, res) => {
+    const e = process.env;
+    const has2 = (k) => !!(e[k] && e[k].trim().length > 0);
+    res.json({
+      database: has2("DATABASE_URL"),
+      redis: has2("REDIS_URL"),
+      livekit: has2("LIVEKIT_API_KEY") && has2("LIVEKIT_API_SECRET"),
+      openai: has2("OPENAI_API_KEY") || has2("AI_INTEGRATIONS_OPENAI_API_KEY"),
+      azure_stt: has2("AZURE_SPEECH_KEY"),
+      azure_translate: has2("AZURE_TRANSLATOR_KEY"),
+      msg91: has2("MSG91_AUTH_KEY"),
+      razorpay: has2("RAZORPAY_KEY_ID") && has2("RAZORPAY_KEY_SECRET"),
+      firebase_admin: has2("FIREBASE_SERVICE_ACCOUNT_JSON"),
+      session: has2("SESSION_SECRET"),
+      super_admin: has2("SUPER_ADMIN_EMAIL") && has2("SUPER_ADMIN_SECRET")
+    });
+  });
   const demoTTSCache = /* @__PURE__ */ new Map();
   const demoTtsLimiter = rateLimit({ windowMs: 6e4, max: 10, message: "Too many demo TTS requests." });
   app2.post("/api/demo/tts", requireAuth, demoTtsLimiter, async (req, res) => {
