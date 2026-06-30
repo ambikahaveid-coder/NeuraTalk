@@ -25,6 +25,9 @@ const OrgStructurePage = lazy(() => import("@/pages/enterprise/OrgStructure"));
 const TelephonyConfigPage = lazy(() => import("@/pages/enterprise/TelephonyConfig"));
 const PBXIntegrationPage = lazy(() => import("@/pages/enterprise/PBXIntegration"));
 const AgentPresencePage = lazy(() => import("@/pages/enterprise/AgentPresence"));
+const SupervisorMonitorPage = lazy(() => import("@/pages/enterprise/SupervisorMonitor"));
+const CostCentersPage = lazy(() => import("@/pages/enterprise/CostCenters"));
+const BillingContractsPage = lazy(() => import("@/pages/enterprise/BillingContracts"));
 const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const C2CCallPage = lazy(() => import("@/pages/calls/C2CCallPage"));
 const B2BCallPage = lazy(() => import("@/pages/calls/B2BCallPage"));
@@ -355,6 +358,27 @@ function Router() {
         <ProtectedRoute
           component={AgentPresencePage}
           allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN, USER_ROLES.AGENT]}
+        />
+      </Route>
+
+      <Route path="/enterprise/supervisor">
+        <ProtectedRoute
+          component={SupervisorMonitorPage}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
+        />
+      </Route>
+
+      <Route path="/enterprise/cost-centers">
+        <ProtectedRoute
+          component={CostCentersPage}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
+        />
+      </Route>
+
+      <Route path="/enterprise/billing-contracts">
+        <ProtectedRoute
+          component={BillingContractsPage}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
         />
       </Route>
 

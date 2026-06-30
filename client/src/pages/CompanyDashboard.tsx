@@ -19,7 +19,8 @@ import {
   Sparkles, LogOut, Users, CreditCard, BarChart3, Phone, PhoneCall, Video,
   Settings, Plus, Clock, Check, X, Loader2, Copy, Eye, EyeOff,
   Building2, Key, Activity, ExternalLink, FileText, UserPlus, Languages,
-  Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw
+  Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw,
+  Radio, PiggyBank
 } from "lucide-react";
 
 type Tab = "overview" | "agents" | "reports" | "api" | "settings";
@@ -480,6 +481,24 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                 <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-400">
                   <Activity className="mr-3 h-4 w-4" />
                   Agent Presence
+                </Button>
+              </Link>
+              <Link href="/enterprise/supervisor">
+                <Button variant="outline" className="w-full justify-start bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-400">
+                  <Radio className="mr-3 h-4 w-4" />
+                  Supervisor Monitor
+                </Button>
+              </Link>
+              <Link href="/enterprise/cost-centers">
+                <Button variant="outline" className="w-full justify-start bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/20 text-yellow-400">
+                  <PiggyBank className="mr-3 h-4 w-4" />
+                  Cost Centers
+                </Button>
+              </Link>
+              <Link href="/enterprise/billing-contracts">
+                <Button variant="outline" className="w-full justify-start bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/20 text-violet-400">
+                  <FileText className="mr-3 h-4 w-4" />
+                  Billing Contract
                 </Button>
               </Link>
               <p className="text-[11px] text-muted-foreground">

@@ -1758,5 +1758,145 @@ export function registerBillingRoutes(app: Express) {
     }
   });
 
+  // ── GRACE PERIOD STATUS ─────────────────────────────────────────────────────
+
+  app.get("/api/billing/grace-status", requireAuth, requireRole("company_admin", "super_admin"), async (req: Request, res: Response) => {
+    try {
+      const user = req.user as { organizationId?: number };
+      const orgId = user.organizationId;
+      if (!orgId) return res.status(400).json({ error: "No organization" });
+
+      const { getGracePeriodStatus } = await import("./billing-scheduler");
+      const status = await getGracePeriodStatus(orgId);
+      res.json(status);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch grace status" });
+    }
+  });
+
+  // Super admin: manually trigger lifecycle check
+  app.post("/api/admin/billing/run-lifecycle", requireAuth, requireRole("super_admin"), async (_req: Request, res: Response) => {
+    try {
+      const { runBillingLifecycleCheck } = await import("./billing-scheduler");
+      await runBillingLifecycleCheck();
+      res.json({ success: true, message: "Lifecycle check completed" });
+    } catch (err) {
+      res.status(500).json({ error: "Lifecycle check failed" });
+    }
+  });
+
+  // Super admin: resume a suspended org
+  app.post("/api/admin/billing/companies/:organizationId/resume", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const organizationId = parseInt(req.params.organizationId);
+      // Find the most recent suspended subscription
+      const [sub] = await db
+        .select()
+        .from(subscriptions)
+        .where(and(eq(subscriptions.organizationId, organizationId), eq(subscriptions.status, "suspended")))
+        .orderBy(desc(subscriptions.createdAt))
+        .limit(1);
+
+      if (!sub) return res.status(404).json({ error: "No suspended subscription found" });
+
+      const { autoResumeAfterPayment } = await import("./billing-scheduler");
+      await autoResumeAfterPayment(organizationId, sub.id);
+      res.json({ success: true, message: "Organization resumed" });
+    } catch (err) {
+      res.status(500).json({ error: "Resume failed" });
+    }
+  });
+
+  // ── ENTERPRISE CONTRACTS & VOLUME DISCOUNTS ──────────────────────────────────
+
+  app.get("/api/admin/billing/companies/:organizationId/contract", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const orgId = parseInt(req.params.organizationId);
+      const [account] = await db.select().from(billingAccounts).where(eq(billingAccounts.organizationId, orgId));
+      if (!account) return res.status(404).json({ error: "Billing account not found" });
+
+      const override = (account.customPricingOverride as Record<string, unknown>) ?? {};
+      const contract = {
+        discountPercent: override.discountPercent ?? 0,
+        contractedRatePerMinutePaise: override.contractedRatePerMinutePaise ?? null,
+        volumeTiers: override.volumeTiers ?? [],
+        contractStartDate: override.contractStartDate ?? null,
+        contractEndDate: override.contractEndDate ?? null,
+        contractNotes: override.contractNotes ?? "",
+        slaUptimePercent: override.slaUptimePercent ?? null,
+      };
+      res.json(contract);
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch contract" });
+    }
+  });
+
+  app.put("/api/admin/billing/companies/:organizationId/contract", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const orgId = parseInt(req.params.organizationId);
+      const contractSchema = z.object({
+        discountPercent: z.number().min(0).max(100).default(0),
+        contractedRatePerMinutePaise: z.number().min(0).nullable().optional(),
+        volumeTiers: z.array(z.object({
+          minMinutes: z.number(),
+          ratePerMinutePaise: z.number(),
+        })).default([]),
+        contractStartDate: z.string().nullable().optional(),
+        contractEndDate: z.string().nullable().optional(),
+        contractNotes: z.string().max(1000).default(""),
+        slaUptimePercent: z.number().min(0).max(100).nullable().optional(),
+      });
+
+      const parsed = contractSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const [account] = await db.select().from(billingAccounts).where(eq(billingAccounts.organizationId, orgId));
+      if (!account) return res.status(404).json({ error: "Billing account not found" });
+
+      const existingOverride = (account.customPricingOverride as Record<string, unknown>) ?? {};
+      const updatedOverride = { ...existingOverride, ...parsed.data };
+
+      await db.update(billingAccounts)
+        .set({ customPricingOverride: updatedOverride, updatedAt: new Date() })
+        .where(eq(billingAccounts.organizationId, orgId));
+
+      const actorUser = req.user as { id: number };
+      await AuditHelpers.log(actorUser.id, "update_contract", `enterprise_contract_org_${orgId}`, {
+        organizationId: orgId,
+        discountPercent: parsed.data.discountPercent,
+        contractEnd: parsed.data.contractEndDate,
+      });
+
+      res.json({ success: true, contract: parsed.data });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to save contract" });
+    }
+  });
+
+  // Company admin can view their own contract terms
+  app.get("/api/billing/contract", requireAuth, requireRole("company_admin", "super_admin"), async (req: Request, res: Response) => {
+    try {
+      const user = req.user as { organizationId?: number };
+      const orgId = user.organizationId;
+      if (!orgId) return res.status(400).json({ error: "No organization" });
+
+      const [account] = await db.select().from(billingAccounts).where(eq(billingAccounts.organizationId, orgId));
+      if (!account) return res.json({ discountPercent: 0, volumeTiers: [], contractNotes: "" });
+
+      const override = (account.customPricingOverride as Record<string, unknown>) ?? {};
+      res.json({
+        discountPercent: override.discountPercent ?? 0,
+        contractedRatePerMinutePaise: override.contractedRatePerMinutePaise ?? null,
+        volumeTiers: override.volumeTiers ?? [],
+        contractStartDate: override.contractStartDate ?? null,
+        contractEndDate: override.contractEndDate ?? null,
+        contractNotes: override.contractNotes ?? "",
+        slaUptimePercent: override.slaUptimePercent ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: "Failed to fetch contract" });
+    }
+  });
+
   logger.info("Billing", "Billing routes registered");
 }

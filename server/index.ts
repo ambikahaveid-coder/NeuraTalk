@@ -402,6 +402,11 @@ app.use((req, res, next) => {
     startCleanupScheduler();
   }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
 
+  await runStartupPhase("billing lifecycle scheduler", async () => {
+    const { startBillingScheduler } = await import("./billing-scheduler");
+    startBillingScheduler();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
   await runStartupPhase("feature flags module import", async () => import("./feature-flags"), {
     optional: true,
     skip: isStartupSubsystemDisabled("feature_flags"),

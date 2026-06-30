@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, isNotNull, sql } from "drizzle-orm";
 import { db } from "../../db";
 import { requireAuth } from "../../role-middleware";
 import {
@@ -10,7 +10,7 @@ import {
   insertBusinessHoursSchema, insertHolidayCalendarSchema,
   insertIvrMenuSchema, insertIvrOptionSchema,
   insertCallQueueSchema, insertAgentPresenceSchema, insertPbxIntegrationSchema,
-  insertCostCenterSchema,
+  insertCostCenterSchema, insertSupervisorSessionSchema,
 } from "@shared/schema";
 import { logAuditEvent } from "../../audit-logging";
 
@@ -439,6 +439,148 @@ async function deleteCostCenter(req: Request, res: Response) {
   res.json({ success: true });
 }
 
+// ─────────────────── SUPERVISOR MONITOR ─────────────────────────────────────
+
+function requireSupervisorOrAdmin(req: any, res: any, next: any) {
+  const role = req.user?.role as string | undefined;
+  if (role === "super_admin" || role === "company_admin" || role === "supervisor") return next();
+  return res.status(403).json({ error: "Supervisor or admin required" });
+}
+
+const supervisorGuard = [requireAuth, requireSupervisorOrAdmin];
+
+async function getActiveCalls(req: Request, res: Response) {
+  // Return agents currently on a call for this org
+  const rows = await db
+    .select({
+      agentPresenceId: agentPresence.id,
+      userId: agentPresence.userId,
+      userName: agentPresence.userName,
+      callId: agentPresence.currentCallId,
+      status: agentPresence.status,
+      lastHeartbeatAt: agentPresence.lastHeartbeatAt,
+    })
+    .from(agentPresence)
+    .where(
+      and(
+        eq(agentPresence.organizationId, orgId(req)),
+        isNotNull(agentPresence.currentCallId),
+      ),
+    );
+  res.json(rows);
+}
+
+async function listSupervisorSessions(req: Request, res: Response) {
+  const rows = await db
+    .select()
+    .from(supervisorSessions)
+    .where(eq(supervisorSessions.organizationId, orgId(req)))
+    .orderBy(desc(supervisorSessions.startedAt))
+    .limit(100);
+  res.json(rows);
+}
+
+async function startSupervisorSession(req: Request, res: Response) {
+  const { callId, agentId, mode } = req.body;
+  if (!callId || !agentId || !["listen", "whisper", "barge"].includes(mode)) {
+    return res.status(400).json({ error: "callId, agentId, and mode (listen|whisper|barge) are required" });
+  }
+
+  // Verify the agent belongs to this org and is on the call
+  const [agent] = await db
+    .select()
+    .from(agentPresence)
+    .where(
+      and(
+        eq(agentPresence.organizationId, orgId(req)),
+        eq(agentPresence.userId, parseInt(agentId)),
+        eq(agentPresence.currentCallId, callId),
+      ),
+    );
+  if (!agent) {
+    return res.status(404).json({ error: "Agent not found or not on this call" });
+  }
+
+  // Issue LiveKit token for supervisor if LiveKit is configured
+  let livekitToken: string | null = null;
+  try {
+    const { issueAccessToken } = await import("../../livekit-service");
+    const supervisorUser = req.user as { id: number; name?: string; email?: string };
+    const supervisorName = supervisorUser.name || supervisorUser.email || `supervisor-${supervisorUser.id}`;
+    livekitToken = await issueAccessToken(callId, {
+      userId: `supervisor-${supervisorUser.id}`,
+      displayName: supervisorName,
+      language: "en",
+      role: mode === "barge" ? "caller" : "observer",
+      translationMode: "off",
+    });
+  } catch {
+    // LiveKit not configured — record session without token
+  }
+
+  const [session] = await db
+    .insert(supervisorSessions)
+    .values({
+      supervisorId: actorId(req),
+      organizationId: orgId(req),
+      agentId: parseInt(agentId),
+      callId,
+      mode,
+      livekitRoomName: callId,
+      metadata: livekitToken ? { livekitToken } : {},
+    })
+    .returning();
+
+  await logAuditEvent({
+    userId: actorId(req),
+    organizationId: orgId(req),
+    action: "admin_action",
+    details: { entity: "supervisor_session", entityId: session.id, op: "start", mode, callId },
+  });
+
+  res.status(201).json({ ...session, livekitToken });
+}
+
+async function changeSupervisorMode(req: Request, res: Response) {
+  const id = parseInt(req.params.id);
+  const { mode } = req.body;
+  if (!["listen", "whisper", "barge"].includes(mode)) {
+    return res.status(400).json({ error: "mode must be listen|whisper|barge" });
+  }
+
+  const [existing] = await db
+    .select()
+    .from(supervisorSessions)
+    .where(and(eq(supervisorSessions.id, id), eq(supervisorSessions.supervisorId, actorId(req))));
+  if (!existing) return res.status(404).json({ error: "Session not found" });
+  if (existing.endedAt) return res.status(409).json({ error: "Session already ended" });
+
+  const [updated] = await db
+    .update(supervisorSessions)
+    .set({ mode })
+    .where(eq(supervisorSessions.id, id))
+    .returning();
+
+  res.json(updated);
+}
+
+async function endSupervisorSession(req: Request, res: Response) {
+  const id = parseInt(req.params.id);
+  const [existing] = await db
+    .select()
+    .from(supervisorSessions)
+    .where(and(eq(supervisorSessions.id, id), eq(supervisorSessions.supervisorId, actorId(req))));
+  if (!existing) return res.status(404).json({ error: "Session not found" });
+
+  const [ended] = await db
+    .update(supervisorSessions)
+    .set({ endedAt: new Date() })
+    .where(eq(supervisorSessions.id, id))
+    .returning();
+
+  res.json(ended);
+}
+
 // ─────────────────── REGISTER ───────────────────────────────────────────────
 
 export function registerEnterpriseAdminRoutes(app: Express) {
@@ -506,4 +648,11 @@ export function registerEnterpriseAdminRoutes(app: Express) {
   app.post("/api/enterprise/cost-centers", ...guard, createCostCenter);
   app.patch("/api/enterprise/cost-centers/:id", ...guard, updateCostCenter);
   app.delete("/api/enterprise/cost-centers/:id", ...guard, deleteCostCenter);
+
+  // Supervisor Monitor / Whisper / Barge
+  app.get("/api/enterprise/supervisor/active-calls", ...supervisorGuard, getActiveCalls);
+  app.get("/api/enterprise/supervisor/sessions", ...supervisorGuard, listSupervisorSessions);
+  app.post("/api/enterprise/supervisor/sessions", ...supervisorGuard, startSupervisorSession);
+  app.patch("/api/enterprise/supervisor/sessions/:id/mode", ...supervisorGuard, changeSupervisorMode);
+  app.delete("/api/enterprise/supervisor/sessions/:id", ...supervisorGuard, endSupervisorSession);
 }
