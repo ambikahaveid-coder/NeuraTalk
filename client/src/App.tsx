@@ -25,6 +25,7 @@ const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const C2CCallPage = lazy(() => import("@/pages/calls/C2CCallPage"));
 const B2BCallPage = lazy(() => import("@/pages/calls/B2BCallPage"));
 const FaceToFacePage = lazy(() => import("@/pages/calls/FaceToFacePage"));
+const SimCallPage = lazy(() => import("@/pages/calls/SimCallPage"));
 // Legacy voice/video/b2c/contact routes consolidated onto C2CCallPage via defaultMode
 const VoiceCallLegacy = lazy(async () => {
   const mod = await import("@/pages/calls/C2CCallPage");
@@ -263,7 +264,7 @@ function Router() {
       </Route>
 
       <Route path="/calls/sim">
-        <Redirect to="/calls/b2b" />
+        <ProtectedRoute component={SimCallPage} />
       </Route>
 
       <Route path="/calls/face-to-face">

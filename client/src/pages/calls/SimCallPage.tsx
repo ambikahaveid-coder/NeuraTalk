@@ -109,13 +109,14 @@ export default function SimCallPage() {
   const [manualVerifyUrl, setManualVerifyUrl] = useState<string | null>(null);
 
   // Twilio account status
-  const { data: accountStatus } = useQuery({
+  const { data: accountStatus, isLoading: accountStatusLoading } = useQuery({
     queryKey: ["/api/sim-calls/account-status"],
     queryFn: async () => {
       const token = getAuthToken();
       const res = await fetch(`${API_BASE}/api/sim-calls/account-status`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
+      if (res.status === 404) return { configured: false, isTrial: false, backendDisabled: true };
       if (!res.ok) return { configured: false, isTrial: true, message: "Could not check" };
       return res.json();
     },
@@ -591,6 +592,33 @@ export default function SimCallPage() {
             <p className="text-muted-foreground">Please log in to make SIM-to-SIM calls</p>
             <Link href="/auth">
               <Button className="mt-4" data-testid="button-login">Log In</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!accountStatusLoading && accountStatus?.backendDisabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto">
+              <PhoneCall className="w-8 h-8 text-amber-500" />
+            </div>
+            <h2 className="text-xl font-bold">Carrier Integration Required</h2>
+            <p className="text-muted-foreground text-sm">
+              SIM Calls require a Twilio carrier account to be configured. This feature bridges app calls to real phone numbers via PSTN.
+            </p>
+            <div className="rounded-lg border border-amber-300/50 bg-amber-500/10 p-4 text-sm text-amber-600 dark:text-amber-400 text-left space-y-1">
+              <p className="font-medium">To enable SIM Calls:</p>
+              <p>1. Create a Twilio account at twilio.com</p>
+              <p>2. Add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER to DO secrets</p>
+              <p>3. Redeploy the app</p>
+            </div>
+            <Link href="/dashboard">
+              <Button variant="outline" className="mt-2">Back to Dashboard</Button>
             </Link>
           </CardContent>
         </Card>

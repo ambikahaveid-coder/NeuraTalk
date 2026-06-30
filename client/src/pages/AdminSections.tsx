@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Link } from "wouter";
 import {
   Loader2, Phone, Building2, Users, PhoneCall, Zap, Search,
   Globe, Flag, ToggleLeft, Scale, Edit, Plus, Trash2,
@@ -202,16 +203,21 @@ export function CallLogsSection() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
-              { type: "C2C (App-to-App)", icon: <Phone className="w-4 h-4" />, color: "text-blue-500" },
-              { type: "B2B (Enterprise)", icon: <Building2 className="w-4 h-4" />, color: "text-purple-500" },
-              { type: "PSTN (Phone)", icon: <PhoneCall className="w-4 h-4" />, color: "text-green-500" },
-              { type: "Face-to-Face", icon: <Users className="w-4 h-4" />, color: "text-amber-500" },
-              { type: "SIM Calls", icon: <Zap className="w-4 h-4" />, color: "text-cyan-500" },
+              { type: "C2C (App-to-App)", icon: <Phone className="w-4 h-4" />, color: "text-blue-500", href: "/calls/c2c", status: "live" as const },
+              { type: "B2B (Enterprise)", icon: <Building2 className="w-4 h-4" />, color: "text-purple-500", href: "/calls/b2b", status: "live" as const },
+              { type: "PSTN (Phone)", icon: <PhoneCall className="w-4 h-4" />, color: "text-green-500", href: "/calls/c2c", status: "live" as const },
+              { type: "Face-to-Face", icon: <Users className="w-4 h-4" />, color: "text-amber-500", href: "/calls/face-to-face", status: "live" as const },
+              { type: "SIM Calls", icon: <Zap className="w-4 h-4" />, color: "text-cyan-500", href: "/calls/sim", status: "carrier" as const },
             ].map(ct => (
-              <div key={ct.type} className="p-3 rounded-lg border text-center">
-                <div className={`mx-auto w-8 h-8 rounded-full bg-muted flex items-center justify-center mb-2 ${ct.color}`}>{ct.icon}</div>
-                <p className="text-xs font-medium">{ct.type}</p>
-              </div>
+              <Link key={ct.type} href={ct.href}>
+                <div className="p-3 rounded-lg border text-center cursor-pointer hover:bg-muted/50 transition-colors">
+                  <div className={`mx-auto w-8 h-8 rounded-full bg-muted flex items-center justify-center mb-2 ${ct.color}`}>{ct.icon}</div>
+                  <p className="text-xs font-medium">{ct.type}</p>
+                  {ct.status === "carrier" && (
+                    <p className="text-[10px] text-amber-500 mt-0.5">Carrier required</p>
+                  )}
+                </div>
+              </Link>
             ))}
           </div>
         </CardContent>
