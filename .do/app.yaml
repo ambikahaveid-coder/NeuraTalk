@@ -18,14 +18,6 @@ envs:
     value: "false"
     scope: RUN_TIME
 
-  # ── Session / Redis (in-memory shim for single-instance deployment) ──────────
-  - key: SESSION_SECRET
-    value: NeuraTalkProd2025SecureKey7Z9mQX4b
-    scope: RUN_TIME
-  - key: REDIS_URL
-    value: memory://local
-    scope: RUN_TIME
-
   # ── Auth / OTP ───────────────────────────────────────────────────────────────
   - key: PHONE_OTP_PROVIDER
     value: firebase
@@ -48,28 +40,7 @@ envs:
     value: centralindia
     scope: RUN_TIME
 
-  # ── TURN / ICE (OpenRelay public TURN — free, no registration needed) ────────
-  - key: TURN_SERVER_URL
-    value: "turn:openrelay.metered.ca:80,turn:openrelay.metered.ca:443,turns:openrelay.metered.ca:443"
-    scope: RUN_TIME
-  - key: TURN_SERVER_USERNAME
-    value: openrelayproject
-    scope: RUN_TIME
-  - key: TURN_SERVER_CREDENTIAL
-    value: openrelayproject
-    scope: RUN_TIME
-  # Legacy gateway key (gateway.ts reads TURN_SERVER, not TURN_SERVER_URL)
-  - key: TURN_SERVER
-    value: "turn:openrelay.metered.ca:80"
-    scope: RUN_TIME
-  - key: TURN_USERNAME
-    value: openrelayproject
-    scope: RUN_TIME
-  - key: TURN_CREDENTIAL
-    value: openrelayproject
-    scope: RUN_TIME
-
-  # ── LiveKit ──────────────────────────────────────────────────────────────────
+  # ── LiveKit (non-secret config) ──────────────────────────────────────────────
   - key: LIVEKIT_URL
     value: wss://neuratalk-vzgep7qq.livekit.cloud
     scope: RUN_TIME
@@ -77,20 +48,9 @@ envs:
     value: 1m2u036kt9m.sip.livekit.cloud
     scope: RUN_TIME
 
-  # ── OpenAI ───────────────────────────────────────────────────────────────────
+  # ── OpenAI (non-secret base URL) ─────────────────────────────────────────────
   - key: AI_INTEGRATIONS_OPENAI_BASE_URL
     value: https://api.openai.com/v1
-    scope: RUN_TIME
-
-  # ── Admin seed account ───────────────────────────────────────────────────────
-  - key: SUPER_ADMIN_EMAIL
-    value: kiranatmakuri518@gmail.com
-    scope: RUN_TIME
-  - key: SUPER_ADMIN_PHONE
-    value: "+918125557378"
-    scope: RUN_TIME
-  - key: SUPER_ADMIN_SECRET
-    value: NeuraTalkAdmin2025Kiran
     scope: RUN_TIME
 
   # ── Domain / CORS ────────────────────────────────────────────────────────────
@@ -107,12 +67,9 @@ envs:
     value: https://neuratalk.in
     scope: RUN_TIME
 
-  # ── MSG91 ────────────────────────────────────────────────────────────────────
-  - key: MSG91_VOICE_CALLER_ID
-    value: "+918125557378"
-    scope: RUN_TIME
-
-  # ── Firebase client SDK (build-time) ─────────────────────────────────────────
+  # ── Firebase client SDK (build-time — these are public client-side identifiers)
+  # Firebase client config is NOT secret: https://firebase.google.com/docs/projects/api-keys
+  # Security is enforced via Firebase Auth domain allowlist + security rules.
   - key: VITE_FIREBASE_API_KEY
     value: AIzaSyDMn1dPIAAAdYiFSiAzUG65dg1o85w_A7Q
     scope: RUN_AND_BUILD_TIME
@@ -135,7 +92,7 @@ envs:
     value: 1:612487293092:web:2aa2cf6d2c33e74b335e31
     scope: RUN_AND_BUILD_TIME
 
-  # ── Firebase Admin SDK (server-side) ─────────────────────────────────────────
+  # ── Firebase Admin SDK (non-secret project identifier) ────────────────────────
   - key: FIREBASE_PROJECT_ID
     value: neuratalk-c6683
     scope: RUN_TIME
@@ -145,6 +102,39 @@ envs:
     value: noreply@neuratalk.in
     scope: RUN_TIME
 
+  # ── MSG91 caller ID (non-secret outbound number) ─────────────────────────────
+  - key: MSG91_VOICE_CALLER_ID
+    value: "+918125557378"
+    scope: RUN_TIME
+
+  # ╔══════════════════════════════════════════════════════════════════════════════╗
+  # ║  ENCRYPTED SECRETS — set these via DO dashboard → Apps → Settings → Secrets ║
+  # ║  DO NOT add values here. These keys must exist as encrypted app secrets.    ║
+  # ║                                                                              ║
+  # ║  Required secrets:                                                           ║
+  # ║    SESSION_SECRET          — 64+ char random string (openssl rand -hex 32)  ║
+  # ║    SUPER_ADMIN_EMAIL       — super admin login email                         ║
+  # ║    SUPER_ADMIN_PHONE       — super admin phone number                        ║
+  # ║    SUPER_ADMIN_SECRET      — 32+ char random secret (openssl rand -hex 16)  ║
+  # ║    DATABASE_URL            — Neon PostgreSQL connection string               ║
+  # ║    REDIS_URL               — Upstash Redis URL (rediss://...)                ║
+  # ║    LIVEKIT_API_KEY         — LiveKit server API key                          ║
+  # ║    LIVEKIT_API_SECRET      — LiveKit server API secret                       ║
+  # ║    OPENAI_API_KEY          — OpenAI API key                                  ║
+  # ║    AI_INTEGRATIONS_OPENAI_API_KEY — OpenAI key for AI integrations           ║
+  # ║    MSG91_AUTH_KEY          — MSG91 API key for PSTN/OTP                      ║
+  # ║    MSG91_WEBHOOK_SECRET    — MSG91 webhook HMAC secret                       ║
+  # ║    AZURE_SPEECH_KEY        — Azure Cognitive Services key                    ║
+  # ║    AZURE_TRANSLATOR_KEY    — Azure Translator key                            ║
+  # ║    RAZORPAY_KEY_ID         — Razorpay API key ID                             ║
+  # ║    RAZORPAY_KEY_SECRET     — Razorpay API key secret                         ║
+  # ║    RAZORPAY_WEBHOOK_SECRET — Razorpay webhook signing secret                 ║
+  # ║    FIREBASE_SERVICE_ACCOUNT_JSON — Firebase Admin SDK service account JSON   ║
+  # ║    TURN_SERVER_USERNAME    — TURN server username                            ║
+  # ║    TURN_SERVER_CREDENTIAL  — TURN server credential                          ║
+  # ║    SENTRY_DSN              — Sentry error monitoring DSN                     ║
+  # ╚══════════════════════════════════════════════════════════════════════════════╝
+
 services:
   - name: web
     github:
@@ -153,13 +143,6 @@ services:
       deploy_on_push: true
     build_command: npm ci --omit=dev
     run_command: node dist/index.cjs
-    envs:
-      - key: SUPER_ADMIN_EMAIL
-        value: kiranatmakuri518@gmail.com
-        scope: RUN_TIME
-      - key: SUPER_ADMIN_SECRET
-        value: NeuraTalkAdmin2025Kiran
-        scope: RUN_TIME
     environment_slug: node-js
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb

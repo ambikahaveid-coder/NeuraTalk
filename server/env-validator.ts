@@ -16,8 +16,16 @@ const MOCK_PATTERNS = [
   /^https?:\/\/(?:localhost|127\.0\.0\.1)/i,
 ];
 
-// Only these 3 are truly unrecoverable — server cannot function without them
-const BOOTSTRAP_REQUIRED_VARS = ["DATABASE_URL", "REDIS_URL", "SESSION_SECRET"];
+// These are unrecoverable — server cannot function without them.
+// SUPER_ADMIN_EMAIL and SUPER_ADMIN_SECRET must be set as encrypted secrets
+// in the DO dashboard. No hardcoded fallback is permitted.
+const BOOTSTRAP_REQUIRED_VARS = [
+  "DATABASE_URL",
+  "REDIS_URL",
+  "SESSION_SECRET",
+  "SUPER_ADMIN_EMAIL",
+  "SUPER_ADMIN_SECRET",
+];
 
 // Everything else: warn but do NOT crash — individual features degrade gracefully
 const SERVICE_VARS: Record<string, string> = {

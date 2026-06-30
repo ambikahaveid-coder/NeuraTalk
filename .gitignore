@@ -33,6 +33,10 @@ key.properties
 firebase-adminsdk-*.json
 neuratalk-release-key.jks
 
+# Replit platform files — not part of production deployment
+.replit
+replit.nix
+
 # Replit paste/attachment dumps (often contain pasted secrets)
 attached_assets/Pasted-*
 

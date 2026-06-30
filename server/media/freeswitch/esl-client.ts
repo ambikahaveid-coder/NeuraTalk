@@ -27,7 +27,9 @@ import { logger } from "../../observability";
 
 const ESL_HOST = () => process.env.FREESWITCH_ESL_HOST?.trim() || "localhost";
 const ESL_PORT = () => parseInt(process.env.FREESWITCH_ESL_PORT || "8021", 10);
-const ESL_PASSWORD = () => process.env.FREESWITCH_ESL_PASSWORD?.trim() || "ClueCon";
+// No default password — if FREESWITCH_ESL_PASSWORD is unset the connection attempt
+// will fail (ESL auth rejected), which is the correct fail-closed behaviour.
+const ESL_PASSWORD = () => process.env.FREESWITCH_ESL_PASSWORD?.trim() ?? "";
 
 export interface ESLEvent {
   headers: Record<string, string>;

@@ -5,6 +5,7 @@
 
 import type { Request, Response } from "express";
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
 import { api } from "@shared/routes";
 import { logger } from "../../observability";
 import { clearOtpVerifyFailures, recordOtpVerifyFailure } from "../../rate-limit";
@@ -288,12 +289,27 @@ export async function adminSecretLogin(req: Request, res: Response) {
     });
     const { email, secret } = schema.parse(req.body);
 
-    const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || "kiranatmakuri518@gmail.com").trim();
-    const superAdminSecret = (process.env.SUPER_ADMIN_SECRET || "NeuraTalkAdmin2025Kiran").trim();
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL?.trim();
+    const superAdminSecret = process.env.SUPER_ADMIN_SECRET?.trim();
 
-    const emailOk = email.trim().toLowerCase() === superAdminEmail.toLowerCase();
-    const secretOk = secret.trim() === superAdminSecret;
-    if (!emailOk || !secretOk) {
+    if (!superAdminEmail || !superAdminSecret) {
+      logger.error("Auth", "SUPER_ADMIN_EMAIL or SUPER_ADMIN_SECRET not configured — admin login disabled");
+      return res.status(503).json({ success: false, message: "Admin login not configured on this server." });
+    }
+
+    // Timing-safe comparison for both email and secret to prevent enumeration via timing oracle
+    const emailBuf = Buffer.from(email.trim().toLowerCase());
+    const expectedEmailBuf = Buffer.from(superAdminEmail.toLowerCase());
+    const secretBuf = Buffer.from(secret.trim());
+    const expectedSecretBuf = Buffer.from(superAdminSecret);
+
+    // Pad to same length before comparison to prevent length-based timing leaks
+    const emailMatch = emailBuf.length === expectedEmailBuf.length &&
+      timingSafeEqual(emailBuf, expectedEmailBuf);
+    const secretMatch = secretBuf.length === expectedSecretBuf.length &&
+      timingSafeEqual(secretBuf, expectedSecretBuf);
+
+    if (!emailMatch || !secretMatch) {
       return res.status(401).json({ success: false, message: "Invalid credentials." });
     }
 
