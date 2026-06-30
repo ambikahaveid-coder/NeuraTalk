@@ -1,14 +1,24 @@
 import { useLocation, Link } from "wouter";
-import { Home, Phone, Video, MessageSquare, User } from "lucide-react";
+import { Home, Phone, MessageSquare, Clock, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 
 const navItems = [
   { path: "/dashboard", icon: Home, label: "Home" },
-  { path: "/call", icon: Phone, label: "Voice" },
-  { path: "/video-translation", icon: Video, label: "Video" },
+  { path: "/calls/c2c", icon: Phone, label: "Calls" },
   { path: "/chat", icon: MessageSquare, label: "Chat" },
+  { path: "/call-history", icon: Clock, label: "History" },
   { path: "/billing", icon: User, label: "Account" },
+];
+
+const WEBSITE_PATH_PREFIXES = [
+  "/about", "/products", "/solutions", "/contact", "/faq", "/pricing",
+  "/privacy", "/terms", "/copyright", "/dpa", "/cookie-policy",
+  "/refund-policy", "/cancellation-policy", "/data-retention",
+  "/ai-usage-policy", "/recording-consent", "/translation-disclaimer",
+  "/account-deletion", "/data-export", "/legal-notice", "/trust",
+  "/status", "/release-notes", "/help", "/report-abuse", "/sdk-docs",
+  "/demo", "/investor",
 ];
 
 export function MobileNav() {
@@ -17,8 +27,9 @@ export function MobileNav() {
 
   if (!isAuthenticated) return null;
 
-  const excludedPaths = ["/", "/login", "/about", "/products", "/solutions", "/contact", "/faq", "/privacy", "/terms", "/copyright", "/dpa", "/pricing"];
-  if (excludedPaths.some(path => location === path)) return null;
+  const isWebsitePage = location === "/" || location === "/login" ||
+    WEBSITE_PATH_PREFIXES.some(p => location === p || location.startsWith(p + "/"));
+  if (isWebsitePage) return null;
 
   return (
     <nav 
@@ -27,7 +38,9 @@ export function MobileNav() {
     >
       <div className="flex items-center justify-around h-16 px-2">
         {navItems.map((item) => {
-          const isActive = location === item.path || location.startsWith(item.path + "/");
+          const isActive = location === item.path ||
+            location.startsWith(item.path + "/") ||
+            (item.path === "/calls/c2c" && location.startsWith("/calls/"));
           const Icon = item.icon;
           
           return (

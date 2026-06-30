@@ -8,9 +8,6 @@ envs:
   - key: PORT
     value: "5000"
     scope: RUN_TIME
-  - key: DOTENV_OVERRIDE
-    value: "true"
-    scope: RUN_AND_BUILD_TIME
   - key: ENABLE_STARTUP_SEEDING
     value: "true"
     scope: RUN_TIME
@@ -148,5 +145,5 @@ services:
     instance_size_slug: apps-s-1vcpu-1gb
     http_port: 5000
     health_check:
-      http_path: /healthz
+      http_path: /api/health
       initial_delay_seconds: 30

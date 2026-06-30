@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -305,22 +306,24 @@ export default function ApiDocs() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [apiKey, setApiKey] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState<keyof typeof SDK_EXAMPLES>("javascript");
+  const qc = useQueryClient();
 
-  const generateApiKey = async () => {
-    // In production, this would call a backend endpoint:
-    // const response = await fetch('/api/keys/generate', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-    // For demo purposes, generating a placeholder key
-    const key = `ntk_demo_${Array.from({ length: 24 }, () => 
-      "abcdefghijklmnopqrstuvwxyz0123456789"[Math.floor(Math.random() * 36)]
-    ).join("")}`;
-    setApiKey(key);
-    toast({ 
-      title: "Demo Key Generated", 
-      description: "Production keys are generated server-side for security" 
-    });
-  };
+  const { data: apiKeyData } = useQuery<{ key: string | null }>({
+    queryKey: ["/api/company/api-key"],
+    queryFn: () => fetch("/api/company/api-key", { credentials: "include" }).then(r => r.json()),
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: () => fetch("/api/company/api-key/generate", { method: "POST", credentials: "include" }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/company/api-key"] });
+      toast({ title: "API Key Generated", description: "Your new API key is ready to use." });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to generate API key. Try from Company Dashboard.", variant: "destructive" }),
+  });
+
+  const apiKey = apiKeyData?.key ?? "";
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -423,15 +426,15 @@ export default function ApiDocs() {
                 <div className="flex gap-2 mt-1">
                   <Input
                     data-testid="input-api-key"
-                    value={apiKey}
-                    placeholder="Generate an API key..."
+                    value={apiKey ? `ntk_live_••••••••${apiKey.slice(-8)}` : ""}
+                    placeholder="No API key yet — click Generate"
                     readOnly
                     className="font-mono"
                   />
                   <Button
                     size="icon"
                     variant="outline"
-                    onClick={() => copyToClipboard(apiKey)}
+                    onClick={() => copyToClipboard(apiKeyData?.key ?? "")}
                     disabled={!apiKey}
                     data-testid="button-copy-key"
                   >
@@ -440,9 +443,9 @@ export default function ApiDocs() {
                 </div>
               </div>
               <div className="flex items-end">
-                <Button onClick={generateApiKey} data-testid="button-generate-key">
+                <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending} data-testid="button-generate-key">
                   <Key className="w-4 h-4 mr-2" />
-                  Generate Key
+                  {generateMutation.isPending ? "Generating..." : "Generate Key"}
                 </Button>
               </div>
             </div>

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Phone, Plus, Settings, Activity, Shield, CreditCard, Globe,
-  CheckCircle2, Clock, AlertTriangle, Wifi, Zap, FileText, Trash2, Edit3, ChevronRight,
+  CheckCircle2, Clock, AlertTriangle, Wifi, Zap, FileText, Trash2, Edit3, ChevronRight, Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -634,6 +634,240 @@ function SipTab() {
   );
 }
 
+// ── Language Rules Tab ────────────────────────────────────────────────────────
+
+const LANGUAGE_OPTIONS = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "hi-IN", label: "Hindi (India)" },
+  { value: "te-IN", label: "Telugu (India)" },
+  { value: "ta-IN", label: "Tamil (India)" },
+  { value: "kn-IN", label: "Kannada (India)" },
+  { value: "ml-IN", label: "Malayalam (India)" },
+  { value: "mr-IN", label: "Marathi (India)" },
+  { value: "bn-IN", label: "Bengali (India)" },
+  { value: "gu-IN", label: "Gujarati (India)" },
+  { value: "pa-IN", label: "Punjabi (India)" },
+  { value: "en-IN", label: "English (India)" },
+  { value: "en-US", label: "English (US)" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "ar", label: "Arabic" },
+  { value: "zh", label: "Chinese" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "pt", label: "Portuguese" },
+  { value: "ru", label: "Russian" },
+];
+
+function LanguageRulesTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    enterpriseNumberId: 0,
+    callerLanguage: "hi-IN",
+    agentLanguage: "en-US",
+    autoTranslate: true,
+    priority: 0,
+    routeToSkill: "",
+  });
+
+  const { data: numbers = [] } = useQuery<EnterpriseNumber[]>({
+    queryKey: ["/api/enterprise-hub/numbers"],
+    queryFn: () => apiFetch("/api/enterprise-hub/numbers"),
+    staleTime: 30_000,
+  });
+
+  const { data: rules = [], isLoading } = useQuery<LanguageRule[]>({
+    queryKey: ["/api/enterprise-hub/language-rules"],
+    queryFn: () => apiFetch("/api/enterprise-hub/language-rules"),
+    staleTime: 30_000,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof form) =>
+      apiFetch("/api/enterprise-hub/language-rules", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/language-rules"] });
+      qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/overview"] });
+      setOpen(false);
+      setForm({ enterpriseNumberId: 0, callerLanguage: "hi-IN", agentLanguage: "en-US", autoTranslate: true, priority: 0, routeToSkill: "" });
+      toast({ title: "Language rule created" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/enterprise-hub/language-rules/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/language-rules"] });
+      qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/overview"] });
+      toast({ title: "Rule removed" });
+    },
+  });
+
+  const getLangLabel = (code: string) => LANGUAGE_OPTIONS.find(l => l.value === code)?.label ?? code;
+  const getNumberLabel = (id: number) => {
+    const n = numbers.find(n => n.id === id);
+    return n ? n.phoneNumber + (n.label ? ` (${n.label})` : "") : `#${id}`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-muted-foreground">
+          {(rules as any[]).length} rule{(rules as any[]).length !== 1 ? "s" : ""} — routes callers to agents based on detected language
+        </p>
+        <Button size="sm" onClick={() => setOpen(true)} disabled={numbers.length === 0}>
+          <Plus className="h-4 w-4 mr-2" />Add Rule
+        </Button>
+      </div>
+
+      {numbers.length === 0 && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="pt-4 pb-4">
+            <p className="text-sm text-amber-800">Register at least one number first before creating language rules.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading rules...</p>
+      ) : (rules as any[]).length === 0 ? (
+        <Card className="text-center py-10">
+          <CardContent>
+            <Languages className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <p className="font-medium mb-1">No language rules configured</p>
+            <p className="text-sm text-muted-foreground">
+              Route callers to the right agents based on the language they speak.
+              Example: Hindi callers → Hindi-speaking agents.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {(rules as any[]).map((r: any) => (
+            <Card key={r.id}>
+              <CardContent className="p-4 flex items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <Languages className="h-5 w-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm">
+                      {getLangLabel(r.callerLanguage)} → {getLangLabel(r.agentLanguage)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Number: {getNumberLabel(r.enterpriseNumberId)}
+                      {r.routeToSkill && <span> · Skill: {r.routeToSkill}</span>}
+                      {" "}· Priority: {r.priority}
+                    </p>
+                    <div className="flex gap-2 mt-1.5">
+                      <Badge className={r.autoTranslate ? "bg-purple-100 text-purple-800 border-purple-200" : "bg-gray-100 text-gray-600"}>
+                        <Zap className="h-3 w-3 mr-1" />
+                        {r.autoTranslate ? "Auto-translate ON" : "Auto-translate OFF"}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:text-destructive flex-shrink-0"
+                  onClick={() => deleteMutation.mutate(r.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Language Routing Rule</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Number</Label>
+              <Select
+                value={form.enterpriseNumberId ? form.enterpriseNumberId.toString() : ""}
+                onValueChange={(v) => setForm({ ...form, enterpriseNumberId: Number(v) })}
+              >
+                <SelectTrigger className="mt-1"><SelectValue placeholder="Select a number..." /></SelectTrigger>
+                <SelectContent>
+                  {numbers.map((n) => (
+                    <SelectItem key={n.id} value={n.id.toString()}>
+                      {n.phoneNumber}{n.label ? ` — ${n.label}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Caller Language</Label>
+                <Select value={form.callerLanguage} onValueChange={(v) => setForm({ ...form, callerLanguage: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGE_OPTIONS.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Agent Language</Label>
+                <Select value={form.agentLanguage} onValueChange={(v) => setForm({ ...form, agentLanguage: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGE_OPTIONS.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg border">
+              <div>
+                <p className="text-sm font-medium">Auto-translate</p>
+                <p className="text-xs text-muted-foreground">Automatically translate between caller and agent languages</p>
+              </div>
+              <Switch checked={form.autoTranslate} onCheckedChange={(v) => setForm({ ...form, autoTranslate: v })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Route to Skill (optional)</Label>
+                <Input
+                  className="mt-1"
+                  placeholder="e.g. hindi-support"
+                  value={form.routeToSkill}
+                  onChange={(e) => setForm({ ...form, routeToSkill: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Priority (higher = first)</Label>
+                <Input
+                  className="mt-1"
+                  type="number"
+                  value={form.priority}
+                  onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createMutation.mutate(form)}
+              disabled={!form.enterpriseNumberId || createMutation.isPending}
+            >
+              {createMutation.isPending ? "Saving..." : "Add Rule"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function NumberHub() {
@@ -661,10 +895,11 @@ export default function NumberHub() {
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" className="flex items-center gap-2"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="numbers" className="flex items-center gap-2"><Phone className="h-4 w-4" />Numbers</TabsTrigger>
           <TabsTrigger value="sip" className="flex items-center gap-2"><Wifi className="h-4 w-4" />SIP Trunks</TabsTrigger>
+          <TabsTrigger value="language" className="flex items-center gap-2"><Languages className="h-4 w-4" />Language Rules</TabsTrigger>
           <TabsTrigger value="ai" className="flex items-center gap-2"><Zap className="h-4 w-4" />AI Control</TabsTrigger>
           <TabsTrigger value="compliance" className="flex items-center gap-2"><Shield className="h-4 w-4" />Compliance</TabsTrigger>
         </TabsList>
@@ -683,6 +918,10 @@ export default function NumberHub() {
 
         <TabsContent value="sip">
           <SipTab />
+        </TabsContent>
+
+        <TabsContent value="language">
+          <LanguageRulesTab />
         </TabsContent>
 
         <TabsContent value="ai">
