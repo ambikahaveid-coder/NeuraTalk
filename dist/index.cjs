@@ -58580,18 +58580,9 @@ function normalizeE164(raw) {
   return s.startsWith("+") ? `+${digits}` : `+${digits}`;
 }
 function resolveCallerId(to, from) {
-  const toNorm = normalizeE164(to) || "";
   const fromNorm = normalizeE164(from);
   const configured = normalizeE164(process.env.MSG91_VOICE_CALLER_ID);
-  const isIndia = toNorm.replace(/\D/g, "").startsWith("91") || toNorm.replace(/\D/g, "").length === 10;
-  if (isIndia) {
-    const id = fromNorm || configured;
-    if (!id) throw new Error("MSG91_VOICE_CALLER_ID must be set for India PSTN calls. Add it to DO Dashboard.");
-    return id;
-  }
-  return fromNorm || configured || (() => {
-    throw new Error("No outbound caller ID configured for MSG91");
-  })();
+  return fromNorm || configured || null;
 }
 function mapStatus(raw) {
   const s = (raw || "").toLowerCase().trim();
@@ -58622,18 +58613,18 @@ var init_msg91 = __esm({
         const from = resolveCallerId(to, opts.from);
         const payload = {
           to,
-          from,
           callback_url: opts.callbackUrl,
           metadata: {
             internal_call_id: opts.internalCallId,
             ...opts.metadata || {}
           }
         };
+        if (from) payload["from"] = from;
         if (opts.sipUri) payload["sip_bridge"] = opts.sipUri;
         if (opts.welcomeMessage) payload["fallback_message"] = opts.welcomeMessage;
         if (opts.timeoutSeconds) payload["timeout"] = opts.timeoutSeconds;
         if (opts.record) payload["record"] = true;
-        logger.info("MSG91", `Initiating outbound call to ${to} from ${from} [${opts.internalCallId}]`);
+        logger.info("MSG91", `Initiating outbound call to ${to} from ${from ?? "MSG91-pool"} [${opts.internalCallId}]`);
         const res = await fetchWithTimeout(`${BASE}/v5/voice/call/outbound`, {
           method: "POST",
           headers: { authkey: authKey(), "Content-Type": "application/json" },

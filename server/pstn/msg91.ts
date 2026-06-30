@@ -51,19 +51,11 @@ function normalizeE164(raw: string | undefined | null): string | null {
   return s.startsWith("+") ? `+${digits}` : `+${digits}`;
 }
 
-function resolveCallerId(to: string, from: string): string {
-  const toNorm = normalizeE164(to) || "";
+function resolveCallerId(to: string, from: string): string | null {
   const fromNorm = normalizeE164(from);
   const configured = normalizeE164(process.env.MSG91_VOICE_CALLER_ID);
-
-  // Indian numbers require a pre-registered caller ID
-  const isIndia = toNorm.replace(/\D/g, "").startsWith("91") || toNorm.replace(/\D/g, "").length === 10;
-  if (isIndia) {
-    const id = fromNorm || configured;
-    if (!id) throw new Error("MSG91_VOICE_CALLER_ID must be set for India PSTN calls. Add it to DO Dashboard.");
-    return id;
-  }
-  return fromNorm || configured || (() => { throw new Error("No outbound caller ID configured for MSG91"); })();
+  // Return configured/caller number if available; null = let MSG91 assign from pool
+  return fromNorm || configured || null;
 }
 
 function mapStatus(raw: string): PSTNStatusEvent["status"] {
@@ -91,7 +83,6 @@ export class MSG91Provider implements PSTNProvider {
     const from = resolveCallerId(to, opts.from);
     const payload: Record<string, unknown> = {
       to,
-      from,
       callback_url: opts.callbackUrl,
       metadata: {
         internal_call_id: opts.internalCallId,
@@ -99,12 +90,15 @@ export class MSG91Provider implements PSTNProvider {
       },
     };
 
+    // Only include 'from' if we have a caller ID; otherwise MSG91 assigns from its pool
+    if (from) payload["from"] = from;
+
     if (opts.sipUri) payload["sip_bridge"] = opts.sipUri;
     if (opts.welcomeMessage) payload["fallback_message"] = opts.welcomeMessage;
     if (opts.timeoutSeconds) payload["timeout"] = opts.timeoutSeconds;
     if (opts.record) payload["record"] = true;
 
-    logger.info("MSG91", `Initiating outbound call to ${to} from ${from} [${opts.internalCallId}]`);
+    logger.info("MSG91", `Initiating outbound call to ${to} from ${from ?? "MSG91-pool"} [${opts.internalCallId}]`);
 
     const res = await fetchWithTimeout(`${BASE}/v5/voice/call/outbound`, {
       method: "POST",
