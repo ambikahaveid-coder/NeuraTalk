@@ -61,6 +61,21 @@ const CopyrightPage = lazy(() => import("@/pages/website/CopyrightPage"));
 const DPAPage = lazy(() => import("@/pages/website/DPAPage"));
 const PricingPage = lazy(() => import("@/pages/website/PricingPage"));
 const SDKDocsPage = lazy(() => import("@/pages/website/SDKDocsPage"));
+const CookiePolicyPage = lazy(() => import("@/pages/website/CookiePolicyPage"));
+const RefundPolicyPage = lazy(() => import("@/pages/website/RefundPolicyPage"));
+const CancellationPolicyPage = lazy(() => import("@/pages/website/CancellationPolicyPage"));
+const DataRetentionPage = lazy(() => import("@/pages/website/DataRetentionPage"));
+const AIUsagePolicyPage = lazy(() => import("@/pages/website/AIUsagePolicyPage"));
+const RecordingConsentPage = lazy(() => import("@/pages/website/RecordingConsentPage"));
+const TranslationDisclaimerPage = lazy(() => import("@/pages/website/TranslationDisclaimerPage"));
+const AccountDeletionPage = lazy(() => import("@/pages/website/AccountDeletionPage"));
+const DataExportPage = lazy(() => import("@/pages/website/DataExportPage"));
+const LegalNoticePage = lazy(() => import("@/pages/website/LegalNoticePage"));
+const TrustCenterPage = lazy(() => import("@/pages/website/TrustCenterPage"));
+const StatusPage = lazy(() => import("@/pages/website/StatusPage"));
+const ReleaseNotesPage = lazy(() => import("@/pages/website/ReleaseNotesPage"));
+const HelpCenterPage = lazy(() => import("@/pages/website/HelpCenterPage"));
+const ReportAbusePage = lazy(() => import("@/pages/website/ReportAbusePage"));
 
 import { CookieConsent } from "@/components/CookieConsent";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
@@ -369,6 +384,55 @@ function Router() {
       </Route>
       <Route path="/sdk-docs">
         <WebsitePage><SDKDocsPage /></WebsitePage>
+      </Route>
+
+      {/* Legal & compliance pages */}
+      <Route path="/cookie-policy">
+        <WebsitePage><CookiePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/refund-policy">
+        <WebsitePage><RefundPolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/cancellation-policy">
+        <WebsitePage><CancellationPolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/data-retention">
+        <WebsitePage><DataRetentionPage /></WebsitePage>
+      </Route>
+      <Route path="/ai-usage-policy">
+        <WebsitePage><AIUsagePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/recording-consent">
+        <WebsitePage><RecordingConsentPage /></WebsitePage>
+      </Route>
+      <Route path="/translation-disclaimer">
+        <WebsitePage><TranslationDisclaimerPage /></WebsitePage>
+      </Route>
+      <Route path="/account-deletion">
+        <WebsitePage><AccountDeletionPage /></WebsitePage>
+      </Route>
+      <Route path="/data-export">
+        <WebsitePage><DataExportPage /></WebsitePage>
+      </Route>
+      <Route path="/legal-notice">
+        <WebsitePage><LegalNoticePage /></WebsitePage>
+      </Route>
+
+      {/* Trust & support pages */}
+      <Route path="/trust">
+        <WebsitePage><TrustCenterPage /></WebsitePage>
+      </Route>
+      <Route path="/status">
+        <WebsitePage><StatusPage /></WebsitePage>
+      </Route>
+      <Route path="/release-notes">
+        <WebsitePage><ReleaseNotesPage /></WebsitePage>
+      </Route>
+      <Route path="/help">
+        <WebsitePage><HelpCenterPage /></WebsitePage>
+      </Route>
+      <Route path="/report-abuse">
+        <WebsitePage><ReportAbusePage /></WebsitePage>
       </Route>
 
       <Route>
