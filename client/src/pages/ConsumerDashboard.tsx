@@ -11,6 +11,8 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import AppNavigation from "@/components/AppNavigation";
 import PhoneIdentityCard from "@/components/PhoneIdentityCard";
+import { QueryErrorState } from "@/components/QueryErrorState";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Phone, Video, Search, Clock, Star, Sparkles,
   CreditCard, Users, History, Mic, Globe,
@@ -44,28 +46,32 @@ export default function ConsumerDashboard() {
   const [search, setSearch] = useState("");
   const [dial, setDial] = useState("");
 
-  const { data: recentData } = useQuery<{ calls: RecentCall[] }>({
+  // NOTE: queryFn used to swallow every failure into a fake "empty/zero"
+  // success response (`{ calls: [] }` / `{ balanceInr: 0, ... }`). That made
+  // a genuine backend outage indistinguishable from "you really do have ₹0
+  // and no call history" — the worst possible UX for a balance display.
+  // Letting the error propagate lets react-query's real isError/error state
+  // drive an honest error UI with retry instead.
+  const {
+    data: recentData,
+    isLoading: recentLoading,
+    isError: recentIsError,
+    error: recentError,
+    refetch: refetchRecent,
+  } = useQuery<{ calls: RecentCall[] }>({
     queryKey: ["/api/calls/history", { limit: 5 }],
-    queryFn: async () => {
-      try {
-        const res = await apiRequest("GET", "/api/calls/history?limit=5");
-        return res as any;
-      } catch {
-        return { calls: [] };
-      }
-    },
+    queryFn: async () => await apiRequest("GET", "/api/calls/history?limit=5") as any,
   });
 
-  const { data: balanceData } = useQuery<{ balanceInr: number; minutesRemaining: number }>({
+  const {
+    data: balanceData,
+    isLoading: balanceLoading,
+    isError: balanceIsError,
+    error: balanceError,
+    refetch: refetchBalance,
+  } = useQuery<{ balanceInr: number; minutesRemaining: number }>({
     queryKey: ["/api/billing/balance"],
-    queryFn: async () => {
-      try {
-        const res = await apiRequest("GET", "/api/billing/balance");
-        return res as any;
-      } catch {
-        return { balanceInr: 0, minutesRemaining: 0 };
-      }
-    },
+    queryFn: async () => await apiRequest("GET", "/api/billing/balance") as any,
   });
 
   const filteredContacts = useMemo(() => {
@@ -148,12 +154,23 @@ export default function ConsumerDashboard() {
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <CreditCard className="w-4 h-4" /> Balance
               </div>
-              <div className="text-2xl font-bold">
-                ₹{(balanceData?.balanceInr ?? 0).toFixed(2)}
-              </div>
-              <div className="text-xs text-gray-500">
-                ~{balanceData?.minutesRemaining ?? 0} min of translated calling
-              </div>
+              {balanceLoading ? (
+                <>
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-3 w-32" />
+                </>
+              ) : balanceIsError ? (
+                <QueryErrorState error={balanceError} onRetry={() => refetchBalance()} label="your balance" className="p-3" />
+              ) : (
+                <>
+                  <div className="text-2xl font-bold">
+                    ₹{(balanceData?.balanceInr ?? 0).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    ~{balanceData?.minutesRemaining ?? 0} min of translated calling
+                  </div>
+                </>
+              )}
               <Button
                 size="sm" variant="outline" className="w-full mt-2"
                 onClick={() => navigate("/billing")}
@@ -334,7 +351,15 @@ export default function ConsumerDashboard() {
             </Link>
           </CardHeader>
           <CardContent>
-            {!recentData?.calls || recentData.calls.length === 0 ? (
+            {recentLoading ? (
+              <div className="space-y-3 py-2">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            ) : recentIsError ? (
+              <QueryErrorState error={recentError} onRetry={() => refetchRecent()} label="your recent calls" />
+            ) : !recentData?.calls || recentData.calls.length === 0 ? (
               <p className="text-sm text-gray-500 py-6 text-center">
                 Your recent calls will appear here.
               </p>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -112,7 +113,13 @@ export default function CompanyDashboard() {
   const queryClient = useQueryClient();
   const canManageCompany = user?.role === "company_admin" || user?.role === "super_admin";
 
-  const { data: dashboard, isLoading: dashboardLoading } = useQuery({
+  const {
+    data: dashboard,
+    isLoading: dashboardLoading,
+    isError: dashboardIsError,
+    error: dashboardError,
+    refetch: refetchDashboard,
+  } = useQuery({
     queryKey: ["/api/b2b/company/dashboard"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -124,7 +131,13 @@ export default function CompanyDashboard() {
     },
   });
 
-  const { data: agents, isLoading: agentsLoading } = useQuery({
+  const {
+    data: agents,
+    isLoading: agentsLoading,
+    isError: agentsIsError,
+    error: agentsError,
+    refetch: refetchAgents,
+  } = useQuery({
     queryKey: ["/api/company/agents"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -270,11 +283,11 @@ export default function CompanyDashboard() {
           </div>
 
           {activeTab === "overview" && (
-            <OverviewTab dashboard={dashboard} billingData={billingData} creditsData={creditsData} auditData={auditData} isLoading={dashboardLoading} canManageCompany={canManageCompany} />
+            <OverviewTab dashboard={dashboard} billingData={billingData} creditsData={creditsData} auditData={auditData} isLoading={dashboardLoading} isError={dashboardIsError} error={dashboardError} onRetry={refetchDashboard} canManageCompany={canManageCompany} />
           )}
 
           {activeTab === "agents" && (
-            <AgentsTab agents={agents} isLoading={agentsLoading} />
+            <AgentsTab agents={agents} isLoading={agentsLoading} isError={agentsIsError} error={agentsError} onRetry={refetchAgents} />
           )}
 
           {activeTab === "reports" && (
@@ -351,11 +364,19 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
-function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading, canManageCompany }: { dashboard: any; billingData?: CompanyBillingDashboardResponse; creditsData?: CompanyCreditResponse; auditData?: AuditLogResponse; isLoading: boolean; canManageCompany: boolean }) {
+function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading, isError, error, onRetry, canManageCompany }: { dashboard: any; billingData?: CompanyBillingDashboardResponse; creditsData?: CompanyCreditResponse; auditData?: AuditLogResponse; isLoading: boolean; isError?: boolean; error?: unknown; onRetry?: () => void; canManageCompany: boolean }) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="max-w-md mx-auto py-8">
+        <QueryErrorState error={error} onRetry={() => onRetry?.()} label="your company dashboard" />
       </div>
     );
   }
@@ -939,7 +960,7 @@ function ClientConnectCard() {
   );
 }
 
-function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
+function AgentsTab({ agents, isLoading, isError, error, onRetry }: { agents: any; isLoading: boolean; isError?: boolean; error?: unknown; onRetry?: () => void }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAgentEmail, setNewAgentEmail] = useState("");
   const [newAgentName, setNewAgentName] = useState("");
@@ -1014,6 +1035,7 @@ function AgentsTab({ agents, isLoading }: { agents: any; isLoading: boolean }) {
   });
 
   if (isLoading) return <div className="text-center py-10"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>;
+  if (isError) return <div className="max-w-md mx-auto py-8"><QueryErrorState error={error} onRetry={() => onRetry?.()} label="your team members" /></div>;
 
   return (
     <div className="space-y-4">

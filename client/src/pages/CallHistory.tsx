@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   Phone,
   PhoneOutgoing,
@@ -43,7 +44,7 @@ export default function CallHistory() {
   const [, navigate] = useLocation();
   const [selectedCall, setSelectedCall] = useState<number | null>(null);
 
-  const { data: calls = [], isLoading } = useQuery<Call[]>({
+  const { data: calls = [], isLoading, isError, error, refetch } = useQuery<Call[]>({
     queryKey: ["/api/features/call-history"],
   });
 
@@ -146,7 +147,13 @@ export default function CallHistory() {
         <h1 className="text-2xl font-bold">Call History</h1>
       </div>
 
-      {calls.length === 0 ? (
+      {isError ? (
+        <Card>
+          <CardContent className="py-6">
+            <QueryErrorState error={error} onRetry={() => refetch()} label="your call history" />
+          </CardContent>
+        </Card>
+      ) : calls.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Phone className="w-12 h-12 text-muted-foreground mb-4" />

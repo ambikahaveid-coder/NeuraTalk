@@ -2,6 +2,16 @@ import "./load-env";
 import fs from "fs";
 import path from "path";
 import express, { type Request, Response, NextFunction } from "express";
+// Express 4 does not forward a rejected promise from an async route handler
+// to next(err) — it's silently dropped as an unhandledRejection, which this
+// process treats as fatal (see bindProcessHandlers below) and shuts the
+// whole server down for what should have been a single failed request.
+// This patches Router/Layer dispatch so async handler rejections are always
+// routed to the Express error-handling middleware instead. Must be imported
+// before any route is registered (safe here: it patches shared express
+// prototypes at import time, before the HTTP listener starts accepting
+// requests further down this file).
+import "express-async-errors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { corsMiddleware, httpsRedirect, securityHeaders } from "./security-middleware";

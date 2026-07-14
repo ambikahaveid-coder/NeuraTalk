@@ -16,6 +16,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { timingSafeEqual } from "crypto";
 import { metrics, logger } from "./observability";
 import { getMetricsSnapshot, getVoiceMetricsSnapshot } from "./modules/calls/metrics";
 import { getPipelineMetrics } from "./ultra-pipeline";
@@ -61,6 +62,46 @@ function prometheusHeader(name: string, help: string, type: string): string {
   return `# HELP ${name} ${help}\n# TYPE ${name} ${type}`;
 }
 
+// ─── Access Control ────────────────────────────────────────────────
+// /metrics exposes operational data (queue depths, latency, error rates)
+// but no PII or call content. It was previously reachable with zero auth.
+// Gate it behind a static bearer token (METRICS_TOKEN) — the standard,
+// least-disruptive way to protect a Prometheus scrape endpoint, since
+// scrapers (Prometheus, Grafana Agent, etc.) authenticate via a static
+// token in their scrape config, not a logged-in user session.
+//
+// Fails safe in the direction of NOT silently locking out an already-wired
+// scraper: if METRICS_TOKEN isn't set, the endpoint stays open (matching
+// today's behavior) but logs a warning once per process so operators
+// notice and configure it. Once set, every request must present it via
+// `Authorization: Bearer <token>` or `?token=<token>`.
+let warnedMissingMetricsToken = false;
+
+function isAuthorizedMetricsRequest(req: Request): boolean {
+  const expected = process.env.METRICS_TOKEN;
+  if (!expected) {
+    if (!warnedMissingMetricsToken) {
+      warnedMissingMetricsToken = true;
+      logger.warn("Metrics", "METRICS_TOKEN is not set — /metrics is publicly reachable with no authentication. Set METRICS_TOKEN to restrict access.");
+    }
+    return true;
+  }
+
+  const authHeader = req.headers.authorization;
+  const presented = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : typeof req.query.token === "string"
+      ? req.query.token
+      : null;
+
+  if (!presented) return false;
+
+  const expectedBuf = Buffer.from(expected);
+  const presentedBuf = Buffer.from(presented);
+  if (expectedBuf.length !== presentedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, presentedBuf);
+}
+
 // ─── Registration ─────────────────────────────────────────────────
 export function registerProductionMetrics(app: Express): void {
 
@@ -68,7 +109,11 @@ export function registerProductionMetrics(app: Express): void {
    * GET /metrics — Prometheus scrape endpoint
    * Content-Type: text/plain; version=0.04
    */
-  app.get("/metrics", async (_req: Request, res: Response) => {
+  app.get("/metrics", async (req: Request, res: Response) => {
+    if (!isAuthorizedMetricsRequest(req)) {
+      res.status(401).send("# Unauthorized — set Authorization: Bearer <METRICS_TOKEN>\n");
+      return;
+    }
     try {
       const lines: string[] = [];
       const memUsage = process.memoryUsage();

@@ -1389,6 +1389,15 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
   }
   await redisClient().del(`call_metadata:${callId}:caller`);
 
+  // Mirrors the caller-lock release above — set by pstn/inbound.ts's
+  // callee-side double-booking guard for inbound PSTN calls. A no-op for
+  // outbound/app-to-app calls, which never set this key.
+  const calleeId = await redisClient().get(`call_metadata:${callId}:callee`);
+  if (calleeId) {
+    await redisClient().del(`user:active_call:${calleeId}`);
+  }
+  await redisClient().del(`call_metadata:${callId}:callee`);
+
   await endCallRoom(callId);
   const terminationReasons = new Set([
     "insufficient_balance",

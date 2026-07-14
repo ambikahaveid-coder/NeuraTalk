@@ -325,11 +325,24 @@ export function registerProductionRoutes(app: Express): void {
   
   /**
    * Readiness probe - Is the server ready to accept traffic?
-   * Checks database connectivity and critical services
+   * Checks database connectivity and critical services.
+   *
+   * PERFORMANCE NOTE (fixed after a production incident): the checks below
+   * used to run sequentially, each with its own multi-second timeout
+   * (DB + authSchema + up to 3s Redis + up to 4s MSG91 in production could
+   * sum past 6-7s worst case). A platform edge/proxy in front of the app
+   * (DigitalOcean App Platform, in this deployment) has its own upstream
+   * timeout that a sequential worst-case chain of this length can exceed,
+   * causing the edge to abort the request with a 504 before the app ever
+   * finishes — even though the app itself never crashed or hung
+   * indefinitely. Running every check concurrently bounds total latency to
+   * the single SLOWEST check rather than the SUM of all of them, and every
+   * individual check now has an explicit timeout (previously the DB and
+   * authSchema queries had none at all).
    */
   app.get("/readyz", async (req, res) => {
+    const READYZ_CHECK_TIMEOUT_MS = 3_000;
     const checks: Record<string, { status: string; latencyMs?: number; error?: string }> = {};
-    let overallHealthy = true;
     const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
       return await Promise.race([
         promise,
@@ -337,59 +350,67 @@ export function registerProductionRoutes(app: Express): void {
       ]);
     };
 
-    const dbStart = Date.now();
-    try {
-      await db.execute(sql`SELECT 1`);
-      checks.database = { status: "healthy", latencyMs: Date.now() - dbStart };
-    } catch (err) {
-      checks.database = { status: "unhealthy", error: "Connection failed" };
-      overallHealthy = false;
-    }
+    const overallStart = Date.now();
 
-    try {
-      const authSchemaStart = Date.now();
-      const authTables = ["user_sessions", "users"];
-      const result = await db.execute(sql`
-        select table_name
-        from information_schema.tables
-        where table_schema = 'public'
-          and table_name in (${sql.join(authTables.map((name) => sql`${name}`), sql`, `)})
-      `);
-      const presentTables = new Set(
-        Array.from((result as { rows?: Array<{ table_name?: string }> }).rows ?? [])
-          .map((row) => row.table_name)
-          .filter((value): value is string => typeof value === "string"),
-      );
-      const missingTables = authTables.filter((tableName) => !presentTables.has(tableName));
-      if (missingTables.length > 0) {
-        throw new Error(`missing tables: ${missingTables.join(",")}`);
+    const checkDatabase = async (): Promise<void> => {
+      const start = Date.now();
+      try {
+        await withTimeout(db.execute(sql`SELECT 1`), READYZ_CHECK_TIMEOUT_MS, "database");
+        checks.database = { status: "healthy", latencyMs: Date.now() - start };
+      } catch (err) {
+        checks.database = { status: "unhealthy", error: (err as Error).message === "database timed out" ? "timed out" : "Connection failed" };
       }
-      checks.authSchema = { status: "healthy", latencyMs: Date.now() - authSchemaStart };
-    } catch (err) {
-      checks.authSchema = { status: "unhealthy", error: (err as Error).message };
-      overallHealthy = false;
-    }
+    };
 
-    const redisStart = Date.now();
-    try {
-      const redisStatus = getRedisRuntimeStatus();
-      if (redisStatus.degraded) {
-        throw new Error("degraded_in_memory_fallback");
+    const checkAuthSchema = async (): Promise<void> => {
+      const start = Date.now();
+      try {
+        const authTables = ["user_sessions", "users"];
+        const result = await withTimeout(
+          db.execute(sql`
+            select table_name
+            from information_schema.tables
+            where table_schema = 'public'
+              and table_name in (${sql.join(authTables.map((name) => sql`${name}`), sql`, `)})
+          `),
+          READYZ_CHECK_TIMEOUT_MS,
+          "authSchema",
+        );
+        const presentTables = new Set(
+          Array.from((result as { rows?: Array<{ table_name?: string }> }).rows ?? [])
+            .map((row) => row.table_name)
+            .filter((value): value is string => typeof value === "string"),
+        );
+        const missingTables = authTables.filter((tableName) => !presentTables.has(tableName));
+        if (missingTables.length > 0) {
+          throw new Error(`missing tables: ${missingTables.join(",")}`);
+        }
+        checks.authSchema = { status: "healthy", latencyMs: Date.now() - start };
+      } catch (err) {
+        checks.authSchema = { status: "unhealthy", error: (err as Error).message };
       }
-      const client = getRedisClient();
-      const pong = await Promise.race([
-        client.ping(),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("ping timed out")), 3_000)),
-      ]);
-      if (pong !== "PONG") throw new Error(`unexpected reply: ${pong}`);
-      checks.redis = { status: "healthy", latencyMs: Date.now() - redisStart };
-    } catch (err) {
-      checks.redis = { status: "unhealthy", error: (err as Error).message };
-      overallHealthy = false;
-    }
+    };
+
+    const checkRedis = async (): Promise<void> => {
+      const start = Date.now();
+      try {
+        const redisStatus = getRedisRuntimeStatus();
+        if (redisStatus.degraded) {
+          throw new Error("degraded_in_memory_fallback");
+        }
+        const client = getRedisClient();
+        const pong = await withTimeout(client.ping(), READYZ_CHECK_TIMEOUT_MS, "redis");
+        if (pong !== "PONG") throw new Error(`unexpected reply: ${pong}`);
+        checks.redis = { status: "healthy", latencyMs: Date.now() - start };
+      } catch (err) {
+        checks.redis = { status: "unhealthy", error: (err as Error).message };
+      }
+    };
 
     const isProd = (process.env.NODE_ENV || "").toLowerCase() === "production";
-    if (isProd) {
+
+    const checkProviders = async (): Promise<void> => {
+      if (!isProd) return;
       const requiredKeys = [
         "STT_PROVIDER",
         "AZURE_SPEECH_KEY",
@@ -406,35 +427,45 @@ export function registerProductionRoutes(app: Express): void {
         checks.providers = { status: "healthy" };
       } else {
         checks.providers = { status: "unhealthy", error: `missing: ${missing.join(",")}` };
-        overallHealthy = false;
       }
+    };
 
-      if (process.env.MSG91_AUTH_KEY) {
-        const msg91Start = Date.now();
-        try {
-          const healthy = await withTimeout(isMSG91Healthy(), 4_000, "msg91 health");
-          if (!healthy) {
-            throw new Error("provider reported unhealthy");
-          }
-          checks.msg91 = { status: "healthy", latencyMs: Date.now() - msg91Start };
-        } catch (err) {
-          checks.msg91 = { status: "unhealthy", error: (err as Error).message };
-          overallHealthy = false;
+    const checkMsg91 = async (): Promise<void> => {
+      if (!isProd || !process.env.MSG91_AUTH_KEY) return;
+      const start = Date.now();
+      try {
+        // isMSG91Healthy() has its own internal 5s fetch timeout and never
+        // rejects (catches everything, resolves to false) — no separate
+        // outer race needed here. The previous version raced this against
+        // an outer 4s timeout, which was SHORTER than isMSG91Healthy's own
+        // 5s internal timeout — a real bug: the outer race would "win" and
+        // report a false timeout before the inner check ever got a chance
+        // to finish, on every single slow-but-not-actually-down MSG91 call.
+        const healthy = await isMSG91Healthy();
+        if (!healthy) {
+          throw new Error("provider reported unhealthy");
         }
+        checks.msg91 = { status: "healthy", latencyMs: Date.now() - start };
+      } catch (err) {
+        checks.msg91 = { status: "unhealthy", error: (err as Error).message };
       }
-    }
+    };
 
-    try {
-      await db.insert(systemHealthLogs).values({
-        service: "system",
-        status: overallHealthy ? "healthy" : "unhealthy",
-        responseTimeMs: Date.now() - dbStart,
-        details: checks,
-      });
-    } catch (e) {
-      // Don't fail health check if logging fails
-    }
-    
+    // All checks are independent of each other — run them concurrently so
+    // total latency is bounded by the slowest single check, not their sum.
+    await Promise.all([checkDatabase(), checkAuthSchema(), checkRedis(), checkProviders(), checkMsg91()]);
+
+    const overallHealthy = Object.values(checks).every((c) => c.status === "healthy");
+
+    // Fire-and-forget — logging this check's result must never add latency
+    // to the response the platform's proxy is waiting on.
+    void db.insert(systemHealthLogs).values({
+      service: "system",
+      status: overallHealthy ? "healthy" : "unhealthy",
+      responseTimeMs: Date.now() - overallStart,
+      details: checks,
+    }).catch(() => { /* don't fail the health check if logging fails */ });
+
     res.status(overallHealthy ? 200 : 503).json({
       status: overallHealthy ? "ready" : "not_ready",
       checks,

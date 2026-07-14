@@ -175,7 +175,16 @@ function Router() {
   };
 
   const signupFlow = sessionStorage.getItem("neuratalk_signup_flow");
-  const isInBusinessSignup = signupFlow && JSON.parse(signupFlow).accountType === "business";
+  let isInBusinessSignup = false;
+  if (signupFlow) {
+    try {
+      isInBusinessSignup = JSON.parse(signupFlow).accountType === "business";
+    } catch {
+      // Malformed/stale sessionStorage value — treat as "not in business
+      // signup" rather than crashing the whole app on every render.
+      isInBusinessSignup = false;
+    }
+  }
   const needsBusinessSignup = isAuthenticated && isInBusinessSignup;
 
   return (

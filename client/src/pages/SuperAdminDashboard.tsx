@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { QueryErrorState } from "@/components/QueryErrorState";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, LogOut, Building2, Settings, Check, X, Loader2,
@@ -170,14 +172,18 @@ export default function SuperAdminDashboard() {
 }
 
 function OverviewSection() {
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["/api/admin/stats"],
     queryFn: async () => {
       const token = getAuthToken();
       const res = await fetch("/api/admin/stats", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return { companies: 0, users: 0, revenue: 0, calls: 0 };
+      // Previously swallowed every failure into fake zero stats — the
+      // first thing a super admin sees on login would silently read
+      // "0 companies, 0 users, ₹0 revenue" during a real outage instead of
+      // showing an actual error. Let it throw so isError reflects reality.
+      if (!res.ok) throw new Error("Failed to load platform stats");
       return res.json();
     },
   });
@@ -196,9 +202,21 @@ function OverviewSection() {
 
   const pendingCount = pendingCompanies?.companies?.filter((c: any) => c.status === "pending").length || 0;
 
+  if (isError) {
+    return (
+      <div className="max-w-md mx-auto py-8">
+        <QueryErrorState error={error} onRetry={() => refetch()} label="platform stats" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+        ) : (
+        <>
         <StatCard
           title="Total Companies"
           value={stats?.companies || 0}
@@ -219,6 +237,8 @@ function OverviewSection() {
           value={stats?.calls || 0}
           icon={<Phone className="w-5 h-5" />}
         />
+        </>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

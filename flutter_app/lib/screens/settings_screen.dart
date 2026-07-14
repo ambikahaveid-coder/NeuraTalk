@@ -2,10 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
+import '../utils/external_link.dart';
 import 'login_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  Future<void> _openWebPage(BuildContext context, String path) async {
+    final opened = await ExternalLink.open('${ApiService.baseUrl}$path');
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open this page. Visit neuratalk.in$path instead.')),
+      );
+    }
+  }
+
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$feature is not available in the app yet.')),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,27 +36,27 @@ class SettingsScreen extends StatelessWidget {
             _profileCard(user),
             const SizedBox(height: 8),
             _section('Account', [
-              _tile(Icons.person_outline, 'Profile', () {}),
-              _tile(Icons.notifications_outlined, 'Notifications', () {}),
-              _tile(Icons.language_outlined, 'Language Preferences', () {}),
+              _tile(Icons.person_outline, 'Profile', () => _showComingSoon(context, 'Profile editing')),
+              _tile(Icons.notifications_outlined, 'Notifications', () => _showComingSoon(context, 'Notification preferences')),
+              _tile(Icons.language_outlined, 'Language Preferences', () => _showComingSoon(context, 'Language preferences')),
             ]),
             const SizedBox(height: 8),
             _section('Calls', [
-              _tile(Icons.mic_outlined, 'Microphone Settings', () {}),
-              _tile(Icons.translate_outlined, 'Translation Settings', () {}),
-              _tile(Icons.record_voice_over_outlined, 'Voice Clone', () {}),
+              _tile(Icons.mic_outlined, 'Microphone Settings', () => _showComingSoon(context, 'Microphone settings')),
+              _tile(Icons.translate_outlined, 'Translation Settings', () => _showComingSoon(context, 'Translation settings')),
+              _tile(Icons.record_voice_over_outlined, 'Voice Clone', () => _openWebPage(context, '/settings/voice-clone')),
             ]),
             const SizedBox(height: 8),
             _section('Privacy & Legal', [
-              _tile(Icons.privacy_tip_outlined, 'Privacy Policy', () {}),
-              _tile(Icons.description_outlined, 'Terms of Service', () {}),
-              _tile(Icons.security_outlined, 'Data & Privacy', () {}),
+              _tile(Icons.privacy_tip_outlined, 'Privacy Policy', () => _openWebPage(context, '/privacy')),
+              _tile(Icons.description_outlined, 'Terms of Service', () => _openWebPage(context, '/terms')),
+              _tile(Icons.security_outlined, 'Data & Privacy', () => _openWebPage(context, '/data-retention')),
             ]),
             const SizedBox(height: 8),
             _section('Support', [
-              _tile(Icons.help_outline, 'Help Center', () {}),
-              _tile(Icons.mail_outline, 'Contact Support', () {}),
-              _tile(Icons.info_outline, 'About NeuraTalk', () {}),
+              _tile(Icons.help_outline, 'Help Center', () => _openWebPage(context, '/help')),
+              _tile(Icons.mail_outline, 'Contact Support', () => _openWebPage(context, '/contact')),
+              _tile(Icons.info_outline, 'About NeuraTalk', () => _openWebPage(context, '/about')),
             ]),
             const SizedBox(height: 24),
             Padding(

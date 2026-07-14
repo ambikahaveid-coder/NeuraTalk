@@ -12,6 +12,7 @@ import {
   Clock, Zap, Star, Receipt, AlertTriangle, RefreshCw, Building2, Wallet, Activity, ShieldCheck, ExternalLink
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 interface BillingPlan {
@@ -144,7 +145,13 @@ export default function BillingPage() {
   const isCompanyBillingUser = !!user?.organizationId && (user?.role === "company_admin" || user?.role === "super_admin");
   const isRestrictedCompanyUser = !!user?.organizationId && !isCompanyBillingUser;
 
-  const { data: consumerDashboard, isLoading: consumerDashboardLoading } = useQuery<{ success: boolean; data: BillingDashboard }>({
+  const {
+    data: consumerDashboard,
+    isLoading: consumerDashboardLoading,
+    isError: consumerDashboardIsError,
+    error: consumerDashboardError,
+    refetch: refetchConsumerDashboard,
+  } = useQuery<{ success: boolean; data: BillingDashboard }>({
     queryKey: ["/api/billing/consumer/dashboard"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -157,7 +164,13 @@ export default function BillingPage() {
     enabled: !isCompanyBillingUser && !isRestrictedCompanyUser,
   });
 
-  const { data: companyDashboard, isLoading: companyDashboardLoading } = useQuery<{ success: boolean; data: CompanyBillingDashboard }>({
+  const {
+    data: companyDashboard,
+    isLoading: companyDashboardLoading,
+    isError: companyDashboardIsError,
+    error: companyDashboardError,
+    refetch: refetchCompanyDashboard,
+  } = useQuery<{ success: boolean; data: CompanyBillingDashboard }>({
     queryKey: ["/api/billing/dashboard"],
     queryFn: async () => {
       const token = getAuthToken();
@@ -397,6 +410,13 @@ export default function BillingPage() {
 
   const paymentRows = paymentHistory?.data || [];
   const isLoading = consumerDashboardLoading || companyDashboardLoading || consumerPlansLoading || companyPlansLoading || companyInvoicesLoading || paymentHistoryLoading;
+  // Only the two dashboard-summary queries gate the whole page with an
+  // error state — plans/invoices/payment-history failures are secondary
+  // sections that degrade gracefully (existing `?? []`/`|| []` fallbacks
+  // below) rather than blocking the primary balance/subscription view.
+  const dashboardIsError = consumerDashboardIsError || companyDashboardIsError;
+  const dashboardError = consumerDashboardError || companyDashboardError;
+  const refetchDashboard = () => { void refetchConsumerDashboard(); void refetchCompanyDashboard(); };
   const exportInvoicesCsv = () => {
     downloadCsv(isCompanyBillingUser ? "company_invoices.csv" : "billing_invoices.csv", [
       ["Invoice Number", "Created At", "Status", "Amount"],
@@ -459,6 +479,10 @@ export default function BillingPage() {
         {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : dashboardIsError ? (
+          <div className="max-w-md mx-auto py-12">
+            <QueryErrorState error={dashboardError} onRetry={refetchDashboard} label="your billing information" />
           </div>
         ) : (
           <div className="max-w-4xl mx-auto space-y-8">

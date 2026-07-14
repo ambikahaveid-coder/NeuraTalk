@@ -31,6 +31,17 @@ import { logger } from "./observability";
 import { getRedisClient, isRedisDegraded, withRedisLock } from "./redis";
 import { logAuditEvent } from "./audit-logging";
 
+// Thrown when an atomic wallet reservation is rejected because applying it
+// would lock more than the account's actual wallet balance. Caught
+// specifically in startCallSession so it maps to the existing
+// INSUFFICIENT_BALANCE denial reason instead of a generic 500.
+class WalletReservationConflictError extends Error {
+  constructor() {
+    super("WALLET_RESERVATION_CONFLICT");
+    this.name = "WalletReservationConflictError";
+  }
+}
+
 function requireRedisForBilling(operation: string): void {
   if (isRedisDegraded()) {
     if (process.env.NODE_ENV === "production") {
@@ -131,6 +142,14 @@ interface CallRuntimeState {
   freeCreditsRemainingPaise: number;
   walletBalancePaise: number;
   lockedBalancePaise: number;
+  // Unflushed change to walletBalancePaise/lockedBalancePaise since the last
+  // successful write to billingAccounts. Applied via an atomic SQL delta
+  // (`column = column + delta`) rather than overwriting with this runtime's
+  // locally-cached absolute value, so concurrent sessions on the same
+  // billing account can't clobber each other's reservations/debits. See
+  // flushAccountBalanceDelta().
+  pendingWalletDeltaPaise: number;
+  pendingLockedDeltaPaise: number;
   totalReservedPaise: number;
   reservedAvailablePaise: number;
   outstandingPostpaidPaise: number;
@@ -200,6 +219,8 @@ function deserializeRuntimeState(payload: string): CallRuntimeState {
     authorizedAtMs: typeof parsed.authorizedAtMs === "number" ? parsed.authorizedAtMs : startedAtMs || Date.now(),
     answeredAtMs: typeof parsed.answeredAtMs === "number" ? parsed.answeredAtMs : (billingActive ? startedAtMs || Date.now() : null),
     usageDayAnchor: new Date(parsed.usageDayAnchor),
+    pendingWalletDeltaPaise: typeof parsed.pendingWalletDeltaPaise === "number" ? parsed.pendingWalletDeltaPaise : 0,
+    pendingLockedDeltaPaise: typeof parsed.pendingLockedDeltaPaise === "number" ? parsed.pendingLockedDeltaPaise : 0,
   };
 }
 
@@ -537,6 +558,81 @@ function computeInitialReservePaise(
   return Math.min(walletAvailablePaise, Math.max(1, ratePerMinutePaise));
 }
 
+// Flushes the runtime's unflushed wallet/locked-balance delta to
+// billingAccounts using an atomic SQL increment (`column = column + delta`)
+// instead of overwriting with this session's locally-cached absolute value.
+// This is what makes concurrent sessions on the same billing account safe:
+// Postgres serializes concurrent UPDATEs on the same row via row-level
+// locking, so each session's delta is applied on top of whatever the
+// row's current value actually is, not a stale snapshot read earlier.
+async function flushAccountBalanceDelta(
+  tx: Pick<typeof db, "update">,
+  runtime: CallRuntimeState,
+): Promise<void> {
+  if (!runtime.billingAccountId) {
+    return;
+  }
+  if (runtime.pendingWalletDeltaPaise === 0 && runtime.pendingLockedDeltaPaise === 0) {
+    return;
+  }
+
+  const [updated] = await tx.update(billingAccounts)
+    .set({
+      walletBalancePaise: sql`greatest(0, ${billingAccounts.walletBalancePaise} + ${runtime.pendingWalletDeltaPaise})`,
+      lockedBalancePaise: sql`greatest(0, ${billingAccounts.lockedBalancePaise} + ${runtime.pendingLockedDeltaPaise})`,
+      updatedAt: new Date(),
+    })
+    .where(eq(billingAccounts.id, runtime.billingAccountId))
+    .returning({
+      walletBalancePaise: billingAccounts.walletBalancePaise,
+      lockedBalancePaise: billingAccounts.lockedBalancePaise,
+    });
+
+  if (updated) {
+    runtime.walletBalancePaise = updated.walletBalancePaise;
+    runtime.lockedBalancePaise = updated.lockedBalancePaise;
+  }
+  runtime.pendingWalletDeltaPaise = 0;
+  runtime.pendingLockedDeltaPaise = 0;
+}
+
+// Atomically reserves `deltaPaise` against a billing account's locked
+// balance, but only if doing so wouldn't exceed the account's actual wallet
+// balance — evaluated against the row's CURRENT value at update time via a
+// single conditional UPDATE, not a value read earlier before the caller's
+// transaction started. Postgres serializes concurrent UPDATEs on the same
+// row via row-level locking, so two concurrent reservations against the
+// same account can never both succeed past the wallet's real capacity: the
+// second one's WHERE clause is re-evaluated against the first one's
+// already-committed effect and fails closed (0 rows matched) if there's no
+// longer room. Returns null on that fail-closed case; the caller must treat
+// null as "insufficient balance," never as "reserve nothing and proceed."
+export async function reserveWalletAmount(
+  tx: Pick<typeof db, "update">,
+  billingAccountId: number,
+  deltaPaise: number,
+): Promise<{ walletBalancePaise: number; lockedBalancePaise: number } | null> {
+  if (deltaPaise <= 0) {
+    return null;
+  }
+
+  const [reserved] = await tx.update(billingAccounts)
+    .set({
+      lockedBalancePaise: sql`${billingAccounts.lockedBalancePaise} + ${deltaPaise}`,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(billingAccounts.id, billingAccountId),
+      sql`(${billingAccounts.lockedBalancePaise} + ${deltaPaise}) <= ${billingAccounts.walletBalancePaise}`,
+    ))
+    .returning({
+      walletBalancePaise: billingAccounts.walletBalancePaise,
+      lockedBalancePaise: billingAccounts.lockedBalancePaise,
+    });
+
+  return reserved ?? null;
+}
+
 async function persistRuntimeState(runtime: CallRuntimeState) {
   await db.update(callBillingRecords)
     .set({
@@ -571,10 +667,9 @@ async function persistRuntimeState(runtime: CallRuntimeState) {
   }
 
   if (runtime.billingAccountId) {
+    await flushAccountBalanceDelta(db, runtime);
     await db.update(billingAccounts)
       .set({
-        walletBalancePaise: runtime.walletBalancePaise,
-        lockedBalancePaise: runtime.lockedBalancePaise,
         includedSecondsRemaining: runtime.freeSecondsRemaining,
         includedCreditsRemaining: runtime.freeCreditsRemainingPaise,
         outstandingPostpaidPaise: runtime.outstandingPostpaidPaise,
@@ -624,6 +719,7 @@ async function topUpReservation(runtime: CallRuntimeState, requiredPaise: number
   }
 
   runtime.lockedBalancePaise += topupAmount;
+  runtime.pendingLockedDeltaPaise += topupAmount;
   runtime.totalReservedPaise += topupAmount;
   runtime.reservedAvailablePaise += topupAmount;
   runtime.topupLockedPaise += topupAmount;
@@ -701,6 +797,8 @@ async function applySecond(runtime: CallRuntimeState) {
       runtime.reservedAvailablePaise -= prepaidSpend;
       runtime.walletBalancePaise = Math.max(0, runtime.walletBalancePaise - prepaidSpend);
       runtime.lockedBalancePaise = Math.max(0, runtime.lockedBalancePaise - prepaidSpend);
+      runtime.pendingWalletDeltaPaise -= prepaidSpend;
+      runtime.pendingLockedDeltaPaise -= prepaidSpend;
       runtime.prepaidDebitPaise += prepaidSpend;
       remainingCostPaise -= prepaidSpend;
     }
@@ -861,6 +959,8 @@ export class BillingEngine {
         freeCreditsRemainingPaise,
         walletBalancePaise,
         lockedBalancePaise,
+        pendingWalletDeltaPaise: 0,
+        pendingLockedDeltaPaise: 0,
         totalReservedPaise: initialReservePaise,
         reservedAvailablePaise: initialReservePaise,
         outstandingPostpaidPaise,
@@ -899,13 +999,14 @@ export class BillingEngine {
 
       await db.transaction(async (tx) => {
         if (runtime.billingAccountId && initialReservePaise > 0) {
-          await tx.update(billingAccounts)
-            .set({
-              lockedBalancePaise: runtime.lockedBalancePaise + initialReservePaise,
-              updatedAt: new Date(),
-            })
-            .where(eq(billingAccounts.id, runtime.billingAccountId));
-          runtime.lockedBalancePaise += initialReservePaise;
+          const reserved = await reserveWalletAmount(tx, runtime.billingAccountId, initialReservePaise);
+
+          if (!reserved) {
+            throw new WalletReservationConflictError();
+          }
+
+          runtime.walletBalancePaise = reserved.walletBalancePaise;
+          runtime.lockedBalancePaise = reserved.lockedBalancePaise;
         }
 
         if (runtime.billingAccountId && !isSameCalendarDay(effectiveUsageAnchor, new Date())) {
@@ -1008,6 +1109,9 @@ export class BillingEngine {
         creditLimitPaise: runtime.creditLimitPaise,
       };
     } catch (error) {
+      if (error instanceof WalletReservationConflictError) {
+        return this.denied("INSUFFICIENT_BALANCE");
+      }
       logger.error("BillingEngine", "Call authorization failed", error as Error);
       return this.denied("INTERNAL_ERROR");
     }
@@ -1229,10 +1333,10 @@ export class BillingEngine {
       await db.transaction(async (tx) => {
         if (runtime.billingAccountId && releaseAmountPaise > 0) {
           runtime.lockedBalancePaise = Math.max(0, runtime.lockedBalancePaise - releaseAmountPaise);
+          runtime.pendingLockedDeltaPaise -= releaseAmountPaise;
+          await flushAccountBalanceDelta(tx, runtime);
           await tx.update(billingAccounts)
             .set({
-              walletBalancePaise: runtime.walletBalancePaise,
-              lockedBalancePaise: runtime.lockedBalancePaise,
               includedSecondsRemaining: runtime.freeSecondsRemaining,
               includedCreditsRemaining: runtime.freeCreditsRemainingPaise,
               outstandingPostpaidPaise: runtime.outstandingPostpaidPaise,
@@ -1462,22 +1566,32 @@ export class BillingEngine {
     description?: string;
   }) {
     const account = await ensureOrganizationBillingAccount(input.organizationId);
-    const nextWalletBalance = input.type === "credit_limit_settlement"
-      ? account.walletBalancePaise
-      : Math.max(0, account.walletBalancePaise + input.amountPaise);
-    const nextOutstanding = input.type === "credit_limit_settlement"
-      ? Math.max(0, account.outstandingPostpaidPaise - Math.max(0, input.amountPaise))
-      : account.outstandingPostpaidPaise;
+
+    // Same atomic-delta pattern as flushAccountBalanceDelta/startCallSession:
+    // apply the change as `column = column + delta` inside the transaction
+    // rather than computing an absolute "next" value from a pre-transaction
+    // read. This call is reachable from concurrent Razorpay webhook credits,
+    // admin manual adjustments, and credit-limit settlements against the
+    // same billing account, all of which can otherwise clobber each other's
+    // effect the same way the original wallet-reservation race did.
+    const walletDeltaPaise = input.type === "credit_limit_settlement" ? 0 : input.amountPaise;
+    const outstandingDeltaPaise = input.type === "credit_limit_settlement"
+      ? -Math.max(0, input.amountPaise)
+      : 0;
 
     const updated = await db.transaction(async (tx) => {
       const [row] = await tx.update(billingAccounts)
         .set({
-          walletBalancePaise: nextWalletBalance,
-          outstandingPostpaidPaise: nextOutstanding,
+          walletBalancePaise: sql`greatest(0, ${billingAccounts.walletBalancePaise} + ${walletDeltaPaise})`,
+          outstandingPostpaidPaise: sql`greatest(0, ${billingAccounts.outstandingPostpaidPaise} + ${outstandingDeltaPaise})`,
           updatedAt: new Date(),
         })
         .where(eq(billingAccounts.id, account.id))
         .returning();
+
+      if (!row) {
+        throw new Error("BILLING_ACCOUNT_NOT_FOUND");
+      }
 
       await tx.insert(billingLedgerEntries).values({
         billingAccountId: account.id,
@@ -1485,7 +1599,7 @@ export class BillingEngine {
         entryType: input.type,
         direction: input.amountPaise >= 0 ? "credit" : "debit",
         amountPaise: Math.abs(input.amountPaise),
-        balanceAfterPaise: input.type === "credit_limit_settlement" ? nextOutstanding : nextWalletBalance,
+        balanceAfterPaise: input.type === "credit_limit_settlement" ? row.outstandingPostpaidPaise : row.walletBalancePaise,
         metadata: {
           description: input.description || null,
         },
@@ -1508,7 +1622,7 @@ export class BillingEngine {
         amountPaise: Math.abs(input.amountPaise),
         type: input.type,
         direction: input.amountPaise >= 0 ? "credit" : "debit",
-        balanceAfterPaise: input.type === "credit_limit_settlement" ? nextOutstanding : nextWalletBalance,
+        balanceAfterPaise: input.type === "credit_limit_settlement" ? updated.outstandingPostpaidPaise : updated.walletBalancePaise,
         description: input.description || null,
         billingAccountId: account.id,
         source: "billing_engine",

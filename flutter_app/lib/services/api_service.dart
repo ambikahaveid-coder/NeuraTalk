@@ -1,26 +1,50 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiService {
   static const String baseUrl = 'https://neuratalk.in';
+  static const String _secureTokenKey = 'auth_token';
+  // Legacy plaintext key the token used to be stored under. Only ever read
+  // once, during the one-time migration in init() — never written to again.
+  static const String _legacyPrefsTokenKey = 'auth_token';
+
+  // No AndroidOptions override needed — the current package version
+  // auto-migrates to its own secure cipher storage on first access.
+  static const _secureStorage = FlutterSecureStorage();
+
   static String? _token;
 
   static Future<void> init() async {
+    _token = await _secureStorage.read(key: _secureTokenKey);
+    if (_token != null) return;
+
+    // One-time migration: earlier app versions stored the token in plain
+    // SharedPreferences. Move it into secure storage and remove the
+    // plaintext copy so it isn't left behind on-device.
     final prefs = await SharedPreferences.getInstance();
-    _token = prefs.getString('auth_token');
+    final legacyToken = prefs.getString(_legacyPrefsTokenKey);
+    if (legacyToken != null) {
+      await _secureStorage.write(key: _secureTokenKey, value: legacyToken);
+      await prefs.remove(_legacyPrefsTokenKey);
+      _token = legacyToken;
+    }
   }
 
   static Future<void> saveToken(String token) async {
     _token = token;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('auth_token', token);
+    await _secureStorage.write(key: _secureTokenKey, value: token);
   }
 
   static Future<void> clearToken() async {
     _token = null;
+    await _secureStorage.delete(key: _secureTokenKey);
+    // Defensive: also clear the legacy plaintext key in case this runs
+    // before init() ever completed its migration (e.g. a crash-recovery
+    // logout path), so no stale plaintext token can ever be left behind.
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
+    await prefs.remove(_legacyPrefsTokenKey);
   }
 
   static String? get token => _token;
