@@ -55,6 +55,7 @@ import { registerAuthRoutes } from "./modules/auth/routes";
 import { registerCallsRoutes } from "./modules/calls/routes";
 import { registerPSTNRoutes } from "./pstn/routes";
 import { registerCallerIdRoutes } from "./modules/caller-id/routes";
+import { registerTranscriptRoutes } from "./modules/transcripts/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
@@ -156,6 +157,7 @@ export async function registerRoutes(
   registerCallsRoutes(app); console.log("[Routes] ✓ Calls module (LiveKit) routes");
   registerPSTNRoutes(app); console.log("[Routes] ✓ PSTN routes (inbound/outbound webhooks, CDR, health)");
   registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
+  registerTranscriptRoutes(app); console.log("[Routes] ✓ Transcript system routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");

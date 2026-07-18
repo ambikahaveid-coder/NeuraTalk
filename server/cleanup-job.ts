@@ -1,35 +1,29 @@
-import { db } from "./db";
-import { organizations, bridgedCalls, callTranslations } from "@shared/schema";
-import { eq, lt, sql } from "drizzle-orm";
 import { logger } from "./observability";
+import { purgeExpiredTranscripts } from "./modules/transcripts/service";
+import { recordRetentionSweepResult, recordRetentionSweepFailure } from "./modules/transcripts/metrics";
+import { runWithTrace } from "./request-context";
 
 /**
  * Automated Data Retention & Compliance Job (Founder's Roadmap)
- * Runs daily to purge old call logs and recordings based on organization policies.
+ * Runs daily to purge old call logs and translations.
+ *
+ * Retention window is per-user (callConsents.dataRetention) rather than a
+ * single hard-coded 30-day global policy — see purgeExpiredTranscripts in
+ * server/modules/transcripts/service.ts for the exact per-tier semantics.
  */
 export async function runDataRetentionCleanup() {
+  return runWithTrace("transcript", `retention-sweep:${new Date().toISOString()}`, runDataRetentionCleanupTraced);
+}
+
+async function runDataRetentionCleanupTraced() {
   const startTime = Date.now();
   logger.info("Cleanup", "Starting automated data retention sweep...");
 
   try {
-    // Purge old call translations and calls older than 30 days (global policy)
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 30);
-
-    // 1. Purge translations linked to old calls
-    await db.delete(callTranslations)
-      .where(sql`call_id IN (
-        SELECT id FROM ${bridgedCalls}
-        WHERE started_at < ${cutoffDate.toISOString()}
-      )`);
-
-    // 2. Purge the old call logs themselves
-    const callPurgeResult = await db.delete(bridgedCalls)
-      .where(sql`started_at < ${cutoffDate.toISOString()}`);
-
-    const totalPurged = callPurgeResult.rowCount || 0;
+    const { purgedCalls, purgedSegments } = await purgeExpiredTranscripts();
+    recordRetentionSweepResult({ purgedCalls, purgedSegments });
     const duration = Date.now() - startTime;
-    logger.info("Cleanup", `Data retention sweep complete. Purged ${totalPurged} stale records.`, { durationMs: duration });
+    logger.info("Cleanup", `Data retention sweep complete. Purged ${purgedCalls} calls, ${purgedSegments} transcript segments.`, { durationMs: duration });
   } catch (error) {
     const normalized = error instanceof Error ? error : new Error(String(error));
     const pgCode = (error as { code?: string } | null)?.code;
@@ -37,6 +31,7 @@ export async function runDataRetentionCleanup() {
       logger.warn("Cleanup", "Skipping data retention sweep because legacy cleanup tables are not present");
       return;
     }
+    recordRetentionSweepFailure(normalized.message);
     logger.error("Cleanup", "CRITICAL: Data retention job failed", normalized);
   }
 }

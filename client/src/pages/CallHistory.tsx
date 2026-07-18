@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { format } from "date-fns";
+import { getAuthToken } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 interface CallSessionView {
   routeType?: string | null;
@@ -43,6 +45,45 @@ interface Call {
 export default function CallHistory() {
   const [, navigate] = useLocation();
   const [selectedCall, setSelectedCall] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ originalText: string; translatedText: string; timestamp?: string }> | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [deletingTranscript, setDeletingTranscript] = useState(false);
+
+  async function deleteTranscript(callId: number | string) {
+    if (!confirm("Delete the transcript for this call? This cannot be undone.")) return;
+    setDeletingTranscript(true);
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/transcripts/${callId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      toast({ title: "Transcript deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/features/call-history", selectedCall] });
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    } finally {
+      setDeletingTranscript(false);
+    }
+  }
+
+  async function runSearch() {
+    if (searchQuery.trim().length < 2) return;
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/transcripts/search?q=${encodeURIComponent(searchQuery.trim())}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Search failed");
+      const data = await res.json();
+      setSearchResults(data.results ?? []);
+    } catch {
+      toast({ title: "Search failed", variant: "destructive" });
+    }
+  }
 
   const { data: calls = [], isLoading, isError, error, refetch } = useQuery<Call[]>({
     queryKey: ["/api/features/call-history"],
@@ -145,6 +186,38 @@ export default function CallHistory() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <h1 className="text-2xl font-bold">Call History</h1>
+      </div>
+
+      <div className="mb-6">
+        <div className="flex gap-2">
+          <input
+            type="search"
+            placeholder="Search your transcripts..."
+            className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+            data-testid="input-transcript-search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && runSearch()}
+          />
+          <Button size="sm" onClick={runSearch} disabled={searchQuery.trim().length < 2} data-testid="button-search-transcripts">
+            Search
+          </Button>
+        </div>
+        {searchResults !== null && (
+          <div className="mt-3 space-y-2 max-h-72 overflow-y-auto">
+            {searchResults.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No matching transcript segments found.</p>
+            ) : (
+              searchResults.map((r, i) => (
+                <div key={i} className="p-2 bg-secondary rounded text-sm">
+                  <p className="text-xs text-muted-foreground">{r.timestamp ? format(new Date(r.timestamp), "MMM d, h:mm a") : ""}</p>
+                  <p>{r.originalText}</p>
+                  <p className="text-muted-foreground">→ {r.translatedText}</p>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {isError ? (
@@ -289,7 +362,49 @@ export default function CallHistory() {
 
                 {details.translations && details.translations.length > 0 && (
                   <div>
-                    <h4 className="font-medium mb-2">Translations</h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium">Translations</h4>
+                      <div className="flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs text-destructive"
+                          data-testid="button-delete-transcript"
+                          disabled={deletingTranscript}
+                          onClick={() => details.call?.id && deleteTranscript(details.call.id)}
+                        >
+                          Delete
+                        </Button>
+                        {(["txt", "pdf", "docx"] as const).map((format) => (
+                          <Button
+                            key={format}
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs uppercase"
+                            data-testid={`button-export-${format}`}
+                            onClick={() => {
+                              const token = getAuthToken();
+                              const url = `/api/transcripts/${details.call?.id}/export/${format}`;
+                              fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+                                .then((r) => {
+                                  if (!r.ok) throw new Error("Export failed");
+                                  return r.blob();
+                                })
+                                .then((blob) => {
+                                  const link = document.createElement("a");
+                                  link.href = URL.createObjectURL(blob);
+                                  link.download = `transcript-${details.call?.id}.${format}`;
+                                  link.click();
+                                  URL.revokeObjectURL(link.href);
+                                })
+                                .catch(() => toast({ title: "Export failed", variant: "destructive" }));
+                            }}
+                          >
+                            {format}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="space-y-2 max-h-60 overflow-y-auto">
                       {details.translations.map((t, i) => (
                         <div key={i} className="p-2 bg-secondary rounded text-sm">

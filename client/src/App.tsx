@@ -44,6 +44,7 @@ const VideoCallLegacy = lazy(async () => {
 });
 const PlatformConfigPage = lazy(() => import("@/pages/admin/PlatformConfigPage"));
 const LiveMonitor = lazy(() => import("@/pages/admin/LiveMonitor"));
+const TranscriptAdminDashboard = lazy(() => import("@/pages/admin/TranscriptAdminDashboard"));
 // Legacy meeting/video room flow. Keep isolated from primary LiveKit calling stack.
 const VideoCall = lazy(() => import("@/pages/VideoCall"));
 const CallHistory = lazy(() => import("@/pages/CallHistory"));
@@ -235,9 +236,16 @@ function Router() {
       </Route>
 
       <Route path="/admin/live">
-        <ProtectedRoute 
-          component={LiveMonitor} 
+        <ProtectedRoute
+          component={LiveMonitor}
           allowedRoles={[USER_ROLES.SUPER_ADMIN]}
+        />
+      </Route>
+
+      <Route path="/admin/transcripts">
+        <ProtectedRoute
+          component={TranscriptAdminDashboard}
+          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
         />
       </Route>
 

@@ -525,8 +525,22 @@ export const bridgedCalls = pgTable("bridged_calls", {
 // Call Translations (stores translation segments for a call)
 export const callTranslations = pgTable("call_translations", {
   id: serial("id").primaryKey(),
-  callId: integer("call_id").notNull(),
+  // Legacy bridged-call FK (server/modules/calls/gateway.ts audio-chunk path).
+  // Nullable because the current LiveKit/smart-router call path (the
+  // primary product path — server/translator-bot.ts) doesn't have an
+  // integer bridgedCalls.id until persistCompletedCall runs at call-end,
+  // long after transcript segments need to be written in real time.
+  callId: integer("call_id"),
+  // Current call model's string id (e.g. "call_<uuid>") — set for every
+  // segment persisted from the live LiveKit pipeline. One of callId /
+  // smartCallId is always set; both may be set after end-of-call backfill.
+  smartCallId: text("smart_call_id"),
   direction: text("direction").notNull(),                   // "caller_to_receiver" or "receiver_to_caller"
+  // LiveKit participant identity of the speaker — this is what makes
+  // per-speaker diarization free: LiveKit tracks are already per-participant,
+  // there's no blind-audio speaker-separation problem to solve.
+  speakerIdentity: text("speaker_identity"),
+  targetIdentity: text("target_identity"),
   originalText: text("original_text").notNull(),
   originalLanguage: text("original_language").notNull(),
   translatedText: text("translated_text").notNull(),

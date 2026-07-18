@@ -89,6 +89,14 @@ export async function persistCompletedCall(payload: CallPersistencePayload): Pro
       .returning({ id: bridgedCalls.id });
 
     logger.info("CallPersistence", `Call ${payload.callId} persisted to DB (id=${inserted.id}, duration=${durationSeconds}s, cost=₹${payload.totalCostInr})`);
+
+    // Link the transcript segments written during the call (keyed only by
+    // smartCallId at write-time — see server/modules/transcripts/service.ts)
+    // to the now-created bridgedCalls row, for legacy-style integer-id
+    // lookups and the org/user search scoping that joins through bridgedCalls.
+    const { backfillCallIdForSmartCall } = await import("./modules/transcripts/service");
+    await backfillCallIdForSmartCall(payload.callId, inserted.id).catch(() => undefined);
+
     return inserted.id;
   } catch (error) {
     // Duplicate callSid — call was already persisted (idempotent)

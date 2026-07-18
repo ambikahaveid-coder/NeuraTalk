@@ -14,7 +14,9 @@ import {
   dispose as livekitDispose,
 } from "@livekit/rtc-node";
 import { azureTranslate } from "./azure-service";
+import { persistTranslationSegment } from "./modules/transcripts/service";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
+import { runWithTrace } from "./request-context";
 import { getClientConfig } from "./livekit-service";
 import { createLatencyTrace, type LatencyTrace } from "./latency-audit";
 import {
@@ -303,6 +305,17 @@ class LiveKitRealtimeTranslatorBot {
   }
 
   async start(): Promise<void> {
+    // Traces the LiveKit connection setup for this call — every log line
+    // during room.connect() and its immediate synchronous continuation
+    // carries traceId "livekit:<callId>". Event-listener callbacks
+    // registered here (Reconnecting/Disconnected/etc.) fire later outside
+    // this async chain and are NOT covered by this trace context — they
+    // remain correlated the existing way, via `[${this.callId}]` in the
+    // log message itself.
+    return runWithTrace("livekit", this.callId, () => this.startTraced());
+  }
+
+  private async startTraced(): Promise<void> {
     if (PRECACHE_ENABLED) {
       await Promise.allSettled([
         preWarmPair("en", "hi"),
@@ -726,6 +739,24 @@ class LiveKitRealtimeTranslatorBot {
     generation: number;
     isFinal: boolean;
   }): Promise<void> {
+    // Every log line emitted during this translation turn (including from
+    // awaited STT/translation/TTS provider calls) carries a consistent
+    // traceId of "translation:<callId>" — see server/request-context.ts.
+    return runWithTrace("translation", this.callId, () => this.translateAndSpeakTraced(opts));
+  }
+
+  private async translateAndSpeakTraced(opts: {
+    pipeline: SpeakerPipeline;
+    channel: OutputChannel;
+    transcript: string;
+    turnId: string | null;
+    sourceLanguage: string;
+    targetLanguage: string;
+    targetIdentity: string;
+    targetMode: ListenerTranslationMode;
+    generation: number;
+    isFinal: boolean;
+  }): Promise<void> {
     const translationStartedAt = Date.now();
     let translationAbort: AbortController | null = null;
     const trace = this.getOrCreateLatencyTrace(opts.pipeline, opts.channel);
@@ -854,6 +885,21 @@ class LiveKitRealtimeTranslatorBot {
             if (opts.pipeline.turn) {
               opts.pipeline.turn.translatedText = translated;
             }
+
+            // Fire-and-forget — transcript persistence must never add
+            // latency to the live translated-audio delivery path below.
+            void persistTranslationSegment({
+              smartCallId: this.callId,
+              direction: "caller_to_receiver",
+              speakerIdentity: opts.pipeline.identity,
+              targetIdentity: opts.targetIdentity,
+              originalText: opts.transcript,
+              originalLanguage: opts.sourceLanguage,
+              translatedText: translated,
+              translatedLanguage: opts.targetLanguage,
+            }).catch((err) => {
+              logger.debug("TranslatorBot", `transcript persistence failed: ${String(err)}`);
+            });
 
             void this.publishTranslationMessage({
               type: "translation",

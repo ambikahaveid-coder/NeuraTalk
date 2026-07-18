@@ -522,6 +522,12 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                   Billing Contract
                 </Button>
               </Link>
+              <Link href="/admin/transcripts">
+                <Button variant="outline" className="w-full justify-start bg-teal-500/10 border-teal-500/20 hover:bg-teal-500/20 text-teal-400" data-testid="button-transcript-admin">
+                  <FileText className="mr-3 h-4 w-4" />
+                  Transcript Admin
+                </Button>
+              </Link>
               <p className="text-[11px] text-muted-foreground">
                 PSTN caller identity is best-effort. Final number display depends on provider verification and telecom rules.
               </p>

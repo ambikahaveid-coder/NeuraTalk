@@ -140,6 +140,12 @@ export default function SuperAdminDashboard() {
                   Config
                 </Button>
               </Link>
+              <Link href="/admin/transcripts">
+                <Button variant="outline" size="sm" data-testid="button-transcripts">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Transcripts
+                </Button>
+              </Link>
               <Link href="/call">
                 <Button variant="outline" size="sm" data-testid="button-call">
                   <Phone className="w-4 h-4 mr-2" />
