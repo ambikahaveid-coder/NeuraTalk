@@ -509,6 +509,65 @@ function estimateAudioDuration(text: string): number {
 }
 
 /**
+ * Enroll a real cloned voice with ElevenLabs (Instant Voice Cloning API) and
+ * return the resulting voice ID. This is the actual training call — unlike
+ * `trainVoiceProfile` below, which only validates sample requirements and
+ * never contacted a real provider.
+ *
+ * The caller is responsible for consent verification before calling this —
+ * this function assumes consent has already been captured and checked.
+ */
+export async function enrollElevenLabsVoice(
+  samples: Buffer[],
+  name: string,
+): Promise<{ voiceId: string }> {
+  if (!voiceCloningConfig.elevenlabsKey) {
+    throw new Error("ElevenLabs API Key not configured");
+  }
+  if (samples.length === 0) {
+    throw new Error("At least one voice sample is required");
+  }
+
+  const form = new FormData();
+  form.append("name", name);
+  samples.forEach((sample, i) => {
+    form.append("files", new Blob([sample], { type: "audio/wav" }), `sample-${i}.wav`);
+  });
+
+  const response = await fetch("https://api.elevenlabs.io/v1/voices/add", {
+    method: "POST",
+    headers: { "xi-api-key": voiceCloningConfig.elevenlabsKey },
+    body: form as unknown as BodyInit,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`ElevenLabs voice enrollment failed: ${response.status} ${errText}`);
+  }
+
+  const data = await response.json() as { voice_id: string };
+  if (!data.voice_id) {
+    throw new Error("ElevenLabs enrollment response missing voice_id");
+  }
+  return { voiceId: data.voice_id };
+}
+
+/**
+ * Remove a cloned voice from ElevenLabs (called on voice-profile deletion).
+ */
+export async function deleteElevenLabsVoice(voiceId: string): Promise<void> {
+  if (!voiceCloningConfig.elevenlabsKey) return;
+  try {
+    await fetch(`https://api.elevenlabs.io/v1/voices/${voiceId}`, {
+      method: "DELETE",
+      headers: { "xi-api-key": voiceCloningConfig.elevenlabsKey },
+    });
+  } catch (error) {
+    console.warn(`[VoiceCloning] Failed to delete ElevenLabs voice ${voiceId}:`, error);
+  }
+}
+
+/**
  * Voice Profile Training Pipeline
  * Takes user's voice samples and creates a cloneable voice model
  */

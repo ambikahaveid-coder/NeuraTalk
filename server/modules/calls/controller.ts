@@ -1975,14 +1975,28 @@ export async function translateNatural(req: Request, res: Response) {
         const { translateWithVoicePreservation } = await import("../../voice-cloning-service");
         const { storage } = await import("../../storage");
 
-        const voiceProfile = await (storage as any).getVoiceProfile?.(voiceProfileId);
+        const numericProfileId = Number(voiceProfileId);
+        const voiceProfile = Number.isFinite(numericProfileId)
+          ? await storage.getVoiceProfile(numericProfileId)
+          : undefined;
 
-        if (voiceProfile && voiceProfile.status === "ready" && voiceProfile.embeddings) {
+        // A profile is only usable in a real call once training succeeded,
+        // an admin has moderated it, the owner hasn't disabled it, and it
+        // belongs to the requesting user (voiceProfile.userId check prevents
+        // one user's call from using another user's cloned voice by guessing
+        // an id).
+        const usable = voiceProfile
+          && voiceProfile.trainingStatus === "ready"
+          && voiceProfile.moderationStatus === "approved"
+          && voiceProfile.isEnabled
+          && voiceProfile.userId === req.user!.id;
+
+        if (usable) {
           const result = await translateWithVoicePreservation(
             wavBuffer,
             translatedText,
-            voiceProfileId,
-            voiceProfile.embeddings
+            voiceProfile.voiceId,
+            voiceProfile.voiceId,
           );
 
           audioBase64 = result.audioBuffer.toString("base64");

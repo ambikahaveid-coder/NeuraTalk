@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useConversations, useCreateConversation } from "@/hooks/use-chat";
 import { useVoiceRecorder, useVoiceStream } from "@/ai_integrations/audio";
@@ -275,6 +276,14 @@ export default function Dashboard() {
                   )}
                 </div>
               </div>
+              <Link href="/settings/voice-clone">
+                <div className="p-4 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold">Personal AI Voice Clone</h3>
+                    <p className="text-xs text-muted-foreground mt-1">Enroll your voice for translated calls</p>
+                  </div>
+                </div>
+              </Link>
               {isAdmin && (
                 <div className="p-4 rounded-lg bg-red-500/5 border border-red-500/20">
                   <h3 className="text-sm font-semibold text-red-400 flex items-center gap-2">
@@ -314,7 +323,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
               <Globe className="w-4 h-4 text-muted-foreground" />
-              <select 
+              <select
                 className="bg-transparent border-none text-sm focus:ring-0 text-foreground"
                 value={selectedLang}
                 onChange={(e) => setSelectedLang(e.target.value)}

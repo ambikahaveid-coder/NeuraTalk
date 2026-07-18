@@ -4,7 +4,10 @@ import { voiceSamples, voiceProfiles } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { ObjectStorageService } from "./ai_integrations/object_storage";
 import crypto from "crypto";
-import { loadUser, requireAuth } from "./role-middleware";
+import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
+import { AuditHelpers } from "./audit";
+import { recordVoiceCloneCounter } from "./voice-clone-metrics";
+import { runWithTrace } from "./request-context";
 
 const objectStorage = new ObjectStorageService();
 
@@ -18,7 +21,9 @@ function getEncryptionKey(): Buffer {
   return crypto.scryptSync(secret, "voice-training-salt", 32);
 }
 
-function encrypt(text: string): string {
+// Exported (not just for internal use) so this logic is directly unit
+// testable — no other behavior change.
+export function encrypt(text: string): string {
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, key, iv);
@@ -28,7 +33,7 @@ function encrypt(text: string): string {
   return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted}`;
 }
 
-function decrypt(encryptedText: string): string {
+export function decrypt(encryptedText: string): string {
   const [ivHex, authTagHex, encrypted] = encryptedText.split(":");
   const key = getEncryptionKey();
   const iv = Buffer.from(ivHex, "hex");
@@ -88,11 +93,13 @@ export function registerVoiceTrainingRoutes(app: Express): void {
         status: "pending",
       }).returning();
 
+      recordVoiceCloneCounter("samples_uploaded");
       res.status(201).json({
         id: sample[0].id,
         message: "Voice sample recorded successfully",
       });
     } catch (error) {
+      recordVoiceCloneCounter("sample_upload_failed");
       console.error("Error saving voice sample:", error);
       res.status(500).json({ error: "Failed to save voice sample" });
     }
@@ -176,6 +183,18 @@ export function registerVoiceTrainingRoutes(app: Express): void {
         }
       }
 
+      // Also delete the trained voice at the cloning provider itself —
+      // otherwise "delete all voice data" leaves the actual clone hosted at
+      // ElevenLabs, contradicting the privacy-info endpoint's claim below.
+      const profiles = await db.select().from(voiceProfiles)
+        .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)));
+      for (const p of profiles) {
+        if (p.voiceId?.startsWith("eleven_")) {
+          const { deleteElevenLabsVoice } = await import("./voice-cloning-service");
+          await deleteElevenLabsVoice(p.voiceId.replace("eleven_", ""));
+        }
+      }
+
       await db.delete(voiceSamples).where(eq(voiceSamples.userId, userId));
 
       await db.update(voiceProfiles)
@@ -186,7 +205,8 @@ export function registerVoiceTrainingRoutes(app: Express): void {
         })
         .where(eq(voiceProfiles.userId, userId));
 
-      res.json({ 
+      recordVoiceCloneCounter("profiles_deleted_all");
+      res.json({
         message: "All voice data deleted successfully",
         deletedSamples: samples.length
       });
@@ -231,6 +251,9 @@ export function registerVoiceTrainingRoutes(app: Express): void {
           voiceId: `custom_${userId}_${Date.now()}`,
           isCustom: true,
           trainingStatus: "training",
+          // Stays disabled until an admin approves it via moderation, even
+          // after training succeeds — see moderationStatus default "pending".
+          isEnabled: false,
         }).returning();
         profileId = newProfile[0].id;
       }
@@ -239,66 +262,49 @@ export function registerVoiceTrainingRoutes(app: Express): void {
         .set({ voiceProfileId: profileId })
         .where(eq(voiceSamples.userId, userId));
 
-      // Real training: Try ElevenLabs voice creation, then mark status honestly
-      (async () => {
+      // Real training: Try ElevenLabs voice creation, then mark status honestly.
+      // Runs detached from the request (fire-and-forget), so it gets its own
+      // trace context ("voice-clone:training:<profileId>") rather than
+      // inheriting the HTTP request's — the request returns immediately
+      // while this continues in the background.
+      void runWithTrace("voice-clone", `training:${profileId}`, async () => {
         try {
-          const elevenlabsKey = process.env.ELEVEN_LABS_API_KEY;
-          if (elevenlabsKey) {
-            // Fetch all samples for this profile
-            const samples = await db.select().from(voiceSamples)
-              .where(eq(voiceSamples.voiceProfileId, profileId));
+          const { enrollElevenLabsVoice } = await import("./voice-cloning-service");
+          const samples = await db.select().from(voiceSamples)
+            .where(eq(voiceSamples.voiceProfileId, profileId));
 
-            if (samples.length > 0) {
-              // Download audio from object storage and build FormData
-              const formData = new FormData();
-              formData.append("name", `NeuraTalk_User_${userId}`);
-              formData.append("description", "Custom voice clone for NeuraTalk translation");
-
-              let filesAdded = 0;
-              for (const sample of samples) {
-                try {
-                  const decryptedPath = decrypt(sample.objectPath);
-                  const file = await objectStorage.getObjectEntityFile(decryptedPath);
-                  const [buffer] = await file.download();
-                  if (buffer && buffer.length > 0) {
-                    const audioBlob = new Blob([new Uint8Array(buffer)], { type: "audio/wav" });
-                    formData.append("files", audioBlob, `sample_${sample.id}.wav`);
-                    filesAdded++;
-                  }
-                } catch (dlErr) {
-                  console.warn(`[VoiceTraining] Failed to download sample ${sample.id}:`, dlErr);
-                }
+          if (samples.length > 0) {
+            // Download audio buffers from object storage
+            const buffers: Buffer[] = [];
+            for (const sample of samples) {
+              try {
+                const decryptedPath = decrypt(sample.objectPath);
+                const file = await objectStorage.getObjectEntityFile(decryptedPath);
+                const [buffer] = await file.download();
+                if (buffer && buffer.length > 0) buffers.push(buffer);
+              } catch (dlErr) {
+                console.warn(`[VoiceTraining] Failed to download sample ${sample.id}:`, dlErr);
               }
+            }
 
-              if (filesAdded > 0) {
-                const elResponse = await fetch("https://api.elevenlabs.io/v1/voices/add", {
-                  method: "POST",
-                  headers: { "xi-api-key": elevenlabsKey },
-                  body: formData as any,
-                });
+            if (buffers.length > 0) {
+              try {
+                const { voiceId } = await enrollElevenLabsVoice(buffers, `NeuraTalk_User_${userId}`);
+                await db.update(voiceProfiles)
+                  .set({ trainingStatus: "ready", voiceId: `eleven_${voiceId}` })
+                  .where(eq(voiceProfiles.id, profileId));
 
-                if (elResponse.ok) {
-                  const elData = await elResponse.json() as { voice_id: string };
-                  await db.update(voiceProfiles)
-                    .set({
-                      trainingStatus: "ready",
-                      voiceId: `eleven_${elData.voice_id}`,
-                    })
-                    .where(eq(voiceProfiles.id, profileId));
+                await db.update(voiceSamples)
+                  .set({ status: "processed" })
+                  .where(eq(voiceSamples.voiceProfileId, profileId));
 
-                  await db.update(voiceSamples)
-                    .set({ status: "processed" })
-                    .where(eq(voiceSamples.voiceProfileId, profileId));
-
-                  console.log(`[VoiceTraining] ✅ ElevenLabs voice created: ${elData.voice_id}`);
-                  return;
-                } else {
-                  const errText = await elResponse.text();
-                  console.warn(`[VoiceTraining] ElevenLabs returned ${elResponse.status}: ${errText}`);
-                }
-              } else {
-                console.warn(`[VoiceTraining] No audio files could be downloaded from storage`);
+                console.log(`[VoiceTraining] ✅ ElevenLabs voice created: ${voiceId}`);
+                return;
+              } catch (elError) {
+                console.warn(`[VoiceTraining] ElevenLabs enrollment failed: ${String(elError)}`);
               }
+            } else {
+              console.warn(`[VoiceTraining] No audio files could be downloaded from storage`);
             }
           }
 
@@ -309,13 +315,15 @@ export function registerVoiceTrainingRoutes(app: Express): void {
 
           console.log(`[VoiceTraining] No ElevenLabs available, marked as pending_gpu`);
         } catch (err) {
+          recordVoiceCloneCounter("training_failed");
           console.error("[VoiceTraining] Training error:", err);
           await db.update(voiceProfiles)
             .set({ trainingStatus: "failed" })
             .where(eq(voiceProfiles.id, profileId));
         }
-      })();
+      });
 
+      recordVoiceCloneCounter("trainings_started");
       res.json({
         message: "Voice training started",
         profileId,
@@ -327,9 +335,12 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/voice-training/profile/:userId", async (req: Request, res: Response) => {
+  app.get("/api/voice-training/profile/:userId", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);
+      if (req.user!.role !== "super_admin" && req.user!.id !== userId) {
+        return res.status(403).json({ error: "Unauthorized to view this voice profile" });
+      }
 
       const profile = await db.select().from(voiceProfiles)
         .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)));
@@ -361,27 +372,89 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/voice-training/profile/:userId/toggle", async (req: Request, res: Response) => {
+  app.patch("/api/voice-training/profile/:userId/toggle", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const userId = parseInt(req.params.userId);
+      if (req.user!.role !== "super_admin" && req.user!.id !== userId) {
+        return res.status(403).json({ error: "Unauthorized to modify this voice profile" });
+      }
       const { enabled } = req.body;
+
+      // A user can always turn their own clone off, but can only turn it back
+      // on if it has passed moderation — otherwise this toggle would let an
+      // unreviewed or rejected clone bypass the review gate.
+      const [existing] = await db.select().from(voiceProfiles)
+        .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)));
+      if (!existing) {
+        return res.status(404).json({ error: "No custom voice profile found" });
+      }
+      if (enabled && existing.moderationStatus !== "approved" && req.user!.role !== "super_admin") {
+        return res.status(403).json({ error: "This voice profile has not been approved yet and cannot be enabled." });
+      }
 
       const result = await db.update(voiceProfiles)
         .set({ isEnabled: enabled })
         .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)))
         .returning();
 
-      if (result.length === 0) {
-        return res.status(404).json({ error: "No custom voice profile found" });
-      }
-
       res.json({
         message: enabled ? "Custom voice enabled" : "Custom voice disabled",
-        isEnabled: enabled,
+        isEnabled: result[0]?.isEnabled ?? enabled,
       });
     } catch (error) {
       console.error("Error toggling voice profile:", error);
       res.status(500).json({ error: "Failed to toggle voice profile" });
+    }
+  });
+
+  // === Admin moderation ===
+  // A voice profile reaching trainingStatus "ready" is not usable in a real
+  // call until an admin approves it here — enforced by isEnabled defaulting
+  // to false on creation (see /train above) and by the moderationStatus
+  // check in server/modules/calls/controller.ts's translateNatural handler.
+  app.get("/api/voice-training/admin/pending-review", loadUser, requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
+    try {
+      const pending = await db.select().from(voiceProfiles)
+        .where(and(eq(voiceProfiles.trainingStatus, "ready"), eq(voiceProfiles.moderationStatus, "pending")));
+      res.json({ profiles: pending });
+    } catch (error) {
+      console.error("Error listing pending voice profiles:", error);
+      res.status(500).json({ error: "Failed to list pending voice profiles" });
+    }
+  });
+
+  app.post("/api/voice-training/admin/:profileId/moderate", loadUser, requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const profileId = parseInt(req.params.profileId);
+      const { approve, notes } = req.body as { approve?: boolean; notes?: string };
+      if (typeof approve !== "boolean") {
+        return res.status(400).json({ error: "'approve' (boolean) is required" });
+      }
+
+      const [existing] = await db.select().from(voiceProfiles).where(eq(voiceProfiles.id, profileId));
+      if (!existing) return res.status(404).json({ error: "Voice profile not found" });
+
+      const [updated] = await db.update(voiceProfiles)
+        .set({
+          moderationStatus: approve ? "approved" : "rejected",
+          moderationReviewedBy: req.user!.id,
+          moderationReviewedAt: new Date(),
+          moderationNotes: notes ?? null,
+          isEnabled: approve,
+        })
+        .where(eq(voiceProfiles.id, profileId))
+        .returning();
+
+      await AuditHelpers.logUpdate(req.user!.id, "voice_profile_moderation", profileId,
+        { moderationStatus: existing.moderationStatus },
+        { moderationStatus: updated.moderationStatus, notes: notes ?? null },
+      );
+
+      recordVoiceCloneCounter(approve ? "moderation_approved" : "moderation_rejected");
+      res.json({ profile: updated });
+    } catch (error) {
+      console.error("Error moderating voice profile:", error);
+      res.status(500).json({ error: "Failed to moderate voice profile" });
     }
   });
 

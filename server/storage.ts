@@ -1,19 +1,22 @@
-import { 
-  users, 
-  voiceProfiles, 
+import {
+  users,
+  voiceProfiles,
+  voiceSamples,
   organizations,
   orgMembers,
-  type User, 
-  type InsertUser, 
-  type VoiceProfile, 
+  type User,
+  type InsertUser,
+  type VoiceProfile,
   type InsertVoiceProfile,
+  type VoiceSample,
+  type InsertVoiceSample,
   type Organization,
   type InsertOrganization,
   type OrgMember,
   type InsertOrgMember,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { normalizePhoneNumber } from "@shared/phone";
 
 export interface IStorage {
@@ -41,7 +44,12 @@ export interface IStorage {
   // Voice Profiles
   getVoiceProfiles(userId: number): Promise<VoiceProfile[]>;
   getOrgVoiceProfiles(orgId: number): Promise<VoiceProfile[]>;
+  getVoiceProfile(id: number): Promise<VoiceProfile | undefined>;
   createVoiceProfile(profile: InsertVoiceProfile): Promise<VoiceProfile>;
+  updateVoiceProfile(id: number, updates: Partial<InsertVoiceProfile>): Promise<VoiceProfile | undefined>;
+  softDeleteVoiceProfile(id: number): Promise<void>;
+  createVoiceSample(sample: InsertVoiceSample): Promise<VoiceSample>;
+  getVoiceSamples(voiceProfileId: number): Promise<VoiceSample[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -132,16 +140,39 @@ export class DatabaseStorage implements IStorage {
 
   // === VOICE PROFILES ===
   async getVoiceProfiles(userId: number): Promise<VoiceProfile[]> {
-    return db.select().from(voiceProfiles).where(eq(voiceProfiles.userId, userId));
+    return db.select().from(voiceProfiles).where(and(eq(voiceProfiles.userId, userId), isNull(voiceProfiles.deletedAt)));
   }
 
   async getOrgVoiceProfiles(orgId: number): Promise<VoiceProfile[]> {
-    return db.select().from(voiceProfiles).where(eq(voiceProfiles.organizationId, orgId));
+    return db.select().from(voiceProfiles).where(and(eq(voiceProfiles.organizationId, orgId), isNull(voiceProfiles.deletedAt)));
+  }
+
+  async getVoiceProfile(id: number): Promise<VoiceProfile | undefined> {
+    const [res] = await db.select().from(voiceProfiles).where(and(eq(voiceProfiles.id, id), isNull(voiceProfiles.deletedAt)));
+    return res;
   }
 
   async createVoiceProfile(profile: InsertVoiceProfile): Promise<VoiceProfile> {
     const [res] = await db.insert(voiceProfiles).values(profile).returning();
     return res;
+  }
+
+  async updateVoiceProfile(id: number, updates: Partial<InsertVoiceProfile>): Promise<VoiceProfile | undefined> {
+    const [res] = await db.update(voiceProfiles).set(updates).where(eq(voiceProfiles.id, id)).returning();
+    return res;
+  }
+
+  async softDeleteVoiceProfile(id: number): Promise<void> {
+    await db.update(voiceProfiles).set({ deletedAt: new Date(), isEnabled: false }).where(eq(voiceProfiles.id, id));
+  }
+
+  async createVoiceSample(sample: InsertVoiceSample): Promise<VoiceSample> {
+    const [res] = await db.insert(voiceSamples).values(sample).returning();
+    return res;
+  }
+
+  async getVoiceSamples(voiceProfileId: number): Promise<VoiceSample[]> {
+    return db.select().from(voiceSamples).where(eq(voiceSamples.voiceProfileId, voiceProfileId));
   }
 }
 

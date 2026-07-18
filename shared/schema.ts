@@ -251,7 +251,15 @@ export const voiceProfiles = pgTable("voice_profiles", {
   isCustom: boolean("is_custom").default(false),
   isShared: boolean("is_shared").default(false), // Share across org
   isEnabled: boolean("is_enabled").default(true), // User can enable/disable
-  trainingStatus: text("training_status").default("pending"), // pending, training, ready, failed
+  trainingStatus: text("training_status").default("pending"), // pending, processing, ready, failed
+  consentGiven: boolean("consent_given").default(false),
+  consentTimestamp: timestamp("consent_timestamp"),
+  consentIpAddress: text("consent_ip_address"),
+  moderationStatus: text("moderation_status").default("pending"), // pending, approved, rejected
+  moderationReviewedBy: integer("moderation_reviewed_by").references(() => users.id),
+  moderationReviewedAt: timestamp("moderation_reviewed_at"),
+  moderationNotes: text("moderation_notes"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -260,7 +268,7 @@ export const voiceSamples = pgTable("voice_samples", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   voiceProfileId: integer("voice_profile_id"),
-  objectPath: text("object_path").notNull(), // Encrypted path in object storage
+  objectPath: text("object_path").notNull(), // Encrypted path in object storage (see server/voice-training.ts)
   duration: integer("duration"), // Duration in seconds
   transcript: text("transcript"), // What was spoken in the sample
   status: text("status").default("pending"), // pending, processed, failed

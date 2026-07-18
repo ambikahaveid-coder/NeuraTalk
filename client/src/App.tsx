@@ -14,6 +14,7 @@ const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
+const VoiceCloneSettings = lazy(() => import("@/pages/VoiceCloneSettings"));
 const ApiDocs = lazy(() => import("@/pages/ApiDocs"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const InvestorDashboard = lazy(() => import("@/pages/InvestorDashboard"));
@@ -305,6 +306,10 @@ function Router() {
 
       <Route path="/chat">
         <ProtectedRoute component={ChatPage} />
+      </Route>
+
+      <Route path="/settings/voice-clone">
+        <ProtectedRoute component={VoiceCloneSettings} />
       </Route>
 
       <Route path="/billing">
