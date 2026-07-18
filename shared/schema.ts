@@ -1492,6 +1492,7 @@ export const PAYMENT_STATUS = {
   COMPLETED: "completed",
   FAILED: "failed",
   REFUNDED: "refunded",
+  PARTIALLY_REFUNDED: "partially_refunded",
   CANCELLED: "cancelled",
 } as const;
 
@@ -1518,6 +1519,39 @@ export const paymentTransactions = pgTable("payment_transactions", {
   index("payment_transactions_org_idx").on(table.organizationId),
   index("payment_transactions_status_idx").on(table.status),
   index("payment_transactions_gateway_order_idx").on(table.gatewayOrderId),
+]);
+
+// One transaction can have multiple refund attempts (partial refunds, or a
+// retry after a failed gateway call) — a single status column on
+// paymentTransactions can't represent that, hence a dedicated ledger table.
+export const PAYMENT_REFUND_STATUS = {
+  PENDING: "pending",
+  PROCESSING: "processing",
+  COMPLETED: "completed",
+  FAILED: "failed",
+} as const;
+
+export const paymentRefunds = pgTable("payment_refunds", {
+  id: serial("id").primaryKey(),
+  transactionId: integer("transaction_id").notNull().references(() => paymentTransactions.id),
+  gatewayRefundId: text("gateway_refund_id"), // Razorpay refund id (rfnd_...)
+  amountPaise: integer("amount_paise").notNull(),
+  currency: text("currency").default("INR"),
+  isFullRefund: boolean("is_full_refund").default(false),
+  status: text("status").default("pending"),
+  reason: text("reason"),
+  failureReason: text("failure_reason"),
+  // Client- or server-supplied idempotency key — a unique index on this
+  // column is what makes duplicate refund submissions safe to retry.
+  idempotencyKey: text("idempotency_key"),
+  initiatedBy: integer("initiated_by").references(() => users.id),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (table) => [
+  index("payment_refunds_transaction_idx").on(table.transactionId),
+  index("payment_refunds_status_idx").on(table.status),
+  uniqueIndex("payment_refunds_idempotency_key_idx").on(table.idempotencyKey),
 ]);
 
 // === LEGAL CONTENT ===
@@ -2001,6 +2035,7 @@ export type PaymentGateway = typeof paymentGateways.$inferSelect;
 export type InsertPaymentGateway = z.infer<typeof insertPaymentGatewaySchema>;
 export type PaymentTransaction = typeof paymentTransactions.$inferSelect;
 export type InsertPaymentTransaction = z.infer<typeof insertPaymentTransactionSchema>;
+export type PaymentRefund = typeof paymentRefunds.$inferSelect;
 export type LegalContent = typeof legalContent.$inferSelect;
 export type InsertLegalContent = z.infer<typeof insertLegalContentSchema>;
 export type SupportContact = typeof supportContacts.$inferSelect;

@@ -5,6 +5,7 @@ import {
   paymentCreateLimiter,
   paymentVerifyLimiter,
   paymentWebhookLimiter,
+  paymentRefundLimiter,
 } from "./rate-limit";
 import {
   cancelViewerSubscription,
@@ -14,6 +15,7 @@ import {
   getPaymentMethods,
   getViewerPaymentHistory,
   handleRazorpayWebhook,
+  initiateRefund,
   listPaymentPlans,
   listWalletTopups,
 } from "./payment-service";
@@ -42,6 +44,12 @@ const verifyPaymentSchema = z.object({
 
 const cancelSubscriptionSchema = z.object({
   subscriptionId: z.string().optional(),
+});
+
+const refundRequestSchema = z.object({
+  amountPaise: z.coerce.number().int().positive().optional(), // omit for full refund
+  reason: z.string().max(500).optional(),
+  idempotencyKey: z.string().min(1).max(255).optional(),
 });
 
 export function registerPaymentRoutes(app: Express) {
@@ -182,6 +190,67 @@ export function registerPaymentRoutes(app: Express) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create payment order";
       const status = message === "PAYMENT_GATEWAY_NOT_CONFIGURED" ? 503 : 400;
+      res.status(status).json({
+        success: false,
+        message: message.replaceAll("_", " ").toLowerCase(),
+      });
+    }
+  });
+
+  app.post("/api/payments/:transactionId/refund", requireAuth, paymentRefundLimiter, async (req, res) => {
+    try {
+      const transactionId = Number.parseInt(req.params.transactionId, 10);
+      if (!Number.isFinite(transactionId) || transactionId <= 0) {
+        return res.status(400).json({ success: false, message: "Invalid transaction id" });
+      }
+
+      const validation = refundRequestSchema.safeParse(req.body ?? {});
+      if (!validation.success) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid refund request",
+          errors: validation.error.errors,
+        });
+      }
+
+      // Standard convention (Stripe/Razorpay-style): an Idempotency-Key
+      // header takes precedence over a body field if both are supplied.
+      const headerKey = req.headers["idempotency-key"];
+      const idempotencyKey = (typeof headerKey === "string" ? headerKey : undefined) ?? validation.data.idempotencyKey;
+
+      const result = await initiateRefund({
+        actor: req.user!,
+        transactionId,
+        amountPaise: validation.data.amountPaise,
+        reason: validation.data.reason,
+        idempotencyKey,
+      });
+
+      res.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to process refund";
+      const status = message === "TRANSACTION_NOT_FOUND"
+        ? 404
+        : message === "UNAUTHORIZED_TRANSACTION"
+          ? 403
+          : message === "REFUND_ALREADY_IN_PROGRESS"
+            ? 409
+            : message === "PAYMENT_GATEWAY_NOT_CONFIGURED"
+              ? 503
+              : message === "TRANSACTION_NOT_REFUNDABLE"
+                || message === "PAYMENT_ID_MISSING"
+                || message === "ALREADY_FULLY_REFUNDED"
+                || message === "INVALID_REFUND_AMOUNT"
+                || message === "REFUND_AMOUNT_EXCEEDS_REMAINING"
+                || message === "IDEMPOTENCY_KEY_REUSED_FOR_DIFFERENT_TRANSACTION"
+                ? 400
+                : message === "REFUND_GATEWAY_ERROR"
+                  ? 502
+                  : 500;
+
+      if (status === 500 || status === 502) {
+        logger.error("PaymentRoutes", "Refund request failed", error as Error);
+      }
       res.status(status).json({
         success: false,
         message: message.replaceAll("_", " ").toLowerCase(),

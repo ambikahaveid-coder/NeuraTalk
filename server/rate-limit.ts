@@ -166,6 +166,13 @@ export const paymentWebhookLimiter = rateLimit({
   message: "Webhook rate limit exceeded.",
 });
 
+export const paymentRefundLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 10,
+  keyFn: (req) => `payment-refund:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "Too many refund requests. Please wait before retrying.",
+});
+
 const OTP_FAIL_MAX = 5;
 const OTP_FAIL_WINDOW_SEC = 900;   // 15-minute failure window
 const OTP_LOCKOUT_SEC = 1800;      // 30-minute lockout after OTP_FAIL_MAX failures

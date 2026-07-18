@@ -18,8 +18,12 @@ export type AuditAction =
   | "admin_action"
   | "billing_wallet_credit" | "billing_wallet_debit"
   | "billing_recharge" | "billing_refund"
+  | "billing_refund_requested" | "billing_refund_failed"
   | "billing_subscription_purchase" | "billing_adjustment"
-  | "otp_abuse_lockout";
+  | "otp_abuse_lockout"
+  | "payment_order_created" | "payment_order_failed"
+  | "payment_verification_failed" | "payment_failed"
+  | "payment_signature_verification_failed" | "payment_duplicate_attempt";
 
 export interface AuditLogEntry {
   action: AuditAction;
@@ -239,9 +243,17 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       billing_wallet_debit: "info",
       billing_recharge: "info",
       billing_refund: "warning",
+      billing_refund_requested: "info",
+      billing_refund_failed: "critical",
       billing_subscription_purchase: "info",
       billing_adjustment: "warning",
       otp_abuse_lockout: "critical",
+      payment_order_created: "info",
+      payment_order_failed: "warning",
+      payment_verification_failed: "warning",
+      payment_failed: "warning",
+      payment_signature_verification_failed: "critical",
+      payment_duplicate_attempt: "warning",
     };
 
     await db.insert(auditLogs).values({
@@ -439,6 +451,14 @@ router.get(
       { action: "api_key_created", description: "API key created", severity: "info" },
       { action: "api_key_revoked", description: "API key revoked", severity: "warning" },
       { action: "admin_action", description: "Admin action performed", severity: "info" },
+      { action: "payment_order_created", description: "Payment order created", severity: "info" },
+      { action: "payment_order_failed", description: "Payment order creation failed", severity: "warning" },
+      { action: "payment_verification_failed", description: "Payment verification failed", severity: "warning" },
+      { action: "payment_failed", description: "Payment failed at gateway", severity: "warning" },
+      { action: "payment_signature_verification_failed", description: "Payment/webhook signature verification failed", severity: "critical" },
+      { action: "payment_duplicate_attempt", description: "Duplicate payment confirmation attempt blocked", severity: "warning" },
+      { action: "billing_refund_requested", description: "Refund requested", severity: "info" },
+      { action: "billing_refund_failed", description: "Refund failed at gateway", severity: "critical" },
     ];
 
     res.json({ actions });
