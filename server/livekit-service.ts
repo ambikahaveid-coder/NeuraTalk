@@ -224,6 +224,24 @@ export async function removeParticipant(roomName: string, identity: string): Pro
 }
 
 /**
+ * Hold/resume — mutes (or unmutes) every track a participant has published,
+ * so the remote side stops receiving audio/video without dropping the room
+ * connection. Used for app-to-app call hold; there is no PSTN leg to hold.
+ */
+export async function setParticipantHold(
+  roomName: string,
+  identity: string,
+  onHold: boolean,
+): Promise<void> {
+  const svc = getRoomService();
+  const participant = await svc.getParticipant(roomName, identity);
+  const tracks = participant.tracks ?? [];
+  await Promise.all(
+    tracks.map((track) => svc.mutePublishedTrack(roomName, identity, track.sid, onHold)),
+  );
+}
+
+/**
  * Update room metadata (e.g., current speaker language, translation state).
  * Used by language-detector to signal "translation ON/OFF" to clients.
  */

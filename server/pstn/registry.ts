@@ -122,6 +122,49 @@ export function isPSTNAvailable(): boolean {
   return true;
 }
 
+const LIVEKIT_SIP_DOMAIN_PLACEHOLDER = "sip.livekit.local";
+
+/**
+ * Whether the LiveKit SIP bridge is actually usable — distinct from whether
+ * the PSTN provider (MSG91/Twilio) credentials are valid. Both `initiateCall`
+ * (outbound, smart-router.ts) and the inbound handler (pstn/inbound.ts)
+ * require a real `LIVEKIT_SIP_DOMAIN` before a call can bridge into a
+ * LiveKit room — a call can have a perfectly healthy PSTN provider and still
+ * fail 100% of the time if this isn't set to a real, provisioned domain.
+ * Presence of the env var alone doesn't prove a SIP trunk/dispatch rule is
+ * actually provisioned on the LiveKit side — that can only be confirmed by
+ * a real call or by checking the LiveKit Cloud dashboard directly.
+ */
+export function getSIPBridgeStatus(): {
+  configured: boolean;
+  domain: string | null;
+  warning?: string;
+} {
+  const raw = process.env.LIVEKIT_SIP_DOMAIN?.trim() || null;
+
+  if (!raw) {
+    return {
+      configured: false,
+      domain: null,
+      warning: "LIVEKIT_SIP_DOMAIN is not set — no PSTN call (inbound or outbound) can bridge into LiveKit. Every real call will fail at setup.",
+    };
+  }
+
+  if (raw === LIVEKIT_SIP_DOMAIN_PLACEHOLDER) {
+    return {
+      configured: false,
+      domain: raw,
+      warning: `LIVEKIT_SIP_DOMAIN is still set to the placeholder value ("${LIVEKIT_SIP_DOMAIN_PLACEHOLDER}") — this does not resolve to a real SIP endpoint. Replace it with your provisioned LiveKit SIP domain.`,
+    };
+  }
+
+  return {
+    configured: true,
+    domain: raw,
+    warning: "Env var is set, but this does not confirm a SIP trunk/dispatch rule is actually provisioned in LiveKit Cloud — verify with a real test call.",
+  };
+}
+
 /**
  * Returns provider config status for admin dashboard.
  */
@@ -130,14 +173,20 @@ export function getPSTNStatus(): {
   provider: string;
   failoverProvider?: string;
   voiceCallerId?: string;
+  sipBridge: ReturnType<typeof getSIPBridgeStatus>;
+  callsWillActuallyWork: boolean;
 } {
   const providerName = (process.env.PSTN_PROVIDER || "msg91").toLowerCase();
   const configured = isPSTNAvailable();
+  const sipBridge = getSIPBridgeStatus();
 
   return {
     configured,
     provider: providerName,
     failoverProvider: process.env.PSTN_FAILOVER_PROVIDER || undefined,
     voiceCallerId: process.env.MSG91_VOICE_CALLER_ID || process.env.TWILIO_PHONE_NUMBER || undefined,
+    sipBridge,
+    // Both halves are required — provider credentials alone are not enough.
+    callsWillActuallyWork: configured && sipBridge.configured,
   };
 }

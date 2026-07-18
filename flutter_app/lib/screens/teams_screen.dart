@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/call_service.dart';
+import 'call_screen.dart';
 
 class TeamsScreen extends StatefulWidget {
   const TeamsScreen({super.key});
@@ -21,7 +24,13 @@ class _TeamsScreenState extends State<TeamsScreen> {
 
   Future<void> _loadTeams() async {
     try {
-      final data = await ApiService.get('/api/organizations/teams') as List;
+      // NOTE: /api/organizations/teams never existed on the backend — the
+      // real route is /api/enterprise/teams. Listing (and the members
+      // endpoint _startCall uses below) currently requires company_admin/
+      // super_admin — a regular agent will get a 403 here. That's a
+      // pre-existing backend permission-model question, not something this
+      // fix changes; flagged in the production audit report.
+      final data = await ApiService.get('/api/enterprise/teams') as List;
       setState(() {
         _teams = data.cast<Map<String, dynamic>>();
         _loading = false;
@@ -143,14 +152,49 @@ class _TeamCard extends StatelessWidget {
     );
   }
 
-  void _startCall(BuildContext context, String type, Map<String, dynamic> team) {
-    ScaffoldMessenger.of(context).showSnackBar(
+  Future<void> _startCall(BuildContext context, String type, Map<String, dynamic> team) async {
+    final teamId = team['id'];
+    final teamName = team['name']?.toString() ?? 'Team';
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final callService = context.read<CallService>();
+
+    messenger.showSnackBar(
       SnackBar(
-        content: Text('Starting ${team['name']} $type call...'),
+        content: Text('Starting $teamName $type call...'),
         backgroundColor: AppColors.surface,
         behavior: SnackBarBehavior.floating,
       ),
     );
+
+    try {
+      final members = await ApiService.get('/api/enterprise/teams/$teamId/members') as List;
+      final participantIds = members
+          .cast<Map<String, dynamic>>()
+          .map((m) => m['userId']?.toString())
+          .whereType<String>()
+          .toList();
+
+      if (participantIds.isEmpty) {
+        messenger.showSnackBar(const SnackBar(content: Text('This team has no members to call.')));
+        return;
+      }
+
+      final session = await callService.startConferenceCall(
+        participantIds: participantIds,
+        title: teamName,
+      );
+      navigator.push(MaterialPageRoute(
+        builder: (_) => CallScreen(session: session, callService: callService),
+      ));
+    } catch (e) {
+      final message = e is CallServiceException
+          ? e.message
+          : e is ApiException && e.statusCode == 403
+              ? 'You need admin access to start a team call right now.'
+              : 'Could not start the team call.';
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 }
 

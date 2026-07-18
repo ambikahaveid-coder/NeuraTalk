@@ -5,6 +5,12 @@ plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    // Declared in settings.gradle.kts but was never applied here — without
+    // this, android/app/google-services.json is never processed at build
+    // time, so firebase_core's native Android init has no project config to
+    // read and Firebase Auth (OTP login) fails at runtime on a real device.
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")

@@ -49,6 +49,8 @@ export function registerCallsRoutes(app: Express): void {
   );
   app.patch("/api/calls/:callId/status", loadUser, requireAuth, requireCallAccess, ctrl.statusUpdate);
   app.post("/api/calls/:callId/end", loadUser, requireAuth, requireCallAccess, ctrl.end);
+  app.post("/api/calls/:callId/hold", loadUser, requireAuth, requireCallAccess, ctrl.holdCall);
+  app.delete("/api/calls/:callId/hold", loadUser, requireAuth, requireCallAccess, ctrl.resumeCall);
 
   app.post("/api/calls/:id/reject", loadUser, requireAuth, requireCallAccess, ctrl.reject);
   app.post("/api/calls/:id/transfer", loadUser, requireAuth, requireCallAccess, ctrl.transferCall);
@@ -57,6 +59,7 @@ export function registerCallsRoutes(app: Express): void {
 
   app.post("/api/calls/:id/msg91-webhook", ctrl.msg91Webhook);
   app.post("/api/msg91/voice", ctrl.msg91VoiceWebhook);
+  app.post("/api/calls/livekit-webhook", ctrl.livekitWebhook);
 
   app.get("/api/calls/gateway-status", loadUser, requireAuth, requireCallAccess, ctrl.gatewayStatus);
   app.get("/api/calls/capabilities", loadUser, requireAuth, ctrl.capabilities);

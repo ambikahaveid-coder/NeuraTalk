@@ -12,6 +12,7 @@ import { getRedisClient } from "../../redis";
 import * as callsSvc from "../calls/service";
 import { routeToSkillAgent } from "../calls/smart-router";
 import { orgDIDNumbers } from "@shared/schema";
+import { getPSTNProvider } from "../../pstn/registry";
 
 // In-memory fallback for verification IDs (Redis preferred when available)
 const pendingVerifications = new Map<number, { verificationId: string; expiresAt: number }>();
@@ -138,6 +139,17 @@ export async function getStatus(req: Request, res: Response) {
  * MSG91 body: from, to (DID called), divertedFrom/forwarded_from, call_id/uuid
  */
 export async function inboundCallWebhook(req: Request, res: Response) {
+  const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body ?? {});
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (typeof v === "string") headers[k] = v;
+    else if (Array.isArray(v)) headers[k] = v[0] || "";
+  }
+  if (!getPSTNProvider().verifyWebhookSignature(rawBody, headers)) {
+    logger.warn("InboundCall", "Webhook signature verification failed — rejecting");
+    return res.status(403).json({ status: "error", error: "invalid_signature" });
+  }
+
   const body = req.body as Record<string, any>;
 
   const from = String(

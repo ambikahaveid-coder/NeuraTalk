@@ -492,12 +492,6 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                   IVR &amp; Call Queues
                 </Button>
               </Link>
-              <Link href="/enterprise/pbx">
-                <Button variant="outline" className="w-full justify-start bg-orange-500/10 border-orange-500/20 hover:bg-orange-500/20 text-orange-400">
-                  <Monitor className="mr-3 h-4 w-4" />
-                  PBX Integration
-                </Button>
-              </Link>
               <Link href="/enterprise/presence">
                 <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-400">
                   <Activity className="mr-3 h-4 w-4" />

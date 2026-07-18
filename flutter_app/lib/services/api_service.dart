@@ -81,19 +81,54 @@ class ApiService {
     return _parse(res);
   }
 
+  static Future<Map<String, dynamic>> delete(String path) async {
+    final res = await http.delete(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers,
+    ).timeout(const Duration(seconds: 15));
+    return _parse(res);
+  }
+
+  /// For endpoints that return a binary body (e.g. transcript exports)
+  /// rather than JSON — [get]/[_parse] always `jsonDecode`s, which would
+  /// throw on a PDF/DOCX payload.
+  static Future<List<int>> getBytes(String path) async {
+    final res = await http.get(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers,
+    ).timeout(const Duration(seconds: 20));
+    if (res.statusCode >= 400) {
+      String message = 'Request failed';
+      try {
+        final data = jsonDecode(res.body);
+        message = (data is Map ? (data['message'] ?? data['error']) : null) ?? message;
+      } catch (_) {}
+      throw ApiException(message, res.statusCode);
+    }
+    return res.bodyBytes;
+  }
+
   static dynamic _parse(http.Response res) {
     final data = jsonDecode(res.body);
     if (res.statusCode >= 400) {
-      throw ApiException(data['message'] ?? 'Request failed', res.statusCode);
+      final message = (data is Map ? (data['message'] ?? data['error']) : null) ?? 'Request failed';
+      final code = data is Map ? data['code'] as String? : null;
+      throw ApiException(message, res.statusCode, code: code);
     }
     return data;
   }
 }
 
+/// Structured API error. Callers that need to branch on failure type should
+/// check [statusCode]/[code] directly — never string-match [toString]/
+/// [message], since the backend's machine-readable `code` field (e.g.
+/// "LIVEKIT_UNAVAILABLE") is a separate JSON field from the human-readable
+/// `message`, and the two are not guaranteed to contain the same text.
 class ApiException implements Exception {
   final String message;
   final int statusCode;
-  ApiException(this.message, this.statusCode);
+  final String? code;
+  ApiException(this.message, this.statusCode, {this.code});
 
   @override
   String toString() => message;

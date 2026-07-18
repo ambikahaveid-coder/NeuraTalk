@@ -120,6 +120,7 @@ export function useLiveKitCall() {
   const [callId, setCallId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<RemoteParticipant[]>([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [isOnHold, setIsOnHold] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [connectionQuality, setConnectionQuality] = useState<"excellent" | "good" | "poor" | "lost">("good");
   const [hasRemoteVideoTrack, setHasRemoteVideoTrack] = useState(false);
@@ -183,6 +184,7 @@ export function useLiveKitCall() {
     setPricingPreview(null);
     setSession(null);
     setIsMuted(false);
+    setIsOnHold(false);
     setIsVideoOn(true);
     setError(null);
     setStatus(nextStatus);
@@ -564,6 +566,27 @@ export function useLiveKitCall() {
     setIsMuted(next);
   }, [isMuted]);
 
+  const toggleHold = useCallback(async () => {
+    const id = callId;
+    if (!id) return;
+    const next = !isOnHold;
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`/api/calls/${id}/hold`, {
+        method: next ? "POST" : "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return;
+      setIsOnHold(next);
+      // Local mic/remote-audio muting mirrors the server-side track mute so
+      // the caller's own UI reflects hold immediately, without waiting on
+      // a round-trip through the other participant's client.
+      const lp = roomRef.current?.localParticipant;
+      if (lp) await lp.setMicrophoneEnabled(!next && !isMuted);
+      if (remoteAudioRef.current) remoteAudioRef.current.muted = next;
+    } catch {}
+  }, [callId, isOnHold, isMuted]);
+
   const toggleVideo = useCallback(async () => {
     const lp = roomRef.current?.localParticipant;
     if (!lp) return;
@@ -799,6 +822,7 @@ export function useLiveKitCall() {
     callId,
     participants,
     isMuted,
+    isOnHold,
     isVideoOn,
     connectionQuality,
     hasRemoteVideoTrack,
@@ -816,6 +840,7 @@ export function useLiveKitCall() {
     rejectIncomingCall,
     endCall,
     toggleMute,
+    toggleHold,
     toggleVideo,
     sendDataMessage,
     updateLanguage,

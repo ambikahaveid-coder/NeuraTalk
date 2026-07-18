@@ -13,7 +13,7 @@
 import { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "./db";
-import { users, organizations, subscriptions, billingPlans } from "@shared/schema";
+import { users, organizations, subscriptions, billingPlans, callBillingRecords } from "@shared/schema";
 import { eq, and, or, desc, asc, like, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "./role-middleware";
 import { logger } from "./observability";
@@ -335,14 +335,21 @@ export function registerAdminUserRoutes(app: Express) {
         .from(users)
         .where(sql`${users.createdAt} >= ${thirtyDaysAgo}`);
 
+      const [callStats] = await db
+        .select({
+          calls: count(),
+          revenuePaise: sql<number>`COALESCE(SUM(${callBillingRecords.totalCostPaise}), 0)`,
+        })
+        .from(callBillingRecords);
+
       res.json({
         success: true,
         users: userCount.count,
         companies: orgCount.count,
         activeSubscriptions: activeSubCount.count,
         newUsersThisMonth: newUsersThisMonth.count,
-        revenue: 0,
-        calls: 0,
+        revenue: Math.round(Number(callStats?.revenuePaise ?? 0) / 100),
+        calls: Number(callStats?.calls ?? 0),
       });
     } catch (err) {
       logger.error("AdminUsers", "Failed to fetch stats", err as Error);
@@ -381,6 +388,14 @@ export function registerAdminUserRoutes(app: Express) {
         signupMap.set(new Date(r.date).toISOString().split('T')[0], Number(r.signups));
       });
 
+      const callRows = await db.execute(
+        sql`SELECT DATE(started_at) as date, COUNT(*) as calls FROM call_billing_records WHERE started_at >= NOW() - CAST(${String(days) + ' days'} AS INTERVAL) GROUP BY DATE(started_at) ORDER BY date`
+      );
+      const callMap = new Map<string, number>();
+      (callRows as any).rows.forEach((r: any) => {
+        callMap.set(new Date(r.date).toISOString().split('T')[0], Number(r.calls));
+      });
+
       const dailySignups = [];
       for (let i = days - 1; i >= 0; i--) {
         const date = new Date();
@@ -389,7 +404,7 @@ export function registerAdminUserRoutes(app: Express) {
         dailySignups.push({
           date: dateStr,
           users: signupMap.get(dateStr) || 0,
-          calls: 0,
+          calls: callMap.get(dateStr) || 0,
         });
       }
 
@@ -398,6 +413,21 @@ export function registerAdminUserRoutes(app: Express) {
       );
       const totalRevenueRaw = Number((revenueResult as any).rows[0]?.total || 0);
 
+      const windowStart = new Date();
+      windowStart.setDate(windowStart.getDate() - days);
+      const [callSummary] = await db
+        .select({
+          totalCalls: count(),
+          failedCalls: sql<number>`COUNT(*) FILTER (WHERE ${callBillingRecords.status} = 'failed')`,
+          avgDurationSeconds: sql<number>`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`,
+        })
+        .from(callBillingRecords)
+        .where(sql`${callBillingRecords.startedAt} >= ${windowStart}`);
+
+      const totalCalls = Number(callSummary?.totalCalls ?? 0);
+      const failedCalls = Number(callSummary?.failedCalls ?? 0);
+      const successRate = totalCalls > 0 ? Math.round(((totalCalls - failedCalls) / totalCalls) * 1000) / 10 : 100;
+
       res.json({
         success: true,
         data: {
@@ -405,8 +435,8 @@ export function registerAdminUserRoutes(app: Express) {
           orgsByStatus,
           dailySignups,
           totalRevenue: Math.round(totalRevenueRaw / 100),
-          avgCallDuration: 0,
-          successRate: 99.5,
+          avgCallDuration: Math.round(Number(callSummary?.avgDurationSeconds ?? 0)),
+          successRate,
         },
       });
     } catch (err) {
@@ -592,6 +622,7 @@ export function registerAdminUserRoutes(app: Express) {
       await redis.del(key);
       await redis.del(`call_metadata:${existing || ""}:caller`);
       logger.info("AdminUsers", `Cleared stale active-call lock for user ${userId}`, { key, existing });
+      await AuditHelpers.logSettingsChange(req.user!.id, "active_call_lock_cleared", null, { targetUserId: userId, hadValue: existing });
       res.json({ success: true, cleared: key, hadValue: existing });
     } catch (err) {
       logger.error("AdminUsers", "Failed to clear active-call lock", err as Error);

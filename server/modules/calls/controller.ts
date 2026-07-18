@@ -63,6 +63,11 @@ import {
 } from "./session-view";
 import { isPSTNAvailable } from "../../pstn/registry";
 import { isLegacyTwilioBridgeEnabled } from "../../call-platform-config";
+import { verifyWebhook as verifyLiveKitWebhook } from "../../livekit-service";
+
+// Must match issueBotToken's default `botName` (server/livekit-service.ts)
+// and BOT_DEFAULT_IDENTITY (server/translator-bot.ts).
+const TRANSLATOR_BOT_IDENTITY = "neuratalk-translator";
 
 const initiateSchema = z.object({
   calleeIdentifier: z.string().min(1),
@@ -531,6 +536,41 @@ export async function end(req: Request, res: Response) {
   }
 }
 
+async function setHold(req: Request, res: Response, onHold: boolean) {
+  try {
+    const user = req.user!;
+    const callId = req.params.callId;
+    if (!svc.isSmartCallId(callId)) {
+      return res.status(400).json({ error: "Hold is only supported for app-to-app calls" });
+    }
+
+    const call = await svc.getSmartCall(callId);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
+
+    const updated = await svc.setCallHold(callId, String(user.id), onHold);
+    res.json({ callId, onHold, metadata: updated.metadata });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("CALL_NOT_ACTIVE")) {
+      return res.status(409).json({ error: "Call is not active", detail: message });
+    }
+    if (message === "CALL_NOT_FOUND") {
+      return res.status(404).json({ error: "Call not found" });
+    }
+    logger.error("CallHold", `hold toggle failed: ${message}`);
+    res.status(500).json({ error: "Failed to update hold state" });
+  }
+}
+
+export async function holdCall(req: Request, res: Response) {
+  return setHold(req, res, true);
+}
+
+export async function resumeCall(req: Request, res: Response) {
+  return setHold(req, res, false);
+}
+
 const connectCallSchema = z.object({
   receiverNumber: z.string().min(10),
 });
@@ -899,6 +939,36 @@ export async function msg91Webhook(req: Request, res: Response) {
 
 export async function msg91VoiceWebhook(req: Request, res: Response) {
   return handleMsg91Webhook(req, res, null);
+}
+
+/**
+ * LiveKit server webhook — room_finished / participant_left / etc.
+ * Room name === smart call id (see createCallRoom). This is the real-time
+ * complement to the stale-media watchdog: it ends the call and finalizes
+ * billing immediately instead of waiting for the poll interval.
+ */
+export async function livekitWebhook(req: Request, res: Response) {
+  try {
+    const rawBody = req.rawBody instanceof Buffer ? req.rawBody.toString("utf8") : JSON.stringify(req.body);
+    const authHeader = req.headers.authorization || "";
+    const event = await verifyLiveKitWebhook(rawBody, authHeader);
+
+    const callId = event.room?.name;
+    if (callId && svc.isSmartCallId(callId)) {
+      if (event.event === "room_finished") {
+        await svc.endCallById(callId, "room_finished").catch((error) => {
+          logger.warn("LiveKitWebhook", `endCallById failed for ${callId}: ${String(error)}`);
+        });
+      } else if (event.event === "participant_left" && event.participant?.identity === TRANSLATOR_BOT_IDENTITY) {
+        logger.warn("LiveKitWebhook", `translator bot participant left mid-call: ${callId}`);
+      }
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    logger.warn("LiveKitWebhook", `signature verification / handling failed: ${String(error)}`);
+    res.status(400).json({ received: false });
+  }
 }
 
 // === CONSENT & PRIVACY ===

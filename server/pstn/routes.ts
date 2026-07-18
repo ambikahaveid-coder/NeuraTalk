@@ -19,7 +19,8 @@ import { handleInboundCall, getInboundCallJoinInfo } from "./inbound";
 import { getInboundCallByProviderCallId } from "./inbound-store";
 import { getPSTNMetrics } from "./monitor";
 import { listRecentCDRsForOrg, cdrsToCSV } from "./cdr";
-import { updateSmartCallStatus } from "../modules/calls/smart-router";
+import { updateSmartCallStatus, endCall as endSmartCall } from "../modules/calls/smart-router";
+import { isTerminalSmartCallState, normalizeSmartCallState } from "../modules/calls/lifecycle";
 import { loadUser, requireAuth, requireSuperAdmin } from "../role-middleware";
 import { logger } from "../observability";
 import type { PSTNStatusEvent } from "./provider";
@@ -43,13 +44,11 @@ async function processStatusEvent(event: PSTNStatusEvent): Promise<void> {
       cancelled: "cancelled",
     };
     const mappedStatus = statusMap[event.status] || "ended";
-    await updateSmartCallStatus(inbound.callId, mappedStatus, {
+    await applyStatusTransition(inbound.callId, mappedStatus, {
       providerCallId: event.providerCallId,
       providerStatus: event.status,
       durationSeconds: event.durationSeconds,
       disconnectReason: event.disconnectReason,
-    }).catch((err) => {
-      logger.warn("PSTNRoutes", `Status update failed for inbound ${inbound.callId}: ${String(err)}`);
     });
     return;
   }
@@ -66,16 +65,38 @@ async function processStatusEvent(event: PSTNStatusEvent): Promise<void> {
   };
   const mappedStatus = statusMap[event.status] || "ended";
 
-  await updateSmartCallStatus(callId, mappedStatus, {
+  await applyStatusTransition(callId, mappedStatus, {
     providerCallId: event.providerCallId,
     providerStatus: event.status,
     durationSeconds: event.durationSeconds,
     disconnectReason: event.disconnectReason,
     answeredAt: event.answeredAt,
     endedAt: event.endedAt,
-  }).catch((err) => {
-    logger.warn("PSTNRoutes", `Status update failed for ${callId}: ${String(err)}`);
   });
+}
+
+/**
+ * Terminal statuses (ended/failed/busy/missed/cancelled) must go through
+ * endCall() — that's what finalizes billing, deletes the LiveKit room, stops
+ * the translator bot, and persists the CDR. updateSmartCallStatus alone only
+ * updates the status field; calling it directly on a terminal status left
+ * PSTN calls billed-but-never-finalized and absent from call history.
+ */
+async function applyStatusTransition(
+  callId: string,
+  mappedStatus: string,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  const nextState = normalizeSmartCallState(mappedStatus);
+  try {
+    if (nextState && isTerminalSmartCallState(nextState)) {
+      await endSmartCall(callId, mappedStatus);
+    } else {
+      await updateSmartCallStatus(callId, mappedStatus, metadata);
+    }
+  } catch (err) {
+    logger.warn("PSTNRoutes", `Status transition failed for ${callId} -> ${mappedStatus}: ${String(err)}`);
+  }
 }
 
 function rawHeaders(req: Request): Record<string, string> {

@@ -230,46 +230,6 @@ async function setOrgOutboundCallerId(req: Request, res: Response) {
   return res.json({ success: true, callerId: parsed.data.callerId });
 }
 
-async function setOrgSipTrunk(req: Request, res: Response) {
-  const user = getUser(req);
-  const orgId = Number(req.params.orgId);
-  if (!Number.isFinite(orgId)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user, orgId)) return forbidden(res);
-
-  const schema = z.object({
-    host: z.string().min(3),
-    port: z.number().int().optional(),
-    username: z.string().optional(),
-    password: z.string().optional(),
-    transport: z.enum(["udp", "tcp", "tls"]).default("tls"),
-    enabled: z.boolean().default(true),
-  });
-  const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
-
-  const [org] = await db.select({ id: organizations.id, settings: organizations.settings })
-    .from(organizations).where(eq(organizations.id, orgId));
-  if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
-
-  const existingSettings = (org.settings as Record<string, unknown>) ?? {};
-  const sipTrunk = {
-    host: parsed.data.host,
-    port: parsed.data.port ?? 5060,
-    username: parsed.data.username,
-    password: parsed.data.password,
-    transport: parsed.data.transport,
-    enabled: parsed.data.enabled,
-  };
-  const newSettings = { ...existingSettings, sipTrunk };
-
-  await db.update(organizations)
-    .set({ settings: newSettings })
-    .where(eq(organizations.id, orgId));
-
-  logger.info("B2BAdmin", "Org SIP trunk configured", { orgId, host: parsed.data.host });
-  return res.json({ success: true, sipTrunk });
-}
-
 async function getOrgSettings(req: Request, res: Response) {
   const user = getUser(req);
   const orgId = Number(req.params.orgId);
@@ -292,7 +252,6 @@ async function getOrgSettings(req: Request, res: Response) {
     data: {
       ...org,
       outboundCallerId: settings.outboundCallerId ?? null,
-      sipTrunk: settings.sipTrunk ?? null,
     },
   });
 }
@@ -386,7 +345,6 @@ export function registerB2BAdminRoutes(app: Express): void {
   // Org settings
   app.get("/api/admin/orgs/:orgId/settings", requireAuth, getOrgSettings);
   app.put("/api/admin/orgs/:orgId/outbound-caller-id", requireAuth, setOrgOutboundCallerId);
-  app.put("/api/admin/orgs/:orgId/sip-trunk", requireAuth, setOrgSipTrunk);
 
   // Org DID numbers
   app.get("/api/admin/orgs/:orgId/dids", requireAuth, listOrgDIDs);

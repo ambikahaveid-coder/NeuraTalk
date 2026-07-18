@@ -15,6 +15,9 @@ import "express-async-errors";
 import { createServer } from "http";
 import { WebSocketServer } from "ws";
 import { corsMiddleware, httpsRedirect, securityHeaders } from "./security-middleware";
+import { requestContextMiddleware } from "./request-context-middleware";
+import { httpMetricsMiddleware } from "./http-metrics-middleware";
+import { startReliabilityMonitor } from "./reliability-monitor";
 import { logger } from "./observability";
 import { validateEnvironment } from "./env-validator";
 import { assertDatabaseReady, shutdownPool } from "./db";
@@ -60,6 +63,8 @@ app.use(
   }),
 );
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+app.use(requestContextMiddleware);
+app.use(httpMetricsMiddleware);
 app.use(corsMiddleware);
 app.use(httpsRedirect);
 app.use(securityHeaders);
@@ -329,6 +334,7 @@ app.use((req, res, next) => {
 
 (async () => {
   bindProcessHandlers();
+  startReliabilityMonitor();
   writeStartupTrace("startup:begin", {
     startupPhaseTimeoutMs: STARTUP_PHASE_TIMEOUT_MS,
     startupGlobalTimeoutMs: STARTUP_GLOBAL_TIMEOUT_MS,

@@ -24,6 +24,12 @@ import { db } from "./db";
 import { sql } from "drizzle-orm";
 import { callBillingRecords } from "@shared/schema";
 import { getProviderHealthSnapshot } from "./voice-resilience";
+import { getResourceSnapshot, getDbLatencySnapshot } from "./reliability-monitor";
+import { getHttpMetricsSnapshot } from "./http-metrics-middleware";
+import { getPaymentMetricsSnapshot } from "./payment-metrics";
+import { getVoiceCloneMetricsSnapshot } from "./voice-clone-metrics";
+import { getTranscriptMetricsSnapshot } from "./modules/transcripts/metrics";
+import { getIncomingCallQueueDepth } from "./modules/calls/service";
 
 // ─── Event Loop Lag Measurement ───────────────────────────────────
 let eventLoopLagMs = 0;
@@ -153,6 +159,61 @@ export function registerProductionMetrics(app: Express): void {
 
       lines.push(prometheusHeader("neuratalk_uptime_seconds", "Process uptime in seconds", "gauge"));
       lines.push(prometheusLine("neuratalk_uptime_seconds", Math.round(systemHealth.uptime / 1000)));
+
+      // ── CPU / Resource Monitoring ──
+      const resourceSnapshot = getResourceSnapshot();
+      lines.push(prometheusHeader("neuratalk_process_cpu_percent", "Process CPU usage percent (0-100)", "gauge"));
+      lines.push(prometheusLine("neuratalk_process_cpu_percent", resourceSnapshot.cpuPercent));
+      lines.push(prometheusHeader("neuratalk_load_average_1m", "System 1-minute load average", "gauge"));
+      lines.push(prometheusLine("neuratalk_load_average_1m", Number(resourceSnapshot.loadAverage[0].toFixed(2))));
+
+      // ── API/HTTP Latency ──
+      const httpSnapshot = getHttpMetricsSnapshot();
+      lines.push(prometheusHeader("neuratalk_http_latency_p50_ms", "HTTP request latency p50", "gauge"));
+      lines.push(prometheusLine("neuratalk_http_latency_p50_ms", httpSnapshot.overall.p50));
+      lines.push(prometheusLine("neuratalk_http_latency_p95_ms", httpSnapshot.overall.p95));
+      lines.push(prometheusLine("neuratalk_http_latency_p99_ms", httpSnapshot.overall.p99));
+      lines.push(prometheusHeader("neuratalk_http_error_rate", "HTTP 5xx error rate (0-1)", "gauge"));
+      lines.push(prometheusLine("neuratalk_http_error_rate", Number(httpSnapshot.errorRate.toFixed(4))));
+
+      // ── Database Latency ──
+      const dbLatency = getDbLatencySnapshot();
+      lines.push(prometheusHeader("neuratalk_db_latency_p50_ms", "Instrumented DB query latency p50", "gauge"));
+      lines.push(prometheusLine("neuratalk_db_latency_p50_ms", dbLatency.p50));
+      lines.push(prometheusLine("neuratalk_db_latency_p95_ms", dbLatency.p95));
+      lines.push(prometheusLine("neuratalk_db_latency_p99_ms", dbLatency.p99));
+      lines.push(prometheusHeader("neuratalk_db_query_failures_total", "Instrumented DB query failures", "counter"));
+      lines.push(prometheusLine("neuratalk_db_query_failures_total", dbLatency.failures));
+
+      // ── Queue Depth ──
+      const queueDepth = await getIncomingCallQueueDepth().catch(() => 0);
+      lines.push(prometheusHeader("neuratalk_incoming_call_queue_depth", "Pending incoming-call queue entries across all users", "gauge"));
+      lines.push(prometheusLine("neuratalk_incoming_call_queue_depth", queueDepth));
+
+      // ── Payment Metrics ──
+      const paymentSnapshot = getPaymentMetricsSnapshot();
+      lines.push(prometheusHeader("neuratalk_payment_events_total", "Payment lifecycle events by type", "counter"));
+      for (const [metric, count] of Object.entries(paymentSnapshot.counters)) {
+        lines.push(prometheusLine("neuratalk_payment_events_total", count, { metric }));
+      }
+      if (paymentSnapshot.paymentSuccessRate != null) {
+        lines.push(prometheusHeader("neuratalk_payment_success_rate", "Payment success rate (0-1)", "gauge"));
+        lines.push(prometheusLine("neuratalk_payment_success_rate", Number(paymentSnapshot.paymentSuccessRate.toFixed(4))));
+      }
+
+      // ── Voice Clone Metrics ──
+      const voiceCloneSnapshot = getVoiceCloneMetricsSnapshot();
+      lines.push(prometheusHeader("neuratalk_voice_clone_events_total", "Voice clone lifecycle events by type", "counter"));
+      for (const [metric, count] of Object.entries(voiceCloneSnapshot.counters)) {
+        lines.push(prometheusLine("neuratalk_voice_clone_events_total", count, { metric }));
+      }
+
+      // ── Transcript Metrics ──
+      const transcriptSnapshot = getTranscriptMetricsSnapshot();
+      lines.push(prometheusHeader("neuratalk_transcript_events_total", "Transcript lifecycle events by type", "counter"));
+      for (const [metric, count] of Object.entries(transcriptSnapshot.counters)) {
+        lines.push(prometheusLine("neuratalk_transcript_events_total", count, { metric }));
+      }
 
       // ── Active Connections ──
       lines.push(prometheusHeader("neuratalk_active_calls", "Number of active calls", "gauge"));

@@ -10,7 +10,7 @@ import {
   initCallLanguageTracking,
   setParticipantLanguagePreference,
 } from "../../universal-language-runtime";
-import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken } from "../../livekit-service";
+import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken, setParticipantHold } from "../../livekit-service";
 import { getPSTNProvider, isPSTNAvailable } from "../../pstn/registry";
 import { recordCallOutcome } from "../../pstn/monitor";
 import { db } from "../../db";
@@ -363,6 +363,47 @@ function billingStatusForState(state: SmartCallState): string {
     default:
       return state;
   }
+}
+
+/**
+ * Registers a call created by the inbound PSTN handler (server/pstn/inbound.ts)
+ * with the smart-router's own state store. Without this, the call is invisible
+ * to updateSmartCallStatus/endCall/the watchdog/persistCompletedCall — the
+ * MSG91 status webhook silently no-ops (getSmartCall returns null), billing
+ * is started but never finalized, and no CDR is ever written.
+ */
+export async function registerInboundSmartCall(input: {
+  callId: string;
+  callerNumber: string;
+  calleeUserId: string;
+  calleeOrganizationId?: number | null;
+  calleeLanguage: string;
+  livekitUrl?: string | null;
+  providerCallId?: string | null;
+}): Promise<SmartCallRecord> {
+  const record: SmartCallRecord = {
+    callId: input.callId,
+    joinMethod: "app_to_pstn",
+    status: SMART_CALL_STATE.RINGING,
+    callerId: `pstn:${input.callerNumber}`,
+    callerNumber: input.callerNumber,
+    calleeIdentifier: input.calleeUserId,
+    calleeUserId: input.calleeUserId,
+    calleeOrganizationId: input.calleeOrganizationId ?? null,
+    callType: "voice",
+    callerLanguage: "auto",
+    calleeLanguage: input.calleeLanguage,
+    livekitUrl: input.livekitUrl ?? null,
+    pstnCallId: input.providerCallId ?? null,
+    languageDetectionActive: true,
+    estimatedRateInrPerMin: 0,
+    createdAt: nowIso(),
+    provider: "msg91_sip",
+    metadata: { inboundPstn: true, providerCallId: input.providerCallId ?? null },
+  };
+  await storeSmartCall(record);
+  emitStructuredCallEvent("call_created", record, {});
+  return record;
 }
 
 async function activateBillingForCall(callId: string): Promise<CallBillingActivation | null> {
@@ -770,6 +811,44 @@ export async function updateSmartCallStatus(
   return updated;
 }
 
+/**
+ * Hold/resume for an app-to-app smart call. There is no PSTN leg on this
+ * flow (see msg91-service.ts — MSG91's voice API has no hold primitive),
+ * so this only applies to LiveKit-connected participants. The call stays
+ * in ACTIVE state; hold is tracked as call metadata, not a lifecycle state.
+ */
+export async function setCallHold(
+  callId: string,
+  requesterIdentity: string,
+  onHold: boolean,
+): Promise<SmartCallRecord> {
+  const current = await getSmartCall(callId);
+  if (!current) {
+    throw new Error("CALL_NOT_FOUND");
+  }
+  const state = normalizeSmartCallState(current.status);
+  if (state !== SMART_CALL_STATE.ACTIVE) {
+    throw new Error(`CALL_NOT_ACTIVE:${current.status}`);
+  }
+
+  await setParticipantHold(callId, requesterIdentity, onHold);
+
+  const updated = await mutateSmartCall(callId, (record) => ({
+    ...record,
+    metadata: {
+      ...(record.metadata || {}),
+      onHold,
+      holdBy: onHold ? requesterIdentity : null,
+    },
+  }));
+  if (!updated) {
+    throw new Error("CALL_NOT_FOUND");
+  }
+
+  smartCallEvents.emit("hold_changed", { callId, onHold, requesterIdentity });
+  return updated;
+}
+
 async function sendIncomingCallPush(
   userId: string,
   payload: { callId: string; callerId: string; callType: string; callerName?: string },
@@ -833,18 +912,53 @@ export async function routeToSkillAgent(
 }
 
 async function spawnTranslatorBot(callId: string, botToken: string): Promise<void> {
-  try {
+  const attemptStart = async (): Promise<boolean> => {
     const mod: any = await import("../../translator-bot").catch((err) => {
       logger.debug("SmartCallRouter", `translator-bot optional module not loaded: ${String(err)}`);
       return {};
     });
-    if (typeof mod.startBotWorker === "function") {
-      await mod.startBotWorker(callId, botToken);
-    } else {
+    if (typeof mod.startBotWorker !== "function") {
       logger.warn("SmartCallRouter", `translator-bot module not found - call ${callId} has no translation`);
+      return false;
+    }
+    await mod.startBotWorker(callId, botToken);
+    return true;
+  };
+
+  try {
+    const started = await attemptStart();
+    if (!started) {
+      await markTranslationUnavailable(callId, "bot_module_missing");
+    }
+    return;
+  } catch (firstError) {
+    logger.warn("SmartCallRouter", `bot worker start failed, retrying once for ${callId}: ${String(firstError)}`);
+  }
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await attemptStart();
+  } catch (error) {
+    logger.error("SmartCallRouter", `bot worker start failed after retry for ${callId}: ${String(error)}`);
+    await markTranslationUnavailable(callId, String(error instanceof Error ? error.message : error));
+  }
+}
+
+async function markTranslationUnavailable(callId: string, reason: string): Promise<void> {
+  try {
+    const updated = await mutateSmartCall(callId, (current) => ({
+      ...current,
+      metadata: {
+        ...(current.metadata || {}),
+        translationUnavailable: true,
+        translationFailedReason: reason,
+      },
+    }));
+    if (updated) {
+      smartCallEvents.emit("translation_unavailable", { callId, reason });
     }
   } catch (error) {
-    logger.error("SmartCallRouter", `bot worker start failed: ${String(error)}`);
+    logger.error("SmartCallRouter", `failed to record translation_unavailable for ${callId}: ${String(error)}`);
   }
 }
 
@@ -852,11 +966,31 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   const callId = req.sessionIdOverride?.trim() || `call_${randomUUID()}`;
   const callerLanguage = (req.callerLanguage || "auto").trim().toLowerCase() || "auto";
   const activeCallKey = `user:active_call:${req.callerId}`;
-  const alreadyInCall = await redisClient().get(activeCallKey);
-  if (alreadyInCall) {
+
+  // Atomic SET NX — the previous GET-then-SET-later pattern left a wide window
+  // (callee resolution, billing auth, room creation, token issuance — all real
+  // I/O) during which two concurrent initiateCall calls for the same caller
+  // (double-tap, client retry) could both pass the "already in a call" check
+  // and both end up as fully created, fully billed calls. Acquiring the lock
+  // up front closes that window; it's released on any failure below.
+  const acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+  if (!acquiredLock) {
     throw new Error("CONCURRENT_CALL_RESTRICTED");
   }
 
+  try {
+    return await initiateCallLocked(req, callId, callerLanguage);
+  } catch (error) {
+    await redisClient().del(activeCallKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function initiateCallLocked(
+  req: CallInitiateRequest,
+  callId: string,
+  callerLanguage: string,
+): Promise<CallInitiateResponse> {
   const callerUserId = Number.isFinite(Number(req.callerId)) ? Number(req.callerId) : null;
 
   // Parallelize: callee resolution + caller user lookup are independent DB reads
@@ -970,7 +1104,6 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
     logger.error("SmartCallRouter", `bot spawn failed: ${String(error)}`),
   );
 
-  await redisClient().set(activeCallKey, callId, "EX", 3600);
   await redisClient().set(`call_metadata:${callId}:caller`, req.callerId, "EX", 7200);
 
   await storeSmartCall({
@@ -1163,9 +1296,37 @@ export async function initiateConference(params: {
   participantIds: string[];
   title?: string;
 }): Promise<CallInitiateResponse & { participantTokens: Record<string, string> }> {
+  const activeCallKey = `user:active_call:${params.hostId}`;
+  const callId = `conf_${randomUUID()}`;
+
+  // Same atomic SET NX pattern as initiateCall — without this, two concurrent
+  // conference-start requests from the same host (or a conference started
+  // while the host already has an active call) could both pass unguarded and
+  // both become fully created, fully billed calls.
+  const acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+  if (!acquiredLock) {
+    throw new Error("CONCURRENT_CALL_RESTRICTED");
+  }
+
+  try {
+    return await initiateConferenceLocked(params, callId);
+  } catch (error) {
+    await redisClient().del(activeCallKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function initiateConferenceLocked(
+  params: {
+    hostId: string;
+    hostLanguage?: string;
+    participantIds: string[];
+    title?: string;
+  },
+  callId: string,
+): Promise<CallInitiateResponse & { participantTokens: Record<string, string> }> {
   const hostUserId = Number.isFinite(Number(params.hostId)) ? Number(params.hostId) : null;
   const hostUser = hostUserId ? await storage.getUser(hostUserId) : undefined;
-  const callId = `conf_${randomUUID()}`;
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: hostUserId,
@@ -1234,7 +1395,6 @@ export async function initiateConference(params: {
     }),
   );
 
-  await redisClient().set(`user:active_call:${params.hostId}`, callId, "EX", 3600);
   await redisClient().set(`call_metadata:${callId}:caller`, params.hostId, "EX", 7200);
 
   await storeSmartCall({

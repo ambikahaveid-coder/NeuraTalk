@@ -1,15 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'services/call_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/incoming_call_screen.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // Crash reporting — Flutter framework errors and uncaught async errors
+  // are forwarded to Crashlytics in release builds. Left OFF in debug so
+  // local development errors don't pollute the dashboard.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    if (!kDebugMode) {
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    }
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (!kDebugMode) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    }
+    return true;
+  };
+  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode);
+
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
@@ -23,9 +47,13 @@ class NeuraTalkApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthProvider()..init(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
+        ChangeNotifierProvider(create: (_) => CallService()),
+      ],
       child: MaterialApp(
+        navigatorKey: navigatorKey,
         title: 'NeuraTalk',
         theme: AppTheme.dark,
         debugShowCheckedModeBanner: false,
@@ -42,8 +70,29 @@ class _AppRouter extends StatefulWidget {
   State<_AppRouter> createState() => _AppRouterState();
 }
 
-class _AppRouterState extends State<_AppRouter> {
+class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
   bool _checked = false;
+  bool _showingIncomingCall = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The incoming-call poll timer keeps running in the background per the
+    // OS's whim, but there's no guarantee it fired recently right as the
+    // user reopens the app — force an immediate check on resume so a call
+    // that arrived while backgrounded surfaces without a stale ~4s wait.
+    if (state == AppLifecycleState.resumed && mounted) {
+      final auth = context.read<AuthProvider>();
+      if (auth.isLoggedIn) {
+        context.read<CallService>().pollNow();
+      }
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -51,10 +100,41 @@ class _AppRouterState extends State<_AppRouter> {
     if (!_checked) {
       _checked = true;
       final auth = context.read<AuthProvider>();
+      final calls = context.read<CallService>();
       auth.addListener(() {
-        if (mounted) setState(() {});
+        if (!mounted) return;
+        setState(() {});
+        if (auth.isLoggedIn) {
+          calls.startPolling();
+        } else {
+          calls.stopPolling();
+        }
       });
+      calls.addListener(_onCallServiceChanged);
+      if (auth.isLoggedIn) {
+        calls.startPolling();
+      }
     }
+  }
+
+  void _onCallServiceChanged() {
+    final calls = context.read<CallService>();
+    final incoming = calls.incomingCall;
+    if (incoming != null && !_showingIncomingCall) {
+      _showingIncomingCall = true;
+      navigatorKey.currentState
+          ?.push(MaterialPageRoute(
+            builder: (_) => IncomingCallScreen(session: incoming, callService: calls),
+          ))
+          .then((_) => _showingIncomingCall = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    context.read<CallService>().removeListener(_onCallServiceChanged);
+    super.dispose();
   }
 
   @override

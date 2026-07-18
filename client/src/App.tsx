@@ -24,7 +24,6 @@ const NumberHub = lazy(() => import("@/pages/enterprise/NumberHub"));
 const NumberRegistration = lazy(() => import("@/pages/enterprise/NumberRegistration"));
 const OrgStructurePage = lazy(() => import("@/pages/enterprise/OrgStructure"));
 const TelephonyConfigPage = lazy(() => import("@/pages/enterprise/TelephonyConfig"));
-const PBXIntegrationPage = lazy(() => import("@/pages/enterprise/PBXIntegration"));
 const AgentPresencePage = lazy(() => import("@/pages/enterprise/AgentPresence"));
 const SupervisorMonitorPage = lazy(() => import("@/pages/enterprise/SupervisorMonitor"));
 const CostCentersPage = lazy(() => import("@/pages/enterprise/CostCenters"));
@@ -365,13 +364,6 @@ function Router() {
       <Route path="/enterprise/telephony">
         <ProtectedRoute
           component={TelephonyConfigPage}
-          allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
-        />
-      </Route>
-
-      <Route path="/enterprise/pbx">
-        <ProtectedRoute
-          component={PBXIntegrationPage}
           allowedRoles={[USER_ROLES.SUPER_ADMIN, USER_ROLES.COMPANY_ADMIN]}
         />
       </Route>

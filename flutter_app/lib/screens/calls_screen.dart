@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/call_service.dart';
+import 'call_screen.dart';
+import 'transcript_history_screen.dart';
+import 'transcript_detail_screen.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -42,7 +47,14 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
       appBar: AppBar(
         title: const Text('Call Translator'),
         actions: [
-          IconButton(icon: const Icon(Icons.settings_outlined, color: AppColors.textSecondary), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.description_outlined, color: AppColors.textSecondary),
+            tooltip: 'Transcripts',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TranscriptHistoryScreen()),
+            ),
+          ),
         ],
         bottom: TabBar(
           controller: _tabs,
@@ -99,7 +111,17 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
     return ListView.separated(
       itemCount: calls.length,
       separatorBuilder: (_, __) => const Divider(color: AppColors.border, height: 1, indent: 72),
-      itemBuilder: (_, i) => _CallTile(call: calls[i]),
+      itemBuilder: (_, i) => _CallTile(
+        call: calls[i],
+        onTap: () {
+          final callId = calls[i]['id'];
+          if (callId == null) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString())),
+          );
+        },
+      ),
     );
   }
 
@@ -129,7 +151,8 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
 
 class _CallTile extends StatelessWidget {
   final Map<String, dynamic> call;
-  const _CallTile({required this.call});
+  final VoidCallback? onTap;
+  const _CallTile({required this.call, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +161,7 @@ class _CallTile extends StatelessWidget {
     final time = _formatTime(call['createdAt'] ?? call['startedAt'] ?? '');
     final type = call['callType'] == 'video' ? 'video' : 'voice';
     return ListTile(
+      onTap: onTap,
       leading: Container(
         width: 44,
         height: 44,
@@ -189,9 +213,57 @@ class _DialPad extends StatefulWidget {
 
 class _DialPadState extends State<_DialPad> {
   String _number = '';
+  bool _calling = false;
 
   void _press(String v) => setState(() => _number += v);
   void _delete() => setState(() => _number = _number.isNotEmpty ? _number.substring(0, _number.length - 1) : '');
+
+  Future<void> _call() async {
+    if (_number.isEmpty || _calling) return;
+    setState(() => _calling = true);
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final callService = context.read<CallService>();
+
+    try {
+      final session = await callService.startCall(
+        calleeIdentifier: _number,
+        callType: widget.video ? 'video' : 'voice',
+      );
+      navigator.pop();
+      navigator.push(MaterialPageRoute(
+        builder: (_) => CallScreen(session: session, callService: callService),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _calling = false);
+      messenger.showSnackBar(SnackBar(content: Text(_friendlyCallError(e))));
+    }
+  }
+
+  String _friendlyCallError(Object e) {
+    if (e is CallServiceException) return e.message;
+    if (e is! ApiException) return 'Could not start the call. Please try again.';
+
+    switch (e.code) {
+      case 'LIVEKIT_UNAVAILABLE':
+        return 'Calling is temporarily unavailable. Please try again shortly.';
+      case 'PSTN_NOT_CONFIGURED':
+        return 'Calling mobile numbers is not available right now.';
+    }
+
+    // No dedicated error code for balance/subscription failures — the
+    // backend returns the raw reason string as `message` in that case
+    // (server/modules/calls/controller.ts respondWithInitiateError,
+    // generic 500 fallback branch).
+    final reason = e.message.toUpperCase();
+    if (reason.contains('BALANCE') || reason.contains('SUBSCRIPTION') || reason.contains('CREDIT_LIMIT') || reason.contains('PAYMENT_REQUIRED')) {
+      return 'Insufficient balance or subscription to place this call.';
+    }
+
+    return 'Could not start the call. Please try again.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -214,11 +286,17 @@ class _DialPadState extends State<_DialPad> {
               IconButton(icon: const Icon(Icons.backspace_outlined, color: AppColors.textMuted), onPressed: _delete),
               const SizedBox(width: 24),
               GestureDetector(
-                onTap: () => Navigator.pop(context),
+                onTap: _call,
                 child: Container(
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(color: widget.video ? AppColors.blue : AppColors.cyan, shape: BoxShape.circle),
-                  child: Icon(widget.video ? Icons.videocam : Icons.call, color: AppColors.background, size: 28),
+                  child: _calling
+                      ? const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.background),
+                        )
+                      : Icon(widget.video ? Icons.videocam : Icons.call, color: AppColors.background, size: 28),
                 ),
               ),
             ],

@@ -16,6 +16,7 @@ import {
 import {
   Phone, PhoneOff, Mic, MicOff, Video, VideoOff,
   Languages, Users, Search, Clock, Star, Sparkles, Signal,
+  PauseCircle, PlayCircle,
 } from "lucide-react";
 import { useLiveKitCall } from "@/hooks/use-livekit-call";
 import { useContacts, type Contact } from "@/hooks/use-contacts";
@@ -493,6 +494,16 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                       title={isPstnRoute ? "PSTN/mobile routes are voice-only." : undefined}
                     >
                       {call.isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                    </Button>
+                    <Button
+                      variant={call.isOnHold ? "destructive" : "secondary"}
+                      size="icon"
+                      onClick={call.toggleHold}
+                      disabled={!isActive}
+                      data-testid="button-hold"
+                      title={call.isOnHold ? "Resume call" : "Hold call"}
+                    >
+                      {call.isOnHold ? <PlayCircle className="w-5 h-5" /> : <PauseCircle className="w-5 h-5" />}
                     </Button>
 
                 {isInCall ? (

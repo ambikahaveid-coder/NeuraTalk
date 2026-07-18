@@ -954,6 +954,13 @@ export function registerBillingRoutes(app: Express) {
         description: validation.data.description,
       });
 
+      await AuditHelpers.logSettingsChange(
+        req.user!.id,
+        "company_billing_adjustment",
+        null,
+        { organizationId, amountPaise: validation.data.amountPaise, type: validation.data.type, description: validation.data.description },
+      );
+
       res.json({ success: true, data: adjusted });
     } catch (err) {
       logger.error("Billing", "Failed to apply billing adjustment", err as Error);
@@ -974,6 +981,13 @@ export function registerBillingRoutes(app: Express) {
         blocked: validation.data.blocked,
         reason: validation.data.reason,
       });
+
+      await AuditHelpers.logSettingsChange(
+        req.user!.id,
+        validation.data.blocked ? "company_blocked" : "company_unblocked",
+        null,
+        { organizationId, reason: validation.data.reason },
+      );
 
       res.json({ success: true, data: updated });
     } catch (err) {

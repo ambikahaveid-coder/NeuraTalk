@@ -24,6 +24,7 @@ import {
   PERMISSIONS,
 } from "@shared/schema";
 import { logger, toHumanReadableError } from "./observability";
+import { setContextUserId } from "./request-context";
 
 // ============================================================================
 // TYPES
@@ -433,8 +434,17 @@ export async function loadUser(
       return;
     }
 
-    // Support ?auth= query param for SSE connections (EventSource can't set headers)
-    const queryAuth = typeof req.query?.auth === "string" ? req.query.auth : null;
+    // Support ?auth= query param ONLY for the specific SSE routes that need it
+    // (EventSource can't set headers). Scoped narrowly — accepting it on every
+    // route would let a session token leak via access logs/history/Referer
+    // headers on any endpoint, not just the two that actually require it.
+    const SSE_QUERY_AUTH_PATHS = new Set([
+      "/api/calls/incoming/stream",
+      "/api/personal-chats/stream",
+    ]);
+    const queryAuth = SSE_QUERY_AUTH_PATHS.has(req.path) && typeof req.query?.auth === "string"
+      ? req.query.auth
+      : null;
     const authHeader = queryAuth
       ? `Bearer ${queryAuth}`
       : req.headers.authorization;
@@ -498,6 +508,7 @@ export async function loadUser(
       } : null,
     };
 
+    setContextUserId(user.id);
     next();
   } catch (error) {
     logger.error("RoleMiddleware", "Failed to load user", error as Error);

@@ -21,6 +21,7 @@ import {
   isSmartCallId as routerIsSmartCallId,
   isActiveSmartCall as routerIsActiveSmartCall,
   resolveCalleeForTransfer as routerResolveCalleeForTransfer,
+  setCallHold as routerSetCallHold,
   type CallInitiateRequest,
   type CallInitiateResponse,
   type SmartCallRecord,
@@ -187,6 +188,33 @@ export async function queueIncomingCall(userId: string, payload: Omit<IncomingCa
   incomingCallBus.emit(`incoming:${userId}`, entry);
 }
 
+/**
+ * Aggregate depth of the incoming-call queue across all users — the one
+ * real queue in this architecture (calls/translation themselves are
+ * synchronous/real-time via LiveKit, not queued). Used by /metrics and the
+ * SLA dashboard. SCANs rather than KEYS to avoid blocking Redis on a large
+ * keyspace; acceptable here since this only runs on a periodic metrics
+ * scrape, not a request hot path.
+ */
+export async function getIncomingCallQueueDepth(): Promise<number> {
+  try {
+    const client = getRedisClient();
+    let cursor = "0";
+    let total = 0;
+    do {
+      const [nextCursor, keys] = await client.scan(cursor, "MATCH", `${INCOMING_QUEUE_KEY_PREFIX}*`, "COUNT", "100");
+      cursor = nextCursor;
+      for (const key of keys) {
+        total += await client.zcard(key);
+      }
+    } while (cursor !== "0");
+    return total;
+  } catch (error) {
+    logger.warn("CallsService", `Failed to compute incoming queue depth: ${String(error)}`);
+    return Array.from(incomingQueue.values()).reduce((sum, list) => sum + list.length, 0);
+  }
+}
+
 export async function popIncomingCall(userId: string): Promise<IncomingCallEntry | null> {
   const redisEntry = await popIncomingCallFromRedis(userId);
   if (redisEntry) {
@@ -344,6 +372,10 @@ export async function initiateConference(params: InitiateConferenceParams) {
 
 export async function endCallById(callId: string, reason?: string) {
   return await routerEndCall(callId, reason);
+}
+
+export async function setCallHold(callId: string, requesterIdentity: string, onHold: boolean) {
+  return await routerSetCallHold(callId, requesterIdentity, onHold);
 }
 
 export async function activatePstnFallback(callId: string, input: {

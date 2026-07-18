@@ -1,0 +1,411 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:permission_handler/permission_handler.dart';
+import '../theme/app_theme.dart';
+import '../models/call_session.dart';
+import '../services/call_service.dart';
+
+/// Real in-call screen — connects to the LiveKit room for [session] and
+/// exposes mute/speaker/hold/video/end controls. There is no CallKit
+/// integration; this is a plain in-app screen (see the mobile calling plan
+/// for that scope boundary).
+class CallScreen extends StatefulWidget {
+  final CallSession session;
+  final CallService callService;
+
+  const CallScreen({super.key, required this.session, required this.callService});
+
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  late final lk.Room _room;
+  lk.EventsListener<lk.RoomEvent>? _listener;
+
+  bool _connecting = true;
+  bool _reconnecting = false;
+  bool _muted = false;
+  bool _speakerOn = true;
+  bool _videoOn = false;
+  bool _onHold = false;
+  String? _error;
+  DateTime? _connectedAt;
+  Timer? _durationTimer;
+  Duration _elapsed = Duration.zero;
+  lk.VideoTrack? _remoteVideoTrack;
+
+  @override
+  void initState() {
+    super.initState();
+    _room = lk.Room();
+    _videoOn = widget.session.isVideo;
+    _connect();
+  }
+
+  Future<void> _connect() async {
+    if (!widget.session.hasLiveKitDetails) {
+      setState(() {
+        _connecting = false;
+        _error = 'Call service is not available right now.';
+      });
+      return;
+    }
+
+    final micGranted = await Permission.microphone.request();
+    if (!micGranted.isGranted) {
+      setState(() {
+        _connecting = false;
+        _error = 'Microphone permission is required to make calls.';
+      });
+      return;
+    }
+    bool cameraGrantedForVideo = false;
+    if (widget.session.isVideo) {
+      final cameraStatus = await Permission.camera.request();
+      cameraGrantedForVideo = cameraStatus.isGranted;
+    }
+
+    try {
+      await _room.connect(widget.session.livekitUrl, widget.session.livekitToken);
+      _listener = _room.createListener()
+        ..on<lk.RoomDisconnectedEvent>(_onRoomDisconnected)
+        ..on<lk.RoomReconnectingEvent>((_) {
+          if (mounted) setState(() => _reconnecting = true);
+        })
+        ..on<lk.RoomReconnectedEvent>((_) {
+          if (mounted) setState(() => _reconnecting = false);
+        })
+        ..on<lk.TrackSubscribedEvent>(_onTrackSubscribed)
+        ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed);
+
+      await _room.localParticipant?.setMicrophoneEnabled(true);
+      if (widget.session.isVideo && cameraGrantedForVideo) {
+        await _room.localParticipant?.setCameraEnabled(true);
+      } else if (widget.session.isVideo) {
+        _videoOn = false;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Camera permission denied — continuing as voice only.')),
+          );
+        }
+      }
+      await _room.setSpeakerOn(_speakerOn);
+
+      if (!mounted) return;
+      setState(() {
+        _connecting = false;
+        _connectedAt = DateTime.now();
+      });
+      _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted || _connectedAt == null) return;
+        setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _connecting = false;
+        _error = 'Could not connect the call. Please try again.';
+      });
+    }
+  }
+
+  void _onTrackSubscribed(lk.TrackSubscribedEvent event) {
+    if (event.track is lk.VideoTrack) {
+      setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
+    }
+  }
+
+  void _onTrackUnsubscribed(lk.TrackUnsubscribedEvent event) {
+    if (event.track == _remoteVideoTrack) {
+      setState(() => _remoteVideoTrack = null);
+    }
+  }
+
+  void _onRoomDisconnected(lk.RoomDisconnectedEvent event) {
+    if (!mounted) return;
+    _durationTimer?.cancel();
+    final message = switch (event.reason) {
+      lk.DisconnectReason.clientInitiated => null,
+      lk.DisconnectReason.participantRemoved => 'You were removed from the call.',
+      lk.DisconnectReason.roomDeleted => 'The call has ended.',
+      lk.DisconnectReason.reconnectAttemptsExceeded ||
+      lk.DisconnectReason.signalingConnectionFailure => 'Connection lost. The call has ended.',
+      _ => null,
+    };
+    if (message != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+    Navigator.of(context).maybePop();
+  }
+
+  Future<void> _toggleMute() async {
+    final next = !_muted;
+    await _room.localParticipant?.setMicrophoneEnabled(!next);
+    if (mounted) setState(() => _muted = next);
+  }
+
+  Future<void> _toggleSpeaker() async {
+    final next = !_speakerOn;
+    await _room.setSpeakerOn(next);
+    if (mounted) setState(() => _speakerOn = next);
+  }
+
+  Future<void> _toggleVideo() async {
+    final next = !_videoOn;
+    await _room.localParticipant?.setCameraEnabled(next);
+    if (mounted) setState(() => _videoOn = next);
+  }
+
+  Future<void> _toggleHold() async {
+    final next = !_onHold;
+    try {
+      await widget.callService.setHold(widget.session.callId, next);
+      await _room.localParticipant?.setMicrophoneEnabled(!next && !_muted);
+      if (mounted) setState(() => _onHold = next);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update hold state')),
+        );
+      }
+    }
+  }
+
+  Future<void> _endCall() async {
+    await _room.disconnect();
+    await widget.callService.endCall(widget.session.callId);
+    if (mounted) Navigator.of(context).maybePop();
+  }
+
+  @override
+  void dispose() {
+    _durationTimer?.cancel();
+    _listener?.dispose();
+    _room.disconnect();
+    super.dispose();
+  }
+
+  String _formatElapsed(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _endCall();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (_remoteVideoTrack != null)
+                      lk.VideoTrackRenderer(_remoteVideoTrack!)
+                    else
+                      _RemotePlaceholder(name: widget.session.remoteName, connecting: _connecting, error: _error),
+                    if (_reconnecting)
+                      Positioned(
+                        top: 12,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.orange.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Reconnecting…',
+                              style: TextStyle(color: AppColors.background, fontSize: 13, fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_connectedAt != null)
+                      Positioned(
+                        top: 12,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.background.withValues(alpha: 0.55),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              _formatElapsed(_elapsed),
+                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (_videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true)
+                      Positioned(
+                        top: 16,
+                        right: 16,
+                        width: 110,
+                        height: 150,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: lk.VideoTrackRenderer(
+                            _room.localParticipant!.videoTrackPublications.first.track as lk.VideoTrack,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              _ControlBar(
+                muted: _muted,
+                speakerOn: _speakerOn,
+                videoOn: _videoOn,
+                onHold: _onHold,
+                isVideoCall: widget.session.isVideo,
+                enabled: !_connecting && _error == null,
+                onMute: _toggleMute,
+                onSpeaker: _toggleSpeaker,
+                onVideo: _toggleVideo,
+                onHoldToggle: _toggleHold,
+                onEnd: _endCall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RemotePlaceholder extends StatelessWidget {
+  final String name;
+  final bool connecting;
+  final String? error;
+  const _RemotePlaceholder({required this.name, required this.connecting, this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 96,
+            height: 96,
+            decoration: const BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : '?',
+              style: const TextStyle(color: AppColors.cyan, fontSize: 36, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(name, style: const TextStyle(color: AppColors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          if (error != null)
+            Text(error!, style: const TextStyle(color: AppColors.red), textAlign: TextAlign.center)
+          else
+            Text(connecting ? 'Connecting…' : 'Connected', style: const TextStyle(color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ControlBar extends StatelessWidget {
+  final bool muted;
+  final bool speakerOn;
+  final bool videoOn;
+  final bool onHold;
+  final bool isVideoCall;
+  final bool enabled;
+  final VoidCallback onMute;
+  final VoidCallback onSpeaker;
+  final VoidCallback onVideo;
+  final VoidCallback onHoldToggle;
+  final VoidCallback onEnd;
+
+  const _ControlBar({
+    required this.muted,
+    required this.speakerOn,
+    required this.videoOn,
+    required this.onHold,
+    required this.isVideoCall,
+    required this.enabled,
+    required this.onMute,
+    required this.onSpeaker,
+    required this.onVideo,
+    required this.onHoldToggle,
+    required this.onEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _CallControlButton(icon: muted ? Icons.mic_off : Icons.mic, active: muted, onTap: enabled ? onMute : null),
+              const SizedBox(width: 20),
+              _CallControlButton(icon: speakerOn ? Icons.volume_up : Icons.hearing, active: speakerOn, onTap: enabled ? onSpeaker : null),
+              const SizedBox(width: 20),
+              _CallControlButton(icon: onHold ? Icons.play_arrow : Icons.pause, active: onHold, onTap: enabled ? onHoldToggle : null),
+              if (isVideoCall) ...[
+                const SizedBox(width: 20),
+                _CallControlButton(icon: videoOn ? Icons.videocam : Icons.videocam_off, active: !videoOn, onTap: enabled ? onVideo : null),
+              ],
+            ],
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: onEnd,
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
+              child: const Icon(Icons.call_end, color: AppColors.white, size: 28),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CallControlButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onTap;
+  const _CallControlButton({required this.icon, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          color: active ? AppColors.cyan : AppColors.surfaceElevated,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: active ? AppColors.background : AppColors.textPrimary, size: 24),
+      ),
+    );
+  }
+}

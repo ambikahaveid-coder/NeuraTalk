@@ -21,7 +21,7 @@ import {
   appVersions, rateLimitRules, abuseReports, userSuspensions,
   userConsents, dataSubjectRequests, backupJobs, systemHealthLogs,
   userAccessibilityPrefs, dataResidencyPolicies, environmentConfigs,
-  users, bridgedCalls, registeredDevices
+  users, bridgedCalls, registeredDevices, callBillingRecords
 } from "@shared/schema";
 import { eq, desc, and, sql, gte } from "drizzle-orm";
 import { z } from "zod";
@@ -515,7 +515,89 @@ export function registerProductionRoutes(app: Express): void {
       res.status(500).json({ success: false, message: "Health check failed" });
     }
   });
-  
+
+  /**
+   * SLA Dashboard (admin only) — availability, success rate, error rate,
+   * response time, active sessions, translation throughput. Aggregates the
+   * same in-memory/DB metrics sources already used by /metrics and
+   * /api/admin/health rather than standing up a second collection system.
+   */
+  app.get("/api/admin/sla-dashboard", loadUser, requireSuperAdmin, async (req, res) => {
+    try {
+      const { metrics: obsMetrics } = await import("./observability");
+      const { getHttpMetricsSnapshot } = await import("./http-metrics-middleware");
+      const { getResourceSnapshot } = await import("./reliability-monitor");
+      const { getIncomingCallQueueDepth } = await import("./modules/calls/service");
+
+      const recentLogs = await db.query.systemHealthLogs.findMany({
+        orderBy: [desc(systemHealthLogs.checkedAt)],
+        limit: 500,
+      });
+      const healthyCount = recentLogs.filter((l) => l.status === "healthy").length;
+      const availabilityPercent = recentLogs.length > 0 ? Number(((healthyCount / recentLogs.length) * 100).toFixed(2)) : null;
+
+      const [callAggregate] = await db.select({
+        total: sql<number>`count(*)`,
+        ended: sql<number>`count(*) filter (where ${callBillingRecords.status} in ('completed', 'ended'))`,
+        dropped: sql<number>`count(*) filter (where ${callBillingRecords.status} in ('dropped', 'failed'))`,
+      }).from(callBillingRecords);
+      const totalCalls = Number(callAggregate?.total ?? 0);
+      const endedCalls = Number(callAggregate?.ended ?? 0);
+      const droppedCalls = Number(callAggregate?.dropped ?? 0);
+
+      const httpSnapshot = getHttpMetricsSnapshot();
+      const aggregatedTranslation = obsMetrics.getAggregatedMetrics();
+      const systemHealth = obsMetrics.getSystemHealth();
+      const resourceSnapshot = getResourceSnapshot();
+      const queueDepth = await getIncomingCallQueueDepth().catch(() => 0);
+
+      let activeTranslatorBots = 0;
+      try {
+        const { listActiveBots } = await import("./translator-bot");
+        activeTranslatorBots = listActiveBots().length;
+      } catch { /* translator-bot may not be initialized in this process */ }
+
+      res.json({
+        success: true,
+        generatedAt: new Date().toISOString(),
+        availability: {
+          percent: availabilityPercent,
+          sampleSize: recentLogs.length,
+          note: recentLogs.length === 0 ? "No systemHealthLogs samples yet — readiness probe writes these on each check." : undefined,
+        },
+        successRate: {
+          calls: totalCalls > 0 ? Number((endedCalls / totalCalls).toFixed(4)) : null,
+          http: httpSnapshot.overall.count > 0 ? Number((1 - httpSnapshot.errorRate).toFixed(4)) : null,
+        },
+        errorRate: {
+          calls: totalCalls > 0 ? Number((droppedCalls / totalCalls).toFixed(4)) : null,
+          http: Number(httpSnapshot.errorRate.toFixed(4)),
+        },
+        responseTime: {
+          httpP50Ms: httpSnapshot.overall.p50,
+          httpP95Ms: httpSnapshot.overall.p95,
+          httpP99Ms: httpSnapshot.overall.p99,
+          translationP50Ms: aggregatedTranslation.p50LatencyMs,
+          translationP95Ms: aggregatedTranslation.p95LatencyMs,
+          translationP99Ms: aggregatedTranslation.p99LatencyMs,
+        },
+        activeSessions: {
+          activeCalls: systemHealth.activeConnections,
+          activeTranslatorBots,
+          incomingCallQueueDepth: queueDepth,
+        },
+        translationThroughput: {
+          totalTranslations: aggregatedTranslation.callCount,
+          avgSetupTimeMs: Math.round(aggregatedTranslation.avgSetupTimeMs),
+        },
+        resources: resourceSnapshot,
+      });
+    } catch (err) {
+      logger.error("ProductionRoutes", "SLA dashboard generation failed", err as Error);
+      res.status(500).json({ success: false, message: "Failed to generate SLA dashboard" });
+    }
+  });
+
   // ========================================================================
   // VERSION MANAGEMENT
   // ========================================================================

@@ -30,6 +30,13 @@ import { EventEmitter } from "events";
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 import { PostHog } from 'posthog-node';
+import { contextLogFields } from "./request-context";
+
+// Structured JSON logs (one JSON object per line — the format most log
+// aggregators (CloudWatch, Loki, Datadog agent) expect on stdout) are opt-in
+// via LOG_FORMAT=json, defaulting to the existing human-readable console
+// format so local development output is unchanged.
+const JSON_LOG_FORMAT = (process.env.LOG_FORMAT || "").toLowerCase() === "json";
 
 // Initialize PostHog for product analytics and QoS (Founder's Roadmap)
 let posthog: PostHog | null = null;
@@ -447,14 +454,23 @@ class PrivacySafeLogger extends EventEmitter { // Extended EventEmitter
   }
   
   private log(level: LogLevel, component: string, message: string, metadata?: Record<string, unknown>): void {
+    // Auto-attach requestId/correlationId/userId/traceId from the current
+    // AsyncLocalStorage context (set by request-context-middleware.ts and
+    // runWithTrace()) — every log call gets these for free without every
+    // call site needing to pass them explicitly.
+    const contextFields = contextLogFields();
+    const mergedMetadata = Object.keys(contextFields).length > 0
+      ? { ...contextFields, ...metadata }
+      : metadata;
+
     const entry: LogEntry = {
       timestamp: new Date(),
       level,
       component,
       message,
-      metadata,
+      metadata: mergedMetadata,
     };
-    
+
     // Product Analytics & QoS — non-PII aggregated call metrics only.
     // distinctId is an anonymous session hash, never a userId or phone number.
     // Only whitelisted metric fields are forwarded — no raw metadata spread.
@@ -479,14 +495,39 @@ class PrivacySafeLogger extends EventEmitter { // Extended EventEmitter
       this.logs.shift();
     }
     
-    // Console output for development
+    if (JSON_LOG_FORMAT) {
+      if (level !== "debug" || this.mode === "debug") {
+        this.writeJsonLine(entry);
+      }
+      return;
+    }
+
+    // Human-readable console output for local development
     const prefix = `[${level.toUpperCase()}] [${component}]`;
     if (level === "error") {
-      console.error(prefix, message, metadata || "");
+      console.error(prefix, message, mergedMetadata || "");
     } else if (level === "warn") {
-      console.warn(prefix, message, metadata || "");
+      console.warn(prefix, message, mergedMetadata || "");
     } else if (this.mode === "debug") {
-      console.log(prefix, message, metadata || "");
+      console.log(prefix, message, mergedMetadata || "");
+    }
+  }
+
+  /** One JSON object per line on stdout/stderr — the shape a log aggregator (CloudWatch, Loki, Datadog agent) expects. */
+  private writeJsonLine(entry: LogEntry): void {
+    const line = JSON.stringify({
+      timestamp: entry.timestamp.toISOString(),
+      level: entry.level,
+      component: entry.component,
+      message: entry.message,
+      ...entry.metadata,
+    }, (_key, value) => (value instanceof Error ? { name: value.name, message: value.message, stack: value.stack } : value));
+    if (entry.level === "error") {
+      console.error(line);
+    } else if (entry.level === "warn") {
+      console.warn(line);
+    } else {
+      console.log(line);
     }
   }
 }
