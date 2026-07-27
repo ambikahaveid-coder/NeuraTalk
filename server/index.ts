@@ -423,6 +423,21 @@ app.use((req, res, next) => {
     startBillingScheduler();
   }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
 
+  await runStartupPhase("webhook retry scheduler", async () => {
+    const { startWebhookRetryScheduler } = await import("./modules/webhooks/service");
+    startWebhookRetryScheduler();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
+  await runStartupPhase("ACD queue timeout scheduler", async () => {
+    const { startAcdQueueTimeoutScheduler } = await import("./modules/calls/queue-service");
+    startAcdQueueTimeoutScheduler();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
+  await runStartupPhase("webhook event bridge", async () => {
+    const { wireCallLifecycleWebhooks } = await import("./modules/webhooks/event-bridge");
+    wireCallLifecycleWebhooks();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
   await runStartupPhase("feature flags module import", async () => import("./feature-flags"), {
     optional: true,
     skip: isStartupSubsystemDisabled("feature_flags"),
@@ -499,11 +514,13 @@ app.use((req, res, next) => {
       adminMonitorModule,
       communicationApiModule,
       faceToFaceModule,
+      exotelBridgeModule,
     ] = await runStartupPhase("auxiliary websocket module imports", async () => Promise.all([
       import("./legacy/twilio-sim-bridge"),
       import("./admin-monitor"),
       import("./communication-api-ws"),
       import("./face-to-face-stream-ws"),
+      import("./modules/enterprise-hub/exotel-bridge"),
     ]), {
       optional: true,
       skip: isStartupSubsystemDisabled("auxiliary_websockets"),
@@ -515,10 +532,12 @@ app.use((req, res, next) => {
     const adminMonitorWss = new WebSocketServer({ noServer: true });
     const communicationApiWss = new WebSocketServer({ noServer: true });
     const faceToFaceWss = new WebSocketServer({ noServer: true });
+    const exotelStreamWss = new WebSocketServer({ noServer: true });
     await runStartupPhase("auxiliary websocket attachment", async () => {
       adminMonitorModule?.setupAdminMonitor(adminMonitorWss);
       communicationApiModule?.setupCommunicationApiWebSocket(communicationApiWss);
       faceToFaceModule?.setupFaceToFaceRealtimeWebSocket(faceToFaceWss);
+      exotelBridgeModule?.setupExotelStreamWebSocket(exotelStreamWss);
     }, {
       optional: true,
       skip: isStartupSubsystemDisabled("auxiliary_websockets"),
@@ -551,6 +570,10 @@ app.use((req, res, next) => {
       } else if (url.pathname === "/ws/face-to-face") {
         faceToFaceWss.handleUpgrade(request, socket, head, (ws) => {
           faceToFaceWss.emit("connection", ws, request);
+        });
+      } else if (url.pathname.startsWith("/ws/exotel-stream/")) {
+        exotelStreamWss.handleUpgrade(request, socket, head, (ws) => {
+          exotelStreamWss.emit("connection", ws, request);
         });
       }
     });

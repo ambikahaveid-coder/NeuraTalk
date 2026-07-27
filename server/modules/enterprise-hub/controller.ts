@@ -266,6 +266,74 @@ export async function upsertAiConfig(req: Request, res: Response) {
   }
 }
 
+// ── Exotel Bidirectional Voice Streaming ──────────────────────────────────────
+
+const exotelConfigSchema = z.object({
+  enterpriseNumberId: z.number().optional(),
+  label: z.string().min(1),
+  accountSid: z.string().min(1),
+  apiKey: z.string().min(1),
+  apiToken: z.string().min(1),
+  subdomain: z.string().default("api.exotel.com"),
+  defaultSrcLanguage: z.string().default("auto"),
+  defaultTgtLanguage: z.string().default("en-US"),
+  isActive: z.boolean().default(true),
+});
+
+export async function listExotel(req: Request, res: Response) {
+  try {
+    const data = await service.listExotelConfigs(orgId(req));
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+export async function createExotel(req: Request, res: Response) {
+  try {
+    const body = exotelConfigSchema.parse(req.body);
+    const created = await service.createExotelConfig({ ...body, organizationId: orgId(req) }, actorId(req));
+    res.status(201).json({ success: true, data: created });
+  } catch (err: any) {
+    const status = err instanceof z.ZodError ? 400 : 500;
+    res.status(status).json({ success: false, error: err.message });
+  }
+}
+
+export async function updateExotel(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    const patch = exotelConfigSchema.partial().parse(req.body);
+    const updated = await service.updateExotelConfig(id, orgId(req), patch, actorId(req));
+    if (!updated) return res.status(404).json({ success: false, error: "Not found" });
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    const status = err instanceof z.ZodError ? 400 : 500;
+    res.status(status).json({ success: false, error: err.message });
+  }
+}
+
+export async function deleteExotel(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    const deleted = await service.deleteExotelConfig(id, orgId(req), actorId(req));
+    if (!deleted) return res.status(404).json({ success: false, error: "Not found" });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+export async function getExotelLiveSessions(req: Request, res: Response) {
+  try {
+    const { getActiveSessionsForOrg } = await import("./exotel-bridge");
+    const data = getActiveSessionsForOrg(orgId(req));
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
 // ── Audit Logs ────────────────────────────────────────────────────────────────
 
 export async function getAuditLogs(req: Request, res: Response) {

@@ -63,6 +63,7 @@ import {
   azureTTS,
   azureSTT,
 } from "./azure-service";
+import { isSarvamAvailable, isSarvamLanguage, sarvamTranslate } from "./sarvam-service";
 
 // Fast-path mode: when enabled (default in prod), skip the 3–5s free-API
 // translation fallbacks. They're catastrophic for a real-time call — it's
@@ -367,7 +368,22 @@ export async function ultraTranslate(
   const cached = getCachedTranslation(text, from, to);
   if (cached) return cached;
 
-  // 2. Azure Translator — single hop on the hot path, ~30ms with keepalive.
+  // 2. Sarvam Mayura — tried first for Indian-language pairs: purpose-built for
+  // Hindi/Telugu/Tamil/etc (and their code-mixed forms), not an afterthought
+  // the way Azure's general-purpose translator is.
+  if (isSarvamAvailable() && isSarvamLanguage(from) && isSarvamLanguage(to)) {
+    try {
+      const result = await sarvamTranslate(text, from, to);
+      if (result && result !== text) {
+        setCachedTranslation(text, from, to, result);
+        return result;
+      }
+    } catch (err) {
+      logger.warn("UltraPipeline", `sarvamTranslate failed: ${err}`);
+    }
+  }
+
+  // 3. Azure Translator — single hop on the hot path, ~30ms with keepalive.
   if (isAzureTranslatorAvailable()) {
     try {
       const result = await azureTranslate(text, from, to);
@@ -380,12 +396,12 @@ export async function ultraTranslate(
     }
   }
 
-  // 3. FAST_PATH=1 (default): don't stall a real-time call on 3–5s free APIs.
+  // 4. FAST_PATH=1 (default): don't stall a real-time call on 3–5s free APIs.
   // Better to pass-through than block the pipeline. Background cache warmup
   // still uses these APIs when latency isn't critical.
   if (FAST_PATH) return text;
 
-  // 4. Slow fallbacks — only when FAST_PATH=0 (offline dev / async jobs).
+  // 5. Slow fallbacks — only when FAST_PATH=0 (offline dev / async jobs).
   try {
     const lingvaUrl = `https://lingva.ml/api/v1/${encodeURIComponent(from)}/${encodeURIComponent(to)}/${encodeURIComponent(text)}`;
     const ctrl = new AbortController();

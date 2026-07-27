@@ -7,14 +7,16 @@ import {
   languageRules,
   aiConfigurations,
   integrationAuditLogs,
+  exotelStreamConfigs,
   organizations,
   type InsertEnterpriseNumber,
   type InsertSipIntegration,
   type InsertLanguageRule,
   type InsertAiConfiguration,
+  type InsertExotelStreamConfig,
 } from "@shared/schema";
 import { logger } from "../../observability";
-import { randomInt } from "crypto";
+import { randomInt, randomBytes } from "crypto";
 
 // ── Audit helper ─────────────────────────────────────────────────────────────
 
@@ -203,13 +205,23 @@ export async function confirmVerification(
 }
 
 // ── SIP Integrations ──────────────────────────────────────────────────────────
+// sipPassword is a live PBX/carrier credential — it must never round-trip to the
+// browser. Redact it on every response path (list/create/update), not just list,
+// since the create/update response is what a React Query cache would otherwise
+// hold in plaintext in the tab's memory and any client-side logging/devtools.
+
+function redactSip<T extends { sipPassword?: string | null }>(row: T): Omit<T, "sipPassword"> {
+  const { sipPassword: _sipPassword, ...rest } = row;
+  return rest;
+}
 
 export async function listSipIntegrations(organizationId: number) {
-  return db
+  const rows = await db
     .select()
     .from(sipIntegrations)
     .where(eq(sipIntegrations.organizationId, organizationId))
     .orderBy(desc(sipIntegrations.createdAt));
+  return rows.map(redactSip);
 }
 
 export async function upsertSipIntegration(
@@ -224,7 +236,7 @@ export async function upsertSipIntegration(
     action: "sip_config_created",
     details: { sipServer: data.sipServer, label: data.label },
   });
-  return result;
+  return redactSip(result);
 }
 
 export async function updateSipIntegration(
@@ -241,7 +253,7 @@ export async function updateSipIntegration(
   if (updated) {
     await logHubAudit({ organizationId, enterpriseNumberId: updated.enterpriseNumberId ?? null, actorId, action: "sip_config_updated" });
   }
-  return updated ?? null;
+  return updated ? redactSip(updated) : null;
 }
 
 export async function deleteSipIntegration(id: number, organizationId: number, actorId: number) {
@@ -327,6 +339,99 @@ export async function upsertAiConfiguration(
     details: data as Record<string, unknown>,
   });
   return result;
+}
+
+// ── Exotel Bidirectional Voice Streaming ──────────────────────────────────────
+// Client's published number never changes. They add one "Voicebot/Stream
+// Applet" step in their own Exotel call flow that points at the wss:// URL
+// returned here — that's the entire integration on their side.
+
+function buildExotelWebhookUrl(streamToken: string): string {
+  const base = (process.env.APP_BASE_URL || "").replace(/\/$/, "").replace(/^http/, "ws");
+  return `${base}/ws/exotel-stream/${streamToken}`;
+}
+
+function maskSecret(value: string, visibleTail = 4): string {
+  if (value.length <= visibleTail) return "•".repeat(value.length);
+  return `${"•".repeat(value.length - visibleTail)}${value.slice(-visibleTail)}`;
+}
+
+// apiToken is the live Exotel credential — never round-trips to the browser.
+// apiKey alone can't authenticate without the token, but it's still half a
+// credential pair, so it's masked down to a last-4 hint (enough for an admin
+// to recognize "yes, that's the right account" without exposing the value).
+function redactExotel<T extends { apiToken: string; apiKey: string; streamToken: string }>(
+  row: T,
+): Omit<T, "apiToken" | "apiKey"> & { apiKey: string; streamUrl: string } {
+  const { apiToken: _apiToken, apiKey, ...rest } = row;
+  return { ...rest, apiKey: maskSecret(apiKey), streamUrl: buildExotelWebhookUrl(row.streamToken) };
+}
+
+export async function listExotelConfigs(organizationId: number) {
+  const rows = await db
+    .select()
+    .from(exotelStreamConfigs)
+    .where(eq(exotelStreamConfigs.organizationId, organizationId))
+    .orderBy(desc(exotelStreamConfigs.createdAt));
+  return rows.map(redactExotel);
+}
+
+export async function createExotelConfig(
+  data: Omit<InsertExotelStreamConfig, "streamToken">,
+  actorId: number,
+) {
+  const streamToken = randomBytes(16).toString("hex");
+  const [created] = await db
+    .insert(exotelStreamConfigs)
+    .values({ ...data, streamToken })
+    .returning();
+  await logHubAudit({
+    organizationId: data.organizationId,
+    enterpriseNumberId: data.enterpriseNumberId ?? null,
+    actorId,
+    action: "exotel_stream_config_created",
+    details: { label: data.label, accountSid: data.accountSid },
+  });
+  return redactExotel(created);
+}
+
+export async function updateExotelConfig(
+  id: number,
+  organizationId: number,
+  patch: Partial<InsertExotelStreamConfig>,
+  actorId: number,
+) {
+  const [updated] = await db
+    .update(exotelStreamConfigs)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(and(eq(exotelStreamConfigs.id, id), eq(exotelStreamConfigs.organizationId, organizationId)))
+    .returning();
+  if (!updated) return null;
+  await logHubAudit({ organizationId, enterpriseNumberId: updated.enterpriseNumberId, actorId, action: "exotel_stream_config_updated" });
+  return redactExotel(updated);
+}
+
+export async function deleteExotelConfig(id: number, organizationId: number, actorId: number) {
+  const [deleted] = await db
+    .delete(exotelStreamConfigs)
+    .where(and(eq(exotelStreamConfigs.id, id), eq(exotelStreamConfigs.organizationId, organizationId)))
+    .returning();
+  if (deleted) {
+    await logHubAudit({ organizationId, actorId, action: "exotel_stream_config_deleted", details: { id } });
+  }
+  return !!deleted;
+}
+
+export async function getExotelConfigByToken(streamToken: string) {
+  const [row] = await db
+    .select()
+    .from(exotelStreamConfigs)
+    .where(eq(exotelStreamConfigs.streamToken, streamToken));
+  return row ?? null;
+}
+
+export async function markExotelConfigConnected(id: number) {
+  await db.update(exotelStreamConfigs).set({ lastConnectedAt: new Date() }).where(eq(exotelStreamConfigs.id, id));
 }
 
 // ── Audit Logs ────────────────────────────────────────────────────────────────

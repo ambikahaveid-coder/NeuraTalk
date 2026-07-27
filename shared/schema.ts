@@ -2710,6 +2710,36 @@ export const integrationAuditLogs = pgTable("integration_audit_logs", {
   index("integration_audit_logs_number_idx").on(t.enterpriseNumberId),
 ]);
 
+// ── Exotel Bidirectional Voice Streaming (middleware translation layer) ──────
+// Client keeps their existing published number; they add one "Voicebot/Stream
+// Applet" step in their own Exotel call flow that points at our WebSocket URL.
+// No SIP trunk, no BSNL/carrier partnership, no number change on their side.
+
+export const exotelStreamConfigs = pgTable("exotel_stream_configs", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  enterpriseNumberId: integer("enterprise_number_id").references(() => enterpriseNumbers.id, { onDelete: "set null" }),
+  label: text("label").notNull(),
+  accountSid: text("account_sid").notNull(),
+  apiKey: text("api_key").notNull(),
+  apiToken: text("api_token").notNull(),          // encrypted at rest
+  subdomain: text("subdomain").notNull().default("api.exotel.com"),
+  streamToken: text("stream_token").notNull(),    // random slug embedded in our wss:// URL, identifies this config on inbound connect
+  defaultSrcLanguage: text("default_src_language").default("auto"),
+  defaultTgtLanguage: text("default_tgt_language").default("en-US"),
+  isActive: boolean("is_active").notNull().default(false),
+  lastConnectedAt: timestamp("last_connected_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("exotel_stream_configs_org_idx").on(t.organizationId),
+  index("exotel_stream_configs_token_idx").on(t.streamToken),
+]);
+
+export const insertExotelStreamConfigSchema = createInsertSchema(exotelStreamConfigs).omit({ id: true, createdAt: true, updatedAt: true, lastConnectedAt: true });
+export type ExotelStreamConfig = typeof exotelStreamConfigs.$inferSelect;
+export type InsertExotelStreamConfig = z.infer<typeof insertExotelStreamConfigSchema>;
+
 // ── User Notifications ────────────────────────────────────────────────────────
 // In-app + push notifications. FCM delivery is handled via registeredDevices.pushToken.
 

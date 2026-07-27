@@ -4,6 +4,7 @@ import { spawn } from "child_process";
 import { elevenLabsTTS, elevenLabsSTT, ELEVENLABS_VOICES } from "../../elevenlabs-service";
 import { isAzureSpeechAvailable, azureTTS, azureSTT } from "../../azure-service";
 import { getOpenAIKey, hasWorkingOpenAIKey } from "../../openai-config";
+import { isSarvamAvailable, isSarvamLanguage, sarvamSTT, sarvamTTS } from "../../sarvam-service";
 
 export const openai = new OpenAI({
   apiKey: getOpenAIKey() || "",
@@ -184,7 +185,7 @@ const VOICE_MAP: Record<string, string> = {
 };
 
 /**
- * Text-to-Speech: Azure → OpenAI tts-1 (fast) → ElevenLabs (quality fallback).
+ * Text-to-Speech: Sarvam (Indian languages, natural code-mixed prosody) → Azure → OpenAI tts-1 → ElevenLabs.
  * @param language - Target language code (e.g., "hi", "te"). Defaults to "en".
  */
 export async function textToSpeech(
@@ -193,6 +194,16 @@ export async function textToSpeech(
   format: "wav" | "mp3" | "flac" | "opus" | "pcm16" = "wav",
   language: string = "en"
 ): Promise<Buffer> {
+  // Sarvam Bulbul — natural-sounding Indian-language voices, tried first for Indian languages.
+  if (isSarvamAvailable() && isSarvamLanguage(language)) {
+    try {
+      const buf = await sarvamTTS(text, language);
+      if (buf.length > 0) return buf;
+    } catch (e: any) {
+      console.warn("[TTS] Sarvam failed, falling back:", e?.message);
+    }
+  }
+
   // Azure Neural TTS (500K chars/month FREE, lowest latency)
   if (isAzureSpeechAvailable()) {
     try {
@@ -297,7 +308,7 @@ export async function textToSpeechStream(
 }
 
 /**
- * Speech-to-Text: Azure → OpenAI Whisper (fast) → ElevenLabs (quality fallback).
+ * Speech-to-Text: Sarvam (Indian languages, code-mixed) → Azure → OpenAI Whisper → ElevenLabs.
  * @param language - Source language code (e.g., "te", "hi"). Defaults to "en".
  */
 export async function speechToText(
@@ -305,6 +316,17 @@ export async function speechToText(
   format: "wav" | "mp3" | "webm" = "wav",
   language: string = "en"
 ): Promise<string> {
+  // Sarvam — purpose-built for Hinglish/Tanglish/Tenglish code-mixed speech,
+  // tried first for Indian languages since Azure/Whisper treat mixing as an afterthought.
+  if (isSarvamAvailable() && isSarvamLanguage(language)) {
+    try {
+      const transcript = await sarvamSTT(audioBuffer, language, format === "webm" ? "wav" : format);
+      if (transcript) return transcript;
+    } catch (e: any) {
+      console.warn("[STT] Sarvam failed, falling back:", e?.message);
+    }
+  }
+
   // Azure STT (5 hrs/month FREE, best Indian language accuracy)
   if (isAzureSpeechAvailable()) {
     try {

@@ -168,6 +168,21 @@ async function translatePersonalText(text: string, fromLang: string, toLang: str
     return text;
   }
 
+  // Sarvam — tried first for Indian language pairs: it's built for exactly this
+  // (casual, code-mixed Hinglish/Tanglish/Tenglish chat text), where Azure's
+  // general-purpose translator tends to over-formalize or mishandle mixing.
+  try {
+    const { isSarvamAvailable, isSarvamLanguage, sarvamTranslate } = await import("./sarvam-service");
+    if (isSarvamAvailable() && isSarvamLanguage(fromLang) && isSarvamLanguage(toLang)) {
+      const translated = await sarvamTranslate(text, fromLang, toLang);
+      if (translated?.trim()) {
+        return translated;
+      }
+    }
+  } catch {
+    // fall through
+  }
+
   try {
     const { isAzureTranslatorAvailable, azureTranslate } = await import("./azure-service");
     if (isAzureTranslatorAvailable()) {

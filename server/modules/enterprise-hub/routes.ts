@@ -41,6 +41,13 @@ export function registerEnterpriseHubRoutes(app: Express) {
   app.get("/api/enterprise-hub/ai-config/:numberId", ...guard, ctrl.getAiConfig);
   app.post("/api/enterprise-hub/ai-config", ...guard, ctrl.upsertAiConfig);
 
+  // Exotel bidirectional voice streaming (middleware translation layer)
+  app.get("/api/enterprise-hub/exotel", ...guard, ctrl.listExotel);
+  app.post("/api/enterprise-hub/exotel", ...guard, ctrl.createExotel);
+  app.patch("/api/enterprise-hub/exotel/:id", ...guard, ctrl.updateExotel);
+  app.delete("/api/enterprise-hub/exotel/:id", ...guard, ctrl.deleteExotel);
+  app.get("/api/enterprise-hub/exotel/sessions/live", ...guard, ctrl.getExotelLiveSessions);
+
   // Audit logs
   app.get("/api/enterprise-hub/audit-logs", ...guard, ctrl.getAuditLogs);
 }

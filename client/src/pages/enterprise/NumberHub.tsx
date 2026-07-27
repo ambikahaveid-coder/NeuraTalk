@@ -278,7 +278,7 @@ function NumbersTab() {
                       size="sm"
                       variant="ghost"
                       className="text-destructive hover:text-destructive"
-                      onClick={() => deleteMutation.mutate(n.id)}
+                      onClick={() => { if (window.confirm(`Remove ${n.phoneNumber}? Calls on this number will stop routing through NeuraTalk immediately.`)) deleteMutation.mutate(n.id); }}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -590,7 +590,7 @@ function SipTab() {
                     {s.registrationStatus ?? "unknown"}
                   </Badge>
                 </div>
-                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteMutation.mutate(s.id)}>
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm(`Remove SIP trunk "${s.label}"? Any live calls routed through it will lose this AI layer.`)) deleteMutation.mutate(s.id); }}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </CardContent>
@@ -626,6 +626,204 @@ function SipTab() {
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
             <Button onClick={() => createMutation.mutate(form)} disabled={!form.label || !form.sipServer || createMutation.isPending}>
               {createMutation.isPending ? "Saving..." : "Add Trunk"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Exotel Streaming Tab ─────────────────────────────────────────────────────
+// Your published number never changes. Add one "Voicebot/Stream Applet" step
+// in your own Exotel call flow pointing at the WSS URL shown below — after
+// that one-time setup every future call auto-streams here, no per-call action.
+
+interface ExotelConfig {
+  id: number;
+  label: string;
+  accountSid: string;
+  subdomain: string;
+  defaultSrcLanguage: string | null;
+  defaultTgtLanguage: string | null;
+  isActive: boolean;
+  lastConnectedAt: string | null;
+  streamUrl: string;
+}
+
+interface ExotelLiveSession {
+  configId: number;
+  configLabel: string;
+  streamSid: string | null;
+  callSid: string | null;
+  status: string;
+  connectedAt: number;
+  lastActivityAt: number;
+}
+
+function ExotelTab() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    label: "", accountSid: "", apiKey: "", apiToken: "", subdomain: "api.exotel.com",
+    defaultSrcLanguage: "auto", defaultTgtLanguage: "en-US", isActive: true,
+  });
+
+  const { data: configs = [], isLoading } = useQuery<ExotelConfig[]>({
+    queryKey: ["/api/enterprise-hub/exotel"],
+    queryFn: () => apiFetch("/api/enterprise-hub/exotel"),
+    staleTime: 30_000,
+  });
+
+  const { data: liveSessions = [] } = useQuery<ExotelLiveSession[]>({
+    queryKey: ["/api/enterprise-hub/exotel/sessions/live"],
+    queryFn: () => apiFetch("/api/enterprise-hub/exotel/sessions/live"),
+    refetchInterval: 5_000,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof form) => apiFetch("/api/enterprise-hub/exotel", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/exotel"] });
+      setOpen(false);
+      setForm({ label: "", accountSid: "", apiKey: "", apiToken: "", subdomain: "api.exotel.com", defaultSrcLanguage: "auto", defaultTgtLanguage: "en-US", isActive: true });
+      toast({ title: "Exotel streaming config created", description: "Copy the WSS URL into your Exotel Voicebot Applet." });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/enterprise-hub/exotel/${id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/exotel"] }); toast({ title: "Config removed" }); },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+      apiFetch(`/api/enterprise-hub/exotel/${id}`, { method: "PATCH", body: JSON.stringify({ isActive }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/enterprise-hub/exotel"] }),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card className="border-blue-200 bg-blue-50">
+        <CardContent className="pt-4 pb-4 text-sm text-blue-900">
+          Your existing Exotel number stays exactly as it is. Add a <strong>Voicebot/Stream Applet</strong> step
+          in your Exotel call-flow builder pointing to the WSS URL below — that's a one-time setup done once
+          in your Exotel dashboard. Every call after that streams here automatically, no per-call action needed.
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            Live Sessions {liveSessions.length > 0 && <Badge className="bg-green-100 text-green-800 border-green-200">{liveSessions.length} active</Badge>}
+          </CardTitle>
+          <CardDescription>Real-time visibility into calls currently streaming through the AI layer</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {liveSessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No active calls right now</p>
+          ) : (
+            <div className="space-y-2">
+              {liveSessions.map((s) => (
+                <div key={`${s.configId}-${s.streamSid}`} className="flex items-center justify-between p-2 rounded bg-muted/50 text-sm">
+                  <div>
+                    <span className="font-medium">{s.configLabel}</span>
+                    {s.callSid && <span className="text-muted-foreground"> · Call: {s.callSid}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Badge variant="outline" className="capitalize">{s.status}</Badge>
+                    <span>connected {Math.round((Date.now() - s.connectedAt) / 1000)}s ago</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-muted-foreground">{configs.length} config{configs.length !== 1 ? "s" : ""}</p>
+        <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Exotel Account</Button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading...</p>
+      ) : configs.length === 0 ? (
+        <Card className="text-center py-10">
+          <CardContent>
+            <Zap className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+            <p className="font-medium mb-1">No Exotel streaming configured</p>
+            <p className="text-sm text-muted-foreground">Connect your Exotel account SID/API key to get a WSS streaming URL</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {configs.map((c) => (
+            <Card key={c.id}>
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{c.label}</p>
+                    <p className="text-sm text-muted-foreground">Account SID: {c.accountSid}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch checked={c.isActive} onCheckedChange={(v) => toggleMutation.mutate({ id: c.id, isActive: v })} />
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (window.confirm(`Remove Exotel config "${c.label}"? Any call currently streaming through this WSS URL will drop immediately.`)) deleteMutation.mutate(c.id); }}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="p-2 rounded bg-muted font-mono text-xs break-all">{c.streamUrl}</div>
+                <p className="text-xs text-muted-foreground">
+                  {(c.defaultSrcLanguage ?? "auto")} → {(c.defaultTgtLanguage ?? "en-US")}
+                  {c.lastConnectedAt && <span> · Last call: {new Date(c.lastConnectedAt).toLocaleString()}</span>}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Connect Exotel Account</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Label</Label><Input className="mt-1" placeholder="e.g. Support Line" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
+            <div><Label>Exotel Account SID</Label><Input className="mt-1" value={form.accountSid} onChange={(e) => setForm({ ...form, accountSid: e.target.value })} /></div>
+            <div><Label>API Key</Label><Input className="mt-1" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></div>
+            <div><Label>API Token</Label><Input className="mt-1" type="password" value={form.apiToken} onChange={(e) => setForm({ ...form, apiToken: e.target.value })} /></div>
+            <div><Label>Subdomain</Label><Input className="mt-1" value={form.subdomain} onChange={(e) => setForm({ ...form, subdomain: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Caller Language</Label>
+                <Select value={form.defaultSrcLanguage} onValueChange={(v) => setForm({ ...form, defaultSrcLanguage: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGE_OPTIONS.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Agent Language</Label>
+                <Select value={form.defaultTgtLanguage} onValueChange={(v) => setForm({ ...form, defaultTgtLanguage: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LANGUAGE_OPTIONS.map(l => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => createMutation.mutate(form)}
+              disabled={!form.label || !form.accountSid || !form.apiKey || !form.apiToken || createMutation.isPending}
+            >
+              {createMutation.isPending ? "Saving..." : "Connect"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -775,7 +973,7 @@ function LanguageRulesTab() {
                   size="sm"
                   variant="ghost"
                   className="text-destructive hover:text-destructive flex-shrink-0"
-                  onClick={() => deleteMutation.mutate(r.id)}
+                  onClick={() => { if (window.confirm("Remove this language routing rule?")) deleteMutation.mutate(r.id); }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -899,6 +1097,7 @@ export default function NumberHub() {
           <TabsTrigger value="overview" className="flex items-center gap-2"><Activity className="h-4 w-4" />Overview</TabsTrigger>
           <TabsTrigger value="numbers" className="flex items-center gap-2"><Phone className="h-4 w-4" />Numbers</TabsTrigger>
           <TabsTrigger value="sip" className="flex items-center gap-2"><Wifi className="h-4 w-4" />SIP Trunks</TabsTrigger>
+          <TabsTrigger value="exotel" className="flex items-center gap-2"><Zap className="h-4 w-4" />Exotel Streaming</TabsTrigger>
           <TabsTrigger value="language" className="flex items-center gap-2"><Languages className="h-4 w-4" />Language Rules</TabsTrigger>
           <TabsTrigger value="ai" className="flex items-center gap-2"><Zap className="h-4 w-4" />AI Control</TabsTrigger>
           <TabsTrigger value="compliance" className="flex items-center gap-2"><Shield className="h-4 w-4" />Compliance</TabsTrigger>
@@ -918,6 +1117,10 @@ export default function NumberHub() {
 
         <TabsContent value="sip">
           <SipTab />
+        </TabsContent>
+
+        <TabsContent value="exotel">
+          <ExotelTab />
         </TabsContent>
 
         <TabsContent value="language">
