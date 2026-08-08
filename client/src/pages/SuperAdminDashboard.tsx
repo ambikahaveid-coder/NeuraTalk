@@ -192,6 +192,7 @@ function OverviewSection() {
       if (!res.ok) throw new Error("Failed to load platform stats");
       return res.json();
     },
+    refetchInterval: 30_000,
   });
 
   const { data: pendingCompanies } = useQuery({
@@ -927,6 +928,7 @@ function UsersSection() {
       if (!res.ok) return { data: [], pagination: { total: 0 } };
       return res.json();
     },
+    refetchInterval: 30_000,
   });
 
   const createUserMutation = useMutation({
@@ -1832,38 +1834,38 @@ function BillingSection() {
 
       {/* Revenue Model Summary */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 border-green-500/20">
+        <Card className="glass-card border-primary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Free Trial</p>
-            <p className="text-2xl font-bold text-green-400">15 min</p>
+            <p className="text-2xl font-bold text-primary">15 min</p>
             <p className="text-xs text-muted-foreground">Every new user</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-blue-500/10 to-cyan-500/5 border-blue-500/20">
+        <Card className="glass-card border-secondary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">B2C Plans</p>
-            <p className="text-2xl font-bold text-blue-400">{b2cPlans.length}</p>
+            <p className="text-2xl font-bold text-secondary">{b2cPlans.length}</p>
             <p className="text-xs text-muted-foreground">Consumer plans</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-purple-500/10 to-violet-500/5 border-purple-500/20">
+        <Card className="glass-card border-primary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">B2B Plans</p>
-            <p className="text-2xl font-bold text-purple-400">{b2bPlans.length}</p>
+            <p className="text-2xl font-bold text-primary">{b2bPlans.length}</p>
             <p className="text-xs text-muted-foreground">Business plans</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 border-amber-500/20">
+        <Card className="glass-card border-secondary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Active Calls</p>
-            <p className="text-2xl font-bold text-amber-400">{billingOverview?.activeCalls || 0}</p>
+            <p className="text-2xl font-bold text-secondary">{billingOverview?.activeCalls || 0}</p>
             <p className="text-xs text-muted-foreground">Currently billing</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-br from-cyan-500/10 to-sky-500/5 border-cyan-500/20">
+        <Card className="glass-card border-primary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Revenue</p>
-            <p className="text-2xl font-bold text-cyan-400">₹{((billingOverview?.totalRevenuePaise || 0) / 100).toLocaleString()}</p>
+            <p className="text-2xl font-bold text-primary">₹{((billingOverview?.totalRevenuePaise || 0) / 100).toLocaleString()}</p>
             <p className="text-xs text-muted-foreground">Strict billed usage</p>
           </CardContent>
         </Card>
@@ -2201,7 +2203,8 @@ function AnalyticsSection() {
   });
 
   const data = analyticsData?.data;
-  const COLORS = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#00C49F'];
+  // Brand palette (cyan/purple family) instead of Recharts' default demo colors
+  const COLORS = ['#00F0FF', '#BF33FF', '#00B8D9', '#9B5DE5', '#4DD9E8'];
 
   const usersByRoleData = data?.usersByRole?.map((item: any) => ({
     name: item.role.replace('_', ' ').toUpperCase(),

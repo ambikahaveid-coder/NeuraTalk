@@ -36,21 +36,6 @@ function looksLikePhoneTarget(identifier: string) {
   return /^\+?\d{10,15}$/.test(String(identifier || "").replace(/\s+/g, ""));
 }
 
-function formatCallTimelineValue(value?: string | number | null) {
-  if (!value) return null;
-  const date = typeof value === "number" ? new Date(value) : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString();
-}
-
-function readSessionMetadataValue(
-  metadata: Record<string, unknown> | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-  return typeof value === "string" || typeof value === "number" ? value : null;
-}
-
 function getPstnRetryGuidance(error?: string | null) {
   const message = String(error || "").toLowerCase();
   if (!message) return null;
@@ -255,7 +240,6 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
   const formatRate = (value: number) => (value < 1 ? value.toFixed(3) : value.toFixed(2));
   const effectiveCallerIdentityMode = call.session?.callerIdentityMode || call.pricingPreview?.callerIdentityMode;
   const effectiveRouteType = call.session?.routeType || call.pricingPreview?.joinMethod;
-  const effectiveProvider = call.session?.provider || null;
   const currentTargetLabel = selectedContact?.name
     || call.incomingCall?.callerName
     || call.session?.callee?.displayName
@@ -314,16 +298,6 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
     : call.hasRemoteAudioTrack
       ? "Audio is connected, but the other user may have camera off or may need to allow camera permission."
       : "The other app user may still be joining, may have camera off, or may need to grant camera permission.";
-  const sessionMetadata = call.session?.metadata as Record<string, unknown> | undefined;
-  const providerAnsweredAt = formatCallTimelineValue(readSessionMetadataValue(sessionMetadata, "providerAnsweredAt"));
-  const providerEndedAt = formatCallTimelineValue(readSessionMetadataValue(sessionMetadata, "providerEndedAt"));
-  const providerDurationSeconds = Number(
-    readSessionMetadataValue(sessionMetadata, "providerDurationSeconds")
-    ?? call.session?.durationSeconds
-    ?? 0,
-  );
-  const providerDurationLabel = providerDurationSeconds > 0 ? formatDuration(providerDurationSeconds) : null;
-
   const filteredContacts = useMemo(
     () => contacts.filter(c =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -358,21 +332,6 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
             <p className="text-xs text-muted-foreground">PSTN caller identity is best-effort and depends on provider/compliance</p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
-              <Sparkles className="w-3 h-3" /> LiveKit
-            </Badge>
-            {effectiveRouteType && (
-              <Badge variant={effectiveRouteType === "app_to_app" ? "secondary" : "outline"} className="gap-1">
-                <Users className="w-3 h-3" />
-                {effectiveRouteType === "app_to_app" ? "App" : effectiveRouteType === "app_to_pstn" ? "PSTN" : "Conference"}
-              </Badge>
-            )}
-            {effectiveProvider && (
-              <Badge variant="outline" className="gap-1">
-                <Signal className="w-3 h-3" />
-                {effectiveProvider}
-              </Badge>
-            )}
             {isActive && (
               <Badge className="gap-1">
                 <Signal className={`w-3 h-3 ${qualityColor[call.connectionQuality]}`} />
@@ -403,18 +362,10 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                 <div>
                   <p className="text-sm font-medium">{currentCallStatusLabel}</p>
                   <p className="text-xs opacity-80">
-                    {isInCall ? `Target: ${currentTargetLabel}` : "Pick an app contact for app-to-app, or use voice for PSTN/mobile numbers."}
+                    {isInCall ? `Calling: ${currentTargetLabel}` : "Pick a contact, or dial any phone number for voice calling."}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
-                  {effectiveRouteType ? (
-                    <Badge variant={effectiveRouteType === "app_to_app" ? "secondary" : "outline"}>
-                      {effectiveRouteType === "app_to_app" ? "App-to-app" : effectiveRouteType === "app_to_pstn" ? "PSTN/mobile" : "Conference"}
-                    </Badge>
-                  ) : null}
-                  {effectiveProvider ? (
-                    <Badge variant="outline">{effectiveProvider}</Badge>
-                  ) : null}
                   {call.status === "active" ? (
                     <Badge>{call.connectionQuality}</Badge>
                   ) : null}
@@ -666,54 +617,6 @@ export default function C2CCallPage({ defaultMode = "video" }: C2CCallPageProps 
                 </p>
               </CardContent>
             </Card>
-
-            {isPstnRoute && (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Signal className="w-5 h-5" /> PSTN Bridge Diagnostics
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">Provider</p>
-                      <p className="font-medium">{effectiveProvider || "Pending provider sync"}</p>
-                    </div>
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">Bridge status</p>
-                      <p className="font-medium">{call.session?.status || call.status}</p>
-                    </div>
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">PSTN call ID</p>
-                      <p className="font-medium break-all">{call.session?.pstnCallId || "Not issued yet"}</p>
-                    </div>
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">Target number</p>
-                      <p className="font-medium">{call.session?.callee?.phoneNumber || dialNumber || "Unknown number"}</p>
-                    </div>
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">Answered at</p>
-                      <p className="font-medium">{providerAnsweredAt || "Waiting for provider answer"}</p>
-                    </div>
-                    <div className="rounded-lg border border-white/10 bg-muted/20 p-3">
-                      <p className="text-xs text-muted-foreground">Ended at</p>
-                      <p className="font-medium">{providerEndedAt || "Active or not ended yet"}</p>
-                    </div>
-                  </div>
-                  {(providerAnsweredAt || providerEndedAt || providerDurationLabel) && (
-                    <div className="flex flex-wrap gap-2">
-                      {providerAnsweredAt ? <Badge variant="secondary">Answered: {providerAnsweredAt}</Badge> : null}
-                      {providerEndedAt ? <Badge variant="outline">Ended: {providerEndedAt}</Badge> : null}
-                      {providerDurationLabel ? <Badge variant="outline">Duration: {providerDurationLabel}</Badge> : null}
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">
-                    PSTN/mobile calls are voice-only. Caller ID display and answer timing still depend on provider and carrier behavior.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
 
             {pstnRetryGuidance && call.status === "error" && (
               <Card className="border-red-500/30">

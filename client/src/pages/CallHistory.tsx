@@ -148,12 +148,6 @@ export default function CallHistory() {
   };
   const getCaller = (call?: Call) => call?.session?.caller?.phoneNumber || call?.callerNumber || "-";
   const getReceiver = (call?: Call) => call?.session?.callee?.phoneNumber || call?.receiverNumber || "-";
-  const getRouteLabel = (call?: Call) =>
-    call?.session?.routeType === "app_to_app"
-      ? "App-to-app"
-      : call?.session?.routeType === "app_to_pstn"
-        ? "PSTN/mobile"
-        : "Call";
   const getRedialIdentifier = (call?: Call) => {
     if (!call) return "";
     if (call.session?.routeType === "app_to_app") {
@@ -321,15 +315,6 @@ export default function CallHistory() {
                   </div>
                 </div>
 
-                <div className="text-xs text-muted-foreground">
-                  Route: <span className="font-medium">{getRouteLabel(details.call)}</span>
-                </div>
-                {details.call?.session?.provider ? (
-                  <div className="text-xs text-muted-foreground">
-                    Provider: <span className="font-medium">{details.call.session.provider}</span>
-                  </div>
-                ) : null}
-
                 {getRedialIdentifier(details.call) ? (
                   <div className="space-y-2">
                     <div className="flex gap-2">
@@ -349,12 +334,12 @@ export default function CallHistory() {
                         data-testid="button-redial-video"
                       >
                         <Phone className="w-4 h-4 mr-2" />
-                        {details.call?.session?.routeType === "app_to_pstn" ? "PSTN voice only" : "Try Video"}
+                        {details.call?.session?.routeType === "app_to_pstn" ? "Voice only" : "Try Video"}
                       </Button>
                     </div>
                     {details.call?.session?.routeType === "app_to_pstn" ? (
                       <p className="text-xs text-muted-foreground">
-                        This call used the PSTN/mobile bridge. Video redial is available only for app-to-app contacts.
+                        Video needs both people on NeuraTalk.
                       </p>
                     ) : null}
                   </div>

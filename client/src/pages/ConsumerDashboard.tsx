@@ -85,7 +85,6 @@ export default function ConsumerDashboard() {
   }, [contacts, search]);
 
   const favorites = useMemo(() => contacts.filter(c => c.isFavorite).slice(0, 6), [contacts]);
-  const contactRouteLabel = (hasApp?: boolean) => (hasApp ? "App" : "PSTN");
 
   const preferredCallIdentifier = (identifier: string) => {
     const linkedContact = contacts.find((contact) => contact.identifier === identifier);
@@ -118,12 +117,6 @@ export default function ConsumerDashboard() {
 
   const recentTranslationEnabled = (call: RecentCall) =>
     call.session?.translationEnabled ?? call.translationEnabled;
-  const recentRouteLabel = (call: RecentCall) =>
-    call.session?.routeType === "app_to_app"
-      ? "App"
-      : call.session?.routeType === "app_to_pstn"
-        ? "PSTN"
-        : "Call";
 
   const recentDurationMinutes = (call: RecentCall) => {
     const durationSeconds = call.session?.durationSeconds ?? call.durationSec;
@@ -131,27 +124,27 @@ export default function ConsumerDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div className="min-h-screen mesh-bg">
       <AppNavigation />
 
       <div className="container mx-auto p-4 max-w-6xl pt-24 pb-12 space-y-6">
         {/* Greeting + balance strip */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="md:col-span-2">
+          <Card className="md:col-span-2 glass-card">
             <CardContent className="pt-6">
-              <p className="text-sm text-gray-500">Welcome back</p>
-              <h1 className="text-3xl font-bold">
+              <p className="text-sm text-muted-foreground">Welcome back</p>
+              <h1 className="text-3xl font-bold font-display">
                 {user?.username ?? "there"} 👋
               </h1>
-              <p className="text-gray-600 mt-1">
+              <p className="text-muted-foreground mt-1">
                 Ready to talk across any language — make a call in one tap.
               </p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="glass-card">
             <CardContent className="pt-6 space-y-2">
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <CreditCard className="w-4 h-4" /> Balance
               </div>
               {balanceLoading ? (
@@ -163,10 +156,10 @@ export default function ConsumerDashboard() {
                 <QueryErrorState error={balanceError} onRetry={() => refetchBalance()} label="your balance" className="p-3" />
               ) : (
                 <>
-                  <div className="text-2xl font-bold">
+                  <div className="text-2xl font-bold text-primary">
                     ₹{(balanceData?.balanceInr ?? 0).toFixed(2)}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-muted-foreground">
                     ~{balanceData?.minutesRemaining ?? 0} min of translated calling
                   </div>
                 </>
@@ -182,10 +175,10 @@ export default function ConsumerDashboard() {
         </div>
 
         {/* Dial pad */}
-        <Card>
+        <Card className="glass-card">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Phone className="w-5 h-5 text-blue-600" /> Quick Dial
+              <Phone className="w-5 h-5 text-primary" /> Quick Dial
             </CardTitle>
             <CardDescription>
               Enter a phone number or NeuraTalk username to call. Translation is automatic if languages differ.
@@ -208,17 +201,17 @@ export default function ConsumerDashboard() {
                 variant="outline"
                 className="gap-2"
                 disabled={dialLooksLikePstn}
-                title={dialLooksLikePstn ? "Video is available only for app-to-app targets" : "Start video call"}
+                title={dialLooksLikePstn ? "Video needs both people on NeuraTalk" : "Start video call"}
               >
                 <Video className="w-4 h-4" /> Video
               </Button>
             </div>
             {dialLooksLikePstn ? (
-              <p className="mt-3 text-xs text-gray-500">
-                This target looks like a mobile/PSTN number. Use voice for the phone bridge. Video is available only app-to-app.
+              <p className="mt-3 text-xs text-muted-foreground">
+                This looks like a regular phone number — voice calling works, video needs them on NeuraTalk too.
               </p>
             ) : null}
-            <div className="flex flex-wrap gap-2 mt-4 text-xs text-gray-500">
+            <div className="flex flex-wrap gap-2 mt-4 text-xs text-muted-foreground">
               <Badge variant="secondary" className="gap-1">
                 <Sparkles className="w-3 h-3" /> AI translation
               </Badge>
@@ -237,10 +230,10 @@ export default function ConsumerDashboard() {
 
         {/* Favorites + Contacts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
+          <Card className="glass-card">
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <CardTitle className="flex items-center gap-2">
-                <Star className="w-5 h-5 text-yellow-500 fill-yellow-400" />
+                <Star className="w-5 h-5 text-secondary fill-secondary" />
                 Favorites
               </CardTitle>
               <Link href="/calls/c2c">
@@ -249,29 +242,26 @@ export default function ConsumerDashboard() {
             </CardHeader>
             <CardContent>
               {favorites.length === 0 ? (
-                <p className="text-sm text-gray-500 py-6 text-center">
+                <p className="text-sm text-muted-foreground py-6 text-center">
                   Tap the star on any contact to pin them here.
                 </p>
               ) : (
                 <div className="space-y-2">
                   {favorites.map(c => (
-                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg">
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg">
                       <Avatar className="w-10 h-10">
                         <AvatarFallback>{initials(c.name)}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{c.name}</div>
-                        <div className="text-xs text-gray-500 truncate flex items-center gap-2">
-                          <span>{c.identifier}</span>
-                          <Badge variant={c.hasApp ? "secondary" : "outline"} className="h-5 px-2">
-                            {contactRouteLabel(c.hasApp)}
-                          </Badge>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {c.identifier}
                         </div>
                       </div>
                       <Button size="sm" variant="ghost" onClick={() => toggleFavorite(c.id)}>
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-500" />
+                        <Star className="w-4 h-4 fill-secondary text-secondary" />
                       </Button>
-                      <Button size="sm" onClick={() => startCall(c.identifier, "voice")} className="bg-green-500 hover:bg-green-600">
+                      <Button size="sm" onClick={() => startCall(c.identifier, "voice")}>
                         <Phone className="w-4 h-4" />
                       </Button>
                     </div>
@@ -281,14 +271,14 @@ export default function ConsumerDashboard() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="glass-card">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-blue-600" />
+                <Users className="w-5 h-5 text-primary" />
                 Contacts
               </CardTitle>
               <div className="relative mt-2">
-                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
                 <Input
                   className="pl-10"
                   placeholder="Search contacts..."
@@ -299,26 +289,21 @@ export default function ConsumerDashboard() {
             </CardHeader>
             <CardContent>
               {filteredContacts.length === 0 ? (
-                <p className="text-sm text-gray-500 py-6 text-center">
+                <p className="text-sm text-muted-foreground py-6 text-center">
                   No contacts yet — add your first from the calling page.
                 </p>
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {filteredContacts.map(c => (
-                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg">
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg">
                       <Avatar className="w-9 h-9">
                         <AvatarFallback>{initials(c.name)}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{c.name}</div>
-                        <div className="text-xs text-gray-500 truncate">
+                        <div className="text-xs text-muted-foreground truncate">
                           {c.language?.toUpperCase() ?? "EN"} · {c.identifier}
                         </div>
-                      </div>
-                      <div className="shrink-0">
-                        <Badge variant={c.hasApp ? "secondary" : "outline"} className="h-5 px-2">
-                          {contactRouteLabel(c.hasApp)}
-                        </Badge>
                       </div>
                       <Button size="sm" variant="outline" onClick={() => startCall(c.identifier, "voice")}>
                         <Phone className="w-4 h-4" />
@@ -327,7 +312,7 @@ export default function ConsumerDashboard() {
                         size="sm"
                         variant="outline"
                         disabled={c.hasApp === false}
-                        title={c.hasApp === false ? "Video is available only for app-to-app contacts" : "Start video call"}
+                        title={c.hasApp === false ? "Video needs both people on NeuraTalk" : "Start video call"}
                         onClick={() => startCall(c.identifier, "video")}
                       >
                         <Video className="w-4 h-4" />
@@ -341,10 +326,10 @@ export default function ConsumerDashboard() {
         </div>
 
         {/* Recent calls */}
-        <Card>
+        <Card className="glass-card">
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <CardTitle className="flex items-center gap-2">
-              <History className="w-5 h-5 text-purple-600" /> Recent calls
+              <History className="w-5 h-5 text-secondary" /> Recent calls
             </CardTitle>
             <Link href="/call-history">
               <Button variant="ghost" size="sm">Full history</Button>
@@ -360,11 +345,11 @@ export default function ConsumerDashboard() {
             ) : recentIsError ? (
               <QueryErrorState error={recentError} onRetry={() => refetchRecent()} label="your recent calls" />
             ) : !recentData?.calls || recentData.calls.length === 0 ? (
-              <p className="text-sm text-gray-500 py-6 text-center">
+              <p className="text-sm text-muted-foreground py-6 text-center">
                 Your recent calls will appear here.
               </p>
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-border">
                 {recentData.calls.map(call => (
                   <div key={call.id} className="flex items-center gap-3 py-3">
                     <Avatar className="w-9 h-9">
@@ -372,18 +357,15 @@ export default function ConsumerDashboard() {
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{recentPeerName(call)}</div>
-                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                      <div className="text-xs text-muted-foreground flex items-center gap-2">
                         <Clock className="w-3 h-3" />
                         {new Date(call.startedAt).toLocaleString()}
                         {recentDurationMinutes(call) != null && <span>· {recentDurationMinutes(call)}m</span>}
-                        {recentTranslationEnabled(call) && <Sparkles className="w-3 h-3 text-purple-500" />}
+                        {recentTranslationEnabled(call) && <Sparkles className="w-3 h-3 text-secondary" />}
                       </div>
                     </div>
                     <Badge variant={call.direction === "inbound" ? "secondary" : "outline"} className="text-xs">
                       {call.direction}
-                    </Badge>
-                    <Badge variant={call.session?.routeType === "app_to_app" ? "secondary" : "outline"} className="text-xs">
-                      {recentRouteLabel(call)}
                     </Badge>
                     <Button size="sm" variant="ghost" onClick={() => startCall(recentPeerIdentifier(call), "voice")}>
                       <Phone className="w-4 h-4" />

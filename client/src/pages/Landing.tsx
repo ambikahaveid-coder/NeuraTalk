@@ -402,13 +402,14 @@ export default function Landing() {
           </motion.p>
         </div>
 
-        <motion.div 
+        <motion.div
           className="glass-card p-8 rounded-[2rem] relative z-10 overflow-hidden"
           layout
         >
           <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
             <Volume2 className="w-24 h-24 text-primary" />
           </div>
+          <SignupProgress step={step} accountType={accountType} />
           <AnimatePresence mode="wait">
             {step === "choose" && (
               <ChooseAccountType 
@@ -432,14 +433,16 @@ export default function Landing() {
                   onContinue={handleRequestOtp}
                   firebaseEnabled={firebaseEnabled}
                 />
-                <div className="mt-4 text-center">
-                  <button
-                    onClick={() => setStep("forgot-password")}
-                    className="text-xs text-muted-foreground hover:text-primary transition-colors"
-                  >
-                    Forgot password? Reset via OTP
-                  </button>
-                </div>
+                {accountType === "business" && (
+                  <div className="mt-4 text-center">
+                    <button
+                      onClick={() => setStep("forgot-password")}
+                      className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      Forgot password? Reset via OTP
+                    </button>
+                  </div>
+                )}
               </>
             )}
 
@@ -668,6 +671,31 @@ function ChooseAccountType({
   );
 }
 
+function SignupProgress({ step, accountType }: { step: Step; accountType: AccountType }) {
+  const steps: Step[] = accountType === "business"
+    ? ["choose", "identifier", "otp", "company-details"]
+    : ["choose", "identifier", "otp"];
+  const currentIndex = steps.indexOf(step);
+  if (currentIndex === -1) return null;
+
+  return (
+    <div className="relative z-10 flex items-center justify-center gap-2 mb-6" data-testid="signup-progress">
+      {steps.map((_, i) => (
+        <div
+          key={i}
+          className={`h-1.5 rounded-full transition-all ${
+            i === currentIndex
+              ? "w-8 bg-primary"
+              : i < currentIndex
+                ? "w-4 bg-primary/50"
+                : "w-4 bg-white/10"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
 function IdentifierStep({
   channel,
   setChannel,
@@ -691,6 +719,9 @@ function IdentifierStep({
   onContinue: () => void;
   firebaseEnabled?: boolean;
 }) {
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.trim());
+  const canContinue = channel === "mobile" ? !!identifier : emailLooksValid;
+
   return (
     <motion.div
       key="identifier"
@@ -778,17 +809,21 @@ function IdentifierStep({
         <p className="text-xs text-center text-muted-foreground text-destructive">
           Phone login requires Firebase configuration. Please use email login.
         </p>
+      ) : identifier && !emailLooksValid ? (
+        <p className="text-xs text-center text-destructive">
+          Enter a valid email address.
+        </p>
       ) : (
         <p className="text-xs text-center text-muted-foreground">
           OTP will be sent to your email.
         </p>
       )}
 
-      <Button 
-        onClick={onContinue} 
-        className="w-full" 
+      <Button
+        onClick={onContinue}
+        className="w-full"
         size="lg"
-        disabled={!identifier || isLoading}
+        disabled={!canContinue || isLoading}
         data-testid="button-send-otp"
       >
         {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Send Code <ArrowRight className="w-4 h-4 ml-2" /></>}
