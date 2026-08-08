@@ -124,6 +124,31 @@ The system delivers 100% human-feeling interactions with:
 - GPT for translation
 - Custom emotion engine
 
+## Project Structure
+
+```
+client/           React + TypeScript web app (Vite)
+server/           Express/Fastify backend — routes, business logic, integrations
+shared/           Zod schemas & types shared between client and server
+flutter_app/      The live NeuraTalk mobile app (Android/iOS) — this is what ships
+mobile/           Legacy/experimental mobile assets — not the shipping app
+script/           Production build entrypoint (used by `npm run build`) — singular
+scripts/          Ops/dev tooling: DB backups, env audits, etc. — plural, unrelated to script/
+sdks/             Client SDKs published for third-party/enterprise integrators
+examples/         Sample integrations demonstrating SDK usage
+infra/            Infrastructure-as-code / deployment configuration references
+migrations/        Drizzle-generated SQL migration files
+docs/             All project documentation, sorted by topic:
+                    architecture/  deployment/  security/  testing/  operations/
+                    release/  business/  roadmap/  audit/  repository/  api/  archive/
+tests/            Vitest unit/integration tests + Playwright e2e specs
+attached_assets/  Static assets imported via the `@assets` Vite alias — referenced by client code, not clutter
+```
+
+**Naming gotchas worth knowing up front:**
+- `script/` (singular) and `scripts/` (plural) are unrelated on purpose — see above. Renaming either breaks `npm run build` or `npm run env:audit`.
+- `flutter_app/` is the real, shipping mobile app. `mobile/` is not — check before editing mobile code.
+
 ## User Roles
 
 | Role | Access Level |

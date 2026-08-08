@@ -365,6 +365,12 @@ function respondWithInitiateError(res: Response, error: unknown) {
     });
   }
 
+  if (message.includes("FRAUD_CHECK_BLOCKED")) {
+    return res.status(403).json({
+      message: "This call was blocked by automated fraud protection. Contact support if this was a legitimate call.",
+    });
+  }
+
   if (message.includes("MSG91 outbound call failed: 401")) {
     return res.status(503).json({
       message: "PSTN bridge authentication failed. Check MSG91 credentials before calling mobile numbers.",
@@ -569,6 +575,79 @@ export async function holdCall(req: Request, res: Response) {
 
 export async function resumeCall(req: Request, res: Response) {
   return setHold(req, res, false);
+}
+
+export async function startCallRecording(req: Request, res: Response) {
+  try {
+    const user = req.user!;
+    const callId = req.params.callId;
+    const call = await svc.getSmartCall(callId);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
+
+    const { startRecording } = await import("../../recording-service");
+    const result = await startRecording({
+      callId,
+      requestedByUserId: user.id,
+      organizationId: call.callerOrganizationId ?? call.calleeOrganizationId ?? null,
+    });
+
+    if (!result.success) {
+      const status = result.reason === "CONSENT_REQUIRED" ? 403
+        : result.reason === "CALL_NOT_FOUND" ? 404
+        : result.reason === "STORAGE_NOT_CONFIGURED" || result.reason === "LIVEKIT_NOT_CONFIGURED" ? 503
+        : 500;
+      return res.status(status).json({ error: result.reason });
+    }
+
+    res.json({ success: true, recordingId: result.recordingId, egressId: result.egressId });
+  } catch (error) {
+    logger.error("CallController", "startCallRecording failed", error as Error);
+    res.status(500).json({ error: "Failed to start recording" });
+  }
+}
+
+export async function stopCallRecording(req: Request, res: Response) {
+  try {
+    const user = req.user!;
+    const callId = req.params.callId;
+    const call = await svc.getSmartCall(callId);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
+
+    const { stopRecording } = await import("../../recording-service");
+    const stopped = await stopRecording(callId);
+    res.json({ success: stopped });
+  } catch (error) {
+    logger.error("CallController", "stopCallRecording failed", error as Error);
+    res.status(500).json({ error: "Failed to stop recording" });
+  }
+}
+
+export async function getCallRecording(req: Request, res: Response) {
+  try {
+    const user = req.user!;
+    const callId = req.params.callId;
+    const call = await svc.getSmartCall(callId);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
+
+    const { getRecordingForCall, getRecordingDownloadUrl } = await import("../../recording-service");
+    const recording = await getRecordingForCall(callId);
+    if (!recording) return res.status(404).json({ error: "No recording for this call" });
+
+    const downloadUrl = await getRecordingDownloadUrl(recording);
+    res.json({
+      status: recording.status,
+      durationSeconds: recording.durationSeconds,
+      downloadUrl,
+      startedAt: recording.startedAt,
+      completedAt: recording.completedAt,
+    });
+  } catch (error) {
+    logger.error("CallController", "getCallRecording failed", error as Error);
+    res.status(500).json({ error: "Failed to get recording" });
+  }
 }
 
 const connectCallSchema = z.object({
@@ -961,6 +1040,24 @@ export async function livekitWebhook(req: Request, res: Response) {
         });
       } else if (event.event === "participant_left" && event.participant?.identity === TRANSLATOR_BOT_IDENTITY) {
         logger.warn("LiveKitWebhook", `translator bot participant left mid-call: ${callId}`);
+      }
+    }
+
+    if (event.event === "egress_ended" && event.egressInfo) {
+      const { handleEgressEndedWebhook } = await import("../../recording-service");
+      const updated = await handleEgressEndedWebhook(event.egressInfo).catch((error) => {
+        logger.warn("LiveKitWebhook", `handleEgressEndedWebhook failed: ${String(error)}`);
+        return null;
+      });
+      if (updated && updated.status === "complete" && updated.organizationId) {
+        const { dispatchEvent } = await import("../webhooks/service");
+        void dispatchEvent(updated.organizationId, "recording.ready", {
+          callId: updated.callId,
+          recordingId: updated.id,
+          durationSeconds: updated.durationSeconds,
+        }).catch((error) => {
+          logger.warn("LiveKitWebhook", `recording.ready dispatch failed: ${String(error)}`);
+        });
       }
     }
 

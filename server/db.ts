@@ -55,7 +55,9 @@ function getPool(): pg.Pool {
 
   // Prevent stale Neon connections from hanging queries indefinitely (causes 504s)
   poolInstance.on("connect", (client) => {
-    void client.query("SET statement_timeout = 20000"); // 20s max per query
+    void client.query("SET statement_timeout = 20000").catch((error) => { // 20s max per query
+      logger.warn("Database", `Failed to set statement_timeout on new connection: ${String(error)}`);
+    });
   });
 
   return poolInstance;

@@ -2979,6 +2979,40 @@ export const insertCallQueueSchema = createInsertSchema(callQueues).omit({ id: t
 export type CallQueue = typeof callQueues.$inferSelect;
 export type InsertCallQueue = z.infer<typeof insertCallQueueSchema>;
 
+// Durable ledger of calls that entered a wait queue (the callQueues row above
+// is just queue *configuration* — this table is the actual live/historical
+// queue entries). Redis holds the live ordering (a sorted set keyed by
+// enqueue time) for fast position/dequeue lookups; this table is the
+// source of truth for reporting and for recovering queue state after a
+// process restart, since Redis is a cache here, not the durable store.
+export const QUEUED_CALL_STATUS = {
+  WAITING: "waiting",
+  ASSIGNED: "assigned",
+  ABANDONED: "abandoned",
+  TIMED_OUT: "timed_out",
+} as const;
+
+export const queuedCalls = pgTable("queued_calls", {
+  id: serial("id").primaryKey(),
+  queueId: integer("queue_id").notNull().references(() => callQueues.id, { onDelete: "cascade" }),
+  callId: text("call_id").notNull(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  requiredSkills: jsonb("required_skills").notNull().default([]), // string[]
+  status: text("status").notNull().default("waiting"),
+  assignedAgentUserId: integer("assigned_agent_user_id").references(() => users.id),
+  enqueuedAt: timestamp("enqueued_at").defaultNow(),
+  dequeuedAt: timestamp("dequeued_at"),
+  waitSeconds: integer("wait_seconds"), // populated once the entry leaves the waiting state
+}, (t) => [
+  index("queued_calls_queue_idx").on(t.queueId),
+  index("queued_calls_status_idx").on(t.status),
+  uniqueIndex("queued_calls_call_idx").on(t.callId),
+]);
+
+export const insertQueuedCallSchema = createInsertSchema(queuedCalls).omit({ id: true, enqueuedAt: true });
+export type QueuedCall = typeof queuedCalls.$inferSelect;
+export type InsertQueuedCall = z.infer<typeof insertQueuedCallSchema>;
+
 // ═══════════════════════════════════════════════════════════════════════
 // AGENT PRESENCE — Real-time agent status tracking
 // ═══════════════════════════════════════════════════════════════════════
@@ -3090,3 +3124,133 @@ export const costCenters = pgTable("cost_centers", {
 export const insertCostCenterSchema = createInsertSchema(costCenters).omit({ id: true, createdAt: true, updatedAt: true });
 export type CostCenter = typeof costCenters.$inferSelect;
 export type InsertCostCenter = z.infer<typeof insertCostCenterSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// OUTBOUND WEBHOOKS — per-org event subscriptions + delivery ledger
+// ═══════════════════════════════════════════════════════════════════════
+
+export const WEBHOOK_EVENT_TYPES = [
+  "call.initiated",
+  "call.connected",
+  "call.ended",
+  "call.failed",
+  "translation.started",
+  "translation.completed",
+  "recording.ready",
+] as const;
+
+export const webhookEndpoints = pgTable("webhook_endpoints", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  // HMAC-SHA256 signing secret for this endpoint — generated server-side on
+  // creation, shown to the org admin once, never returned by GET (same
+  // pattern as an API key). Verification helper ships in each SDK's
+  // webhooks.ts, mirroring how inbound MSG91/Razorpay webhooks are verified.
+  secret: text("secret").notNull(),
+  subscribedEvents: jsonb("subscribed_events").notNull().default([]), // string[] of WEBHOOK_EVENT_TYPES
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("webhook_endpoints_org_idx").on(t.organizationId),
+]);
+
+export const insertWebhookEndpointSchema = createInsertSchema(webhookEndpoints).omit({ id: true, createdAt: true, updatedAt: true });
+export type WebhookEndpoint = typeof webhookEndpoints.$inferSelect;
+export type InsertWebhookEndpoint = z.infer<typeof insertWebhookEndpointSchema>;
+
+export const WEBHOOK_DELIVERY_STATUS = {
+  PENDING: "pending",
+  DELIVERED: "delivered",
+  FAILED: "failed",
+  EXHAUSTED: "exhausted", // all retries used, giving up
+} as const;
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: serial("id").primaryKey(),
+  webhookEndpointId: integer("webhook_endpoint_id").notNull().references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: timestamp("last_attempt_at"),
+  nextRetryAt: timestamp("next_retry_at"),
+  lastResponseCode: integer("last_response_code"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+  deliveredAt: timestamp("delivered_at"),
+}, (t) => [
+  index("webhook_deliveries_endpoint_idx").on(t.webhookEndpointId),
+  index("webhook_deliveries_status_idx").on(t.status),
+  index("webhook_deliveries_next_retry_idx").on(t.nextRetryAt),
+]);
+
+export const insertWebhookDeliverySchema = createInsertSchema(webhookDeliveries).omit({ id: true, createdAt: true });
+export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
+export type InsertWebhookDelivery = z.infer<typeof insertWebhookDeliverySchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// CALL RECORDINGS — LiveKit Egress-backed audio recording
+// ═══════════════════════════════════════════════════════════════════════
+
+export const RECORDING_STATUS = {
+  STARTING: "starting",
+  ACTIVE: "active",
+  COMPLETE: "complete",
+  FAILED: "failed",
+} as const;
+
+export const callRecordings = pgTable("call_recordings", {
+  id: serial("id").primaryKey(),
+  callId: text("call_id").notNull(), // smart-call id (e.g. "call_<uuid>")
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  // LiveKit Egress's own tracking id — needed to correlate the async
+  // egress-ended webhook back to this row.
+  egressId: text("egress_id"),
+  status: text("status").notNull().default("starting"),
+  storagePath: text("storage_path"), // encrypted object-storage path, same convention as voiceSamples.objectPath
+  durationSeconds: integer("duration_seconds"),
+  requestedBy: integer("requested_by").references(() => users.id),
+  failureReason: text("failure_reason"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("call_recordings_call_idx").on(t.callId),
+  index("call_recordings_org_idx").on(t.organizationId),
+  uniqueIndex("call_recordings_egress_idx").on(t.egressId),
+]);
+
+export const insertCallRecordingSchema = createInsertSchema(callRecordings).omit({ id: true, startedAt: true });
+export type CallRecording = typeof callRecordings.$inferSelect;
+export type InsertCallRecording = z.infer<typeof insertCallRecordingSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// FRAUD / TOLL-FRAUD DETECTION — call-attempt ledger for velocity checks
+// ═══════════════════════════════════════════════════════════════════════
+
+export const FRAUD_FLAG_REASON = {
+  VELOCITY: "velocity",           // too many call attempts in a short window
+  PREMIUM_DESTINATION: "premium_destination", // dialing a known premium-rate prefix
+  NEW_DESTINATION_SPIKE: "new_destination_spike", // sudden burst of distinct new numbers
+} as const;
+
+export const fraudFlags = pgTable("fraud_flags", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  calleeNumber: text("callee_number"),
+  detail: jsonb("detail").default({}),
+  actionTaken: text("action_taken").notNull().default("blocked"), // blocked | flagged_only
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("fraud_flags_org_idx").on(t.organizationId),
+  index("fraud_flags_user_idx").on(t.userId),
+  index("fraud_flags_created_idx").on(t.createdAt),
+]);
+
+export const insertFraudFlagSchema = createInsertSchema(fraudFlags).omit({ id: true, createdAt: true });
+export type FraudFlag = typeof fraudFlags.$inferSelect;
+export type InsertFraudFlag = z.infer<typeof insertFraudFlagSchema>;

@@ -41,11 +41,17 @@ async function runDataRetentionCleanupTraced() {
  * In a real production environment, this would be a separate K8s CronJob or similar.
  */
 export function startCleanupScheduler() {
+  const safeRun = () => {
+    void runDataRetentionCleanup().catch((error) => {
+      logger.warn("Cleanup", `Retention sweep tick skipped: ${String(error)}`);
+    });
+  };
+
   // Run once on startup
-  runDataRetentionCleanup();
+  safeRun();
 
   // Schedule to run every 24 hours
-  setInterval(runDataRetentionCleanup, 24 * 60 * 60 * 1000);
-  
+  setInterval(safeRun, 24 * 60 * 60 * 1000);
+
   logger.info("System", "Data retention scheduler initialized (24h interval)");
 }

@@ -37,6 +37,7 @@ function respondWithError(res: Response, error: unknown, fallback = "Request fai
   if (code === "CALLEE_PHONE_REQUIRED_FOR_PSTN") return res.status(400).json({ error: "Callee phone number is required for PSTN fallback" });
   if (code === "MASKED_NUMBER_REQUIRED") return res.status(500).json({ error: "No masked number available for PSTN fallback" });
   if (code === "PSTN_FALLBACK_DISABLED") return res.status(403).json({ error: "PSTN fallback is disabled for this API key" });
+  if (code.startsWith("FRAUD_CHECK_BLOCKED")) return res.status(403).json({ error: "This call was blocked by automated fraud protection" });
 
   console.error("[JagoIntegration]", fallback, error);
   return res.status(500).json({ error: fallback });

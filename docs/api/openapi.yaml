@@ -1,0 +1,591 @@
+openapi: 3.0.3
+info:
+  title: NeuraTalk API
+  version: "1.0.0"
+  description: >
+    Public REST API for NeuraTalk — real-time translated voice/video calling,
+    transcripts, and webhook signature verification.
+
+
+    Authentication uses an opaque Bearer session token (`sess_<64 hex chars>`),
+    not a JWT — it cannot be decoded locally and must be sent to the server on
+    every request. Sessions are valid for 24 hours from issuance and are
+    automatically extended by 24 hours on every authenticated request
+    (sliding expiration). There is no separate refresh-token endpoint.
+
+
+    There is currently no URL or header-based API versioning on the server
+    (all routes are flat `/api/...`). This spec is versioned at the package
+    level (SDK releases), not the URL level — a future breaking server change
+    would require a new spec/SDK major version, not a new URL prefix.
+  contact:
+    name: NeuraTalk Developer Platform
+  license:
+    name: Proprietary
+    url: https://neuratalk.in/legal/terms
+externalDocs:
+  description: SDK source and examples
+  url: https://github.com/neuratalk/neuratalk (placeholder — update once public)
+
+servers:
+  - url: https://neuratalk.in
+    description: Production
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: Calls
+  - name: Transcripts
+
+paths:
+  /api/auth/register:
+    post:
+      operationId: registerUser
+      tags: [Auth]
+      summary: Register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                email: { type: string, format: email }
+                phone: { type: string }
+                role: { type: string, enum: [consumer, business] }
+                organizationName: { type: string }
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSuccess" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/auth/login:
+    post:
+      operationId: loginUser
+      tags: [Auth]
+      summary: Log in with username/password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthSuccess" }
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/auth/otp/request:
+    post:
+      operationId: requestOtp
+      tags: [Auth]
+      summary: Request an OTP code (email or mobile)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, channel]
+              properties:
+                identifier: { type: string, description: "Email address or E.164 phone number" }
+                channel: { type: string, enum: [email, mobile] }
+      responses:
+        "200":
+          description: OTP sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OtpRequestResult" }
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/auth/otp/verify:
+    post:
+      operationId: verifyOtp
+      tags: [Auth]
+      summary: Verify an OTP code and obtain a session token (auto-registers new users)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, channel, code]
+              properties:
+                identifier: { type: string }
+                channel: { type: string, enum: [email, mobile] }
+                code: { type: string, minLength: 6, maxLength: 6 }
+                firebaseToken: { type: string, description: "Optional Firebase ID token for mobile SMS auto-verification" }
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OtpVerifyResult" }
+        "400":
+          description: Invalid or expired code
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [Auth]
+      summary: Get the current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [Auth]
+      summary: Revoke the current session token
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthError" }
+
+  /api/calls/create:
+    post:
+      operationId: createCall
+      tags: [Calls]
+      summary: Start a real-time translated call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [calleeIdentifier, callType]
+              properties:
+                calleeIdentifier: { type: string, description: "Phone number or app user identifier" }
+                callType: { type: string, enum: [voice, video] }
+                myLanguage: { type: string, default: auto }
+                theirLanguage: { type: string, default: auto }
+                translationEnabled: { type: boolean }
+                translationMode: { type: string }
+      responses:
+        "200":
+          description: Call created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallSession" }
+        "402":
+          description: Insufficient balance / subscription required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallsError" }
+        "503":
+          description: Calling infrastructure unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallsError" }
+
+  /api/calls/conference:
+    post:
+      operationId: createConferenceCall
+      tags: [Calls]
+      summary: Start a group/conference call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [participantIds]
+              properties:
+                hostLanguage: { type: string, default: auto }
+                participantIds: { type: array, items: { type: string } }
+                title: { type: string }
+      responses:
+        "200":
+          description: Conference created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallSession" }
+
+  /api/calls/{callId}/connect:
+    post:
+      operationId: connectCall
+      tags: [Calls]
+      summary: Answer/connect an incoming call
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                receiverNumber: { type: string }
+      responses:
+        "200":
+          description: Connected
+        "409":
+          description: Invalid call state transition
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallsError" }
+
+  /api/calls/{callId}/end:
+    post:
+      operationId: endCall
+      tags: [Calls]
+      summary: End an active call
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Ended
+
+  /api/calls/{callId}/hold:
+    post:
+      operationId: holdCall
+      tags: [Calls]
+      summary: Put a call on hold
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: On hold
+    delete:
+      operationId: resumeCall
+      tags: [Calls]
+      summary: Resume a call from hold
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Resumed
+
+  /api/calls/{callId}/reject:
+    post:
+      operationId: rejectCall
+      tags: [Calls]
+      summary: Reject an incoming call
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Rejected
+
+  /api/calls/incoming:
+    get:
+      operationId: getIncomingCall
+      tags: [Calls]
+      summary: Poll for a queued incoming call
+      description: >
+        Returns at most one queued incoming call, or null. Intended to be
+        polled every few seconds by clients without push-notification
+        support. Prefer /api/calls/incoming/stream (SSE) where available.
+      responses:
+        "200":
+          description: Incoming call (or none)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incoming:
+                    type: object
+                    nullable: true
+                    allOf:
+                      - { $ref: "#/components/schemas/CallSession" }
+
+  /api/calls/history:
+    get:
+      operationId: listCallHistory
+      tags: [Calls]
+      summary: List past calls for the current user
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        "200":
+          description: Call history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  calls:
+                    type: array
+                    items: { $ref: "#/components/schemas/CallHistoryEntry" }
+
+  /api/calls/{callId}:
+    get:
+      operationId: getCall
+      tags: [Calls]
+      summary: Get a single call by id
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Call
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallHistoryEntry" }
+        "404":
+          description: Call not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CallsError" }
+
+  /api/transcripts/search:
+    get:
+      operationId: searchTranscripts
+      tags: [Transcripts]
+      summary: Full-text search across your call transcripts
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptSearchPage" }
+        "400":
+          description: Query too short
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptsError" }
+
+  /api/transcripts/{callId}:
+    get:
+      operationId: getTranscript
+      tags: [Transcripts]
+      summary: Get the full transcript for a call
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Transcript segments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  callId: { type: string }
+                  segments:
+                    type: array
+                    items: { $ref: "#/components/schemas/TranscriptSegment" }
+        "403":
+          description: Not a participant on this call
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptsError" }
+    delete:
+      operationId: deleteTranscript
+      tags: [Transcripts]
+      summary: Delete the transcript for a call
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  deletedCount: { type: integer }
+        "403":
+          description: Not a participant on this call
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptsError" }
+
+  /api/transcripts/{callId}/export/{format}:
+    get:
+      operationId: exportTranscript
+      tags: [Transcripts]
+      summary: Export a call transcript as TXT, PDF, or DOCX
+      parameters:
+        - $ref: "#/components/parameters/CallId"
+        - name: format
+          in: path
+          required: true
+          schema: { type: string, enum: [txt, pdf, docx] }
+      responses:
+        "200":
+          description: File download
+          content:
+            text/plain: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema: { type: string, format: binary }
+        "400":
+          description: Unsupported format
+        "404":
+          description: No transcript found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "sess_<64 hex chars> (opaque session token, not a JWT)"
+
+  parameters:
+    CallId:
+      name: callId
+      in: path
+      required: true
+      schema: { type: string }
+      description: Numeric bridged-call id or smart-call string id (call_<uuid>)
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        email: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        role: { type: string, enum: [consumer, company_admin, agent, super_admin, investor] }
+        organizationId: { type: integer, nullable: true }
+
+    AuthSuccess:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        role: { type: string }
+        token: { type: string, description: "Bearer session token — sess_<64 hex chars>" }
+        organization: { type: object, nullable: true }
+
+    OtpRequestResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+
+    OtpVerifyResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        userId: { type: integer }
+        message: { type: string }
+        token: { type: string }
+        user: { $ref: "#/components/schemas/User" }
+
+    AuthError:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+
+    CallsError:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string, nullable: true }
+        details: { type: object, nullable: true }
+
+    TranscriptsError:
+      type: object
+      properties:
+        error: { type: string }
+
+    CallSession:
+      type: object
+      properties:
+        callId: { type: string }
+        joinMethod: { type: string }
+        livekitUrl: { type: string }
+        livekitToken: { type: string }
+        estimatedRateInrPerMin: { type: number, nullable: true }
+        languageDetectionActive: { type: boolean }
+
+    CallHistoryEntry:
+      type: object
+      properties:
+        callId: { type: string }
+        callType: { type: string, enum: [voice, video] }
+        status: { type: string }
+        callerId: { type: string, nullable: true }
+        calleeIdentifier: { type: string, nullable: true }
+        callerLanguage: { type: string, nullable: true }
+        calleeLanguage: { type: string, nullable: true }
+        durationSeconds: { type: integer, nullable: true }
+        costInr: { type: number, nullable: true }
+        createdAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time, nullable: true }
+
+    TranscriptSegment:
+      type: object
+      properties:
+        id: { type: integer }
+        smartCallId: { type: string, nullable: true }
+        callId: { type: integer, nullable: true }
+        speakerIdentity: { type: string, nullable: true }
+        targetIdentity: { type: string, nullable: true }
+        originalText: { type: string }
+        originalLanguage: { type: string, nullable: true }
+        translatedText: { type: string }
+        translatedLanguage: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time, nullable: true }
+
+    TranscriptSearchPage:
+      type: object
+      properties:
+        query: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptSegment" }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }

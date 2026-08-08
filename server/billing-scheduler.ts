@@ -196,11 +196,17 @@ export async function getGracePeriodStatus(organizationId: number): Promise<{
 }
 
 export function startBillingScheduler(): void {
+  const safeRun = () => {
+    void runBillingLifecycleCheck().catch((error) => {
+      logger.warn("BillingScheduler", `Lifecycle check tick skipped: ${String(error)}`);
+    });
+  };
+
   // Run once at startup (with a short delay to let DB stabilize)
-  setTimeout(() => { void runBillingLifecycleCheck(); }, 30_000);
+  setTimeout(safeRun, 30_000);
 
   // Then every 6 hours
-  setInterval(() => { void runBillingLifecycleCheck(); }, 6 * 60 * 60 * 1000);
+  setInterval(safeRun, 6 * 60 * 60 * 1000);
 
   logger.info("BillingScheduler", "Billing lifecycle scheduler initialized (6h interval, 30s startup delay)");
 }

@@ -43,7 +43,18 @@ export const api = {
       method: 'POST' as const,
       path: '/api/auth/register',
       input: insertUserSchema.extend({
-        role: z.enum(["admin", "business", "consumer", "investor"]).optional(),
+        // Only self-service roles are accepted here. "admin" and "investor"
+        // accounts are created through their own authenticated/invite-only
+        // endpoints (server/investor-routes.ts, admin secret-login) — this
+        // is a public, unauthenticated endpoint, so it must never let a
+        // caller assign itself a privileged role via a request body field.
+        role: z.enum(["business", "consumer"]).optional(),
+        password: z
+          .string()
+          .min(8, "Password must be at least 8 characters")
+          .regex(/[A-Za-z]/, "Password must contain at least one letter")
+          .regex(/[0-9]/, "Password must contain at least one number")
+          .optional(),
         organizationName: z.string().optional(), // For B2B registration
         tenantSlug: z.string().optional(),
         organizationSlug: z.string().optional(),

@@ -10,9 +10,14 @@
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "qa:smoke": "tsc -p tsconfig.smoke.json && node tests/smoke/prepare-runtime.cjs && node .tmp/smoke/tests/smoke/run.js",
-    "env:audit": "node scripts/env-audit.mjs"
+    "env:audit": "node scripts/env-audit.mjs",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1090.0",
+    "@aws-sdk/s3-request-presigner": "^3.1090.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/websocket": "^11.2.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
@@ -119,6 +124,7 @@
     "zod-validation-error": "^3.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.1.18",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "4.17.21",
@@ -129,15 +135,19 @@
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
+    "@types/supertest": "^7.2.0",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.8",
     "ioredis-mock": "^8.13.1",
     "localtunnel": "^2.0.2",
     "ngrok": "^5.0.0-beta.2",
     "postcss": "^8.4.47",
+    "supertest": "^7.2.2",
     "tsx": "^4.21.0",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "drizzle-kit": {

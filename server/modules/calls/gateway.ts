@@ -199,12 +199,16 @@ async function checkProviderHeartbeat(providerId: string): Promise<boolean> {
   }
 }
 
-setInterval(async () => {
-  for (const provider of providerRegistry) {
-    const start = Date.now();
-    provider.isHealthy = await checkProviderHeartbeat(provider.id);
-    provider.latency = Date.now() - start;
-  }
+setInterval(() => {
+  void (async () => {
+    for (const provider of providerRegistry) {
+      const start = Date.now();
+      provider.isHealthy = await checkProviderHeartbeat(provider.id);
+      provider.latency = Date.now() - start;
+    }
+  })().catch((error) => {
+    console.error("[Gateway] Provider heartbeat sweep skipped:", error);
+  });
 }, 7000);
 
 /**

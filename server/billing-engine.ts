@@ -1124,12 +1124,20 @@ export class BillingEngine {
 
     billingSupervisorStarted = true;
     setInterval(() => {
-      void this.processActiveRuntimeSessions();
+      void this.processActiveRuntimeSessions().catch((error) => {
+        logger.warn("BillingEngine", `Runtime supervisor tick skipped: ${String(error)}`);
+      });
     }, 1_000).unref?.();
   }
 
   private static async processActiveRuntimeSessions() {
-    const sessionIds = await listActiveRuntimeSessionIds();
+    let sessionIds: string[];
+    try {
+      sessionIds = await listActiveRuntimeSessionIds();
+    } catch (error) {
+      logger.warn("BillingEngine", `Skipping runtime sweep tick — Redis unavailable: ${String(error)}`);
+      return;
+    }
     await Promise.all(sessionIds.map(async (sessionId) => {
       try {
         await this.advanceRuntimeSession(sessionId);

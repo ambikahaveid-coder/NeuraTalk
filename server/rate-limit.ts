@@ -173,6 +173,18 @@ export const paymentRefundLimiter = rateLimit({
   message: "Too many refund requests. Please wait before retrying.",
 });
 
+// A prior audit found /api/queues/:queueId/join had no rate limit despite
+// creating a real, billed LiveKit room per call (via initiateConference)
+// before enqueueing — an authenticated user hitting this in a tight loop
+// could cheaply spin up unlimited billed rooms. Flagged as inconsistent
+// with this same feature set's own PSTN velocity-check intent.
+export const queueJoinLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  keyFn: (req) => `queue-join:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "Too many queue-join attempts. Please wait before retrying.",
+});
+
 const OTP_FAIL_MAX = 5;
 const OTP_FAIL_WINDOW_SEC = 900;   // 15-minute failure window
 const OTP_LOCKOUT_SEC = 1800;      // 30-minute lockout after OTP_FAIL_MAX failures

@@ -60,6 +60,11 @@ const SERVICE_VARS: Record<string, string> = {
   PLATFORM_SECRET_KEY: "Using SESSION_SECRET for encryption",
   SENTRY_DSN: "Crash monitoring disabled",
   POSTHOG_API_KEY: "Product analytics disabled",
+  RECORDING_S3_BUCKET: "Call recording unavailable — S3-compatible storage not configured",
+  RECORDING_S3_ACCESS_KEY: "Call recording unavailable — S3-compatible storage not configured",
+  RECORDING_S3_SECRET: "Call recording unavailable — S3-compatible storage not configured",
+  RECORDING_S3_REGION: "Call recording unavailable — S3-compatible storage not configured",
+  RECORDING_S3_ENDPOINT: "Call recording will use AWS S3 default endpoint (set this for DigitalOcean Spaces/MinIO/etc.)",
 };
 
 const DEPRECATED_VARS: Record<string, string> = {

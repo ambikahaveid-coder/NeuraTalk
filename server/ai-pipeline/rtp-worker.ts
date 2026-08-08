@@ -6,12 +6,26 @@
  *   - Real-time translation (if caller/callee speak different languages)
  *   - Sentiment tracking per utterance
  *   - Live transcript push via Redis pub/sub → WebSocket to UI
+ *   - Translated-speech injection back into the call leg via FreeSWITCH
+ *     (`uuid_broadcast`) — this is the piece that turns "listen and
+ *     transcribe" into an actual two-way translating bridge for any
+ *     generic SIP trunk (BSNL, Jio, Airtel, etc.), not just Exotel.
  *
  * This replaces the translator-bot pattern (LiveKit bot participant).
  * Audio arrives as raw G.711 PCMU/PCMA RTP packets over UDP.
  *
  * Deployment: runs as a sidecar alongside the Node.js server process,
  * or as a separate worker pod in Kubernetes.
+ *
+ * HONEST STATUS (verify before relying on this for a real launch):
+ *   - Nothing in the codebase calls registerSession() yet — no PSTN/SIP
+ *     inbound handler wires a real call into this worker. This file is a
+ *     ready engine with no caller, not an active call path.
+ *   - It has never run against a real Kamailio+RTPEngine+FreeSWITCH
+ *     deployment (that stack itself isn't deployed anywhere yet either —
+ *     see infra/docker/docker-compose.yml, which is still a blueprint).
+ *   - findSessionBySSRC() is a dev-mode stub (single most-recent session);
+ *     production needs RTPEngine's real SSRC→callId mapping wired in.
  *
  * env:
  *   RTP_WORKER_BIND_HOST — UDP bind address (default: 0.0.0.0)
@@ -21,9 +35,15 @@
 
 import * as dgram from "node:dgram";
 import { EventEmitter } from "node:events";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { logger } from "../observability";
 import { getRedisClient } from "../redis";
 import { getAIPipeline } from "./pipeline";
+import { getMediaGateway } from "../media/gateway";
+import { ultraTTS } from "../ultra-pipeline";
 import type { SupportedLanguage } from "./types";
 
 const BIND_HOST = () => process.env.RTP_WORKER_BIND_HOST || "0.0.0.0";
@@ -39,6 +59,9 @@ export interface RTPWorkerSession {
   fromLanguage: SupportedLanguage;
   toLanguage?: SupportedLanguage;
   direction: "inbound" | "outbound";
+  /** FreeSWITCH channel UUID for this leg — required to inject translated
+   *  audio back into the call. Without it, this session is listen-only. */
+  fssUuid?: string;
 }
 
 interface CallBuffer {
@@ -209,6 +232,10 @@ export class RTPAIWorker extends EventEmitter {
         } catch (err) {
           logger.warn("RTPWorker", `Translation failed: ${err}`);
         }
+
+        if (translation && callBuf.session.fssUuid) {
+          void this.injectTranslatedAudio(callBuf.session.fssUuid, translation, callBuf.session.toLanguage, callBuf.session.callId);
+        }
       }
 
       const event: LiveTranscriptEvent = {
@@ -224,6 +251,61 @@ export class RTPAIWorker extends EventEmitter {
       await this.publishTranscript(event);
     } catch (err) {
       logger.warn("RTPWorker", `AI processing failed for ${callBuf.session.callId}: ${err}`);
+    }
+  }
+
+  /**
+   * Synthesizes `text` and plays it into the FreeSWITCH channel via
+   * `uuid_broadcast`. This is the "talk back into the call" half that
+   * turns transcription-only into an actual translating bridge — needed
+   * for any generic SIP trunk (BSNL, Jio, Airtel), not just Exotel.
+   *
+   * UNVERIFIED: written against esl-client.ts's playback() contract and
+   * ultraTTS()'s raw-PCM output format, but never exercised against a
+   * live FreeSWITCH instance (none is deployed anywhere yet). Confirm the
+   * uuid_broadcast file-path handling and PCM sample rate match once real
+   * infra exists — if FreeSWITCH expects a different format, only this
+   * method needs to change, the rest of the pipeline is unaffected.
+   */
+  private async injectTranslatedAudio(
+    fssUuid: string,
+    text: string,
+    language: string,
+    callId: string,
+  ): Promise<void> {
+    let tempPath: string | null = null;
+    try {
+      const pcm = await ultraTTS(text, language);
+      if (pcm.length === 0) return;
+
+      // ultraTTS's Azure path returns raw 16kHz/16-bit/mono PCM with no
+      // container — FreeSWITCH's uuid_broadcast needs a real file it can
+      // open, so wrap it in a WAV header before writing to disk.
+      const wav = pcmToWav(pcm, 16000, 1, 16);
+      tempPath = join(tmpdir(), `rtp-tts-${callId}-${randomUUID()}.wav`);
+      await writeFile(tempPath, wav);
+
+      const ok = await getMediaGateway().playAnnouncement(fssUuid, tempPath);
+      if (!ok) {
+        logger.warn("RTPWorker", `Audio injection failed for ${callId} (fssUuid=${fssUuid})`);
+      }
+
+      // uuid_broadcast's "+OK" only means FreeSWITCH accepted the command,
+      // not that playback finished — it streams the file over the next few
+      // seconds. Deleting it immediately would truncate the caller's audio
+      // mid-sentence. Delay cleanup by the clip's actual duration + margin
+      // rather than wiring up ESL's CHANNEL_EXECUTE_COMPLETE event (bigger
+      // change, not needed just to avoid a premature delete).
+      const durationMs = (pcm.length / 2 / 16000) * 1000; // 16-bit samples @ 16kHz
+      const path = tempPath;
+      setTimeout(() => { unlink(path).catch(() => undefined); }, durationMs + 3000);
+      tempPath = null; // cleanup now owned by the scheduled unlink above
+    } catch (err) {
+      logger.warn("RTPWorker", `injectTranslatedAudio failed for ${callId}: ${err}`);
+    } finally {
+      if (tempPath) {
+        unlink(tempPath).catch(() => undefined);
+      }
     }
   }
 

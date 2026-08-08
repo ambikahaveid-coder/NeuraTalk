@@ -13,6 +13,7 @@ import {
 import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken, setParticipantHold } from "../../livekit-service";
 import { getPSTNProvider, isPSTNAvailable } from "../../pstn/registry";
 import { recordCallOutcome } from "../../pstn/monitor";
+import { checkOutboundCallFraud } from "../../fraud-detection-service";
 import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import { organizations } from "@shared/schema";
@@ -190,6 +191,11 @@ function emitStructuredCallEvent(
     joinMethod: record.joinMethod,
     status: record.status,
     provider: record.provider || null,
+    // Included so external subscribers (e.g. the outbound webhook dispatcher
+    // in server/modules/webhooks) can route this event to the right org's
+    // registered endpoints without a second DB lookup.
+    callerOrganizationId: record.callerOrganizationId ?? null,
+    calleeOrganizationId: record.calleeOrganizationId ?? null,
     callerId: record.callerId,
     calleeIdentifier: record.calleeIdentifier,
     callType: record.callType,
@@ -929,6 +935,8 @@ async function spawnTranslatorBot(callId: string, botToken: string): Promise<voi
     const started = await attemptStart();
     if (!started) {
       await markTranslationUnavailable(callId, "bot_module_missing");
+    } else {
+      smartCallEvents.emit("translation_started", { callId });
     }
     return;
   } catch (firstError) {
@@ -938,6 +946,7 @@ async function spawnTranslatorBot(callId: string, botToken: string): Promise<voi
   try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await attemptStart();
+    smartCallEvents.emit("translation_started", { callId });
   } catch (error) {
     logger.error("SmartCallRouter", `bot worker start failed after retry for ${callId}: ${String(error)}`);
     await markTranslationUnavailable(callId, String(error instanceof Error ? error.message : error));
@@ -1203,6 +1212,16 @@ async function initiateCallLocked(
     callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
     if (callerIdentityDisclaimer) {
       operationalWarnings.push(callerIdentityDisclaimer);
+    }
+
+    const fraudCheck = await checkOutboundCallFraud({
+      organizationId: callerOrgId,
+      userId: callerUser?.id ?? null,
+      callerIdentity: req.callerId,
+      calleeNumber: callee.phoneNumber,
+    });
+    if (fraudCheck.blocked) {
+      throw new Error(`FRAUD_CHECK_BLOCKED:${fraudCheck.reason}`);
     }
 
     const pstnProvider = getPSTNProvider();
@@ -1478,6 +1497,25 @@ export async function activatePstnFallback(callId: string, input: {
   if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
     throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
   }
+
+  // This is a SECOND, independent outbound-PSTN-dialing path (distinct from
+  // initiateCallLocked's app_to_pstn branch) — reachable externally via
+  // API-key-authenticated integration routes (communication-api-routes.ts,
+  // jago-integration-routes.ts, secplus-integration-routes.ts). An earlier
+  // pass added toll-fraud detection only to initiateCallLocked and missed
+  // this path entirely, leaving a live, externally-reachable bypass of
+  // velocity/premium-destination checking. Fixed by applying the identical
+  // check here.
+  const fraudCheck = await checkOutboundCallFraud({
+    organizationId: current.callerOrganizationId ?? null,
+    userId: Number.isFinite(Number(current.callerId)) ? Number(current.callerId) : null,
+    callerIdentity: current.callerId,
+    calleeNumber: input.calleePhoneNumber,
+  });
+  if (fraudCheck.blocked) {
+    throw new Error(`FRAUD_CHECK_BLOCKED:${fraudCheck.reason}`);
+  }
+
   const pstnProvider = getPSTNProvider();
   const pstnResult = await pstnProvider.initiateCall({
     to: input.calleePhoneNumber,

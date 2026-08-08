@@ -51,6 +51,9 @@ export function registerCallsRoutes(app: Express): void {
   app.post("/api/calls/:callId/end", loadUser, requireAuth, requireCallAccess, ctrl.end);
   app.post("/api/calls/:callId/hold", loadUser, requireAuth, requireCallAccess, ctrl.holdCall);
   app.delete("/api/calls/:callId/hold", loadUser, requireAuth, requireCallAccess, ctrl.resumeCall);
+  app.post("/api/calls/:callId/recording", loadUser, requireAuth, requireCallAccess, ctrl.startCallRecording);
+  app.delete("/api/calls/:callId/recording", loadUser, requireAuth, requireCallAccess, ctrl.stopCallRecording);
+  app.get("/api/calls/:callId/recording", loadUser, requireAuth, requireCallAccess, ctrl.getCallRecording);
 
   app.post("/api/calls/:id/reject", loadUser, requireAuth, requireCallAccess, ctrl.reject);
   app.post("/api/calls/:id/transfer", loadUser, requireAuth, requireCallAccess, ctrl.transferCall);

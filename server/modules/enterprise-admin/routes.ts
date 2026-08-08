@@ -13,6 +13,7 @@ import {
   insertCostCenterSchema, insertSupervisorSessionSchema,
 } from "@shared/schema";
 import { logAuditEvent } from "../../audit-logging";
+import { logger } from "../../observability";
 
 function requireOrgAdmin(req: any, res: any, next: any) {
   const role = req.user?.role as string | undefined;
@@ -328,6 +329,17 @@ async function updateMyPresence(req: Request, res: Response) {
       set: { status, statusMessage, queueId, teamId, lastStatusChangeAt: new Date(), lastHeartbeatAt: new Date(), updatedAt: new Date() },
     })
     .returning();
+
+  // Real ACD queue: the moment an agent becomes available, try to hand
+  // them the oldest waiting call they're skilled for (queue-service.ts).
+  // Fire-and-forget — presence update must not block/fail on queue lookup.
+  if (status === "available") {
+    const { tryAssignQueuedCallToAgent } = await import("../calls/queue-service");
+    void tryAssignQueuedCallToAgent(oId, userId).catch((err: unknown) => {
+      logger.warn("EnterpriseAdmin", `queue assignment check failed for agent ${userId}: ${String(err)}`);
+    });
+  }
+
   res.json(row);
 }
 

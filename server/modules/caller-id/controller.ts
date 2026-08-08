@@ -212,6 +212,19 @@ export async function inboundCallWebhook(req: Request, res: Response) {
       const agentUserId = await routeToSkillAgent(orgId, requiredSkills).catch(() => null);
 
       if (!agentUserId) {
+        // NOTE on scope: this raw-PSTN-webhook path resolves an agent BEFORE
+        // any LiveKit room exists (the room is only created once a target
+        // user is known, further below). Real ACD queueing (enqueue → wait →
+        // agent-assignment) requires a room that already exists for the
+        // agent to join once free — see server/modules/calls/queue-service.ts
+        // for the actual, fully-working queue engine, wired instead into the
+        // app/web calling path (POST /api/queues/:queueId/enqueue) where a
+        // room is created up front via initiateConference. Bridging a raw
+        // inbound MSG91 SIP call into a "hold" state before an agent is
+        // assigned would need hold-audio playback + provider-specific
+        // response handling that hasn't been built or verified against a
+        // live MSG91 call — deliberately not attempted here rather than
+        // shipping something unverified.
         logger.warn("InboundCall", `No available agent for org ${orgId}, skills=${JSON.stringify(requiredSkills)}`);
         return res.json({ status: "no_agent_available" });
       }
