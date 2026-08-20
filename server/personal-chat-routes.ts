@@ -7,6 +7,8 @@ import { personalChatMessages, personalChatThreads, userContacts, users } from "
 import { normalizePhoneNumber } from "@shared/phone";
 import { openai } from "./ai_integrations/audio/client";
 import { requireAuth } from "./role-middleware";
+import { ObjectStorageService } from "./ai_integrations/object_storage/objectStorage";
+import { setObjectAclPolicy } from "./ai_integrations/object_storage/objectAcl";
 
 const router = Router();
 
@@ -31,6 +33,16 @@ const sendMessageSchema = z.object({
 const typingSchema = z.object({
   isTyping: z.boolean(),
 });
+
+// Chat image/voice attachments are uploaded via the same presigned-URL flow
+// as the profile avatar, but the object has no ACL until we grant one here —
+// without this, both the sender and recipient get 403 fetching it back.
+async function finalizeChatAttachment(senderUserId: number, objectPath: string): Promise<void> {
+  if (!objectPath.startsWith("/objects/")) return;
+  const objectStorage = new ObjectStorageService();
+  const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+  await setObjectAclPolicy(objectFile, { owner: String(senderUserId), visibility: "public" });
+}
 
 const TYPING_TTL_MS = 8_000;
 const typingState = new Map<string, { isTyping: boolean; updatedAt: number }>();
@@ -621,6 +633,10 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       if (existing) {
         return res.json({ message: formatMessage(existing, viewerId, context.viewerLanguage) });
       }
+    }
+
+    if (input.attachmentUrl) {
+      await finalizeChatAttachment(viewerId, input.attachmentUrl);
     }
 
     const originalLanguage = normalizeLanguage(input.originalLanguage || await detectLanguage(input.content));

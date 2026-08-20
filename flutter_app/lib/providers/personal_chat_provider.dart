@@ -86,7 +86,13 @@ class PersonalChatProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> sendMessage(int threadId, String content) async {
+  Future<void> sendMessage(
+    int threadId,
+    String content, {
+    String messageType = 'text',
+    String? attachmentUrl,
+    String? attachmentTitle,
+  }) async {
     final clientMessageId = '${DateTime.now().microsecondsSinceEpoch}';
     final optimistic = {
       'id': clientMessageId,
@@ -95,7 +101,9 @@ class PersonalChatProvider extends ChangeNotifier {
       'isOwn': true,
       'displayContent': content,
       'originalContent': content,
-      'messageType': 'text',
+      'messageType': messageType,
+      'attachmentUrl': attachmentUrl,
+      'attachmentTitle': attachmentTitle,
       'deliveryStatus': 'sending',
       'createdAt': DateTime.now().toIso8601String(),
     };
@@ -106,7 +114,9 @@ class PersonalChatProvider extends ChangeNotifier {
       final res = await ApiService.post('/api/personal-chats/$threadId/messages', {
         'content': content,
         'clientMessageId': clientMessageId,
-        'messageType': 'text',
+        'messageType': messageType,
+        if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+        if (attachmentTitle != null) 'attachmentTitle': attachmentTitle,
       });
       final saved = res['message'] as Map<String, dynamic>;
       final idx = messages.indexWhere((m) => m['clientMessageId'] == clientMessageId);
@@ -135,7 +145,9 @@ class PersonalChatProvider extends ChangeNotifier {
       final res = await ApiService.post('/api/personal-chats/$threadId/messages', {
         'content': failedMessage['originalContent'],
         'clientMessageId': failedMessage['clientMessageId'],
-        'messageType': 'text',
+        'messageType': failedMessage['messageType'] ?? 'text',
+        if (failedMessage['attachmentUrl'] != null) 'attachmentUrl': failedMessage['attachmentUrl'],
+        if (failedMessage['attachmentTitle'] != null) 'attachmentTitle': failedMessage['attachmentTitle'],
       });
       final saved = res['message'] as Map<String, dynamic>;
       final i2 = messages.indexWhere((m) => m['clientMessageId'] == failedMessage['clientMessageId']);

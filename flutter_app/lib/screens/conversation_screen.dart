@@ -1,11 +1,18 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../providers/personal_chat_provider.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
 import 'call_screen.dart';
+import 'media_viewer_screen.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -20,7 +27,13 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> with WidgetsBindingObserver {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _focusNode = FocusNode();
+  final _recorder = AudioRecorder();
   bool _calling = false;
+  bool _showEmoji = false;
+  bool _uploading = false;
+  bool _recording = false;
+  DateTime? _recordingStartedAt;
 
   int get _threadId => widget.thread['id'] as int;
   Map<String, dynamic> get _peer => (widget.thread['peer'] as Map<String, dynamic>?) ?? const {};
@@ -47,6 +60,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     context.read<PersonalChatProvider>().closeThread();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _focusNode.dispose();
+    _recorder.dispose();
     super.dispose();
   }
 
@@ -65,6 +80,100 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     context.read<PersonalChatProvider>().sendMessage(_threadId, text);
     context.read<PersonalChatProvider>().onTextChanged(_threadId, '');
     _scrollToBottom();
+  }
+
+  void _toggleEmoji() {
+    if (_showEmoji) {
+      setState(() => _showEmoji = false);
+      _focusNode.requestFocus();
+    } else {
+      _focusNode.unfocus();
+      setState(() => _showEmoji = true);
+    }
+  }
+
+  Future<void> _pickAndSendImage() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 82);
+    if (picked == null) return;
+    setState(() => _uploading = true);
+    try {
+      final file = File(picked.path);
+      final bytes = await file.readAsBytes();
+      final ext = picked.path.split('.').last.toLowerCase();
+      final contentType = switch (ext) { 'png' => 'image/png', 'webp' => 'image/webp', _ => 'image/jpeg' };
+      final uploadInfo = await ApiService.post('/api/uploads/request-url', {
+        'name': 'chat-image.$ext',
+        'size': bytes.length,
+        'contentType': contentType,
+      });
+      await ApiService.putBytes(uploadInfo['uploadURL'] as String, bytes, contentType);
+      final objectPath = uploadInfo['objectPath'] as String;
+      if (!mounted) return;
+      await context.read<PersonalChatProvider>().sendMessage(
+            _threadId,
+            'Photo',
+            messageType: 'attachment',
+            attachmentUrl: objectPath,
+            attachmentTitle: 'Photo',
+          );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not send image. Please try again.')));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  Future<void> _startRecording() async {
+    if (!await _recorder.hasPermission()) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Microphone permission is required for voice messages.')));
+      return;
+    }
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/voice_${DateTime.now().microsecondsSinceEpoch}.m4a';
+    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+    setState(() {
+      _recording = true;
+      _recordingStartedAt = DateTime.now();
+    });
+  }
+
+  Future<void> _stopRecordingAndSend({required bool cancel}) async {
+    final path = await _recorder.stop();
+    final startedAt = _recordingStartedAt;
+    setState(() {
+      _recording = false;
+      _recordingStartedAt = null;
+    });
+    if (cancel || path == null || startedAt == null) return;
+    final duration = DateTime.now().difference(startedAt);
+    if (duration.inMilliseconds < 700) return; // too short to be a real message
+
+    setState(() => _uploading = true);
+    try {
+      final bytes = await File(path).readAsBytes();
+      final uploadInfo = await ApiService.post('/api/uploads/request-url', {
+        'name': 'voice-note.m4a',
+        'size': bytes.length,
+        'contentType': 'audio/mp4',
+      });
+      await ApiService.putBytes(uploadInfo['uploadURL'] as String, bytes, 'audio/mp4');
+      final objectPath = uploadInfo['objectPath'] as String;
+      if (!mounted) return;
+      final seconds = duration.inSeconds.clamp(1, 3599);
+      await context.read<PersonalChatProvider>().sendMessage(
+            _threadId,
+            'Voice note',
+            messageType: 'voice_note',
+            attachmentUrl: objectPath,
+            attachmentTitle: '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+          );
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not send voice message. Please try again.')));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   Future<void> _startCall({required bool video}) async {
@@ -114,7 +223,12 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final avatarUrl = _peer['avatarUrl'] as String?;
     final displayName = _peer['displayName']?.toString() ?? 'Chat';
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_showEmoji,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _showEmoji) setState(() => _showEmoji = false);
+      },
+      child: Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         titleSpacing: 0,
@@ -174,7 +288,44 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Align(alignment: Alignment.centerLeft, child: Text('typing…', style: TextStyle(color: AppColors.cyan, fontSize: 12))),
             ),
+          if (_uploading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)),
+            ),
+          if (_recording) _recordingBar(),
           _inputBar(),
+          if (_showEmoji)
+            SizedBox(
+              height: 280,
+              child: EmojiPicker(
+                onEmojiSelected: (category, emoji) {
+                  _msgCtrl.text += emoji.emoji;
+                  _msgCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _msgCtrl.text.length));
+                  context.read<PersonalChatProvider>().onTextChanged(_threadId, _msgCtrl.text);
+                },
+                config: const Config(),
+              ),
+            ),
+        ],
+      ),
+      ),
+    );
+  }
+
+  Widget _recordingBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: AppColors.backgroundMid,
+      child: Row(
+        children: [
+          const Icon(Icons.mic, color: AppColors.red, size: 18),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('Recording…', style: TextStyle(color: AppColors.textPrimary, fontSize: 13))),
+          TextButton(
+            onPressed: () => _stopRecordingAndSend(cancel: true),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+          ),
         ],
       ),
     );
@@ -186,10 +337,22 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       color: AppColors.backgroundMid,
       child: Row(
         children: [
+          IconButton(
+            icon: Icon(_showEmoji ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppColors.textMuted),
+            onPressed: _toggleEmoji,
+          ),
+          IconButton(
+            icon: const Icon(Icons.attach_file, color: AppColors.textMuted),
+            onPressed: _uploading ? null : _pickAndSendImage,
+          ),
           Expanded(
             child: TextField(
               controller: _msgCtrl,
+              focusNode: _focusNode,
               style: const TextStyle(color: AppColors.white),
+              onTap: () {
+                if (_showEmoji) setState(() => _showEmoji = false);
+              },
               onChanged: (text) => context.read<PersonalChatProvider>().onTextChanged(_threadId, text),
               decoration: const InputDecoration(
                 hintText: 'Message...',
@@ -203,13 +366,21 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
           ),
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: _send,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-              child: const Icon(Icons.send, color: AppColors.background, size: 20),
-            ),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _msgCtrl,
+            builder: (_, value, __) {
+              final hasText = value.text.trim().isNotEmpty;
+              return GestureDetector(
+                onTap: hasText ? _send : null,
+                onLongPress: hasText || _uploading ? null : _startRecording,
+                onLongPressUp: hasText || _uploading ? null : () => _stopRecordingAndSend(cancel: false),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(color: _recording ? AppColors.red : AppColors.cyan, shape: BoxShape.circle),
+                  child: Icon(hasText ? Icons.send : Icons.mic, color: AppColors.background, size: 20),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -217,23 +388,62 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 }
 
-class _PersonalMessageBubble extends StatelessWidget {
+class _PersonalMessageBubble extends StatefulWidget {
   final Map<String, dynamic> message;
   final VoidCallback onRetry;
   const _PersonalMessageBubble({required this.message, required this.onRetry});
 
   @override
+  State<_PersonalMessageBubble> createState() => _PersonalMessageBubbleState();
+}
+
+class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
+  final _player = AudioPlayer();
+  bool _playing = false;
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleVoicePlayback(String attachmentUrl) async {
+    if (_playing) {
+      await _player.stop();
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
+    setState(() => _playing = true);
+    try {
+      await _player.play(UrlSource('${ApiService.baseUrl}$attachmentUrl'));
+      _player.onPlayerComplete.first.then((_) {
+        if (mounted) setState(() => _playing = false);
+      });
+    } catch (_) {
+      if (mounted) setState(() => _playing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final message = widget.message;
+    final onRetry = widget.onRetry;
     final isOwn = message['isOwn'] == true;
     final status = message['deliveryStatus']?.toString();
     final showingTranslated = message['showingTranslated'] == true;
     final content = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
+    final messageType = message['messageType']?.toString() ?? 'text';
+    final attachmentUrl = message['attachmentUrl']?.toString();
+    final attachmentTitle = message['attachmentTitle']?.toString();
+    final bubbleFg = isOwn ? AppColors.background : AppColors.textPrimary;
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: messageType == 'attachment' && attachmentUrl != null
+            ? const EdgeInsets.all(4)
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
           color: isOwn ? AppColors.cyan : AppColors.surface,
@@ -248,7 +458,40 @@ class _PersonalMessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(content, style: TextStyle(color: isOwn ? AppColors.background : AppColors.textPrimary, fontSize: 14, height: 1.4)),
+            if (messageType == 'attachment' && attachmentUrl != null)
+              GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MediaViewerScreen(imageUrl: '${ApiService.baseUrl}$attachmentUrl'))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Image.network(
+                    '${ApiService.baseUrl}$attachmentUrl',
+                    fit: BoxFit.cover,
+                    width: 220,
+                    height: 220,
+                    loadingBuilder: (ctx, child, progress) => progress == null
+                        ? child
+                        : const SizedBox(width: 220, height: 220, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))),
+                    errorBuilder: (ctx, err, st) => const SizedBox(width: 220, height: 120, child: Center(child: Icon(Icons.broken_image, color: AppColors.textMuted))),
+                  ),
+                ),
+              )
+            else if (messageType == 'voice_note' && attachmentUrl != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _toggleVoicePlayback(attachmentUrl),
+                      child: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_fill, color: bubbleFg, size: 32),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(attachmentTitle ?? 'Voice note', style: TextStyle(color: bubbleFg, fontSize: 13)),
+                  ],
+                ),
+              )
+            else
+              Text(content, style: TextStyle(color: bubbleFg, fontSize: 14, height: 1.4)),
             if (showingTranslated) ...[
               const SizedBox(height: 4),
               Text(

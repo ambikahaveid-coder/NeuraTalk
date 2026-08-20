@@ -398000,6 +398000,12 @@ var init_group_chats = __esm({
 });
 
 // server/personal-chat-routes.ts
+async function finalizeChatAttachment(senderUserId, objectPath) {
+  if (!objectPath.startsWith("/objects/")) return;
+  const objectStorage4 = new ObjectStorageService();
+  const objectFile = await objectStorage4.getObjectEntityFile(objectPath);
+  await setObjectAclPolicy(objectFile, { owner: String(senderUserId), visibility: "public" });
+}
 function normalizeLanguage2(language) {
   const value = String(language || "en").trim().toLowerCase();
   if (!value) return "en";
@@ -398198,6 +398204,8 @@ var init_personal_chat_routes = __esm({
     init_phone();
     init_client2();
     init_role_middleware();
+    init_objectStorage();
+    init_objectAcl();
     router11 = (0, import_express11.Router)();
     createThreadSchema = import_zod15.z.object({
       userId: import_zod15.z.number().int().positive().optional(),
@@ -398488,6 +398496,9 @@ var init_personal_chat_routes = __esm({
           if (existing) {
             return res.json({ message: formatMessage(existing, viewerId, context.viewerLanguage) });
           }
+        }
+        if (input.attachmentUrl) {
+          await finalizeChatAttachment(viewerId, input.attachmentUrl);
         }
         const originalLanguage = normalizeLanguage2(input.originalLanguage || await detectLanguage4(input.content));
         const translations2 = {};

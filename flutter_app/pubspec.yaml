@@ -1,7 +1,7 @@
 name: neuratalk
 description: NeuraTalk - Real-time multilingual voice AI communication
 publish_to: 'none'
-version: 2.0.0+5
+version: 2.0.0+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -31,8 +31,17 @@ dependencies:
   # Icons
   cupertino_icons: ^1.0.8
 
-  # Profile photo picker
+  # Profile photo picker / chat image attachments
   image_picker: ^1.1.2
+
+  # Emoji picker for chat composer
+  emoji_picker_flutter: ^3.1.0
+
+  # Real microphone recording for voice messages
+  record: ^5.2.0
+
+  # Voice message / attachment playback
+  audioplayers: ^6.1.0
 
   # LiveKit for calls
   livekit_client: ^2.4.3
