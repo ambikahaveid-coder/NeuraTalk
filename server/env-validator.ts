@@ -17,18 +17,20 @@ const MOCK_PATTERNS = [
 ];
 
 // These are unrecoverable — server cannot function without them.
-// SUPER_ADMIN_EMAIL and SUPER_ADMIN_SECRET must be set as encrypted secrets
-// in the DO dashboard. No hardcoded fallback is permitted.
 const BOOTSTRAP_REQUIRED_VARS = [
   "DATABASE_URL",
   "REDIS_URL",
   "SESSION_SECRET",
-  "SUPER_ADMIN_EMAIL",
-  "SUPER_ADMIN_SECRET",
 ];
 
 // Everything else: warn but do NOT crash — individual features degrade gracefully
 const SERVICE_VARS: Record<string, string> = {
+  // Gates only the super-admin bootstrap login (server/modules/auth/controller.ts
+  // already fails closed with 503 + timingSafeEqual when these are unset — no
+  // hardcoded fallback exists there either). Missing these must not take down
+  // translation/calling/billing for everyone else.
+  SUPER_ADMIN_EMAIL: "Super-admin login disabled — SUPER_ADMIN_EMAIL not configured",
+  SUPER_ADMIN_SECRET: "Super-admin login disabled — SUPER_ADMIN_SECRET not configured",
   STT_PROVIDER: "STT provider not set — defaulting to azure",
   AZURE_SPEECH_KEY: "Voice transcription/TTS unavailable — set this to enable Azure Speech",
   AZURE_SPEECH_REGION: "Azure Speech region not set — defaulting to centralindia",
