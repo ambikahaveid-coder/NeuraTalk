@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
+import 'providers/personal_chat_provider.dart';
 import 'services/call_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
@@ -51,6 +52,7 @@ class NeuraTalkApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProvider(create: (_) => CallService()),
+        ChangeNotifierProvider(create: (_) => PersonalChatProvider()),
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,

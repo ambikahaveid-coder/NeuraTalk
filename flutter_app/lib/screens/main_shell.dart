@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
-import 'chat_screen.dart';
+import 'human_chat_list_screen.dart';
 import 'calls_screen.dart';
 import 'teams_screen.dart';
 import 'wallet_screen.dart';
@@ -17,7 +17,7 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
 
   static const _screens = [
-    ChatScreen(),
+    HumanChatListScreen(),
     CallsScreen(),
     TeamsScreen(),
     WalletScreen(),
