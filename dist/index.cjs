@@ -22263,7 +22263,11 @@ var init_billing_engine = __esm({
       }
       static async getAdminBillingOverview() {
         const [summary] = await db.select({
-          totalRevenuePaise: import_drizzle_orm7.sql`COALESCE(SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}), 0)`,
+          // Must be a scalar subquery, not a bare column ref -- this select's
+          // FROM is billingAccounts, which callBillingRecords is never joined
+          // into, so referencing its columns directly throws "column does not
+          // exist" (Postgres has no FROM-clause entry to resolve them against).
+          totalRevenuePaise: import_drizzle_orm7.sql`COALESCE((SELECT SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}) FROM ${callBillingRecords}), 0)`,
           outstandingPaise: import_drizzle_orm7.sql`COALESCE(SUM(${billingAccounts.outstandingPostpaidPaise}), 0)`,
           activeCalls: import_drizzle_orm7.sql`COALESCE((SELECT COUNT(*) FROM ${callBillingRecords} WHERE ${callBillingRecords.status} = 'active'), 0)`
         }).from(billingAccounts);

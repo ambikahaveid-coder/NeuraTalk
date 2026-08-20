@@ -1499,7 +1499,11 @@ export class BillingEngine {
 
   static async getAdminBillingOverview() {
     const [summary] = await db.select({
-      totalRevenuePaise: sql<number>`COALESCE(SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}), 0)`,
+      // Must be a scalar subquery, not a bare column ref -- this select's
+      // FROM is billingAccounts, which callBillingRecords is never joined
+      // into, so referencing its columns directly throws "column does not
+      // exist" (Postgres has no FROM-clause entry to resolve them against).
+      totalRevenuePaise: sql<number>`COALESCE((SELECT SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}) FROM ${callBillingRecords}), 0)`,
       outstandingPaise: sql<number>`COALESCE(SUM(${billingAccounts.outstandingPostpaidPaise}), 0)`,
       activeCalls: sql<number>`COALESCE((SELECT COUNT(*) FROM ${callBillingRecords} WHERE ${callBillingRecords.status} = 'active'), 0)`,
     }).from(billingAccounts) as BillingSummaryRow[];
