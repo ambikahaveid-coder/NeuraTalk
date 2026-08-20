@@ -15,6 +15,8 @@ import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
 import { eq, and, or } from "drizzle-orm";
+import { ObjectStorageService } from "../../ai_integrations/object_storage/objectStorage";
+import { setObjectAclPolicy } from "../../ai_integrations/object_storage/objectAcl";
 
 function generateSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -517,6 +519,40 @@ export async function getMe(token: string) {
       organization: user.organization || null,
     },
   };
+}
+
+/**
+ * Marks a freshly-uploaded avatar object as owned by this user and publicly
+ * readable (profile photos need to be visible to call participants, same as
+ * any consumer calling app) before it's persisted on the user row. Without
+ * this, GET /objects/:path returns 403 for everyone including the owner --
+ * canAccessObject() requires an ACL policy to exist on the object.
+ */
+export async function finalizeAvatarUpload(userId: number, objectPath: string): Promise<string> {
+  if (!objectPath.startsWith("/objects/")) {
+    throw new Error("Invalid avatar object path");
+  }
+  const objectStorage = new ObjectStorageService();
+  const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+  await setObjectAclPolicy(objectFile, { owner: String(userId), visibility: "public" });
+  return objectPath;
+}
+
+export async function updateProfile(
+  userId: number,
+  updates: { username?: string; avatarUrl?: string },
+): Promise<{ id: number; username: string; avatarUrl: string | null }> {
+  const setValues: Record<string, unknown> = {};
+  if (updates.username !== undefined) setValues.username = updates.username;
+  if (updates.avatarUrl !== undefined) setValues.avatarUrl = updates.avatarUrl;
+
+  const [updated] = await db
+    .update(users)
+    .set(setValues)
+    .where(eq(users.id, userId))
+    .returning({ id: users.id, username: users.username, avatarUrl: users.avatarUrl });
+
+  return updated;
 }
 
 export function issueSignalingToken(

@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../utils/external_link.dart';
 import 'login_screen.dart';
+import 'edit_profile_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -16,6 +17,10 @@ class SettingsScreen extends StatelessWidget {
         SnackBar(content: Text('Could not open this page. Visit neuratalk.in$path instead.')),
       );
     }
+  }
+
+  void _openEditProfile(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
   }
 
   void _showComingSoon(BuildContext context, String feature) {
@@ -33,10 +38,10 @@ class SettingsScreen extends StatelessWidget {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            _profileCard(user),
+            _profileCard(context, user),
             const SizedBox(height: 8),
             _section('Account', [
-              _tile(Icons.person_outline, 'Profile', () => _showComingSoon(context, 'Profile editing')),
+              _tile(Icons.person_outline, 'Profile', () => _openEditProfile(context)),
               _tile(Icons.notifications_outlined, 'Notifications', () => _showComingSoon(context, 'Notification preferences')),
               _tile(Icons.language_outlined, 'Language Preferences', () => _showComingSoon(context, 'Language preferences')),
             ]),
@@ -86,8 +91,12 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _profileCard(Map<String, dynamic>? user) {
-    return Container(
+  Widget _profileCard(BuildContext context, Map<String, dynamic>? user) {
+    final avatarUrl = user?['avatarUrl'] as String?;
+    return InkWell(
+      onTap: () => _openEditProfile(context),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -97,14 +106,15 @@ class SettingsScreen extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppColors.cyan.withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.person, color: AppColors.cyan, size: 28),
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: AppColors.cyan.withOpacity(0.15),
+            backgroundImage: avatarUrl != null
+                ? NetworkImage('${ApiService.baseUrl}$avatarUrl')
+                : null,
+            child: avatarUrl == null
+                ? const Icon(Icons.person, color: AppColors.cyan, size: 28)
+                : null,
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -125,6 +135,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Icon(Icons.chevron_right, color: AppColors.textMuted),
         ],
+      ),
       ),
     );
   }

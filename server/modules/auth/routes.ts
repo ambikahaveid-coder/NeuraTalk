@@ -35,6 +35,7 @@ export function registerAuthRoutes(app: Express): void {
 
   // Session recovery
   app.get(api.auth.me.path, loadUser, ctrl.me);
+  app.patch(api.auth.me.path, authLimiter, loadUser, requireAuth, ctrl.updateMe);
 
   // OTP (generic — used by B2C + B2B)
   app.post("/api/auth/otp/request", otpRequestLimiter, otpPhoneRequestLimiter, otpRequestDailyLimiter, ctrl.otpRequest);

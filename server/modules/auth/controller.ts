@@ -209,6 +209,7 @@ export async function me(req: Request, res: Response) {
       username: req.user.username,
       email: req.user.email,
       phone: req.user.phone,
+      avatarUrl: req.user.avatarUrl || null,
       role: req.user.role,
       organizationId: req.user.organizationId,
       organization: req.user.organization || null,
@@ -220,6 +221,46 @@ export async function me(req: Request, res: Response) {
     });
   } catch (err) {
     logger.error("Auth", "Profile lookup failed", err as Error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+const updateMeSchema = z.object({
+  username: z.string().trim().min(1).max(100).optional(),
+  avatarUrl: z.string().trim().min(1).optional(),
+});
+
+export async function updateMe(req: Request, res: Response) {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+
+    const parsed = updateMeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
+    }
+    if (Object.keys(parsed.data).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    let avatarUrl: string | undefined;
+    if (parsed.data.avatarUrl) {
+      try {
+        avatarUrl = await svc.finalizeAvatarUpload(req.user.id, parsed.data.avatarUrl);
+      } catch {
+        return res.status(400).json({ message: "Invalid or missing avatar upload" });
+      }
+    }
+
+    const updated = await svc.updateProfile(req.user.id, {
+      username: parsed.data.username,
+      avatarUrl,
+    });
+
+    res.json({ id: updated.id, username: updated.username, avatarUrl: updated.avatarUrl });
+  } catch (err) {
+    logger.error("Auth", "Profile update failed", err as Error);
     res.status(500).json({ message: "Internal server error" });
   }
 }

@@ -35,6 +35,7 @@ export interface AuthenticatedUser {
   username: string;
   email: string | null;
   phone: string | null;
+  avatarUrl: string | null;
   role: string;
   organizationId: number | null;
   tenantSlug?: string | null;
@@ -492,6 +493,7 @@ export async function loadUser(
       username: user.username,
       email: user.email,
       phone: user.phone,
+      avatarUrl: user.avatarUrl,
       role: user.role,
       organizationId: user.organizationId,
       tenantSlug: session.tenantSlug ?? user.organization?.slug ?? null,

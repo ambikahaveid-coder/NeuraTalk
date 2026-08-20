@@ -108,6 +108,19 @@ class ApiService {
     return res.bodyBytes;
   }
 
+  /// Uploads raw bytes directly to a presigned object-storage URL (not
+  /// through baseUrl — the URL is already absolute and pre-authenticated).
+  static Future<void> putBytes(String uploadUrl, List<int> bytes, String contentType) async {
+    final res = await http.put(
+      Uri.parse(uploadUrl),
+      headers: {'Content-Type': contentType},
+      body: bytes,
+    ).timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 400) {
+      throw ApiException('Upload failed', res.statusCode);
+    }
+  }
+
   static dynamic _parse(http.Response res) {
     final data = jsonDecode(res.body);
     if (res.statusCode >= 400) {
