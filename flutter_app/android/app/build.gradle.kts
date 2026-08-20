@@ -37,8 +37,15 @@ android {
         applicationId = "com.Mindwhile.neuratalk"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // Was hardcoded to versionCode=1/versionName="1.0.0" on every build,
+        // regardless of pubspec.yaml — meant every release APK looked
+        // identical to Android's package installer, which rejects installing
+        // over an existing app when the new versionCode isn't higher
+        // ("App not installed"/INSTALL_FAILED_VERSION_DOWNGRADE). Wire these
+        // to Flutter's own versionCode/versionName (from pubspec.yaml's
+        // `version: X.Y.Z+N`), the standard Flutter template behavior.
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     signingConfigs {
