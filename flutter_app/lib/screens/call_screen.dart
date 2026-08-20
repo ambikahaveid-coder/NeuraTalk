@@ -31,17 +31,96 @@ class _CallScreenState extends State<CallScreen> {
   bool _videoOn = false;
   bool _onHold = false;
   String? _error;
+  bool _permissionPermanentlyDenied = false;
   DateTime? _connectedAt;
   Timer? _durationTimer;
   Duration _elapsed = Duration.zero;
   lk.VideoTrack? _remoteVideoTrack;
+
+  // Outbound-call waiting phase — the caller must not join the LiveKit room
+  // (and therefore must not show "Connected") until the callee has actually
+  // answered. See server/modules/calls/lifecycle.ts for the status machine.
+  bool _waitingForAnswer = false;
+  String _ringingLabel = 'Calling…';
+  Timer? _ringingPollTimer;
+  Timer? _ringingTimeoutTimer;
+
+  static const _ringingTimeout = Duration(seconds: 45);
 
   @override
   void initState() {
     super.initState();
     _room = lk.Room();
     _videoOn = widget.session.isVideo;
-    _connect();
+    if (widget.session.isIncoming) {
+      _connect();
+    } else {
+      _waitForAnswer();
+    }
+  }
+
+  Future<void> _waitForAnswer() async {
+    setState(() {
+      _waitingForAnswer = true;
+      _connecting = false;
+      _ringingLabel = 'Calling…';
+    });
+
+    _ringingTimeoutTimer = Timer(_ringingTimeout, () {
+      if (!mounted || !_waitingForAnswer) return;
+      _endWaitingWithMessage('No answer.');
+    });
+
+    _ringingPollTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
+      if (!mounted) return;
+      try {
+        final status = await widget.callService.getCallStatus(widget.session.callId);
+        if (!mounted || !_waitingForAnswer) return;
+        switch (status) {
+          case 'ringing':
+            setState(() => _ringingLabel = 'Ringing…');
+            break;
+          case 'answered':
+          case 'active':
+            _ringingPollTimer?.cancel();
+            _ringingTimeoutTimer?.cancel();
+            setState(() {
+              _waitingForAnswer = false;
+              _connecting = true;
+            });
+            _connect();
+            break;
+          case 'busy':
+            _endWaitingWithMessage('Line busy.');
+            break;
+          case 'missed':
+            _endWaitingWithMessage('No answer.');
+            break;
+          case 'cancelled':
+            _endWaitingWithMessage('Call declined.');
+            break;
+          case 'failed':
+            _endWaitingWithMessage('Call could not be connected.');
+            break;
+        }
+      } catch (_) {
+        // Transient — keep polling until the timeout fires.
+      }
+    });
+  }
+
+  void _endWaitingWithMessage(String message) {
+    _ringingPollTimer?.cancel();
+    _ringingTimeoutTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _waitingForAnswer = false;
+      _error = message;
+    });
+    unawaited(widget.callService.endCall(widget.session.callId));
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) Navigator.of(context).maybePop();
+    });
   }
 
   Future<void> _connect() async {
@@ -58,7 +137,9 @@ class _CallScreenState extends State<CallScreen> {
       setState(() {
         _connecting = false;
         _error = 'Microphone permission is required to make calls.';
+        _permissionPermanentlyDenied = micGranted.isPermanentlyDenied;
       });
+      unawaited(widget.callService.endCall(widget.session.callId));
       return;
     }
     bool cameraGrantedForVideo = false;
@@ -158,6 +239,22 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() => _videoOn = next);
   }
 
+  Future<void> _switchCamera() async {
+    try {
+      final devices = await lk.Hardware.instance.videoInputs();
+      if (devices.length < 2) return;
+      final current = lk.Hardware.instance.selectedVideoInput;
+      final next = devices.firstWhere((d) => d.deviceId != current?.deviceId, orElse: () => devices.first);
+      await _room.setVideoInputDevice(next);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not switch camera.')),
+        );
+      }
+    }
+  }
+
   Future<void> _toggleHold() async {
     final next = !_onHold;
     try {
@@ -174,6 +271,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _endCall() async {
+    _ringingPollTimer?.cancel();
+    _ringingTimeoutTimer?.cancel();
     await _room.disconnect();
     await widget.callService.endCall(widget.session.callId);
     if (mounted) Navigator.of(context).maybePop();
@@ -182,6 +281,8 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void dispose() {
     _durationTimer?.cancel();
+    _ringingPollTimer?.cancel();
+    _ringingTimeoutTimer?.cancel();
     _listener?.dispose();
     _room.disconnect();
     super.dispose();
@@ -213,7 +314,13 @@ class _CallScreenState extends State<CallScreen> {
                     if (_remoteVideoTrack != null)
                       lk.VideoTrackRenderer(_remoteVideoTrack!)
                     else
-                      _RemotePlaceholder(name: widget.session.remoteName, connecting: _connecting, error: _error),
+                      _RemotePlaceholder(
+                        name: widget.session.remoteName,
+                        connecting: _connecting,
+                        error: _error,
+                        statusLabel: _waitingForAnswer ? _ringingLabel : null,
+                        showOpenSettings: _permissionPermanentlyDenied,
+                      ),
                     if (_reconnecting)
                       Positioned(
                         top: 12,
@@ -274,10 +381,11 @@ class _CallScreenState extends State<CallScreen> {
                 videoOn: _videoOn,
                 onHold: _onHold,
                 isVideoCall: widget.session.isVideo,
-                enabled: !_connecting && _error == null,
+                enabled: !_connecting && !_waitingForAnswer && _error == null,
                 onMute: _toggleMute,
                 onSpeaker: _toggleSpeaker,
                 onVideo: _toggleVideo,
+                onSwitchCamera: _switchCamera,
                 onHoldToggle: _toggleHold,
                 onEnd: _endCall,
               ),
@@ -293,7 +401,9 @@ class _RemotePlaceholder extends StatelessWidget {
   final String name;
   final bool connecting;
   final String? error;
-  const _RemotePlaceholder({required this.name, required this.connecting, this.error});
+  final String? statusLabel;
+  final bool showOpenSettings;
+  const _RemotePlaceholder({required this.name, required this.connecting, this.error, this.statusLabel, this.showOpenSettings = false});
 
   @override
   Widget build(BuildContext context) {
@@ -314,8 +424,17 @@ class _RemotePlaceholder extends StatelessWidget {
           const SizedBox(height: 16),
           Text(name, style: const TextStyle(color: AppColors.white, fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          if (error != null)
-            Text(error!, style: const TextStyle(color: AppColors.red), textAlign: TextAlign.center)
+          if (error != null) ...[
+            Text(error!, style: const TextStyle(color: AppColors.red), textAlign: TextAlign.center),
+            if (showOpenSettings) ...[
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: openAppSettings,
+                child: const Text('Open Settings', style: TextStyle(color: AppColors.cyan)),
+              ),
+            ],
+          ] else if (statusLabel != null)
+            Text(statusLabel!, style: const TextStyle(color: AppColors.textSecondary))
           else
             Text(connecting ? 'Connecting…' : 'Connected', style: const TextStyle(color: AppColors.textSecondary)),
         ],
@@ -334,6 +453,7 @@ class _ControlBar extends StatelessWidget {
   final VoidCallback onMute;
   final VoidCallback onSpeaker;
   final VoidCallback onVideo;
+  final VoidCallback onSwitchCamera;
   final VoidCallback onHoldToggle;
   final VoidCallback onEnd;
 
@@ -347,6 +467,7 @@ class _ControlBar extends StatelessWidget {
     required this.onMute,
     required this.onSpeaker,
     required this.onVideo,
+    required this.onSwitchCamera,
     required this.onHoldToggle,
     required this.onEnd,
   });
@@ -368,6 +489,10 @@ class _ControlBar extends StatelessWidget {
               if (isVideoCall) ...[
                 const SizedBox(width: 20),
                 _CallControlButton(icon: videoOn ? Icons.videocam : Icons.videocam_off, active: !videoOn, onTap: enabled ? onVideo : null),
+                if (videoOn) ...[
+                  const SizedBox(width: 20),
+                  _CallControlButton(icon: Icons.cameraswitch, active: false, onTap: enabled ? onSwitchCamera : null),
+                ],
               ],
             ],
           ),

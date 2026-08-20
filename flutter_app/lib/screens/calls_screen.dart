@@ -212,15 +212,74 @@ class _DialPad extends StatefulWidget {
 }
 
 class _DialPadState extends State<_DialPad> {
-  String _number = '';
+  String _digits = ''; // raw digits only, no formatting/country code
   bool _calling = false;
+  String? _validationError;
 
-  void _press(String v) => setState(() => _number += v);
-  void _delete() => setState(() => _number = _number.isNotEmpty ? _number.substring(0, _number.length - 1) : '');
+  void _press(String v) {
+    if (_calling) return;
+    setState(() {
+      _digits += v;
+      _validationError = null;
+    });
+  }
+
+  void _delete() {
+    if (_calling || _digits.isEmpty) return;
+    setState(() {
+      _digits = _digits.substring(0, _digits.length - 1);
+      _validationError = null;
+    });
+  }
+
+  void _clear() {
+    if (_calling) return;
+    setState(() {
+      _digits = '';
+      _validationError = null;
+    });
+  }
+
+  /// Formats raw digits as a readable Indian-style number with a +91
+  /// prefix once it's at least a national-length number, e.g.
+  /// "8143752025" -> "+91 81437 52025". Not a strict E.164 validator —
+  /// just a display aid; validation happens separately in [_validate].
+  String get _displayNumber {
+    if (_digits.isEmpty) return '';
+    var d = _digits;
+    var prefix = '+91 ';
+    if (d.startsWith('91') && d.length > 10) {
+      d = d.substring(2);
+    } else if (d.startsWith('0') && d.length > 10) {
+      d = d.substring(1);
+    }
+    if (d.length <= 10) {
+      if (d.length > 5) return '$prefix${d.substring(0, 5)} ${d.substring(5)}';
+      return '$prefix$d';
+    }
+    return '+$d';
+  }
+
+  /// True if this looks like a phone number (digits only) rather than a
+  /// username/identifier — usernames go through search, not the dial pad.
+  String? _validate() {
+    if (_digits.isEmpty) return 'Enter a number to call.';
+    if (_digits.length < 6) return 'Invalid phone number.';
+    if (_digits.length > 15) return 'Invalid phone number.';
+    return null;
+  }
 
   Future<void> _call() async {
-    if (_number.isEmpty || _calling) return;
-    setState(() => _calling = true);
+    if (_calling) return;
+    final error = _validate();
+    if (error != null) {
+      setState(() => _validationError = error);
+      return;
+    }
+    setState(() {
+      _calling = true;
+      _validationError = null;
+    });
 
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
@@ -228,7 +287,7 @@ class _DialPadState extends State<_DialPad> {
 
     try {
       final session = await callService.startCall(
-        calleeIdentifier: _number,
+        calleeIdentifier: _digits,
         callType: widget.video ? 'video' : 'voice',
       );
       navigator.pop();
@@ -267,42 +326,80 @@ class _DialPadState extends State<_DialPad> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(_number.isEmpty ? 'Enter number' : _number, style: TextStyle(color: _number.isEmpty ? AppColors.textMuted : AppColors.white, fontSize: 28, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 24),
-          for (final row in [['1','2','3'],['4','5','6'],['7','8','9'],['*','0','#']])
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: row.map((d) => _DialButton(digit: d, onTap: () => _press(d))).toList(),
-            ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(icon: const Icon(Icons.backspace_outlined, color: AppColors.textMuted), onPressed: _delete),
-              const SizedBox(width: 24),
-              GestureDetector(
-                onTap: _call,
-                child: Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(color: widget.video ? AppColors.blue : AppColors.cyan, shape: BoxShape.circle),
-                  child: _calling
-                      ? const SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.background),
-                        )
-                      : Icon(widget.video ? Icons.videocam : Icons.call, color: AppColors.background, size: 28),
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close, color: AppColors.textMuted),
+                  tooltip: 'Close',
+                  onPressed: _calling ? null : () => Navigator.of(context).maybePop(),
                 ),
-              ),
+                Expanded(
+                  child: Text(
+                    widget.video ? 'New video call' : 'New voice call',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(width: 48), // balances the close icon so the title stays centered
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(
+                    _digits.isEmpty ? 'Enter number' : _displayNumber,
+                    style: TextStyle(color: _digits.isEmpty ? AppColors.textMuted : AppColors.white, fontSize: 26, fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (_digits.isNotEmpty)
+                  GestureDetector(
+                    onTap: _delete,
+                    onLongPress: _clear,
+                    child: const Padding(
+                      padding: EdgeInsets.only(left: 10),
+                      child: Icon(Icons.backspace_outlined, color: AppColors.textMuted, size: 20),
+                    ),
+                  ),
+              ],
+            ),
+            if (_validationError != null) ...[
+              const SizedBox(height: 6),
+              Text(_validationError!, style: const TextStyle(color: AppColors.red, fontSize: 12)),
             ],
-          ),
-          const SizedBox(height: 8),
-        ],
+            const SizedBox(height: 20),
+            for (final row in [['1','2','3'],['4','5','6'],['7','8','9'],['*','0','#']])
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: row.map((d) => _DialButton(digit: d, onTap: () => _press(d))).toList(),
+              ),
+            const SizedBox(height: 20),
+            GestureDetector(
+              onTap: _call,
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(color: widget.video ? AppColors.blue : AppColors.cyan, shape: BoxShape.circle),
+                child: _calling
+                    ? const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.background),
+                      )
+                    : Icon(widget.video ? Icons.videocam : Icons.call, color: AppColors.background, size: 30),
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
       ),
     );
   }

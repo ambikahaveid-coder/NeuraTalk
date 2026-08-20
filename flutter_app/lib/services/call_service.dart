@@ -107,6 +107,15 @@ class CallService extends ChangeNotifier {
     return CallSession.fromCreateResponse(res, callType: 'voice', remoteName: title ?? 'Group call');
   }
 
+  /// Polls the real call record so the caller can show Calling/Ringing/
+  /// Busy/Declined/No-answer instead of joining the LiveKit room blind —
+  /// server/modules/calls/lifecycle.ts is the source of truth for these
+  /// status strings.
+  Future<String> getCallStatus(String callId) async {
+    final res = await ApiService.get('/api/calls/$callId') as Map<String, dynamic>;
+    return (res['status'] as String?) ?? 'unknown';
+  }
+
   Future<void> answerCall(String callId) async {
     await ApiService.post('/api/calls/$callId/connect', {});
   }
