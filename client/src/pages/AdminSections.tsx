@@ -27,7 +27,6 @@ import {
 // CALL LOGS SECTION
 // ============================================================================
 export function CallLogsSection() {
-  const { toast } = useToast();
   const [dateRange, setDateRange] = useState("7d");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -48,6 +47,21 @@ export function CallLogsSection() {
     queryFn: async () => {
       const token = getAuthToken();
       const res = await fetch(`/api/admin/analytics?days=${dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  // Active-call count has no dedicated admin endpoint -- the billing
+  // overview already computes it for the Billing section, so reuse it
+  // rather than showing a permanently-zero placeholder.
+  const { data: billingOverview } = useQuery({
+    queryKey: ["/api/admin/billing/overview"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/billing/overview", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) return null;
@@ -80,48 +94,52 @@ export function CallLogsSection() {
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-primary">{metrics.totalCalls ?? callsData?.data?.totalCalls ?? 0}</p>
+          <p className="text-3xl font-bold text-primary">{callsData?.data?.totalCalls ?? 0}</p>
           <p className="text-sm text-muted-foreground">Total Calls</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-green-500">{metrics.activeCalls ?? 0}</p>
+          <p className="text-3xl font-bold text-green-500">{billingOverview?.activeCalls ?? 0}</p>
           <p className="text-sm text-muted-foreground">Active Now</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-blue-500">{metrics.avgDuration ?? callsData?.data?.avgCallDuration ?? 0}m</p>
+          <p className="text-3xl font-bold text-blue-500">{callsData?.data?.avgCallDuration ?? 0}m</p>
           <p className="text-sm text-muted-foreground">Avg Duration</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-purple-500">{metrics.successRate ?? callsData?.data?.successRate ?? 0}%</p>
+          <p className="text-3xl font-bold text-purple-500">{callsData?.data?.successRate ?? 0}%</p>
           <p className="text-sm text-muted-foreground">Success Rate</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-amber-500">{metrics.avgLatency ?? 0}ms</p>
-          <p className="text-sm text-muted-foreground">Avg Latency</p>
+          <p className="text-3xl font-bold text-amber-500">{metrics.total?.p50 ?? 0}ms</p>
+          <p className="text-sm text-muted-foreground">Avg Latency (p50)</p>
         </CardContent></Card>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><PhoneCall className="w-4 h-4" />Call Pipeline Metrics</CardTitle>
+          <CardDescription>p50/p95 latency per stage, from the last {metrics.windowSize ?? 0} samples</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { label: "Speech-to-Text", status: metrics.sttStatus || "unknown", latency: metrics.sttLatency },
-              { label: "Translation", status: metrics.translationStatus || "unknown", latency: metrics.translationLatency },
-              { label: "Text-to-Speech", status: metrics.ttsStatus || "unknown", latency: metrics.ttsLatency },
-              { label: "Call Routing", status: metrics.routingStatus || "unknown", latency: metrics.routingLatency },
-            ].map(pipe => (
-              <div key={pipe.label} className="p-4 rounded-lg border">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-2 h-2 rounded-full ${pipe.status === "active" || pipe.status === "ok" ? "bg-green-500" : pipe.status === "degraded" ? "bg-amber-500" : "bg-red-500"}`} />
-                  <span className="text-sm font-medium">{pipe.label}</span>
+              { label: "Speech-to-Text", stage: metrics.stt },
+              { label: "Translation", stage: metrics.translation },
+              { label: "Text-to-Speech", stage: metrics.tts },
+              { label: "End-to-End Total", stage: metrics.total },
+            ].map(pipe => {
+              const hasSamples = (pipe.stage?.count ?? 0) > 0;
+              return (
+                <div key={pipe.label} className="p-4 rounded-lg border">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-2 h-2 rounded-full ${hasSamples ? "bg-green-500" : "bg-muted-foreground/40"}`} />
+                    <span className="text-sm font-medium">{pipe.label}</span>
+                  </div>
+                  <p className="text-lg font-bold">{hasSamples ? `${pipe.stage.p50}ms` : "N/A"}</p>
+                  <p className="text-xs text-muted-foreground">{hasSamples ? `p95: ${pipe.stage.p95}ms · ${pipe.stage.count} samples` : "no samples yet"}</p>
                 </div>
-                <p className="text-lg font-bold">{pipe.latency ? `${pipe.latency}ms` : "N/A"}</p>
-                <p className="text-xs text-muted-foreground capitalize">{pipe.status}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
@@ -195,9 +213,11 @@ export function CallLogsSection() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Call Types</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => toast({ title: "Export", description: "Call logs exported" })}>
-              <Download className="w-4 h-4 mr-2" />Export
-            </Button>
+            <Link href="/admin/transcripts">
+              <Button variant="outline" size="sm">
+                <Download className="w-4 h-4 mr-2" />Export in Transcripts
+              </Button>
+            </Link>
           </div>
         </CardHeader>
         <CardContent>
@@ -627,6 +647,11 @@ export function SystemHealthSection() {
     },
   });
 
+  const { data: keysStatus } = useQuery({
+    queryKey: ["/api/health/keys"],
+    queryFn: async () => { const res = await fetch("/api/health/keys"); if (!res.ok) return null; return res.json(); },
+  });
+
   const uptime = healthData?.uptime ? Math.floor(healthData.uptime / 3600) : 0;
   const uptimeMin = healthData?.uptime ? Math.floor((healthData.uptime % 3600) / 60) : 0;
   const configKeyMap = new Map<string, boolean>((configStatus?.configs || []).map((config: any) => [config.key, config.isSet]));
@@ -647,7 +672,7 @@ export function SystemHealthSection() {
     { name: "API Server", status: healthData?.status === "ok" ? "online" : "offline", detail: `Uptime: ${uptime}h ${uptimeMin}m` },
     { name: "Database (Neon)", status: healthData?.status === "ok" ? "online" : "offline", detail: "PostgreSQL Serverless" },
     { name: "WebSocket Signaling", status: healthData?.status === "ok" ? "online" : "offline", detail: "Real-time events" },
-    { name: "Redis Cache", status: "degraded", detail: "Not running — in-memory fallback" },
+    { name: "Redis Cache", status: keysStatus?.redis ? "online" : "degraded", detail: keysStatus?.redis ? "REDIS_URL configured" : "Not configured — in-memory fallback" },
     { name: "LiveKit (WebRTC)", status: livekitConfigured ? "online" : "offline", detail: livekitConfigured ? "Primary media transport configured" : "LIVEKIT_URL/API keys missing" },
     { name: "Azure STT (Primary)", status: azureSpeechConfigured ? "online" : "offline", detail: azureSpeechConfigured ? "Azure Speech streaming configured" : "AZURE_SPEECH_KEY/REGION missing" },
     { name: "OpenAI Orchestration", status: openAiConfigured ? "online" : "offline", detail: openAiConfigured ? "Realtime orchestration configured" : "OPENAI API key missing" },

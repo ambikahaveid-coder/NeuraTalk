@@ -236,7 +236,7 @@ function OverviewSection() {
         />
         <StatCard
           title="Monthly Revenue"
-          value={`₹${((stats?.revenue || 0) / 100).toLocaleString()}`}
+          value={`₹${(stats?.revenue || 0).toLocaleString()}`}
           icon={<DollarSign className="w-5 h-5" />}
         />
         <StatCard
@@ -2202,7 +2202,18 @@ function AnalyticsSection() {
     },
   });
 
+  const { data: languagesData } = useQuery({
+    queryKey: ["/api/admin/languages"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/languages", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
   const data = analyticsData?.data;
+  const languageCount = languagesData?.data?.length ?? languagesData?.length ?? null;
   // Brand palette (cyan/purple family) instead of Recharts' default demo colors
   const COLORS = ['#00F0FF', '#BF33FF', '#00B8D9', '#9B5DE5', '#4DD9E8'];
 
@@ -2226,7 +2237,7 @@ function AnalyticsSection() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-primary">${((data?.totalRevenue || 0) / 100).toLocaleString()}</p>
+            <p className="text-3xl font-bold text-primary">₹{(data?.totalRevenue || 0).toLocaleString()}</p>
             <p className="text-sm text-muted-foreground">Total Revenue</p>
           </CardContent>
         </Card>
@@ -2244,7 +2255,7 @@ function AnalyticsSection() {
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-purple-500">40+</p>
+            <p className="text-3xl font-bold text-purple-500">{languageCount ?? '—'}</p>
             <p className="text-sm text-muted-foreground">Languages</p>
           </CardContent>
         </Card>
@@ -2355,17 +2366,18 @@ function AnalyticsSection() {
           </div>
         </CardHeader>
         <CardContent>
+          <p className="text-xs text-muted-foreground mb-3">The buttons above export everything currently loaded on this page as one file. Included:</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-lg border hover:border-primary/50 cursor-pointer">
-              <h4 className="font-medium">User Activity Report</h4>
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-medium">User Activity</h4>
               <p className="text-sm text-muted-foreground">Signups, logins, engagement metrics</p>
             </div>
-            <div className="p-4 rounded-lg border hover:border-primary/50 cursor-pointer">
-              <h4 className="font-medium">Revenue Report</h4>
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-medium">Revenue</h4>
               <p className="text-sm text-muted-foreground">Subscriptions, payments, GST</p>
             </div>
-            <div className="p-4 rounded-lg border hover:border-primary/50 cursor-pointer">
-              <h4 className="font-medium">Call Analytics Report</h4>
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-medium">Call Analytics</h4>
               <p className="text-sm text-muted-foreground">Duration, quality, languages</p>
             </div>
           </div>
@@ -3083,7 +3095,7 @@ function AuditSection() {
     },
   });
 
-  const logs = auditData?.data || [];
+  const logs = auditData?.logs || [];
 
   const actionIcons: Record<string, React.ReactNode> = {
     user_created: <UserCheck className="w-4 h-4 text-green-500" />,
@@ -3148,13 +3160,13 @@ function AuditSection() {
                   <div className="flex-1">
                     <p className="font-medium text-sm">{log.action.replace(/_/g, ' ').toUpperCase()}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{log.actor}</span>
+                      <span>{log.userName || log.userEmail || `User #${log.userId}`}</span>
                       <span>-</span>
-                      <span>{log.target}</span>
+                      <span>{log.entityType}{log.entityId ? ` #${log.entityId}` : ''}</span>
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {new Date(log.timestamp).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+                    {new Date(log.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                   </div>
                 </div>
               ))}
@@ -3180,6 +3192,17 @@ function SettingsSection() {
   const [lowCreditAlerts, setLowCreditAlerts] = useState(true);
   const [newUserWelcome, setNewUserWelcome] = useState(true);
   const [callQualityAlerts, setCallQualityAlerts] = useState(true);
+
+  const { data: gstData } = useQuery({
+    queryKey: ["/api/admin/billing/gst-settings"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/billing/gst-settings", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+  const gst = gstData?.data;
 
   // Load settings from backend
   const { data: settingsData } = useQuery({
@@ -3307,24 +3330,28 @@ function SettingsSection() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-3 rounded-lg bg-muted/30">
-                <Label className="text-xs text-muted-foreground">Default GST Rate</Label>
-                <p className="font-bold text-lg">18%</p>
+            {gst ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-3 rounded-lg bg-muted/30">
+                  <Label className="text-xs text-muted-foreground">Default GST Rate</Label>
+                  <p className="font-bold text-lg">{gst.defaultGstRate ?? 18}%</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30">
+                  <Label className="text-xs text-muted-foreground">GSTIN</Label>
+                  <p className="font-bold text-lg">{gst.gstin || 'Not set'}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30">
+                  <Label className="text-xs text-muted-foreground">HSN/SAC Code</Label>
+                  <p className="font-bold text-lg">{gst.hsnCode || '998314'}</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30">
+                  <Label className="text-xs text-muted-foreground">Place of Supply</Label>
+                  <p className="font-bold text-lg">{gst.placeOfSupply || gst.stateCode || 'India'}</p>
+                </div>
               </div>
-              <div className="p-3 rounded-lg bg-muted/30">
-                <Label className="text-xs text-muted-foreground">Primary Currency</Label>
-                <p className="font-bold text-lg">INR (₹)</p>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/30">
-                <Label className="text-xs text-muted-foreground">SAC Code</Label>
-                <p className="font-bold text-lg">998314</p>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/30">
-                <Label className="text-xs text-muted-foreground">Tax Region</Label>
-                <p className="font-bold text-lg">India</p>
-              </div>
-            </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Platform GST settings haven't been configured yet.</p>
+            )}
           </div>
         </CardContent>
       </Card>
