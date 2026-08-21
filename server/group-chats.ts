@@ -442,6 +442,37 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Reque
   }
 });
 
+// Delete for everyone -- the sender, or a group admin, may delete a message.
+router.delete("/api/group-chats/:groupId/messages/:messageId", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const requesterId = req.user!.id;
+    const groupId = parseInt(req.params.groupId);
+    const messageId = parseInt(req.params.messageId);
+
+    const [message] = await db.select().from(groupChatMessages).where(eq(groupChatMessages.id, messageId));
+    if (!message || message.groupChatId !== groupId) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    if (message.senderId !== requesterId) {
+      const [requesterMember] = await db.select().from(groupChatMembers)
+        .where(and(eq(groupChatMembers.groupChatId, groupId), eq(groupChatMembers.userId, requesterId)));
+      if (!requesterMember || requesterMember.role !== "admin") {
+        return res.status(403).json({ error: "Only the sender or a group admin can delete this message" });
+      }
+    }
+
+    await db.update(groupChatMessages)
+      .set({ isDeleted: true, originalContent: "", translations: {}, updatedAt: new Date() })
+      .where(eq(groupChatMessages.id, messageId));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting message:", error);
+    res.status(500).json({ error: "Failed to delete message" });
+  }
+});
+
 router.post("/api/group-chats/:groupId/voice-messages", requireAuth, async (req: Request, res: Response) => {
   try {
     const senderId = req.user!.id;

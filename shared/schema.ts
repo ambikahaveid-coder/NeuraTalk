@@ -155,6 +155,12 @@ export const users = pgTable("users", {
   consentTimestamp: timestamp("consent_timestamp"),
   // Global Routing & Latency
   preferredRegion: text("preferred_region").default("ap-south-1"), // Default to Mumbai for India presence
+  // Default language for new chats/calls (Settings > Language Preferences)
+  // and a message-notification opt-out (Settings > Notifications). Call
+  // alerts (sendVoIPPush) are never gated by this -- only chat message
+  // pushes (sendPushNotification) are.
+  preferredLanguage: text("preferred_language").default("en"),
+  pushNotificationsEnabled: boolean("push_notifications_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("users_email_unique_idx").on(table.email).where(sql`email IS NOT NULL`),
@@ -309,6 +315,11 @@ export const personalChatThreads = pgTable("personal_chat_threads", {
   createdByUserId: integer("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   lastMessagePreview: text("last_message_preview"),
   lastMessageAt: timestamp("last_message_at").defaultNow(),
+  // "Clear chat" is per-viewer: messages created at/before this timestamp
+  // are hidden from that participant's message list, without touching the
+  // other participant's view or deleting any row.
+  participantAClearedAt: timestamp("participant_a_cleared_at"),
+  participantBClearedAt: timestamp("participant_b_cleared_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -331,6 +342,8 @@ export const personalChatMessages = pgTable("personal_chat_messages", {
   deliveryStatus: text("delivery_status").notNull().default("sent"),
   deliveredAt: timestamp("delivered_at"),
   seenAt: timestamp("seen_at"),
+  replyToId: integer("reply_to_id"),
+  isDeleted: boolean("is_deleted").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

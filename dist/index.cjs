@@ -6202,6 +6202,12 @@ var init_schema = __esm({
       // Global Routing & Latency
       preferredRegion: (0, import_pg_core.text)("preferred_region").default("ap-south-1"),
       // Default to Mumbai for India presence
+      // Default language for new chats/calls (Settings > Language Preferences)
+      // and a message-notification opt-out (Settings > Notifications). Call
+      // alerts (sendVoIPPush) are never gated by this -- only chat message
+      // pushes (sendPushNotification) are.
+      preferredLanguage: (0, import_pg_core.text)("preferred_language").default("en"),
+      pushNotificationsEnabled: (0, import_pg_core.boolean)("push_notifications_enabled").notNull().default(true),
       createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
     }, (table) => [
       (0, import_pg_core.uniqueIndex)("users_email_unique_idx").on(table.email).where(import_drizzle_orm.sql`email IS NOT NULL`),
@@ -6346,6 +6352,11 @@ var init_schema = __esm({
       createdByUserId: (0, import_pg_core.integer)("created_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
       lastMessagePreview: (0, import_pg_core.text)("last_message_preview"),
       lastMessageAt: (0, import_pg_core.timestamp)("last_message_at").defaultNow(),
+      // "Clear chat" is per-viewer: messages created at/before this timestamp
+      // are hidden from that participant's message list, without touching the
+      // other participant's view or deleting any row.
+      participantAClearedAt: (0, import_pg_core.timestamp)("participant_a_cleared_at"),
+      participantBClearedAt: (0, import_pg_core.timestamp)("participant_b_cleared_at"),
       createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
       updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
     }, (table) => [
@@ -6367,6 +6378,8 @@ var init_schema = __esm({
       deliveryStatus: (0, import_pg_core.text)("delivery_status").notNull().default("sent"),
       deliveredAt: (0, import_pg_core.timestamp)("delivered_at"),
       seenAt: (0, import_pg_core.timestamp)("seen_at"),
+      replyToId: (0, import_pg_core.integer)("reply_to_id"),
+      isDeleted: (0, import_pg_core.boolean)("is_deleted").notNull().default(false),
       createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
       updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
     }, (table) => [
@@ -20211,6 +20224,8 @@ async function loadUser(req, _res, next) {
       email: user2.email,
       phone: user2.phone,
       avatarUrl: user2.avatarUrl,
+      preferredLanguage: user2.preferredLanguage,
+      pushNotificationsEnabled: user2.pushNotificationsEnabled,
       role: user2.role,
       organizationId: user2.organizationId,
       tenantSlug: session.tenantSlug ?? user2.organization?.slug ?? null,
@@ -234173,6 +234188,10 @@ async function sendPushNotification(userId, notification) {
   if (!firebaseAdminApp) {
     return { sent: 0, failed: 0 };
   }
+  const [userRow] = await db.select({ pushNotificationsEnabled: users.pushNotificationsEnabled }).from(users).where((0, import_drizzle_orm11.eq)(users.id, userId));
+  if (userRow && userRow.pushNotificationsEnabled === false) {
+    return { sent: 0, failed: 0 };
+  }
   const devices = await db.select({ pushToken: registeredDevices.pushToken, platform: registeredDevices.platform }).from(registeredDevices).where((0, import_drizzle_orm11.and)((0, import_drizzle_orm11.eq)(registeredDevices.userId, userId), (0, import_drizzle_orm11.eq)(registeredDevices.isActive, true)));
   const tokens = Array.from(
     new Set(devices.map((d5) => d5.pushToken).filter((t) => typeof t === "string" && t.length > 0))
@@ -291623,8 +291642,8 @@ var require_gt = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/gt.js"(exports2, module2) {
     "use strict";
     var compare = require_compare();
-    var gt5 = (a5, b5, loose) => compare(a5, b5, loose) > 0;
-    module2.exports = gt5;
+    var gt6 = (a5, b5, loose) => compare(a5, b5, loose) > 0;
+    module2.exports = gt6;
   }
 });
 
@@ -291684,7 +291703,7 @@ var require_cmp = __commonJS({
     "use strict";
     var eq68 = require_eq();
     var neq = require_neq();
-    var gt5 = require_gt();
+    var gt6 = require_gt();
     var gte10 = require_gte();
     var lt7 = require_lt();
     var lte7 = require_lte();
@@ -291713,7 +291732,7 @@ var require_cmp = __commonJS({
         case "!=":
           return neq(a5, b5, loose);
         case ">":
-          return gt5(a5, b5, loose);
+          return gt6(a5, b5, loose);
         case ">=":
           return gte10(a5, b5, loose);
         case "<":
@@ -292393,7 +292412,7 @@ var require_min_version = __commonJS({
     "use strict";
     var SemVer = require_semver();
     var Range = require_range2();
-    var gt5 = require_gt();
+    var gt6 = require_gt();
     var minVersion = (range2, loose) => {
       range2 = new Range(range2, loose);
       let minver = new SemVer("0.0.0");
@@ -292421,7 +292440,7 @@ var require_min_version = __commonJS({
             /* fallthrough */
             case "":
             case ">=":
-              if (!setMin || gt5(compver, setMin)) {
+              if (!setMin || gt6(compver, setMin)) {
                 setMin = compver;
               }
               break;
@@ -292433,7 +292452,7 @@ var require_min_version = __commonJS({
               throw new Error(`Unexpected operation: ${comparator.operator}`);
           }
         });
-        if (setMin && (!minver || gt5(minver, setMin))) {
+        if (setMin && (!minver || gt6(minver, setMin))) {
           minver = setMin;
         }
       }
@@ -292471,7 +292490,7 @@ var require_outside = __commonJS({
     var { ANY } = Comparator;
     var Range = require_range2();
     var satisfies = require_satisfies();
-    var gt5 = require_gt();
+    var gt6 = require_gt();
     var lt7 = require_lt();
     var lte7 = require_lte();
     var gte10 = require_gte();
@@ -292481,7 +292500,7 @@ var require_outside = __commonJS({
       let gtfn, ltefn, ltfn, comp, ecomp;
       switch (hilo) {
         case ">":
-          gtfn = gt5;
+          gtfn = gt6;
           ltefn = lte7;
           ltfn = lt7;
           comp = ">";
@@ -292490,7 +292509,7 @@ var require_outside = __commonJS({
         case "<":
           gtfn = lt7;
           ltefn = gte10;
-          ltfn = gt5;
+          ltfn = gt6;
           comp = "<";
           ecomp = "<=";
           break;
@@ -292668,10 +292687,10 @@ var require_subset = __commonJS({
         }
       }
       const eqSet = /* @__PURE__ */ new Set();
-      let gt5, lt7;
+      let gt6, lt7;
       for (const c5 of sub) {
         if (c5.operator === ">" || c5.operator === ">=") {
-          gt5 = higherGT(gt5, c5, options);
+          gt6 = higherGT(gt6, c5, options);
         } else if (c5.operator === "<" || c5.operator === "<=") {
           lt7 = lowerLT(lt7, c5, options);
         } else {
@@ -292682,16 +292701,16 @@ var require_subset = __commonJS({
         return null;
       }
       let gtltComp;
-      if (gt5 && lt7) {
-        gtltComp = compare(gt5.semver, lt7.semver, options);
+      if (gt6 && lt7) {
+        gtltComp = compare(gt6.semver, lt7.semver, options);
         if (gtltComp > 0) {
           return null;
-        } else if (gtltComp === 0 && (gt5.operator !== ">=" || lt7.operator !== "<=")) {
+        } else if (gtltComp === 0 && (gt6.operator !== ">=" || lt7.operator !== "<=")) {
           return null;
         }
       }
       for (const eq68 of eqSet) {
-        if (gt5 && !satisfies(eq68, String(gt5), options)) {
+        if (gt6 && !satisfies(eq68, String(gt6), options)) {
           return null;
         }
         if (lt7 && !satisfies(eq68, String(lt7), options)) {
@@ -292707,25 +292726,25 @@ var require_subset = __commonJS({
       let higher, lower;
       let hasDomLT, hasDomGT;
       let needDomLTPre = lt7 && !options.includePrerelease && lt7.semver.prerelease.length ? lt7.semver : false;
-      let needDomGTPre = gt5 && !options.includePrerelease && gt5.semver.prerelease.length ? gt5.semver : false;
+      let needDomGTPre = gt6 && !options.includePrerelease && gt6.semver.prerelease.length ? gt6.semver : false;
       if (needDomLTPre && needDomLTPre.prerelease.length === 1 && lt7.operator === "<" && needDomLTPre.prerelease[0] === 0) {
         needDomLTPre = false;
       }
       for (const c5 of dom) {
         hasDomGT = hasDomGT || c5.operator === ">" || c5.operator === ">=";
         hasDomLT = hasDomLT || c5.operator === "<" || c5.operator === "<=";
-        if (gt5) {
+        if (gt6) {
           if (needDomGTPre) {
             if (c5.semver.prerelease && c5.semver.prerelease.length && c5.semver.major === needDomGTPre.major && c5.semver.minor === needDomGTPre.minor && c5.semver.patch === needDomGTPre.patch) {
               needDomGTPre = false;
             }
           }
           if (c5.operator === ">" || c5.operator === ">=") {
-            higher = higherGT(gt5, c5, options);
-            if (higher === c5 && higher !== gt5) {
+            higher = higherGT(gt6, c5, options);
+            if (higher === c5 && higher !== gt6) {
               return false;
             }
-          } else if (gt5.operator === ">=" && !satisfies(gt5.semver, String(c5), options)) {
+          } else if (gt6.operator === ">=" && !satisfies(gt6.semver, String(c5), options)) {
             return false;
           }
         }
@@ -292744,14 +292763,14 @@ var require_subset = __commonJS({
             return false;
           }
         }
-        if (!c5.operator && (lt7 || gt5) && gtltComp !== 0) {
+        if (!c5.operator && (lt7 || gt6) && gtltComp !== 0) {
           return false;
         }
       }
-      if (gt5 && hasDomLT && !lt7 && gtltComp !== 0) {
+      if (gt6 && hasDomLT && !lt7 && gtltComp !== 0) {
         return false;
       }
-      if (lt7 && hasDomGT && !gt5 && gtltComp !== 0) {
+      if (lt7 && hasDomGT && !gt6 && gtltComp !== 0) {
         return false;
       }
       if (needDomGTPre || needDomLTPre) {
@@ -292800,7 +292819,7 @@ var require_semver2 = __commonJS({
     var compareBuild = require_compare_build();
     var sort = require_sort();
     var rsort = require_rsort();
-    var gt5 = require_gt();
+    var gt6 = require_gt();
     var lt7 = require_lt();
     var eq68 = require_eq();
     var neq = require_neq();
@@ -292838,7 +292857,7 @@ var require_semver2 = __commonJS({
       compareBuild,
       sort,
       rsort,
-      gt: gt5,
+      gt: gt6,
       lt: lt7,
       eq: eq68,
       neq,
@@ -358187,6 +358206,28 @@ var init_group_chats = __esm({
         res.status(500).json({ error: "Failed to send message" });
       }
     });
+    router10.delete("/api/group-chats/:groupId/messages/:messageId", requireAuth, async (req, res) => {
+      try {
+        const requesterId = req.user.id;
+        const groupId = parseInt(req.params.groupId);
+        const messageId = parseInt(req.params.messageId);
+        const [message2] = await db.select().from(groupChatMessages).where((0, import_drizzle_orm52.eq)(groupChatMessages.id, messageId));
+        if (!message2 || message2.groupChatId !== groupId) {
+          return res.status(404).json({ error: "Message not found" });
+        }
+        if (message2.senderId !== requesterId) {
+          const [requesterMember] = await db.select().from(groupChatMembers).where((0, import_drizzle_orm52.and)((0, import_drizzle_orm52.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm52.eq)(groupChatMembers.userId, requesterId)));
+          if (!requesterMember || requesterMember.role !== "admin") {
+            return res.status(403).json({ error: "Only the sender or a group admin can delete this message" });
+          }
+        }
+        await db.update(groupChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm52.eq)(groupChatMessages.id, messageId));
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("Error deleting message:", error2);
+        res.status(500).json({ error: "Failed to delete message" });
+      }
+    });
     router10.post("/api/group-chats/:groupId/voice-messages", requireAuth, async (req, res) => {
       try {
         const senderId = req.user.id;
@@ -358482,16 +358523,16 @@ function formatMessage(message2, viewerId, viewerLanguage) {
   const translations2 = translationsObject(message2.translations);
   const translatedContent = viewerLanguage !== normalizeLanguage2(message2.originalLanguage) ? translations2[viewerLanguage] || null : null;
   const isOwn = message2.senderUserId === viewerId;
-  const displayContent = !isOwn && translatedContent ? translatedContent : message2.originalContent;
+  const displayContent = message2.isDeleted ? "This message was deleted" : !isOwn && translatedContent ? translatedContent : message2.originalContent;
   return {
     ...message2,
     translations: translations2,
-    attachmentUrl: typeof message2.metadata?.attachmentUrl === "string" ? message2.metadata.attachmentUrl : null,
+    attachmentUrl: message2.isDeleted ? null : typeof message2.metadata?.attachmentUrl === "string" ? message2.metadata.attachmentUrl : null,
     attachmentTitle: typeof message2.metadata?.attachmentTitle === "string" ? message2.metadata.attachmentTitle : null,
-    translatedContent,
+    translatedContent: message2.isDeleted ? null : translatedContent,
     displayContent,
     displayLanguage: !isOwn && translatedContent ? viewerLanguage : normalizeLanguage2(message2.originalLanguage),
-    showingTranslated: !isOwn && Boolean(translatedContent),
+    showingTranslated: !message2.isDeleted && !isOwn && Boolean(translatedContent),
     isOwn
   };
 }
@@ -358535,7 +358576,8 @@ var init_personal_chat_routes = __esm({
       clientMessageId: import_zod15.z.string().trim().min(1).max(120).optional(),
       messageType: import_zod15.z.enum(["text", "voice_note", "attachment"]).optional(),
       attachmentUrl: import_zod15.z.string().trim().min(1).max(2e3).optional(),
-      attachmentTitle: import_zod15.z.string().trim().min(1).max(240).optional()
+      attachmentTitle: import_zod15.z.string().trim().min(1).max(240).optional(),
+      replyToId: import_zod15.z.number().int().positive().optional()
     });
     typingSchema = import_zod15.z.object({
       isTyping: import_zod15.z.boolean()
@@ -358745,7 +358787,11 @@ var init_personal_chat_routes = __esm({
           avatarUrl: users.avatarUrl
         }).from(users).where((0, import_drizzle_orm53.eq)(users.id, context.peerUserId));
         const peerContact = await findBestContact(viewerId, peer);
-        const messages3 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.eq)(personalChatMessages.threadId, threadId)).orderBy((0, import_drizzle_orm53.asc)(personalChatMessages.createdAt), (0, import_drizzle_orm53.asc)(personalChatMessages.id));
+        const viewerClearedAt = context.isParticipantA ? thread.participantAClearedAt : thread.participantBClearedAt;
+        const messages3 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.and)(
+          (0, import_drizzle_orm53.eq)(personalChatMessages.threadId, threadId),
+          ...viewerClearedAt ? [(0, import_drizzle_orm53.gt)(personalChatMessages.createdAt, viewerClearedAt)] : []
+        )).orderBy((0, import_drizzle_orm53.asc)(personalChatMessages.createdAt), (0, import_drizzle_orm53.asc)(personalChatMessages.id));
         const deliverableIds = messages3.filter((message2) => message2.senderUserId !== viewerId && !message2.deliveredAt).map((message2) => message2.id);
         if (deliverableIds.length > 0) {
           await db.update(personalChatMessages).set({
@@ -358831,6 +358877,7 @@ var init_personal_chat_routes = __esm({
           translations: translations2,
           clientMessageId: input.clientMessageId || null,
           deliveryStatus: "sent",
+          replyToId: input.replyToId || null,
           metadata: {
             peerLanguage: context.peerLanguage,
             viewerLanguage: context.viewerLanguage,
@@ -358872,6 +358919,51 @@ var init_personal_chat_routes = __esm({
           return res.status(400).json({ error: error2.issues[0]?.message || "Invalid chat message." });
         }
         res.status(500).json({ error: "Failed to send personal message." });
+      }
+    });
+    router11.delete("/api/personal-chats/:threadId/messages/:messageId", requireAuth, async (req, res) => {
+      try {
+        const viewerId = req.user.id;
+        const threadId = Number(req.params.threadId);
+        const messageId = Number(req.params.messageId);
+        if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
+          return res.status(400).json({ error: "Invalid request." });
+        }
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+        if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
+          return res.status(403).json({ error: "Access denied." });
+        }
+        const [message2] = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.eq)(personalChatMessages.id, messageId));
+        if (!message2 || message2.threadId !== threadId) return res.status(404).json({ error: "Message not found." });
+        if (message2.senderUserId !== viewerId) return res.status(403).json({ error: "You can only delete your own messages." });
+        await db.update(personalChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, metadata: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatMessages.id, messageId));
+        const context = getViewerContext(thread, viewerId);
+        emitPersonalChatEvent([viewerId, context.peerUserId], { type: "message_created", threadId, messageId });
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("[PersonalChat] delete message failed:", error2);
+        res.status(500).json({ error: "Failed to delete message." });
+      }
+    });
+    router11.post("/api/personal-chats/:threadId/clear", requireAuth, async (req, res) => {
+      try {
+        const viewerId = req.user.id;
+        const threadId = Number(req.params.threadId);
+        if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+        if (thread.participantAUserId === viewerId) {
+          await db.update(personalChatThreads).set({ participantAClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        } else if (thread.participantBUserId === viewerId) {
+          await db.update(personalChatThreads).set({ participantBClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        } else {
+          return res.status(403).json({ error: "Access denied." });
+        }
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("[PersonalChat] clear chat failed:", error2);
+        res.status(500).json({ error: "Failed to clear chat." });
       }
     });
     router11.post("/api/personal-chats/:threadId/seen", requireAuth, async (req, res) => {
@@ -363495,7 +363587,15 @@ async function updateProfile(userId, updates) {
   const setValues = {};
   if (updates.username !== void 0) setValues.username = updates.username;
   if (updates.avatarUrl !== void 0) setValues.avatarUrl = updates.avatarUrl;
-  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm59.eq)(users.id, userId)).returning({ id: users.id, username: users.username, avatarUrl: users.avatarUrl });
+  if (updates.preferredLanguage !== void 0) setValues.preferredLanguage = updates.preferredLanguage;
+  if (updates.pushNotificationsEnabled !== void 0) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
+  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm59.eq)(users.id, userId)).returning({
+    id: users.id,
+    username: users.username,
+    avatarUrl: users.avatarUrl,
+    preferredLanguage: users.preferredLanguage,
+    pushNotificationsEnabled: users.pushNotificationsEnabled
+  });
   return updated;
 }
 function issueSignalingToken(userId, sessionId, sessionToken, phone) {
@@ -363679,6 +363779,8 @@ async function me(req, res) {
       email: req.user.email,
       phone: req.user.phone,
       avatarUrl: req.user.avatarUrl || null,
+      preferredLanguage: req.user.preferredLanguage || "en",
+      pushNotificationsEnabled: req.user.pushNotificationsEnabled !== false,
       role: req.user.role,
       organizationId: req.user.organizationId,
       organization: req.user.organization || null,
@@ -363715,9 +363817,17 @@ async function updateMe(req, res) {
     }
     const updated = await updateProfile(req.user.id, {
       username: parsed.data.username,
-      avatarUrl
+      avatarUrl,
+      preferredLanguage: parsed.data.preferredLanguage,
+      pushNotificationsEnabled: parsed.data.pushNotificationsEnabled
     });
-    res.json({ id: updated.id, username: updated.username, avatarUrl: updated.avatarUrl });
+    res.json({
+      id: updated.id,
+      username: updated.username,
+      avatarUrl: updated.avatarUrl,
+      preferredLanguage: updated.preferredLanguage,
+      pushNotificationsEnabled: updated.pushNotificationsEnabled
+    });
   } catch (err) {
     logger.error("Auth", "Profile update failed", err);
     res.status(500).json({ message: "Internal server error" });
@@ -363863,7 +363973,9 @@ var init_controller = __esm({
     });
     updateMeSchema = import_zod22.z.object({
       username: import_zod22.z.string().trim().min(1).max(100).optional(),
-      avatarUrl: import_zod22.z.string().trim().min(1).optional()
+      avatarUrl: import_zod22.z.string().trim().min(1).optional(),
+      preferredLanguage: import_zod22.z.string().trim().min(2).max(16).optional(),
+      pushNotificationsEnabled: import_zod22.z.boolean().optional()
     });
   }
 });

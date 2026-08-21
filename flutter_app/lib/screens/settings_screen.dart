@@ -6,6 +6,10 @@ import '../services/api_service.dart';
 import '../utils/external_link.dart';
 import 'login_screen.dart';
 import 'edit_profile_screen.dart';
+import 'notifications_settings_screen.dart';
+import 'language_preferences_screen.dart';
+import 'microphone_settings_screen.dart';
+import 'translation_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -23,12 +27,6 @@ class SettingsScreen extends StatelessWidget {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const EditProfileScreen()));
   }
 
-  void _showComingSoon(BuildContext context, String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$feature is not available in the app yet.')),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
@@ -42,13 +40,13 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 8),
             _section('Account', [
               _tile(Icons.person_outline, 'Profile', () => _openEditProfile(context)),
-              _tile(Icons.notifications_outlined, 'Notifications', () => _showComingSoon(context, 'Notification preferences')),
-              _tile(Icons.language_outlined, 'Language Preferences', () => _showComingSoon(context, 'Language preferences')),
+              _tile(Icons.notifications_outlined, 'Notifications', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsSettingsScreen()))),
+              _tile(Icons.language_outlined, 'Language Preferences', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LanguagePreferencesScreen()))),
             ]),
             const SizedBox(height: 8),
             _section('Calls', [
-              _tile(Icons.mic_outlined, 'Microphone Settings', () => _showComingSoon(context, 'Microphone settings')),
-              _tile(Icons.translate_outlined, 'Translation Settings', () => _showComingSoon(context, 'Translation settings')),
+              _tile(Icons.mic_outlined, 'Microphone Settings', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MicrophoneSettingsScreen()))),
+              _tile(Icons.translate_outlined, 'Translation Settings', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TranslationSettingsScreen()))),
               _tile(Icons.record_voice_over_outlined, 'Voice Clone', () => _openWebPage(context, '/settings/voice-clone')),
             ]),
             const SizedBox(height: 8),

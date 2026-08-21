@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/group_chat_provider.dart';
@@ -48,6 +49,64 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _scrollToBottom();
   }
 
+  bool get _selfIsAdmin {
+    final selfId = context.read<AuthProvider>().user?['id'];
+    final members = (context.read<GroupChatProvider>().activeGroup?['members'] as List?) ?? const [];
+    for (final m in members) {
+      if ((m as Map)['userId'] == selfId) return m['role'] == 'admin';
+    }
+    return false;
+  }
+
+  Future<void> _copyMessage(Map<String, dynamic> message) async {
+    final text = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+  }
+
+  Future<void> _deleteMessage(Map<String, dynamic> message) async {
+    final id = message['id'];
+    if (id is! int) return;
+    try {
+      await context.read<GroupChatProvider>().deleteMessage(widget.groupId, id);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not delete message.')));
+    }
+  }
+
+  void _showMessageActions(Map<String, dynamic> message, bool isOwn) {
+    final canDelete = isOwn || _selfIsAdmin;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
+              title: const Text('Copy', style: TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _copyMessage(message);
+              },
+            ),
+            if (canDelete)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: AppColors.red),
+                title: const Text('Delete', style: TextStyle(color: AppColors.red)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _deleteMessage(message);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<GroupChatProvider>();
@@ -80,10 +139,15 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                             controller: _scrollCtrl,
                             padding: const EdgeInsets.all(16),
                             itemCount: provider.messages.length,
-                            itemBuilder: (_, i) => _GroupMessageBubble(
-                              message: provider.messages[i],
-                              isOwn: provider.messages[i]['senderId'] == selfId || provider.messages[i]['senderId'] == -1,
-                            ),
+                            itemBuilder: (_, i) {
+                              final msg = provider.messages[i];
+                              final isOwn = msg['senderId'] == selfId || msg['senderId'] == -1;
+                              return _GroupMessageBubble(
+                                message: msg,
+                                isOwn: isOwn,
+                                onLongPress: msg['_pending'] == true ? null : () => _showMessageActions(msg, isOwn),
+                              );
+                            },
                           ),
           ),
           _inputBar(),
@@ -131,7 +195,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
 class _GroupMessageBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final bool isOwn;
-  const _GroupMessageBubble({required this.message, required this.isOwn});
+  final VoidCallback? onLongPress;
+  const _GroupMessageBubble({required this.message, required this.isOwn, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +208,8 @@ class _GroupMessageBubble extends StatelessWidget {
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+      child: GestureDetector(
+      onLongPress: onLongPress,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -179,6 +246,7 @@ class _GroupMessageBubble extends StatelessWidget {
             ],
           ],
         ),
+      ),
       ),
     );
   }

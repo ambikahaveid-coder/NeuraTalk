@@ -540,17 +540,36 @@ export async function finalizeAvatarUpload(userId: number, objectPath: string): 
 
 export async function updateProfile(
   userId: number,
-  updates: { username?: string; avatarUrl?: string },
-): Promise<{ id: number; username: string; avatarUrl: string | null }> {
+  updates: {
+    username?: string;
+    avatarUrl?: string;
+    preferredLanguage?: string;
+    pushNotificationsEnabled?: boolean;
+  },
+): Promise<{
+  id: number;
+  username: string;
+  avatarUrl: string | null;
+  preferredLanguage: string | null;
+  pushNotificationsEnabled: boolean;
+}> {
   const setValues: Record<string, unknown> = {};
   if (updates.username !== undefined) setValues.username = updates.username;
   if (updates.avatarUrl !== undefined) setValues.avatarUrl = updates.avatarUrl;
+  if (updates.preferredLanguage !== undefined) setValues.preferredLanguage = updates.preferredLanguage;
+  if (updates.pushNotificationsEnabled !== undefined) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
 
   const [updated] = await db
     .update(users)
     .set(setValues)
     .where(eq(users.id, userId))
-    .returning({ id: users.id, username: users.username, avatarUrl: users.avatarUrl });
+    .returning({
+      id: users.id,
+      username: users.username,
+      avatarUrl: users.avatarUrl,
+      preferredLanguage: users.preferredLanguage,
+      pushNotificationsEnabled: users.pushNotificationsEnabled,
+    });
 
   return updated;
 }

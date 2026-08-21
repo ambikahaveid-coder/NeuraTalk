@@ -14,7 +14,7 @@
 import admin from "firebase-admin";
 import { and, eq, or } from "drizzle-orm";
 import { db } from "./db";
-import { registeredDevices } from "@shared/schema";
+import { registeredDevices, users } from "@shared/schema";
 import { logger } from "./observability";
 
 let firebaseAdminApp: admin.app.App | null = null;
@@ -246,6 +246,16 @@ export async function sendPushNotification(
   notification: { title: string; body: string; data?: Record<string, string> },
 ): Promise<{ sent: number; failed: number }> {
   if (!firebaseAdminApp) {
+    return { sent: 0, failed: 0 };
+  }
+
+  // Message-notification opt-out (Settings > Notifications). Call alerts use
+  // sendVoIPPush separately, above, and are never gated by this.
+  const [userRow] = await db
+    .select({ pushNotificationsEnabled: users.pushNotificationsEnabled })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (userRow && userRow.pushNotificationsEnabled === false) {
     return { sent: 0, failed: 0 };
   }
 

@@ -210,6 +210,8 @@ export async function me(req: Request, res: Response) {
       email: req.user.email,
       phone: req.user.phone,
       avatarUrl: req.user.avatarUrl || null,
+      preferredLanguage: req.user.preferredLanguage || "en",
+      pushNotificationsEnabled: req.user.pushNotificationsEnabled !== false,
       role: req.user.role,
       organizationId: req.user.organizationId,
       organization: req.user.organization || null,
@@ -228,6 +230,8 @@ export async function me(req: Request, res: Response) {
 const updateMeSchema = z.object({
   username: z.string().trim().min(1).max(100).optional(),
   avatarUrl: z.string().trim().min(1).optional(),
+  preferredLanguage: z.string().trim().min(2).max(16).optional(),
+  pushNotificationsEnabled: z.boolean().optional(),
 });
 
 export async function updateMe(req: Request, res: Response) {
@@ -256,9 +260,17 @@ export async function updateMe(req: Request, res: Response) {
     const updated = await svc.updateProfile(req.user.id, {
       username: parsed.data.username,
       avatarUrl,
+      preferredLanguage: parsed.data.preferredLanguage,
+      pushNotificationsEnabled: parsed.data.pushNotificationsEnabled,
     });
 
-    res.json({ id: updated.id, username: updated.username, avatarUrl: updated.avatarUrl });
+    res.json({
+      id: updated.id,
+      username: updated.username,
+      avatarUrl: updated.avatarUrl,
+      preferredLanguage: updated.preferredLanguage,
+      pushNotificationsEnabled: updated.pushNotificationsEnabled,
+    });
   } catch (err) {
     logger.error("Auth", "Profile update failed", err as Error);
     res.status(500).json({ message: "Internal server error" });

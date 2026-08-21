@@ -92,6 +92,7 @@ class PersonalChatProvider extends ChangeNotifier {
     String messageType = 'text',
     String? attachmentUrl,
     String? attachmentTitle,
+    int? replyToId,
   }) async {
     final clientMessageId = '${DateTime.now().microsecondsSinceEpoch}';
     final optimistic = {
@@ -104,6 +105,7 @@ class PersonalChatProvider extends ChangeNotifier {
       'messageType': messageType,
       'attachmentUrl': attachmentUrl,
       'attachmentTitle': attachmentTitle,
+      'replyToId': replyToId,
       'deliveryStatus': 'sending',
       'createdAt': DateTime.now().toIso8601String(),
     };
@@ -117,6 +119,7 @@ class PersonalChatProvider extends ChangeNotifier {
         'messageType': messageType,
         if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
         if (attachmentTitle != null) 'attachmentTitle': attachmentTitle,
+        if (replyToId != null) 'replyToId': replyToId,
       });
       final saved = res['message'] as Map<String, dynamic>;
       final idx = messages.indexWhere((m) => m['clientMessageId'] == clientMessageId);
@@ -164,6 +167,36 @@ class PersonalChatProvider extends ChangeNotifier {
     try {
       await ApiService.post('/api/personal-chats/$threadId/seen', {});
     } catch (_) {}
+  }
+
+  /// Delete for everyone -- server clears the content; only the sender may
+  /// call this (server enforces it too).
+  Future<void> deleteMessage(int threadId, int messageId) async {
+    final idx = messages.indexWhere((m) => m['id'] == messageId);
+    try {
+      await ApiService.delete('/api/personal-chats/$threadId/messages/$messageId');
+      if (idx != -1) {
+        messages[idx] = {
+          ...messages[idx],
+          'isDeleted': true,
+          'displayContent': 'This message was deleted',
+          'originalContent': '',
+          'attachmentUrl': null,
+          'showingTranslated': false,
+        };
+        notifyListeners();
+      }
+    } catch (_) {
+      rethrow;
+    }
+  }
+
+  /// Clears this thread from the caller's own view only -- the other
+  /// participant's messages are untouched.
+  Future<void> clearChat(int threadId) async {
+    await ApiService.post('/api/personal-chats/$threadId/clear', {});
+    messages = [];
+    notifyListeners();
   }
 
   /// Debounced typing: call on every keystroke. Sends isTyping=true at most

@@ -106,6 +106,12 @@ class GroupChatProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> deleteMessage(int groupId, int messageId) async {
+    await ApiService.delete('/api/group-chats/$groupId/messages/$messageId');
+    messages.removeWhere((m) => m['id'] == messageId);
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _pollTimer?.cancel();

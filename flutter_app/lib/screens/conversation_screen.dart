@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -34,6 +35,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   bool _uploading = false;
   bool _recording = false;
   DateTime? _recordingStartedAt;
+  Map<String, dynamic>? _replyingTo;
 
   int get _threadId => widget.thread['id'] as int;
   Map<String, dynamic> get _peer => (widget.thread['peer'] as Map<String, dynamic>?) ?? const {};
@@ -77,9 +79,110 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
     _msgCtrl.clear();
-    context.read<PersonalChatProvider>().sendMessage(_threadId, text);
+    final replyId = _replyingTo != null ? _asMessageId(_replyingTo!['id']) : null;
+    context.read<PersonalChatProvider>().sendMessage(_threadId, text, replyToId: replyId);
     context.read<PersonalChatProvider>().onTextChanged(_threadId, '');
+    setState(() => _replyingTo = null);
     _scrollToBottom();
+  }
+
+  int? _asMessageId(dynamic id) => id is int ? id : int.tryParse(id.toString());
+
+  Map<String, dynamic>? _findMessageById(int? id) {
+    if (id == null) return null;
+    final provider = context.read<PersonalChatProvider>();
+    for (final m in provider.messages) {
+      if (_asMessageId(m['id']) == id) return m;
+    }
+    return null;
+  }
+
+  void _startReply(Map<String, dynamic> message) {
+    setState(() => _replyingTo = message);
+    _focusNode.requestFocus();
+  }
+
+  Future<void> _copyMessage(Map<String, dynamic> message) async {
+    final text = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied')));
+  }
+
+  Future<void> _deleteMessage(Map<String, dynamic> message) async {
+    final id = _asMessageId(message['id']);
+    if (id == null) return;
+    try {
+      await context.read<PersonalChatProvider>().deleteMessage(_threadId, id);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not delete message.')));
+    }
+  }
+
+  void _showMessageActions(Map<String, dynamic> message) {
+    final isOwn = message['isOwn'] == true;
+    final isDeleted = message['isDeleted'] == true;
+    if (isDeleted) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.reply, color: AppColors.cyan),
+              title: const Text('Reply', style: TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _startReply(message);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
+              title: const Text('Copy', style: TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _copyMessage(message);
+              },
+            ),
+            if (isOwn)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: AppColors.red),
+                title: const Text('Delete', style: TextStyle(color: AppColors.red)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _deleteMessage(message);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmClearChat() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Clear chat?', style: TextStyle(color: AppColors.white)),
+        content: const Text(
+          'This removes all messages from your view. The other person will still see them.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Clear', style: TextStyle(color: AppColors.red))),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<PersonalChatProvider>().clearChat(_threadId);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not clear chat.')));
+    }
   }
 
   void _toggleEmoji() {
@@ -262,6 +365,16 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             icon: const Icon(Icons.videocam_outlined),
             onPressed: _calling ? null : () => _startCall(video: true),
           ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
+            color: AppColors.surface,
+            onSelected: (value) {
+              if (value == 'clear') _confirmClearChat();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.white))),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -280,6 +393,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                             itemBuilder: (_, i) => _PersonalMessageBubble(
                               message: provider.messages[i],
                               onRetry: () => context.read<PersonalChatProvider>().retryMessage(_threadId, provider.messages[i]),
+                              onLongPress: () => _showMessageActions(provider.messages[i]),
+                              repliedMessage: _findMessageById(_asMessageId(provider.messages[i]['replyToId'])),
                             ),
                           ),
           ),
@@ -294,6 +409,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               child: SizedBox(height: 14, width: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)),
             ),
           if (_recording) _recordingBar(),
+          if (_replyingTo != null) _replyPreviewBar(),
           _inputBar(),
           if (_showEmoji)
             SizedBox(
@@ -309,6 +425,35 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
         ],
       ),
+      ),
+    );
+  }
+
+  Widget _replyPreviewBar() {
+    final reply = _replyingTo!;
+    final text = reply['displayContent']?.toString() ?? reply['originalContent']?.toString() ?? '';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: AppColors.backgroundMid,
+      child: Row(
+        children: [
+          Container(width: 3, height: 32, color: AppColors.cyan),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Replying to', style: TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w700)),
+                Text(text, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: AppColors.textMuted, size: 18),
+            onPressed: () => setState(() => _replyingTo = null),
+          ),
+        ],
       ),
     );
   }
@@ -391,7 +536,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
 class _PersonalMessageBubble extends StatefulWidget {
   final Map<String, dynamic> message;
   final VoidCallback onRetry;
-  const _PersonalMessageBubble({required this.message, required this.onRetry});
+  final VoidCallback? onLongPress;
+  final Map<String, dynamic>? repliedMessage;
+  const _PersonalMessageBubble({required this.message, required this.onRetry, this.onLongPress, this.repliedMessage});
 
   @override
   State<_PersonalMessageBubble> createState() => _PersonalMessageBubbleState();
@@ -439,7 +586,9 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress: widget.onLongPress,
+        child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: messageType == 'attachment' && attachmentUrl != null
             ? const EdgeInsets.all(4)
@@ -458,6 +607,22 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (widget.repliedMessage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: bubbleFg.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border(left: BorderSide(color: bubbleFg.withOpacity(0.5), width: 3)),
+                ),
+                child: Text(
+                  widget.repliedMessage!['displayContent']?.toString() ?? widget.repliedMessage!['originalContent']?.toString() ?? '',
+                  style: TextStyle(color: bubbleFg.withOpacity(0.75), fontSize: 12),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             if (messageType == 'attachment' && attachmentUrl != null)
               GestureDetector(
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MediaViewerScreen(imageUrl: '${ApiService.baseUrl}$attachmentUrl'))),
@@ -523,6 +688,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
               const Text('Delivered', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
             ],
           ],
+        ),
         ),
       ),
     );

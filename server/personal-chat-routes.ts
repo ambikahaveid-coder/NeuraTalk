@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { EventEmitter } from "node:events";
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { personalChatMessages, personalChatThreads, userContacts, users } from "@shared/schema";
@@ -29,6 +29,7 @@ const sendMessageSchema = z.object({
   messageType: z.enum(["text", "voice_note", "attachment"]).optional(),
   attachmentUrl: z.string().trim().min(1).max(2000).optional(),
   attachmentTitle: z.string().trim().min(1).max(240).optional(),
+  replyToId: z.number().int().positive().optional(),
 });
 
 const typingSchema = z.object({
@@ -270,17 +271,19 @@ function formatMessage(
     ? translations[viewerLanguage] || null
     : null;
   const isOwn = message.senderUserId === viewerId;
-  const displayContent = !isOwn && translatedContent ? translatedContent : message.originalContent;
+  const displayContent = message.isDeleted
+    ? "This message was deleted"
+    : (!isOwn && translatedContent ? translatedContent : message.originalContent);
 
   return {
     ...message,
     translations,
-    attachmentUrl: typeof (message.metadata as any)?.attachmentUrl === "string" ? (message.metadata as any).attachmentUrl : null,
+    attachmentUrl: message.isDeleted ? null : (typeof (message.metadata as any)?.attachmentUrl === "string" ? (message.metadata as any).attachmentUrl : null),
     attachmentTitle: typeof (message.metadata as any)?.attachmentTitle === "string" ? (message.metadata as any).attachmentTitle : null,
-    translatedContent,
+    translatedContent: message.isDeleted ? null : translatedContent,
     displayContent,
     displayLanguage: !isOwn && translatedContent ? viewerLanguage : normalizeLanguage(message.originalLanguage),
-    showingTranslated: !isOwn && Boolean(translatedContent),
+    showingTranslated: !message.isDeleted && !isOwn && Boolean(translatedContent),
     isOwn,
   };
 }
@@ -554,8 +557,12 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
     }).from(users).where(eq(users.id, context.peerUserId));
     const peerContact = await findBestContact(viewerId, peer);
 
+    const viewerClearedAt = context.isParticipantA ? thread.participantAClearedAt : thread.participantBClearedAt;
     const messages = await db.select().from(personalChatMessages)
-      .where(eq(personalChatMessages.threadId, threadId))
+      .where(and(
+        eq(personalChatMessages.threadId, threadId),
+        ...(viewerClearedAt ? [gt(personalChatMessages.createdAt, viewerClearedAt)] : []),
+      ))
       .orderBy(asc(personalChatMessages.createdAt), asc(personalChatMessages.id));
 
     const deliverableIds = messages
@@ -658,6 +665,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       translations,
       clientMessageId: input.clientMessageId || null,
       deliveryStatus: "sent",
+      replyToId: input.replyToId || null,
       metadata: {
         peerLanguage: context.peerLanguage,
         viewerLanguage: context.viewerLanguage,
@@ -709,6 +717,68 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       return res.status(400).json({ error: error.issues[0]?.message || "Invalid chat message." });
     }
     res.status(500).json({ error: "Failed to send personal message." });
+  }
+});
+
+// Delete for everyone -- only the sender may delete their own message.
+// Content is cleared server-side (not just hidden) so it can never be
+// re-displayed to either participant.
+router.delete("/api/personal-chats/:threadId/messages/:messageId", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    const threadId = Number(req.params.threadId);
+    const messageId = Number(req.params.messageId);
+    if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
+      return res.status(400).json({ error: "Invalid request." });
+    }
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+    if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+
+    const [message] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, messageId));
+    if (!message || message.threadId !== threadId) return res.status(404).json({ error: "Message not found." });
+    if (message.senderUserId !== viewerId) return res.status(403).json({ error: "You can only delete your own messages." });
+
+    await db.update(personalChatMessages)
+      .set({ isDeleted: true, originalContent: "", translations: {}, metadata: {}, updatedAt: new Date() })
+      .where(eq(personalChatMessages.id, messageId));
+
+    const context = getViewerContext(thread, viewerId);
+    emitPersonalChatEvent([viewerId, context.peerUserId], { type: "message_created", threadId, messageId });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[PersonalChat] delete message failed:", error);
+    res.status(500).json({ error: "Failed to delete message." });
+  }
+});
+
+// Clear chat -- hides everything up to now from the requester's own view
+// only; the other participant's view and the underlying rows are untouched.
+router.post("/api/personal-chats/:threadId/clear", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    const threadId = Number(req.params.threadId);
+    if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+
+    if (thread.participantAUserId === viewerId) {
+      await db.update(personalChatThreads).set({ participantAClearedAt: new Date() }).where(eq(personalChatThreads.id, threadId));
+    } else if (thread.participantBUserId === viewerId) {
+      await db.update(personalChatThreads).set({ participantBClearedAt: new Date() }).where(eq(personalChatThreads.id, threadId));
+    } else {
+      return res.status(403).json({ error: "Access denied." });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[PersonalChat] clear chat failed:", error);
+    res.status(500).json({ error: "Failed to clear chat." });
   }
 });
 
