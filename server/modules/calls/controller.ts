@@ -5,7 +5,7 @@
 
 import type { Request, Response } from "express";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
 import { db } from "../../db";
@@ -49,6 +49,8 @@ import {
 } from "./streaming";
 import { hasValidConsent } from "../../call-privacy";
 import { CALL_STATUS, PERMISSIONS, users } from "@shared/schema";
+import { normalizePhoneNumber } from "@shared/phone";
+import { isBlocked } from "../../blocking";
 import * as svc from "./service";
 import { getMetricsSnapshot, getVoiceMetricsSnapshot } from "./metrics";
 import {
@@ -409,6 +411,21 @@ export async function initiate(req: Request, res: Response) {
       return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
     }
     const user = req.user!;
+
+    // Resolve the callee to a real user (when it's an app identifier, not a
+    // raw PSTN number) so a block between the two can actually be checked --
+    // mirrors personal-chat-routes.ts's resolveRecipientUser lookup.
+    const calleeIdentifier = parsed.data.calleeIdentifier;
+    const normalizedPhone = normalizePhoneNumber(calleeIdentifier);
+    const [calleeUser] = await db.select({ id: users.id }).from(users).where(or(
+      eq(users.username, calleeIdentifier),
+      eq(users.email, calleeIdentifier),
+      eq(users.phone, normalizedPhone),
+    ));
+    if (calleeUser && (await isBlocked(user.id, calleeUser.id))) {
+      return res.status(403).json({ message: "This call can't be completed.", code: "BLOCKED" });
+    }
+
     const result = await svc.initiateCall({
       callerId: String(user.id),
       callerUsername: user.username,

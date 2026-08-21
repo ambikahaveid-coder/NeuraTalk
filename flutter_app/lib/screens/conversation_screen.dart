@@ -36,9 +36,11 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   bool _recording = false;
   DateTime? _recordingStartedAt;
   Map<String, dynamic>? _replyingTo;
+  bool _blockedByMe = false;
 
   int get _threadId => widget.thread['id'] as int;
   Map<String, dynamic> get _peer => (widget.thread['peer'] as Map<String, dynamic>?) ?? const {};
+  int? get _peerId => _peer['id'] as int?;
 
   @override
   void initState() {
@@ -47,6 +49,95 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final provider = context.read<PersonalChatProvider>();
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.openThread(_threadId).then((_) => _scrollToBottom());
+    _loadBlockStatus();
+  }
+
+  Future<void> _loadBlockStatus() async {
+    final peerId = _peerId;
+    if (peerId == null) return;
+    try {
+      final res = await ApiService.get('/api/users/$peerId/blocked-status') as Map<String, dynamic>;
+      if (mounted) setState(() => _blockedByMe = res['blockedByMe'] == true);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleBlock() async {
+    final peerId = _peerId;
+    if (peerId == null) return;
+    final wasBlocked = _blockedByMe;
+    try {
+      if (wasBlocked) {
+        await ApiService.delete('/api/users/$peerId/block');
+      } else {
+        await ApiService.post('/api/users/$peerId/block', {});
+      }
+      if (mounted) {
+        setState(() => _blockedByMe = !wasBlocked);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(wasBlocked ? 'Unblocked' : 'Blocked')));
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update block status.')));
+    }
+  }
+
+  Future<void> _showReportDialog() async {
+    const categories = ['harassment', 'spam', 'fraud', 'inappropriate', 'other'];
+    String selected = categories.first;
+    final descCtrl = TextEditingController();
+
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('Report user', style: TextStyle(color: AppColors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              DropdownButton<String>(
+                value: selected,
+                dropdownColor: AppColors.surface,
+                isExpanded: true,
+                items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: AppColors.white)))).toList(),
+                onChanged: (v) => setDialogState(() => selected = v ?? selected),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descCtrl,
+                maxLines: 3,
+                style: const TextStyle(color: AppColors.white),
+                decoration: InputDecoration(
+                  hintText: 'What happened? (optional)',
+                  hintStyle: const TextStyle(color: AppColors.textMuted),
+                  filled: true,
+                  fillColor: AppColors.background,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit', style: TextStyle(color: AppColors.cyan))),
+          ],
+        ),
+      ),
+    );
+
+    if (submitted != true || !mounted) return;
+    final peerId = _peerId;
+    try {
+      await ApiService.post('/api/abuse/report', {
+        'reportedUserId': peerId,
+        'reportedEntityType': 'user',
+        'category': selected,
+        if (descCtrl.text.trim().isNotEmpty) 'description': descCtrl.text.trim(),
+      });
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report submitted. Thank you.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not submit report.')));
+    }
   }
 
   @override
@@ -369,10 +460,25 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
             color: AppColors.surface,
             onSelected: (value) {
-              if (value == 'clear') _confirmClearChat();
+              switch (value) {
+                case 'clear':
+                  _confirmClearChat();
+                  break;
+                case 'block':
+                  _toggleBlock();
+                  break;
+                case 'report':
+                  _showReportDialog();
+                  break;
+              }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.white))),
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.white))),
+              PopupMenuItem(
+                value: 'block',
+                child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.white : AppColors.red)),
+              ),
+              const PopupMenuItem(value: 'report', child: Text('Report', style: TextStyle(color: AppColors.red))),
             ],
           ),
         ],
@@ -410,7 +516,19 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
           if (_recording) _recordingBar(),
           if (_replyingTo != null) _replyPreviewBar(),
-          _inputBar(),
+          if (_blockedByMe)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: AppColors.backgroundMid,
+              child: Text(
+                'You blocked this user. Unblock to send messages.',
+                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            )
+          else
+            _inputBar(),
           if (_showEmoji)
             SizedBox(
               height: 280,

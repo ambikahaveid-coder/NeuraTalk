@@ -199,6 +199,27 @@ class PersonalChatProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pin/archive/mute are per-viewer (server/personal-chat-routes.ts's
+  /// PATCH .../state) -- updates the local thread list optimistically so
+  /// the list re-sorts/re-filters immediately.
+  Future<void> updateThreadState(int threadId, {bool? pinned, bool? archived, bool? muted}) async {
+    await ApiService.patch('/api/personal-chats/$threadId/state', {
+      if (pinned != null) 'pinned': pinned,
+      if (archived != null) 'archived': archived,
+      if (muted != null) 'muted': muted,
+    });
+    final idx = threads.indexWhere((t) => t['id'] == threadId);
+    if (idx != -1) {
+      threads[idx] = {
+        ...threads[idx],
+        if (pinned != null) 'isPinned': pinned,
+        if (archived != null) 'isArchived': archived,
+        if (muted != null) 'isMuted': muted,
+      };
+      notifyListeners();
+    }
+  }
+
   /// Debounced typing: call on every keystroke. Sends isTyping=true at most
   /// once per burst, and auto-sends isTyping=false after 3s of silence
   /// (matches the server's own 8s TTL with margin to spare).

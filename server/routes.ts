@@ -38,6 +38,7 @@ import auditLoggingRoutes from "./audit-logging";
 import voiceMemosRoutes from "./voice-memos";
 import groupChatsRoutes from "./group-chats";
 import personalChatRoutes from "./personal-chat-routes";
+import blockingRoutes from "./blocking";
 import { registerLipSyncRoutes } from "./lip-sync";
 import { registerOpenApiRoutes } from "./openapi";
 import { registerRoomRoutes } from "./room-routes";
@@ -235,6 +236,7 @@ export async function registerRoutes(
   // Multi-language Group Chats
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
+  app.use(blockingRoutes);
   console.log("[Routes] ✓ Group chats routes");
   
   // Lip-sync video translation (self-hosted GPU architecture)

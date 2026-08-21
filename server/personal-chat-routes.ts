@@ -10,6 +10,7 @@ import { requireAuth } from "./role-middleware";
 import { ObjectStorageService } from "./ai_integrations/object_storage/objectStorage";
 import { setObjectAclPolicy } from "./ai_integrations/object_storage/objectAcl";
 import { sendPushNotification } from "./firebase-admin";
+import { isBlocked } from "./blocking";
 
 const router = Router();
 
@@ -401,6 +402,9 @@ router.get("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: R
         ...thread,
         viewerLanguage: context.viewerLanguage,
         peerLanguage: context.peerLanguage,
+        isPinned: context.isParticipantA ? thread.participantAPinned : thread.participantBPinned,
+        isArchived: context.isParticipantA ? thread.participantAArchived : thread.participantBArchived,
+        isMuted: context.isParticipantA ? thread.participantAMuted : thread.participantBMuted,
         unreadCount,
         peer: {
           id: peer?.id,
@@ -633,6 +637,10 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       return res.status(403).json({ error: "Access denied." });
     }
 
+    if (await isBlocked(viewerId, context.peerUserId)) {
+      return res.status(403).json({ error: "You can't message this user.", code: "BLOCKED" });
+    }
+
     if (input.clientMessageId) {
       const [existing] = await db.select().from(personalChatMessages).where(and(
         eq(personalChatMessages.threadId, threadId),
@@ -779,6 +787,46 @@ router.post("/api/personal-chats/:threadId/clear", requireAuth, async (req: Auth
   } catch (error) {
     console.error("[PersonalChat] clear chat failed:", error);
     res.status(500).json({ error: "Failed to clear chat." });
+  }
+});
+
+const threadStateSchema = z.object({
+  pinned: z.boolean().optional(),
+  archived: z.boolean().optional(),
+  muted: z.boolean().optional(),
+});
+
+// Pin/archive/mute -- per-viewer, mirrors clear chat's isolation.
+router.patch("/api/personal-chats/:threadId/state", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    const threadId = Number(req.params.threadId);
+    if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
+
+    const input = threadStateSchema.parse(req.body);
+    if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update." });
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+
+    const isA = thread.participantAUserId === viewerId;
+    const isB = thread.participantBUserId === viewerId;
+    if (!isA && !isB) return res.status(403).json({ error: "Access denied." });
+
+    const setValues: Record<string, unknown> = {};
+    if (input.pinned !== undefined) setValues[isA ? "participantAPinned" : "participantBPinned"] = input.pinned;
+    if (input.archived !== undefined) setValues[isA ? "participantAArchived" : "participantBArchived"] = input.archived;
+    if (input.muted !== undefined) setValues[isA ? "participantAMuted" : "participantBMuted"] = input.muted;
+
+    await db.update(personalChatThreads).set(setValues).where(eq(personalChatThreads.id, threadId));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("[PersonalChat] update thread state failed:", error);
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues[0]?.message || "Invalid request." });
+    }
+    res.status(500).json({ error: "Failed to update chat." });
   }
 });
 

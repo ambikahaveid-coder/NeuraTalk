@@ -5822,6 +5822,7 @@ __export(schema_exports, {
   billingPlans: () => billingPlans,
   billingReservations: () => billingReservations,
   billingSettings: () => billingSettings,
+  blockedUsers: () => blockedUsers,
   branches: () => branches,
   bridgedCalls: () => bridgedCalls,
   bridgedCallsRelations: () => bridgedCallsRelations,
@@ -6040,7 +6041,7 @@ function getCallSessionIds(call) {
     mediaSessionId: call.outboundCallSid
   };
 }
-var import_pg_core, import_drizzle_orm, import_drizzle_zod, USER_ROLES, COMPANY_STATUS, OTP_CHANNEL, organizations, otpChallenges, platformSettings, userSessions, featureFlagsDb, users, orgMembers, customRoles, insertCustomRoleSchema, PERMISSIONS, voiceProfiles, voiceSamples, conversations, messages, personalChatThreads, personalChatMessages, voiceMemos, groupChats, groupChatMembers, groupChatMessages, MEETING_STATUS, meetingRooms, meetingParticipants, CALL_STATUS, bridgedCalls, callTranslations, callParticipants, callConsents, ipWhitelists, insertIpWhitelistSchema, registeredDevices, callTelemetry, organizationsRelations, usersRelations, orgMembersRelations, voiceProfilesRelations, voiceSamplesRelations, conversationsRelations, messagesRelations, voiceMemosRelations, groupChatsRelations, groupChatMembersRelations, groupChatMessagesRelations, bridgedCallsRelations, callTranslationsRelations, callParticipantsRelations, callConsentsRelations, registeredDevicesRelations, callTelemetryRelations, meetingRoomsRelations, meetingParticipantsRelations, countries, states, districts, cities, villages, pincodes, AUDIT_ACTION, auditLogs, supportedLanguages, tenantDatabases, tenantSecurityPolicies, paymentGateways, PLAN_TYPE, BILLING_MODEL, PLAN_DURATION, billingPlans, SUBSCRIPTION_STATUS, subscriptions, usageRecords, INVOICE_STATUS, invoices, invoiceLineItems, gstSettings, billingSettings, billingAccounts, billingReservations, billingLedgerEntries, callBillingRecords, PAYMENT_STATUS, paymentTransactions, PAYMENT_REFUND_STATUS, paymentRefunds, legalContent, supportContacts, APP_VERSION_STATUS, appVersions, rateLimitRules, rateLimitBuckets, REPORT_STATUS, abuseReports, SUSPENSION_STATUS, userSuspensions, CONSENT_TYPE, userConsents, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS, dataSubjectRequests, BACKUP_STATUS, backupJobs, HEALTH_STATUS, systemHealthLogs, userAccessibilityPrefs, DATA_REGION, dataResidencyPolicies, ENVIRONMENT_TYPE, environmentConfigs, billingAnomalies, insertOrganizationSchema, insertUserSchema, insertOrgMemberSchema, insertVoiceProfileSchema, insertBridgedCallSchema, insertCallTranslationSchema, insertCallParticipantSchema, insertCallConsentSchema, insertRegisteredDeviceSchema, insertCallTelemetrySchema, insertVoiceSampleSchema, insertConversationSchema, insertMessageSchema, insertPersonalChatThreadSchema, insertPersonalChatMessageSchema, insertVoiceMemoSchema, insertGroupChatSchema, insertGroupChatMemberSchema, insertGroupChatMessageSchema, insertOtpChallengeSchema, insertPlatformSettingSchema, insertMeetingRoomSchema, insertMeetingParticipantSchema, insertCountrySchema, insertStateSchema, insertDistrictSchema, insertCitySchema, insertVillageSchema, insertPincodeSchema, insertAuditLogSchema, insertSupportedLanguageSchema, insertTenantDatabaseSchema, insertTenantSecurityPolicySchema, insertBillingPlanSchema, insertSubscriptionSchema, insertUsageRecordSchema, insertInvoiceSchema, insertInvoiceLineItemSchema, insertGstSettingsSchema, insertBillingSettingsSchema, insertBillingAccountSchema, insertBillingReservationSchema, insertBillingLedgerEntrySchema, insertCallBillingRecordSchema, insertPaymentGatewaySchema, insertPaymentTransactionSchema, insertLegalContentSchema, insertSupportContactSchema, insertAppVersionSchema, insertRateLimitRuleSchema, insertAbuseReportSchema, insertUserSuspensionSchema, insertUserConsentSchema, insertDataSubjectRequestSchema, insertBackupJobSchema, insertSystemHealthLogSchema, insertUserAccessibilityPrefsSchema, insertDataResidencyPolicySchema, insertEnvironmentConfigSchema, platformSecrets, insertPlatformSecretSchema, signalingSessions, insertSignalingSessionSchema, aiPersonas, insertAiPersonaSchema, userAnalytics, insertUserAnalyticsSchema, enterpriseApiKeys, enterpriseApiKeysRelations, insertEnterpriseApiKeySchema, communicationVirtualNumbers, communicationMaskedNumberMappings, communicationApiKeyPricing, communicationSessions, communicationSessionEvents, insertCommunicationVirtualNumberSchema, insertCommunicationMaskedNumberMappingSchema, insertCommunicationApiKeyPricingSchema, insertCommunicationSessionSchema, insertCommunicationSessionEventSchema, userContacts, insertUserContactSchema, agentSkills, insertAgentSkillSchema, orgDIDNumbers, insertOrgDIDNumberSchema, enterpriseNumbers, insertEnterpriseNumberSchema, numberVerifications, insertNumberVerificationSchema, sipIntegrations, insertSipIntegrationSchema, languageRules, insertLanguageRuleSchema, aiConfigurations, insertAiConfigurationSchema, integrationAuditLogs, exotelStreamConfigs, insertExotelStreamConfigSchema, userNotifications, insertUserNotificationSchema, departments, insertDepartmentSchema, branches, insertBranchSchema, teams, insertTeamSchema, teamMembers, insertTeamMemberSchema, businessHours, insertBusinessHoursSchema, holidayCalendar, insertHolidayCalendarSchema, ivrMenus, insertIvrMenuSchema, ivrOptions, insertIvrOptionSchema, callQueues, insertCallQueueSchema, QUEUED_CALL_STATUS, queuedCalls, insertQueuedCallSchema, agentPresence, insertAgentPresenceSchema, pbxIntegrations, insertPbxIntegrationSchema, supervisorSessions, insertSupervisorSessionSchema, costCenters, insertCostCenterSchema, WEBHOOK_EVENT_TYPES, webhookEndpoints, insertWebhookEndpointSchema, WEBHOOK_DELIVERY_STATUS, webhookDeliveries, insertWebhookDeliverySchema, RECORDING_STATUS, callRecordings, insertCallRecordingSchema, FRAUD_FLAG_REASON, fraudFlags, insertFraudFlagSchema;
+var import_pg_core, import_drizzle_orm, import_drizzle_zod, USER_ROLES, COMPANY_STATUS, OTP_CHANNEL, organizations, otpChallenges, platformSettings, userSessions, featureFlagsDb, users, orgMembers, customRoles, insertCustomRoleSchema, PERMISSIONS, voiceProfiles, voiceSamples, conversations, messages, blockedUsers, personalChatThreads, personalChatMessages, voiceMemos, groupChats, groupChatMembers, groupChatMessages, MEETING_STATUS, meetingRooms, meetingParticipants, CALL_STATUS, bridgedCalls, callTranslations, callParticipants, callConsents, ipWhitelists, insertIpWhitelistSchema, registeredDevices, callTelemetry, organizationsRelations, usersRelations, orgMembersRelations, voiceProfilesRelations, voiceSamplesRelations, conversationsRelations, messagesRelations, voiceMemosRelations, groupChatsRelations, groupChatMembersRelations, groupChatMessagesRelations, bridgedCallsRelations, callTranslationsRelations, callParticipantsRelations, callConsentsRelations, registeredDevicesRelations, callTelemetryRelations, meetingRoomsRelations, meetingParticipantsRelations, countries, states, districts, cities, villages, pincodes, AUDIT_ACTION, auditLogs, supportedLanguages, tenantDatabases, tenantSecurityPolicies, paymentGateways, PLAN_TYPE, BILLING_MODEL, PLAN_DURATION, billingPlans, SUBSCRIPTION_STATUS, subscriptions, usageRecords, INVOICE_STATUS, invoices, invoiceLineItems, gstSettings, billingSettings, billingAccounts, billingReservations, billingLedgerEntries, callBillingRecords, PAYMENT_STATUS, paymentTransactions, PAYMENT_REFUND_STATUS, paymentRefunds, legalContent, supportContacts, APP_VERSION_STATUS, appVersions, rateLimitRules, rateLimitBuckets, REPORT_STATUS, abuseReports, SUSPENSION_STATUS, userSuspensions, CONSENT_TYPE, userConsents, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS, dataSubjectRequests, BACKUP_STATUS, backupJobs, HEALTH_STATUS, systemHealthLogs, userAccessibilityPrefs, DATA_REGION, dataResidencyPolicies, ENVIRONMENT_TYPE, environmentConfigs, billingAnomalies, insertOrganizationSchema, insertUserSchema, insertOrgMemberSchema, insertVoiceProfileSchema, insertBridgedCallSchema, insertCallTranslationSchema, insertCallParticipantSchema, insertCallConsentSchema, insertRegisteredDeviceSchema, insertCallTelemetrySchema, insertVoiceSampleSchema, insertConversationSchema, insertMessageSchema, insertPersonalChatThreadSchema, insertPersonalChatMessageSchema, insertVoiceMemoSchema, insertGroupChatSchema, insertGroupChatMemberSchema, insertGroupChatMessageSchema, insertOtpChallengeSchema, insertPlatformSettingSchema, insertMeetingRoomSchema, insertMeetingParticipantSchema, insertCountrySchema, insertStateSchema, insertDistrictSchema, insertCitySchema, insertVillageSchema, insertPincodeSchema, insertAuditLogSchema, insertSupportedLanguageSchema, insertTenantDatabaseSchema, insertTenantSecurityPolicySchema, insertBillingPlanSchema, insertSubscriptionSchema, insertUsageRecordSchema, insertInvoiceSchema, insertInvoiceLineItemSchema, insertGstSettingsSchema, insertBillingSettingsSchema, insertBillingAccountSchema, insertBillingReservationSchema, insertBillingLedgerEntrySchema, insertCallBillingRecordSchema, insertPaymentGatewaySchema, insertPaymentTransactionSchema, insertLegalContentSchema, insertSupportContactSchema, insertAppVersionSchema, insertRateLimitRuleSchema, insertAbuseReportSchema, insertUserSuspensionSchema, insertUserConsentSchema, insertDataSubjectRequestSchema, insertBackupJobSchema, insertSystemHealthLogSchema, insertUserAccessibilityPrefsSchema, insertDataResidencyPolicySchema, insertEnvironmentConfigSchema, platformSecrets, insertPlatformSecretSchema, signalingSessions, insertSignalingSessionSchema, aiPersonas, insertAiPersonaSchema, userAnalytics, insertUserAnalyticsSchema, enterpriseApiKeys, enterpriseApiKeysRelations, insertEnterpriseApiKeySchema, communicationVirtualNumbers, communicationMaskedNumberMappings, communicationApiKeyPricing, communicationSessions, communicationSessionEvents, insertCommunicationVirtualNumberSchema, insertCommunicationMaskedNumberMappingSchema, insertCommunicationApiKeyPricingSchema, insertCommunicationSessionSchema, insertCommunicationSessionEventSchema, userContacts, insertUserContactSchema, agentSkills, insertAgentSkillSchema, orgDIDNumbers, insertOrgDIDNumberSchema, enterpriseNumbers, insertEnterpriseNumberSchema, numberVerifications, insertNumberVerificationSchema, sipIntegrations, insertSipIntegrationSchema, languageRules, insertLanguageRuleSchema, aiConfigurations, insertAiConfigurationSchema, integrationAuditLogs, exotelStreamConfigs, insertExotelStreamConfigSchema, userNotifications, insertUserNotificationSchema, departments, insertDepartmentSchema, branches, insertBranchSchema, teams, insertTeamSchema, teamMembers, insertTeamMemberSchema, businessHours, insertBusinessHoursSchema, holidayCalendar, insertHolidayCalendarSchema, ivrMenus, insertIvrMenuSchema, ivrOptions, insertIvrOptionSchema, callQueues, insertCallQueueSchema, QUEUED_CALL_STATUS, queuedCalls, insertQueuedCallSchema, agentPresence, insertAgentPresenceSchema, pbxIntegrations, insertPbxIntegrationSchema, supervisorSessions, insertSupervisorSessionSchema, costCenters, insertCostCenterSchema, WEBHOOK_EVENT_TYPES, webhookEndpoints, insertWebhookEndpointSchema, WEBHOOK_DELIVERY_STATUS, webhookDeliveries, insertWebhookDeliverySchema, RECORDING_STATUS, callRecordings, insertCallRecordingSchema, FRAUD_FLAG_REASON, fraudFlags, insertFraudFlagSchema;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -6343,6 +6344,16 @@ var init_schema = __esm({
     }, (table) => [
       (0, import_pg_core.index)("messages_conversation_idx").on(table.conversationId)
     ]);
+    blockedUsers = (0, import_pg_core.pgTable)("blocked_users", {
+      id: (0, import_pg_core.serial)("id").primaryKey(),
+      blockerUserId: (0, import_pg_core.integer)("blocker_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+      blockedUserId: (0, import_pg_core.integer)("blocked_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+      createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
+    }, (table) => [
+      (0, import_pg_core.uniqueIndex)("blocked_users_pair_idx").on(table.blockerUserId, table.blockedUserId),
+      (0, import_pg_core.index)("blocked_users_blocker_idx").on(table.blockerUserId),
+      (0, import_pg_core.index)("blocked_users_blocked_idx").on(table.blockedUserId)
+    ]);
     personalChatThreads = (0, import_pg_core.pgTable)("personal_chat_threads", {
       id: (0, import_pg_core.serial)("id").primaryKey(),
       participantAUserId: (0, import_pg_core.integer)("participant_a_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -6357,6 +6368,13 @@ var init_schema = __esm({
       // other participant's view or deleting any row.
       participantAClearedAt: (0, import_pg_core.timestamp)("participant_a_cleared_at"),
       participantBClearedAt: (0, import_pg_core.timestamp)("participant_b_cleared_at"),
+      // Pin/archive/mute are per-viewer, same reasoning as clearedAt above.
+      participantAPinned: (0, import_pg_core.boolean)("participant_a_pinned").notNull().default(false),
+      participantBPinned: (0, import_pg_core.boolean)("participant_b_pinned").notNull().default(false),
+      participantAArchived: (0, import_pg_core.boolean)("participant_a_archived").notNull().default(false),
+      participantBArchived: (0, import_pg_core.boolean)("participant_b_archived").notNull().default(false),
+      participantAMuted: (0, import_pg_core.boolean)("participant_a_muted").notNull().default(false),
+      participantBMuted: (0, import_pg_core.boolean)("participant_b_muted").notNull().default(false),
       createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow(),
       updatedAt: (0, import_pg_core.timestamp)("updated_at").defaultNow()
     }, (table) => [
@@ -12233,14 +12251,14 @@ var require_lodash = __commonJS({
       return result;
     }
     function assignInDefaults(objValue, srcValue, key2, object) {
-      if (objValue === void 0 || eq68(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
+      if (objValue === void 0 || eq69(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
         return srcValue;
       }
       return objValue;
     }
     function assignValue(object, key2, value) {
       var objValue = object[key2];
-      if (!(hasOwnProperty.call(object, key2) && eq68(objValue, value)) || value === void 0 && !(key2 in object)) {
+      if (!(hasOwnProperty.call(object, key2) && eq69(objValue, value)) || value === void 0 && !(key2 in object)) {
         object[key2] = value;
       }
     }
@@ -12310,7 +12328,7 @@ var require_lodash = __commonJS({
       }
       var type = typeof index2;
       if (type == "number" ? isArrayLike(object) && isIndex(index2, object.length) : type == "string" && index2 in object) {
-        return eq68(object[index2], value);
+        return eq69(object[index2], value);
       }
       return false;
     }
@@ -12327,7 +12345,7 @@ var require_lodash = __commonJS({
       }
       return result;
     }
-    function eq68(value, other) {
+    function eq69(value, other) {
       return value === other || value !== value && other !== other;
     }
     function isArguments(value) {
@@ -261607,10 +261625,10 @@ async function resolveCallee(identifier) {
   }
   const loweredIdentifier = rawIdentifier.toLowerCase();
   const byIdentity = await db.query.users.findFirst({
-    where: (users5, { and: and46, eq: eq68, or: or14, sql: sql21 }) => and46(
-      eq68(users5.isActive, true),
-      or14(
-        eq68(users5.username, rawIdentifier),
+    where: (users5, { and: and47, eq: eq69, or: or16, sql: sql21 }) => and47(
+      eq69(users5.isActive, true),
+      or16(
+        eq69(users5.username, rawIdentifier),
         sql21`LOWER(${users5.email}) = ${loweredIdentifier}`,
         sql21`REPLACE(COALESCE(${users5.phone}, ''), ' ', '') = ${normalizedPhone}`
       )
@@ -280061,15 +280079,15 @@ var require_codegen = __commonJS({
     }
     exports2.not = not2;
     var andCode = mappend(exports2.operators.AND);
-    function and46(...args) {
+    function and47(...args) {
       return args.reduce(andCode);
     }
-    exports2.and = and46;
+    exports2.and = and47;
     var orCode = mappend(exports2.operators.OR);
-    function or14(...args) {
+    function or16(...args) {
       return args.reduce(orCode);
     }
-    exports2.or = or14;
+    exports2.or = or16;
     function mappend(op2) {
       return (x, y) => x === code_1.nil ? y : y === code_1.nil ? x : (0, code_1._)`${par(x)} ${op2} ${par(y)}`;
     }
@@ -291662,8 +291680,8 @@ var require_eq = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/eq.js"(exports2, module2) {
     "use strict";
     var compare = require_compare();
-    var eq68 = (a5, b5, loose) => compare(a5, b5, loose) === 0;
-    module2.exports = eq68;
+    var eq69 = (a5, b5, loose) => compare(a5, b5, loose) === 0;
+    module2.exports = eq69;
   }
 });
 
@@ -291701,7 +291719,7 @@ var require_lte = __commonJS({
 var require_cmp = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/cmp.js"(exports2, module2) {
     "use strict";
-    var eq68 = require_eq();
+    var eq69 = require_eq();
     var neq = require_neq();
     var gt6 = require_gt();
     var gte10 = require_gte();
@@ -291728,7 +291746,7 @@ var require_cmp = __commonJS({
         case "":
         case "=":
         case "==":
-          return eq68(a5, b5, loose);
+          return eq69(a5, b5, loose);
         case "!=":
           return neq(a5, b5, loose);
         case ">":
@@ -292709,15 +292727,15 @@ var require_subset = __commonJS({
           return null;
         }
       }
-      for (const eq68 of eqSet) {
-        if (gt6 && !satisfies(eq68, String(gt6), options)) {
+      for (const eq69 of eqSet) {
+        if (gt6 && !satisfies(eq69, String(gt6), options)) {
           return null;
         }
-        if (lt7 && !satisfies(eq68, String(lt7), options)) {
+        if (lt7 && !satisfies(eq69, String(lt7), options)) {
           return null;
         }
         for (const c5 of dom) {
-          if (!satisfies(eq68, String(c5), options)) {
+          if (!satisfies(eq69, String(c5), options)) {
             return false;
           }
         }
@@ -292821,7 +292839,7 @@ var require_semver2 = __commonJS({
     var rsort = require_rsort();
     var gt6 = require_gt();
     var lt7 = require_lt();
-    var eq68 = require_eq();
+    var eq69 = require_eq();
     var neq = require_neq();
     var gte10 = require_gte();
     var lte7 = require_lte();
@@ -292859,7 +292877,7 @@ var require_semver2 = __commonJS({
       rsort,
       gt: gt6,
       lt: lt7,
-      eq: eq68,
+      eq: eq69,
       neq,
       gte: gte10,
       lte: lte7,
@@ -295547,9 +295565,9 @@ var require_find_my_way = __commonJS({
     if (!isRegexSafe(REMOVE_DUPLICATE_SLASHES_REGEXP)) {
       throw new Error("the REMOVE_DUPLICATE_SLASHES_REGEXP is not safe, update this module");
     }
-    function Router14(opts) {
-      if (!(this instanceof Router14)) {
-        return new Router14(opts);
+    function Router15(opts) {
+      if (!(this instanceof Router15)) {
+        return new Router15(opts);
       }
       opts = opts || {};
       this._opts = opts;
@@ -295587,7 +295605,7 @@ var require_find_my_way = __commonJS({
       this.routes = [];
       this.trees = {};
     }
-    Router14.prototype.on = function on(method, path4, opts, handler, store) {
+    Router15.prototype.on = function on(method, path4, opts, handler, store) {
       if (typeof opts === "function") {
         if (handler !== void 0) {
           store = handler;
@@ -295622,7 +295640,7 @@ var require_find_my_way = __commonJS({
         this._on(method2, path4, opts, handler, store, route);
       }
     };
-    Router14.prototype._on = function _on(method, path4, opts, handler, store) {
+    Router15.prototype._on = function _on(method, path4, opts, handler, store) {
       let constraints = {};
       if (opts.constraints !== void 0) {
         assert3(typeof opts.constraints === "object" && opts.constraints !== null, "Constraints should be an object");
@@ -295742,11 +295760,11 @@ var require_find_my_way = __commonJS({
       this.routes.push(route);
       currentNode.addRoute(route, this.constrainer);
     };
-    Router14.prototype.hasRoute = function hasRoute(method, path4, constraints) {
+    Router15.prototype.hasRoute = function hasRoute(method, path4, constraints) {
       const route = this.findRoute(method, path4, constraints);
       return route !== null;
     };
-    Router14.prototype.findRoute = function findNode(method, path4, constraints = {}) {
+    Router15.prototype.findRoute = function findNode(method, path4, constraints = {}) {
       if (this.trees[method] === void 0) {
         return null;
       }
@@ -295857,18 +295875,18 @@ var require_find_my_way = __commonJS({
       }
       return null;
     };
-    Router14.prototype.hasConstraintStrategy = function(strategyName) {
+    Router15.prototype.hasConstraintStrategy = function(strategyName) {
       return this.constrainer.hasConstraintStrategy(strategyName);
     };
-    Router14.prototype.addConstraintStrategy = function(constraints) {
+    Router15.prototype.addConstraintStrategy = function(constraints) {
       this.constrainer.addConstraintStrategy(constraints);
       this._rebuild(this.routes);
     };
-    Router14.prototype.reset = function reset() {
+    Router15.prototype.reset = function reset() {
       this.trees = {};
       this.routes = [];
     };
-    Router14.prototype.off = function off(method, path4, constraints) {
+    Router15.prototype.off = function off(method, path4, constraints) {
       assert3(typeof path4 === "string", "Path should be a string");
       assert3(path4.length > 0, "The path could not be empty");
       assert3(path4[0] === "/" || path4[0] === "*", "The first character of a path should be `/` or `*`");
@@ -295896,7 +295914,7 @@ var require_find_my_way = __commonJS({
         this._off(method2, path4, constraints);
       }
     };
-    Router14.prototype._off = function _off(method, path4, constraints) {
+    Router15.prototype._off = function _off(method, path4, constraints) {
       assert3(typeof method === "string", "Method should be a string");
       assert3(httpMethods.includes(method), `Method '${method}' is not an http method.`);
       function matcherWithoutConstraints(route) {
@@ -295909,7 +295927,7 @@ var require_find_my_way = __commonJS({
       const newRoutes = this.routes.filter(predicate);
       this._rebuild(newRoutes);
     };
-    Router14.prototype.lookup = function lookup(req, res, ctx, done) {
+    Router15.prototype.lookup = function lookup(req, res, ctx, done) {
       if (typeof ctx === "function") {
         done = ctx;
         ctx = void 0;
@@ -295933,11 +295951,11 @@ var require_find_my_way = __commonJS({
         }
       });
     };
-    Router14.prototype.callHandler = function callHandler(handle, req, res, ctx) {
+    Router15.prototype.callHandler = function callHandler(handle, req, res, ctx) {
       if (handle === null) return this._defaultRoute(req, res, ctx);
       return ctx === void 0 ? handle.handler(req, res, handle.params, handle.store, handle.searchParams) : handle.handler.call(ctx, req, res, handle.params, handle.store, handle.searchParams);
     };
-    Router14.prototype.find = function find(method, path4, derivedConstraints) {
+    Router15.prototype.find = function find(method, path4, derivedConstraints) {
       let currentNode = this.trees[method];
       if (currentNode === void 0) return null;
       if (path4.charCodeAt(0) !== 47) {
@@ -296032,14 +296050,14 @@ var require_find_my_way = __commonJS({
         pathIndex = paramEndIndex;
       }
     };
-    Router14.prototype._rebuild = function(routes) {
+    Router15.prototype._rebuild = function(routes) {
       this.reset();
       for (const route of routes) {
         const { method, path: path4, opts, handler, store } = route;
         this._on(method, path4, opts, handler, store);
       }
     };
-    Router14.prototype._defaultRoute = function(req, res, ctx) {
+    Router15.prototype._defaultRoute = function(req, res, ctx) {
       if (this.defaultRoute !== null) {
         return ctx === void 0 ? this.defaultRoute(req, res) : this.defaultRoute.call(ctx, req, res);
       } else {
@@ -296047,7 +296065,7 @@ var require_find_my_way = __commonJS({
         res.end();
       }
     };
-    Router14.prototype._onBadUrl = function(path4) {
+    Router15.prototype._onBadUrl = function(path4) {
       if (this.onBadUrl === null) {
         return null;
       }
@@ -296058,14 +296076,14 @@ var require_find_my_way = __commonJS({
         store: null
       };
     };
-    Router14.prototype.prettyPrint = function(options = {}) {
+    Router15.prototype.prettyPrint = function(options = {}) {
       const method = options.method;
       options.buildPrettyMeta = this.buildPrettyMeta.bind(this);
       let tree = null;
       if (method === void 0) {
         const { version: version2, host, ...constraints } = this.constrainer.strategies;
         constraints[httpMethodStrategy.name] = httpMethodStrategy;
-        const mergedRouter = new Router14({ ...this._opts, constraints });
+        const mergedRouter = new Router15({ ...this._opts, constraints });
         const mergedRoutes = this.routes.map((route) => {
           const constraints2 = {
             ...route.opts.constraints,
@@ -296085,21 +296103,21 @@ var require_find_my_way = __commonJS({
       if (!httpMethods.hasOwnProperty(i5)) continue;
       const m3 = httpMethods[i5];
       const methodName = m3.toLowerCase();
-      Router14.prototype[methodName] = function(path4, handler, store) {
+      Router15.prototype[methodName] = function(path4, handler, store) {
         return this.on(m3, path4, handler, store);
       };
     }
-    Router14.prototype.all = function(path4, handler, store) {
+    Router15.prototype.all = function(path4, handler, store) {
       this.on(httpMethods, path4, handler, store);
     };
-    Router14.sanitizeUrlPath = function sanitizeUrlPath(url, useSemicolonDelimiter) {
+    Router15.sanitizeUrlPath = function sanitizeUrlPath(url, useSemicolonDelimiter) {
       const decoded = safeDecodeURI(url, useSemicolonDelimiter);
       if (decoded.shouldDecodeParam) {
         return safeDecodeURIComponent(decoded.path);
       }
       return decoded.path;
     };
-    module2.exports = Router14;
+    module2.exports = Router15;
     function escapeRegExp(string) {
       return string.replace(ESCAPE_REGEXP, "\\$&");
     }
@@ -296252,7 +296270,7 @@ var require_route = __commonJS({
       "useSemicolonDelimiter"
     ];
     function buildRouting(options) {
-      const router13 = FindMyWay(options);
+      const router14 = FindMyWay(options);
       let avvio;
       let fourOhFour;
       let logger3;
@@ -296289,7 +296307,7 @@ var require_route = __commonJS({
           return503OnClosing = Object.hasOwn(options2, "return503OnClosing") ? options2.return503OnClosing : true;
           keepAliveConnections = fastifyArgs.keepAliveConnections;
         },
-        routing: router13.lookup.bind(router13),
+        routing: router14.lookup.bind(router14),
         // router func to find the right handler to call
         route,
         // configure a route in the fastify instance
@@ -296299,7 +296317,7 @@ var require_route = __commonJS({
         closeRoutes: () => {
           closing = true;
         },
-        printRoutes: router13.prettyPrint.bind(router13),
+        printRoutes: router14.prettyPrint.bind(router14),
         addConstraintStrategy,
         hasConstraintStrategy,
         isAsyncConstraint,
@@ -296307,13 +296325,13 @@ var require_route = __commonJS({
       };
       function addConstraintStrategy(strategy) {
         throwIfAlreadyStarted("Cannot add constraint strategy!");
-        return router13.addConstraintStrategy(strategy);
+        return router14.addConstraintStrategy(strategy);
       }
       function hasConstraintStrategy(strategyName) {
-        return router13.hasConstraintStrategy(strategyName);
+        return router14.hasConstraintStrategy(strategyName);
       }
       function isAsyncConstraint() {
-        return router13.constrainer.asyncStrategiesInUse.size > 0;
+        return router14.constrainer.asyncStrategiesInUse.size > 0;
       }
       function prepareRoute({ method, url, options: options2, handler, isFastify }) {
         if (typeof url !== "string") {
@@ -296343,14 +296361,14 @@ var require_route = __commonJS({
       }
       function hasRoute({ options: options2 }) {
         const normalizedMethod = options2.method?.toUpperCase() ?? "";
-        return router13.hasRoute(
+        return router14.hasRoute(
           normalizedMethod,
           options2.url || "",
           options2.constraints
         );
       }
       function findRoute(options2) {
-        const route2 = router13.find(
+        const route2 = router14.find(
           options2.method,
           options2.url || "",
           options2.constraints
@@ -296484,10 +296502,10 @@ var require_route = __commonJS({
             server: this,
             isFastify: isFastify2
           });
-          const headHandler = router13.findRoute("HEAD", opts.url, constraints);
+          const headHandler = router14.findRoute("HEAD", opts.url, constraints);
           const hasHEADHandler = headHandler !== null;
           try {
-            router13.on(opts.method, opts.url, { constraints }, routeHandler, context);
+            router14.on(opts.method, opts.url, { constraints }, routeHandler, context);
           } catch (error2) {
             if (!context[kRouteByFastify]) {
               const isDuplicatedRoute = error2.message.includes(`Method '${opts.method}' already declared for route`);
@@ -296723,14 +296741,14 @@ var require_four_oh_four = __commonJS({
     var { getGenReqId } = require_req_id_gen_factory();
     function fourOhFour(options) {
       const { logger: logger3, disableRequestLogging } = options;
-      const router13 = FindMyWay({ onBadUrl: createOnBadUrl(), defaultRoute: fourOhFourFallBack });
+      const router14 = FindMyWay({ onBadUrl: createOnBadUrl(), defaultRoute: fourOhFourFallBack });
       let _onBadUrlHandler = null;
-      return { router: router13, setNotFoundHandler, setContext, arrange404 };
+      return { router: router14, setNotFoundHandler, setContext, arrange404 };
       function arrange404(instance) {
         instance[kFourOhFourLevelInstance] = instance;
         instance[kCanSetNotFoundHandler] = true;
-        router13.onBadUrl = router13.onBadUrl.bind(instance);
-        router13.defaultRoute = router13.defaultRoute.bind(instance);
+        router14.onBadUrl = router14.onBadUrl.bind(instance);
+        router14.defaultRoute = router14.defaultRoute.bind(instance);
       }
       function basic404(request, reply) {
         const { url, method } = request.raw;
@@ -296826,8 +296844,8 @@ var require_four_oh_four = __commonJS({
           return;
         }
         this[kFourOhFourLevelInstance][kFourOhFourContext] = context;
-        router13.all(prefix + (prefix.endsWith("/") ? "*" : "/*"), routeHandler, context);
-        router13.all(prefix, routeHandler, context);
+        router14.all(prefix + (prefix.endsWith("/") ? "*" : "/*"), routeHandler, context);
+        router14.all(prefix, routeHandler, context);
       }
       function fourOhFourFallBack(req, res) {
         const fourOhFourContext = this[kFourOhFourLevelInstance][kFourOhFourContext];
@@ -296837,7 +296855,7 @@ var require_four_oh_four = __commonJS({
         const request = new Request11(id, null, req, null, childLogger, fourOhFourContext);
         const reply = new Reply(res, request, childLogger);
         request.log.warn("the default handler for 404 did not catch this, this is likely a fastify bug, please report it");
-        request.log.warn(router13.prettyPrint());
+        request.log.warn(router14.prettyPrint());
         reply.code(404).send(new FST_ERR_NOT_FOUND());
       }
     }
@@ -300126,9 +300144,9 @@ var require_fastify = __commonJS({
         hasLogger,
         initialConfig
       } = processOptions(serverOptions, defaultRoute, onBadUrl);
-      const router13 = buildRouting(options.routerOptions);
+      const router14 = buildRouting(options.routerOptions);
       const fourOhFour = build404(options);
-      const httpHandler = wrapRouting(router13, options);
+      const httpHandler = wrapRouting(router14, options);
       const {
         server,
         listen,
@@ -300197,41 +300215,41 @@ var require_fastify = __commonJS({
         routing: httpHandler,
         // routes shorthand methods
         delete: function _delete(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "DELETE", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "DELETE", url, options: options2, handler });
         },
         get: function _get(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "GET", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "GET", url, options: options2, handler });
         },
         head: function _head(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "HEAD", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "HEAD", url, options: options2, handler });
         },
         trace: function _trace(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "TRACE", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "TRACE", url, options: options2, handler });
         },
         patch: function _patch(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "PATCH", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "PATCH", url, options: options2, handler });
         },
         post: function _post(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "POST", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "POST", url, options: options2, handler });
         },
         put: function _put(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "PUT", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "PUT", url, options: options2, handler });
         },
         options: function _options(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: "OPTIONS", url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: "OPTIONS", url, options: options2, handler });
         },
         all: function _all(url, options2, handler) {
-          return router13.prepareRoute.call(this, { method: this.supportedMethods, url, options: options2, handler });
+          return router14.prepareRoute.call(this, { method: this.supportedMethods, url, options: options2, handler });
         },
         // extended route
         route: function _route(options2) {
-          return router13.route.call(this, { options: options2 });
+          return router14.route.call(this, { options: options2 });
         },
         hasRoute: function _route(options2) {
-          return router13.hasRoute.call(this, { options: options2 });
+          return router14.hasRoute.call(this, { options: options2 });
         },
         findRoute: function _findRoute(options2) {
-          return router13.findRoute(options2);
+          return router14.findRoute(options2);
         },
         // expose logger instance
         log: options.logger,
@@ -300296,8 +300314,8 @@ var require_fastify = __commonJS({
         // Set fastify initial configuration options read-only object
         initialConfig,
         // constraint strategies
-        addConstraintStrategy: router13.addConstraintStrategy.bind(router13),
-        hasConstraintStrategy: router13.hasConstraintStrategy.bind(router13)
+        addConstraintStrategy: router14.addConstraintStrategy.bind(router14),
+        hasConstraintStrategy: router14.hasConstraintStrategy.bind(router14)
       };
       Object.defineProperties(fastify2, {
         listeningOrigin: {
@@ -300391,7 +300409,7 @@ var require_fastify = __commonJS({
       avvio.once("preReady", () => {
         fastify2.onClose((instance, done) => {
           fastify2[kState].closing = true;
-          router13.closeRoutes();
+          router14.closeRoutes();
           hookRunnerApplication("preClose", fastify2[kAvvioBoot], fastify2, function() {
             if (fastify2[kState].listening) {
               if (forceCloseConnections === "idle") {
@@ -300428,7 +300446,7 @@ var require_fastify = __commonJS({
       });
       fastify2.setNotFoundHandler();
       fourOhFour.arrange404(fastify2);
-      router13.setup(options, {
+      router14.setup(options, {
         avvio,
         fourOhFour,
         hasLogger,
@@ -300627,7 +300645,7 @@ var require_fastify = __commonJS({
       }
       function setNotFoundHandler(opts, handler) {
         throwIfAlreadyStarted('Cannot call "setNotFoundHandler"!');
-        fourOhFour.setNotFoundHandler.call(this, opts, handler, avvio, router13.routeHandler);
+        fourOhFour.setNotFoundHandler.call(this, opts, handler, avvio, router14.routeHandler);
         return this;
       }
       function setValidatorCompiler(validatorCompiler) {
@@ -300684,12 +300702,12 @@ var require_fastify = __commonJS({
       }
       function printRoutes(opts = {}) {
         opts.includeMeta = opts.includeHooks ? opts.includeMeta ? supportedHooks.concat(opts.includeMeta) : supportedHooks : opts.includeMeta;
-        return router13.printRoutes(opts);
+        return router14.printRoutes(opts);
       }
-      function wrapRouting(router14, { rewriteUrl, logger: logger3 }) {
+      function wrapRouting(router15, { rewriteUrl, logger: logger3 }) {
         let isAsync;
         return function preRouting(req, res) {
-          if (isAsync === void 0) isAsync = router14.isAsyncConstraint();
+          if (isAsync === void 0) isAsync = router15.isAsyncConstraint();
           if (rewriteUrl) {
             req.originalUrl = req.url;
             const url = rewriteUrl.call(fastify2, req);
@@ -300700,7 +300718,7 @@ var require_fastify = __commonJS({
               req.destroy(err);
             }
           }
-          router14.routing(req, res, buildAsyncConstraintCallback(isAsync, req, res));
+          router15.routing(req, res, buildAsyncConstraintCallback(isAsync, req, res));
         };
       }
       function setGenReqId(func) {
@@ -300722,7 +300740,7 @@ var require_fastify = __commonJS({
         const _method = method.toLowerCase();
         if (!this.hasDecorator(_method)) {
           this.decorate(_method, function(url, options2, handler) {
-            return router13.prepareRoute.call(this, { method, url, options: options2, handler });
+            return router14.prepareRoute.call(this, { method, url, options: options2, handler });
           });
         }
         return this;
@@ -358353,6 +358371,95 @@ var init_group_chats = __esm({
   }
 });
 
+// server/blocking.ts
+async function isBlocked(userAId, userBId) {
+  const [row] = await db.select({ id: blockedUsers.id }).from(blockedUsers).where((0, import_drizzle_orm53.or)(
+    (0, import_drizzle_orm53.and)((0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, userAId), (0, import_drizzle_orm53.eq)(blockedUsers.blockedUserId, userBId)),
+    (0, import_drizzle_orm53.and)((0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, userBId), (0, import_drizzle_orm53.eq)(blockedUsers.blockedUserId, userAId))
+  ));
+  return Boolean(row);
+}
+var import_express11, import_drizzle_orm53, router11, blocking_default;
+var init_blocking = __esm({
+  "server/blocking.ts"() {
+    "use strict";
+    import_express11 = require("express");
+    import_drizzle_orm53 = require("drizzle-orm");
+    init_db();
+    init_schema();
+    init_role_middleware();
+    router11 = (0, import_express11.Router)();
+    router11.post("/api/users/:userId/block", requireAuth, async (req, res) => {
+      try {
+        const blockerUserId = req.user.id;
+        const blockedUserId = Number(req.params.userId);
+        if (!Number.isFinite(blockedUserId) || blockedUserId === blockerUserId) {
+          return res.status(400).json({ error: "Invalid user." });
+        }
+        const [target] = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm53.eq)(users.id, blockedUserId));
+        if (!target) return res.status(404).json({ error: "User not found." });
+        await db.insert(blockedUsers).values({ blockerUserId, blockedUserId }).onConflictDoNothing();
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("[Blocking] block failed:", error2);
+        res.status(500).json({ error: "Failed to block user." });
+      }
+    });
+    router11.delete("/api/users/:userId/block", requireAuth, async (req, res) => {
+      try {
+        const blockerUserId = req.user.id;
+        const blockedUserId = Number(req.params.userId);
+        if (!Number.isFinite(blockedUserId)) return res.status(400).json({ error: "Invalid user." });
+        await db.delete(blockedUsers).where((0, import_drizzle_orm53.and)(
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, blockerUserId),
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockedUserId, blockedUserId)
+        ));
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("[Blocking] unblock failed:", error2);
+        res.status(500).json({ error: "Failed to unblock user." });
+      }
+    });
+    router11.get("/api/users/blocked", requireAuth, async (req, res) => {
+      try {
+        const blockerUserId = req.user.id;
+        const rows = await db.select({ blockedUserId: blockedUsers.blockedUserId, createdAt: blockedUsers.createdAt }).from(blockedUsers).where((0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, blockerUserId));
+        const userIds = rows.map((r5) => r5.blockedUserId);
+        const blockedUserRows = userIds.length > 0 ? await db.select({ id: users.id, username: users.username, avatarUrl: users.avatarUrl }).from(users).where((0, import_drizzle_orm53.inArray)(users.id, userIds)) : [];
+        res.json({
+          blocked: rows.map((r5) => ({
+            ...blockedUserRows.find((u) => u.id === r5.blockedUserId),
+            blockedAt: r5.createdAt
+          }))
+        });
+      } catch (error2) {
+        console.error("[Blocking] list failed:", error2);
+        res.status(500).json({ error: "Failed to list blocked users." });
+      }
+    });
+    router11.get("/api/users/:userId/blocked-status", requireAuth, async (req, res) => {
+      try {
+        const viewerId = req.user.id;
+        const otherUserId = Number(req.params.userId);
+        if (!Number.isFinite(otherUserId)) return res.status(400).json({ error: "Invalid user." });
+        const [iBlockedThem] = await db.select({ id: blockedUsers.id }).from(blockedUsers).where((0, import_drizzle_orm53.and)(
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, viewerId),
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockedUserId, otherUserId)
+        ));
+        const [theyBlockedMe] = await db.select({ id: blockedUsers.id }).from(blockedUsers).where((0, import_drizzle_orm53.and)(
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockerUserId, otherUserId),
+          (0, import_drizzle_orm53.eq)(blockedUsers.blockedUserId, viewerId)
+        ));
+        res.json({ blockedByMe: Boolean(iBlockedThem), blockedByThem: Boolean(theyBlockedMe) });
+      } catch (error2) {
+        console.error("[Blocking] status check failed:", error2);
+        res.status(500).json({ error: "Failed to check block status." });
+      }
+    });
+    blocking_default = router11;
+  }
+});
+
 // server/personal-chat-routes.ts
 async function finalizeChatAttachment(senderUserId, objectPath) {
   if (!objectPath.startsWith("/objects/")) return;
@@ -358497,16 +358604,16 @@ async function translatePersonalText(text2, fromLang, toLang) {
 }
 async function resolveRecipientUser(currentUserId, payload) {
   if (payload.userId) {
-    const [recipient] = await db.select().from(users).where((0, import_drizzle_orm53.eq)(users.id, payload.userId));
+    const [recipient] = await db.select().from(users).where((0, import_drizzle_orm54.eq)(users.id, payload.userId));
     return recipient && recipient.id !== currentUserId ? recipient : null;
   }
   const identifier = String(payload.identifier || "").trim();
   if (!identifier) return null;
   const normalizedPhone = normalizePhoneNumber(identifier);
-  const candidates = await db.select().from(users).where((0, import_drizzle_orm53.or)(
-    (0, import_drizzle_orm53.eq)(users.username, identifier),
-    (0, import_drizzle_orm53.eq)(users.email, identifier),
-    (0, import_drizzle_orm53.eq)(users.phone, normalizedPhone)
+  const candidates = await db.select().from(users).where((0, import_drizzle_orm54.or)(
+    (0, import_drizzle_orm54.eq)(users.username, identifier),
+    (0, import_drizzle_orm54.eq)(users.email, identifier),
+    (0, import_drizzle_orm54.eq)(users.phone, normalizedPhone)
   ));
   return candidates.find((candidate) => candidate.id !== currentUserId) || null;
 }
@@ -358538,20 +358645,20 @@ function formatMessage(message2, viewerId, viewerLanguage) {
 }
 async function findBestContact(ownerUserId, peer) {
   if (!peer) return null;
-  const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm53.eq)(userContacts.userId, ownerUserId));
+  const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm54.eq)(userContacts.userId, ownerUserId));
   const phone = peer.phone ? normalizePhoneNumber(peer.phone) : "";
   return contacts.find((contact) => {
     const identifier = String(contact.identifier || "").trim();
     return identifier === peer.username || identifier === peer.email || normalizePhoneNumber(identifier) === phone;
   }) || null;
 }
-var import_express11, import_node_events7, import_drizzle_orm53, import_zod15, router11, createThreadSchema, sendMessageSchema, typingSchema, TYPING_TTL_MS, typingState, activePresence, personalChatBus, personal_chat_routes_default;
+var import_express12, import_node_events7, import_drizzle_orm54, import_zod15, router12, createThreadSchema, sendMessageSchema, typingSchema, TYPING_TTL_MS, typingState, activePresence, personalChatBus, threadStateSchema, personal_chat_routes_default;
 var init_personal_chat_routes = __esm({
   "server/personal-chat-routes.ts"() {
     "use strict";
-    import_express11 = require("express");
+    import_express12 = require("express");
     import_node_events7 = require("node:events");
-    import_drizzle_orm53 = require("drizzle-orm");
+    import_drizzle_orm54 = require("drizzle-orm");
     import_zod15 = require("zod");
     init_db();
     init_schema();
@@ -358561,7 +358668,8 @@ var init_personal_chat_routes = __esm({
     init_objectStorage();
     init_objectAcl();
     init_firebase_admin();
-    router11 = (0, import_express11.Router)();
+    init_blocking();
+    router12 = (0, import_express12.Router)();
     createThreadSchema = import_zod15.z.object({
       userId: import_zod15.z.number().int().positive().optional(),
       identifier: import_zod15.z.string().trim().min(3).max(200).optional(),
@@ -358587,7 +358695,7 @@ var init_personal_chat_routes = __esm({
     activePresence = /* @__PURE__ */ new Map();
     personalChatBus = new import_node_events7.EventEmitter();
     personalChatBus.setMaxListeners(512);
-    router11.get("/api/personal-chats/discover", requireAuth, async (req, res) => {
+    router12.get("/api/personal-chats/discover", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
@@ -358602,10 +358710,10 @@ var init_personal_chat_routes = __esm({
           email: users.email,
           phone: users.phone,
           avatarUrl: users.avatarUrl
-        }).from(users).where((0, import_drizzle_orm53.or)(
-          (0, import_drizzle_orm53.eq)(users.username, query),
-          (0, import_drizzle_orm53.eq)(users.email, query),
-          (0, import_drizzle_orm53.eq)(users.phone, normalizedPhone)
+        }).from(users).where((0, import_drizzle_orm54.or)(
+          (0, import_drizzle_orm54.eq)(users.username, query),
+          (0, import_drizzle_orm54.eq)(users.email, query),
+          (0, import_drizzle_orm54.eq)(users.phone, normalizedPhone)
         ));
         const results = candidates.filter((candidate) => candidate.id !== viewerId).slice(0, 10).map((candidate) => ({
           id: candidate.id,
@@ -358622,14 +358730,14 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to discover users." });
       }
     });
-    router11.get("/api/personal-chats", requireAuth, async (req, res) => {
+    router12.get("/api/personal-chats", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
-        const threads = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.or)(
-          (0, import_drizzle_orm53.eq)(personalChatThreads.participantAUserId, viewerId),
-          (0, import_drizzle_orm53.eq)(personalChatThreads.participantBUserId, viewerId)
-        )).orderBy((0, import_drizzle_orm53.desc)(personalChatThreads.lastMessageAt), (0, import_drizzle_orm53.desc)(personalChatThreads.updatedAt));
+        const threads = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.or)(
+          (0, import_drizzle_orm54.eq)(personalChatThreads.participantAUserId, viewerId),
+          (0, import_drizzle_orm54.eq)(personalChatThreads.participantBUserId, viewerId)
+        )).orderBy((0, import_drizzle_orm54.desc)(personalChatThreads.lastMessageAt), (0, import_drizzle_orm54.desc)(personalChatThreads.updatedAt));
         if (threads.length === 0) {
           return res.json({ threads: [] });
         }
@@ -358640,10 +358748,10 @@ var init_personal_chat_routes = __esm({
           email: users.email,
           phone: users.phone,
           avatarUrl: users.avatarUrl
-        }).from(users).where((0, import_drizzle_orm53.inArray)(users.id, peerIds));
+        }).from(users).where((0, import_drizzle_orm54.inArray)(users.id, peerIds));
         const peerById = new Map(peers.map((peer) => [peer.id, peer]));
-        const viewerContacts = await db.select().from(userContacts).where((0, import_drizzle_orm53.eq)(userContacts.userId, viewerId));
-        const unreadMessages = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.inArray)(personalChatMessages.threadId, threads.map((thread) => thread.id)));
+        const viewerContacts = await db.select().from(userContacts).where((0, import_drizzle_orm54.eq)(userContacts.userId, viewerId));
+        const unreadMessages = await db.select().from(personalChatMessages).where((0, import_drizzle_orm54.inArray)(personalChatMessages.threadId, threads.map((thread) => thread.id)));
         const formatted = threads.map((thread) => {
           const context = getViewerContext(thread, viewerId);
           const peer = peerById.get(context.peerUserId);
@@ -358658,6 +358766,9 @@ var init_personal_chat_routes = __esm({
             ...thread,
             viewerLanguage: context.viewerLanguage,
             peerLanguage: context.peerLanguage,
+            isPinned: context.isParticipantA ? thread.participantAPinned : thread.participantBPinned,
+            isArchived: context.isParticipantA ? thread.participantAArchived : thread.participantBArchived,
+            isMuted: context.isParticipantA ? thread.participantAMuted : thread.participantBMuted,
             unreadCount,
             peer: {
               id: peer?.id,
@@ -358678,7 +358789,7 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to load personal chats." });
       }
     });
-    router11.get("/api/personal-chats/stream", requireAuth, async (req, res) => {
+    router12.get("/api/personal-chats/stream", requireAuth, async (req, res) => {
       const viewerId = req.user.id;
       markUserPresence(viewerId);
       res.setHeader("Content-Type", "text/event-stream");
@@ -358704,7 +358815,7 @@ var init_personal_chat_routes = __esm({
         res.end();
       });
     });
-    router11.post("/api/personal-chats", requireAuth, async (req, res) => {
+    router12.post("/api/personal-chats", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
@@ -358714,9 +358825,9 @@ var init_personal_chat_routes = __esm({
           return res.status(404).json({ error: "Recipient user not found in Neura Talk." });
         }
         const pair = normalizePair(viewerId, recipient.id);
-        const [existing] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.and)(
-          (0, import_drizzle_orm53.eq)(personalChatThreads.participantAUserId, pair.participantAUserId),
-          (0, import_drizzle_orm53.eq)(personalChatThreads.participantBUserId, pair.participantBUserId)
+        const [existing] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.and)(
+          (0, import_drizzle_orm54.eq)(personalChatThreads.participantAUserId, pair.participantAUserId),
+          (0, import_drizzle_orm54.eq)(personalChatThreads.participantBUserId, pair.participantBUserId)
         ));
         const sourceLanguage = normalizeLanguage2(input.sourceLanguage || "en");
         const targetLanguage = normalizeLanguage2(input.targetLanguage || "en");
@@ -358727,7 +358838,7 @@ var init_personal_chat_routes = __esm({
           participantALanguage: targetLanguage,
           participantBLanguage: sourceLanguage
         };
-        const thread = existing ? (await db.update(personalChatThreads).set({ ...participantValues, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, existing.id)).returning())[0] : (await db.insert(personalChatThreads).values({
+        const thread = existing ? (await db.update(personalChatThreads).set({ ...participantValues, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, existing.id)).returning())[0] : (await db.insert(personalChatThreads).values({
           ...pair,
           ...participantValues,
           createdByUserId: viewerId,
@@ -358763,7 +358874,7 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to create personal chat." });
       }
     });
-    router11.get("/api/personal-chats/:threadId", requireAuth, async (req, res) => {
+    router12.get("/api/personal-chats/:threadId", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
@@ -358771,7 +358882,7 @@ var init_personal_chat_routes = __esm({
         if (!Number.isFinite(threadId)) {
           return res.status(400).json({ error: "Invalid chat thread." });
         }
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) {
           return res.status(404).json({ error: "Chat thread not found." });
         }
@@ -358785,20 +358896,20 @@ var init_personal_chat_routes = __esm({
           email: users.email,
           phone: users.phone,
           avatarUrl: users.avatarUrl
-        }).from(users).where((0, import_drizzle_orm53.eq)(users.id, context.peerUserId));
+        }).from(users).where((0, import_drizzle_orm54.eq)(users.id, context.peerUserId));
         const peerContact = await findBestContact(viewerId, peer);
         const viewerClearedAt = context.isParticipantA ? thread.participantAClearedAt : thread.participantBClearedAt;
-        const messages3 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.and)(
-          (0, import_drizzle_orm53.eq)(personalChatMessages.threadId, threadId),
-          ...viewerClearedAt ? [(0, import_drizzle_orm53.gt)(personalChatMessages.createdAt, viewerClearedAt)] : []
-        )).orderBy((0, import_drizzle_orm53.asc)(personalChatMessages.createdAt), (0, import_drizzle_orm53.asc)(personalChatMessages.id));
+        const messages3 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm54.and)(
+          (0, import_drizzle_orm54.eq)(personalChatMessages.threadId, threadId),
+          ...viewerClearedAt ? [(0, import_drizzle_orm54.gt)(personalChatMessages.createdAt, viewerClearedAt)] : []
+        )).orderBy((0, import_drizzle_orm54.asc)(personalChatMessages.createdAt), (0, import_drizzle_orm54.asc)(personalChatMessages.id));
         const deliverableIds = messages3.filter((message2) => message2.senderUserId !== viewerId && !message2.deliveredAt).map((message2) => message2.id);
         if (deliverableIds.length > 0) {
           await db.update(personalChatMessages).set({
             deliveredAt: /* @__PURE__ */ new Date(),
             deliveryStatus: "delivered",
             updatedAt: /* @__PURE__ */ new Date()
-          }).where((0, import_drizzle_orm53.inArray)(personalChatMessages.id, deliverableIds));
+          }).where((0, import_drizzle_orm54.inArray)(personalChatMessages.id, deliverableIds));
           emitPersonalChatEvent([viewerId, context.peerUserId], {
             type: "messages_delivered",
             threadId,
@@ -358834,13 +358945,13 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to load personal chat." });
       }
     });
-    router11.post("/api/personal-chats/:threadId/messages", requireAuth, async (req, res) => {
+    router12.post("/api/personal-chats/:threadId/messages", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
         const threadId = Number(req.params.threadId);
         const input = sendMessageSchema.parse(req.body);
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) {
           return res.status(404).json({ error: "Chat thread not found." });
         }
@@ -358848,10 +358959,13 @@ var init_personal_chat_routes = __esm({
         if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
           return res.status(403).json({ error: "Access denied." });
         }
+        if (await isBlocked(viewerId, context.peerUserId)) {
+          return res.status(403).json({ error: "You can't message this user.", code: "BLOCKED" });
+        }
         if (input.clientMessageId) {
-          const [existing] = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.and)(
-            (0, import_drizzle_orm53.eq)(personalChatMessages.threadId, threadId),
-            (0, import_drizzle_orm53.eq)(personalChatMessages.clientMessageId, input.clientMessageId)
+          const [existing] = await db.select().from(personalChatMessages).where((0, import_drizzle_orm54.and)(
+            (0, import_drizzle_orm54.eq)(personalChatMessages.threadId, threadId),
+            (0, import_drizzle_orm54.eq)(personalChatMessages.clientMessageId, input.clientMessageId)
           ));
           if (existing) {
             return res.json({ message: formatMessage(existing, viewerId, context.viewerLanguage) });
@@ -358894,7 +359008,7 @@ var init_personal_chat_routes = __esm({
           lastMessageAt: /* @__PURE__ */ new Date(),
           lastMessagePreview,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        }).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         emitPersonalChatEvent([viewerId, context.peerUserId], {
           type: "message_created",
           threadId,
@@ -358921,7 +359035,7 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to send personal message." });
       }
     });
-    router11.delete("/api/personal-chats/:threadId/messages/:messageId", requireAuth, async (req, res) => {
+    router12.delete("/api/personal-chats/:threadId/messages/:messageId", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         const threadId = Number(req.params.threadId);
@@ -358929,15 +359043,15 @@ var init_personal_chat_routes = __esm({
         if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
           return res.status(400).json({ error: "Invalid request." });
         }
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) return res.status(404).json({ error: "Chat thread not found." });
         if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
           return res.status(403).json({ error: "Access denied." });
         }
-        const [message2] = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.eq)(personalChatMessages.id, messageId));
+        const [message2] = await db.select().from(personalChatMessages).where((0, import_drizzle_orm54.eq)(personalChatMessages.id, messageId));
         if (!message2 || message2.threadId !== threadId) return res.status(404).json({ error: "Message not found." });
         if (message2.senderUserId !== viewerId) return res.status(403).json({ error: "You can only delete your own messages." });
-        await db.update(personalChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, metadata: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatMessages.id, messageId));
+        await db.update(personalChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, metadata: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(personalChatMessages.id, messageId));
         const context = getViewerContext(thread, viewerId);
         emitPersonalChatEvent([viewerId, context.peerUserId], { type: "message_created", threadId, messageId });
         res.json({ success: true });
@@ -358946,17 +359060,17 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to delete message." });
       }
     });
-    router11.post("/api/personal-chats/:threadId/clear", requireAuth, async (req, res) => {
+    router12.post("/api/personal-chats/:threadId/clear", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         const threadId = Number(req.params.threadId);
         if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) return res.status(404).json({ error: "Chat thread not found." });
         if (thread.participantAUserId === viewerId) {
-          await db.update(personalChatThreads).set({ participantAClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+          await db.update(personalChatThreads).set({ participantAClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         } else if (thread.participantBUserId === viewerId) {
-          await db.update(personalChatThreads).set({ participantBClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+          await db.update(personalChatThreads).set({ participantBClearedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         } else {
           return res.status(403).json({ error: "Access denied." });
         }
@@ -358966,19 +359080,50 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to clear chat." });
       }
     });
-    router11.post("/api/personal-chats/:threadId/seen", requireAuth, async (req, res) => {
+    threadStateSchema = import_zod15.z.object({
+      pinned: import_zod15.z.boolean().optional(),
+      archived: import_zod15.z.boolean().optional(),
+      muted: import_zod15.z.boolean().optional()
+    });
+    router12.patch("/api/personal-chats/:threadId/state", requireAuth, async (req, res) => {
+      try {
+        const viewerId = req.user.id;
+        const threadId = Number(req.params.threadId);
+        if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
+        const input = threadStateSchema.parse(req.body);
+        if (Object.keys(input).length === 0) return res.status(400).json({ error: "No fields to update." });
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
+        if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+        const isA = thread.participantAUserId === viewerId;
+        const isB = thread.participantBUserId === viewerId;
+        if (!isA && !isB) return res.status(403).json({ error: "Access denied." });
+        const setValues = {};
+        if (input.pinned !== void 0) setValues[isA ? "participantAPinned" : "participantBPinned"] = input.pinned;
+        if (input.archived !== void 0) setValues[isA ? "participantAArchived" : "participantBArchived"] = input.archived;
+        if (input.muted !== void 0) setValues[isA ? "participantAMuted" : "participantBMuted"] = input.muted;
+        await db.update(personalChatThreads).set(setValues).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
+        res.json({ success: true });
+      } catch (error2) {
+        console.error("[PersonalChat] update thread state failed:", error2);
+        if (error2 instanceof import_zod15.z.ZodError) {
+          return res.status(400).json({ error: error2.issues[0]?.message || "Invalid request." });
+        }
+        res.status(500).json({ error: "Failed to update chat." });
+      }
+    });
+    router12.post("/api/personal-chats/:threadId/seen", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
         const threadId = Number(req.params.threadId);
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) {
           return res.status(404).json({ error: "Chat thread not found." });
         }
         if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
           return res.status(403).json({ error: "Access denied." });
         }
-        const incoming2 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm53.eq)(personalChatMessages.threadId, threadId));
+        const incoming2 = await db.select().from(personalChatMessages).where((0, import_drizzle_orm54.eq)(personalChatMessages.threadId, threadId));
         const unseenIds = incoming2.filter((message2) => message2.senderUserId !== viewerId && !message2.seenAt).map((message2) => message2.id);
         if (unseenIds.length > 0) {
           const now = /* @__PURE__ */ new Date();
@@ -358987,7 +359132,7 @@ var init_personal_chat_routes = __esm({
             seenAt: now,
             deliveryStatus: "seen",
             updatedAt: now
-          }).where((0, import_drizzle_orm53.inArray)(personalChatMessages.id, unseenIds));
+          }).where((0, import_drizzle_orm54.inArray)(personalChatMessages.id, unseenIds));
           emitPersonalChatEvent([viewerId, getViewerContext(thread, viewerId).peerUserId], {
             type: "messages_seen",
             threadId,
@@ -359000,13 +359145,13 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to update seen status." });
       }
     });
-    router11.post("/api/personal-chats/:threadId/typing", requireAuth, async (req, res) => {
+    router12.post("/api/personal-chats/:threadId/typing", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
         const threadId = Number(req.params.threadId);
         const input = typingSchema.parse(req.body);
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) {
           return res.status(404).json({ error: "Chat thread not found." });
         }
@@ -359029,12 +359174,12 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to update typing state." });
       }
     });
-    router11.get("/api/personal-chats/:threadId/presence", requireAuth, async (req, res) => {
+    router12.get("/api/personal-chats/:threadId/presence", requireAuth, async (req, res) => {
       try {
         const viewerId = req.user.id;
         markUserPresence(viewerId);
         const threadId = Number(req.params.threadId);
-        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm53.eq)(personalChatThreads.id, threadId));
+        const [thread] = await db.select().from(personalChatThreads).where((0, import_drizzle_orm54.eq)(personalChatThreads.id, threadId));
         if (!thread) {
           return res.status(404).json({ error: "Chat thread not found." });
         }
@@ -359054,7 +359199,7 @@ var init_personal_chat_routes = __esm({
         res.status(500).json({ error: "Failed to load presence state." });
       }
     });
-    personal_chat_routes_default = router11;
+    personal_chat_routes_default = router12;
   }
 });
 
@@ -360813,7 +360958,7 @@ function registerEnterpriseApiRoutes(app2) {
   app2.get("/api/admin/api-keys", loadUser, requireSuperAdmin, async (_req, res) => {
     try {
       const keys = await db.query.enterpriseApiKeys.findMany({
-        orderBy: [(0, import_drizzle_orm54.desc)(enterpriseApiKeys.createdAt)],
+        orderBy: [(0, import_drizzle_orm55.desc)(enterpriseApiKeys.createdAt)],
         with: { organization: true }
       });
       const result = keys.map((k5) => ({
@@ -360872,7 +361017,7 @@ function registerEnterpriseApiRoutes(app2) {
         return res.status(400).json({ success: false, error: "Expiry date must be in the future" });
       }
       const org = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm54.eq)(organizations.id, normalizedOrganizationId)
+        where: (0, import_drizzle_orm55.eq)(organizations.id, normalizedOrganizationId)
       });
       if (!org) {
         return res.status(404).json({ success: false, error: "Organization not found" });
@@ -360921,7 +361066,7 @@ function registerEnterpriseApiRoutes(app2) {
         status: "active",
         activatedBy: req.user.id,
         activatedAt: /* @__PURE__ */ new Date()
-      }).where((0, import_drizzle_orm54.eq)(enterpriseApiKeys.id, keyId)).returning();
+      }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -360939,7 +361084,7 @@ function registerEnterpriseApiRoutes(app2) {
         status: "suspended",
         suspendedAt: /* @__PURE__ */ new Date(),
         suspendedReason: reason || "Suspended by admin"
-      }).where((0, import_drizzle_orm54.eq)(enterpriseApiKeys.id, keyId)).returning();
+      }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -360952,7 +361097,7 @@ function registerEnterpriseApiRoutes(app2) {
   app2.delete("/api/admin/api-keys/:id", loadUser, requireSuperAdmin, async (req, res) => {
     try {
       const keyId = parseInt(req.params.id);
-      const [updated] = await db.update(enterpriseApiKeys).set({ status: "revoked" }).where((0, import_drizzle_orm54.eq)(enterpriseApiKeys.id, keyId)).returning();
+      const [updated] = await db.update(enterpriseApiKeys).set({ status: "revoked" }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -360968,7 +361113,7 @@ function registerEnterpriseApiRoutes(app2) {
     }
   });
 }
-var import_crypto21, import_openai10, import_drizzle_orm54, openai5, SUPPORTED_LANGUAGES3;
+var import_crypto21, import_openai10, import_drizzle_orm55, openai5, SUPPORTED_LANGUAGES3;
 var init_enterprise_api_routes = __esm({
   "server/enterprise-api-routes.ts"() {
     "use strict";
@@ -360977,7 +361122,7 @@ var init_enterprise_api_routes = __esm({
     init_db();
     init_openai_config();
     init_schema();
-    import_drizzle_orm54 = require("drizzle-orm");
+    import_drizzle_orm55 = require("drizzle-orm");
     init_role_middleware();
     init_audit_logging();
     init_api_key_auth();
@@ -362126,8 +362271,8 @@ function registerCommunicationApiRoutes(app2) {
   });
   app2.get("/api/admin/communication-api/overview", loadUser, requireSuperAdmin, async (_req, res) => {
     try {
-      const recentSessions = await db.select().from(communicationSessions).orderBy((0, import_drizzle_orm55.desc)(communicationSessions.createdAt)).limit(20);
-      const pricingConfigs = await db.select().from(communicationApiKeyPricing).orderBy((0, import_drizzle_orm55.desc)(communicationApiKeyPricing.updatedAt)).limit(50);
+      const recentSessions = await db.select().from(communicationSessions).orderBy((0, import_drizzle_orm56.desc)(communicationSessions.createdAt)).limit(20);
+      const pricingConfigs = await db.select().from(communicationApiKeyPricing).orderBy((0, import_drizzle_orm56.desc)(communicationApiKeyPricing.updatedAt)).limit(50);
       res.json({
         recentSessions,
         pricingConfigs
@@ -362140,7 +362285,7 @@ function registerCommunicationApiRoutes(app2) {
   app2.get("/api/admin/communication-api/pricing/:apiKeyId", loadUser, requireSuperAdmin, async (req, res) => {
     try {
       const apiKeyId = Number(req.params.apiKeyId);
-      const [pricing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm55.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
+      const [pricing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
       res.json({ pricing: pricing ?? null });
     } catch (error2) {
       console.error("[CommunicationAPI] Failed to fetch pricing config", error2);
@@ -362158,12 +362303,12 @@ function registerCommunicationApiRoutes(app2) {
       if (!apiKeyId || !organizationId) {
         return res.status(400).json({ error: "apiKeyId and organizationId are required" });
       }
-      const [existing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm55.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
+      const [existing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
       if (existing) {
         const [updated] = await db.update(communicationApiKeyPricing).set({
           ...parsed.data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm55.eq)(communicationApiKeyPricing.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.id, existing.id)).returning();
         return res.json({ pricing: updated });
       }
       const [created] = await db.insert(communicationApiKeyPricing).values({
@@ -362189,11 +362334,11 @@ function registerCommunicationApiRoutes(app2) {
     }
   });
 }
-var import_drizzle_orm55, import_zod18, participantSchema, createCallSessionSchema, updateStatusSchema, pricingConfigSchema;
+var import_drizzle_orm56, import_zod18, participantSchema, createCallSessionSchema, updateStatusSchema, pricingConfigSchema;
 var init_communication_api_routes = __esm({
   "server/communication-api-routes.ts"() {
     "use strict";
-    import_drizzle_orm55 = require("drizzle-orm");
+    import_drizzle_orm56 = require("drizzle-orm");
     import_zod18 = require("zod");
     init_api_key_auth();
     init_db();
@@ -362587,7 +362732,7 @@ var init_secplus_integration_routes = __esm({
 
 // server/tenant-admin-routes.ts
 async function getOrganizationOr404(organizationId, res) {
-  const organization = (await db.select().from(organizations).where((0, import_drizzle_orm56.eq)(organizations.id, organizationId)).limit(1))[0];
+  const organization = (await db.select().from(organizations).where((0, import_drizzle_orm57.eq)(organizations.id, organizationId)).limit(1))[0];
   if (!organization) {
     res.status(404).json({
       success: false,
@@ -362646,13 +362791,13 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const [userCountResult, activeSessionCountResult, subscriptionCountResult, recentAuditCountResult] = await Promise.all([
-        db.select({ count: import_drizzle_orm56.sql`count(*)` }).from(users).where((0, import_drizzle_orm56.eq)(users.organizationId, organizationId)),
-        db.select({ count: import_drizzle_orm56.sql`count(*)` }).from(communicationSessions).where((0, import_drizzle_orm56.and)(
-          (0, import_drizzle_orm56.eq)(communicationSessions.organizationId, organizationId),
-          (0, import_drizzle_orm56.eq)(communicationSessions.status, "active")
+        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(users).where((0, import_drizzle_orm57.eq)(users.organizationId, organizationId)),
+        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(communicationSessions).where((0, import_drizzle_orm57.and)(
+          (0, import_drizzle_orm57.eq)(communicationSessions.organizationId, organizationId),
+          (0, import_drizzle_orm57.eq)(communicationSessions.status, "active")
         )),
-        db.select({ count: import_drizzle_orm56.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm56.eq)(subscriptions.organizationId, organizationId)),
-        db.select({ count: import_drizzle_orm56.sql`count(*)` }).from(auditLogs).where((0, import_drizzle_orm56.eq)(auditLogs.organizationId, organizationId))
+        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm57.eq)(subscriptions.organizationId, organizationId)),
+        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(auditLogs).where((0, import_drizzle_orm57.eq)(auditLogs.organizationId, organizationId))
       ]);
       res.json({
         organizationId,
@@ -362672,17 +362817,17 @@ function registerTenantAdminRoutes(app2) {
     requireAuth,
     requireSuperAdmin,
     async (_req, res) => {
-      const organizationsList = await db.select().from(organizations).orderBy((0, import_drizzle_orm56.desc)(organizations.createdAt));
+      const organizationsList = await db.select().from(organizations).orderBy((0, import_drizzle_orm57.desc)(organizations.createdAt));
       const [databaseConfigs, securityPolicies, userCounts, sessionCounts] = await Promise.all([
         db.select().from(tenantDatabases),
         db.select().from(tenantSecurityPolicies),
         db.select({
           organizationId: users.organizationId,
-          count: import_drizzle_orm56.sql`count(*)`
-        }).from(users).where((0, import_drizzle_orm56.isNotNull)(users.organizationId)).groupBy(users.organizationId),
+          count: import_drizzle_orm57.sql`count(*)`
+        }).from(users).where((0, import_drizzle_orm57.isNotNull)(users.organizationId)).groupBy(users.organizationId),
         db.select({
           organizationId: communicationSessions.organizationId,
-          count: import_drizzle_orm56.sql`count(*)`
+          count: import_drizzle_orm57.sql`count(*)`
         }).from(communicationSessions).groupBy(communicationSessions.organizationId)
       ]);
       const databaseMap = new Map(databaseConfigs.map((row) => [row.organizationId, row]));
@@ -362751,7 +362896,7 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const data = parsed.data;
-      const existing = (await db.select().from(tenantDatabases).where((0, import_drizzle_orm56.eq)(tenantDatabases.organizationId, organizationId)).limit(1))[0];
+      const existing = (await db.select().from(tenantDatabases).where((0, import_drizzle_orm57.eq)(tenantDatabases.organizationId, organizationId)).limit(1))[0];
       const payload = {
         organizationId,
         mode: data.mode,
@@ -362765,7 +362910,7 @@ function registerTenantAdminRoutes(app2) {
         metadata: data.metadata || {},
         updatedAt: /* @__PURE__ */ new Date()
       };
-      const [saved] = existing ? await db.update(tenantDatabases).set(payload).where((0, import_drizzle_orm56.eq)(tenantDatabases.organizationId, organizationId)).returning() : await db.insert(tenantDatabases).values(payload).returning();
+      const [saved] = existing ? await db.update(tenantDatabases).set(payload).where((0, import_drizzle_orm57.eq)(tenantDatabases.organizationId, organizationId)).returning() : await db.insert(tenantDatabases).values(payload).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "tenant_database",
@@ -362809,7 +362954,7 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const data = parsed.data;
-      const existing = (await db.select().from(tenantSecurityPolicies).where((0, import_drizzle_orm56.eq)(tenantSecurityPolicies.organizationId, organizationId)).limit(1))[0];
+      const existing = (await db.select().from(tenantSecurityPolicies).where((0, import_drizzle_orm57.eq)(tenantSecurityPolicies.organizationId, organizationId)).limit(1))[0];
       const payload = {
         organizationId,
         requireTenantHeader: data.requireTenantHeader,
@@ -362825,7 +362970,7 @@ function registerTenantAdminRoutes(app2) {
         metadata: data.metadata || {},
         updatedAt: /* @__PURE__ */ new Date()
       };
-      const [saved] = existing ? await db.update(tenantSecurityPolicies).set(payload).where((0, import_drizzle_orm56.eq)(tenantSecurityPolicies.organizationId, organizationId)).returning() : await db.insert(tenantSecurityPolicies).values(payload).returning();
+      const [saved] = existing ? await db.update(tenantSecurityPolicies).set(payload).where((0, import_drizzle_orm57.eq)(tenantSecurityPolicies.organizationId, organizationId)).returning() : await db.insert(tenantSecurityPolicies).values(payload).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "tenant_security_policy",
@@ -362866,11 +363011,11 @@ function registerTenantAdminRoutes(app2) {
     }
   );
 }
-var import_drizzle_orm56, import_zod21, databaseConfigSchema, securityPolicySchema;
+var import_drizzle_orm57, import_zod21, databaseConfigSchema, securityPolicySchema;
 var init_tenant_admin_routes = __esm({
   "server/tenant-admin-routes.ts"() {
     "use strict";
-    import_drizzle_orm56 = require("drizzle-orm");
+    import_drizzle_orm57 = require("drizzle-orm");
     import_zod21 = require("zod");
     init_db();
     init_schema();
@@ -362948,17 +363093,17 @@ var init_face_to_face_routes = __esm({
 });
 
 // server/compliance-routes.ts
-var import_express12, import_drizzle_orm57, router12, compliance_routes_default;
+var import_express13, import_drizzle_orm58, router13, compliance_routes_default;
 var init_compliance_routes = __esm({
   "server/compliance-routes.ts"() {
     "use strict";
-    import_express12 = require("express");
+    import_express13 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm57 = require("drizzle-orm");
+    import_drizzle_orm58 = require("drizzle-orm");
     init_observability();
-    router12 = (0, import_express12.Router)();
-    router12.post("/api/compliance/consent", async (req, res) => {
+    router13 = (0, import_express13.Router)();
+    router13.post("/api/compliance/consent", async (req, res) => {
       try {
         const { userId, termsAccepted, translationConsent, recordingConsent } = req.body;
         if (!userId) {
@@ -362969,7 +363114,7 @@ var init_compliance_routes = __esm({
           consentTranslation: translationConsent,
           consentRecording: recordingConsent,
           consentTimestamp: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm57.eq)(users.id, userId));
+        }).where((0, import_drizzle_orm58.eq)(users.id, userId));
         logger.info("Compliance", `User ${userId} updated legal consents`, {
           terms: termsAccepted,
           translation: translationConsent,
@@ -362981,17 +363126,17 @@ var init_compliance_routes = __esm({
         res.status(500).json({ error: "Internal compliance system error" });
       }
     });
-    router12.post("/api/compliance/routing", async (req, res) => {
+    router13.post("/api/compliance/routing", async (req, res) => {
       try {
         const { userId, preferredRegion } = req.body;
-        await db.update(users).set({ preferredRegion }).where((0, import_drizzle_orm57.eq)(users.id, userId));
+        await db.update(users).set({ preferredRegion }).where((0, import_drizzle_orm58.eq)(users.id, userId));
         logger.info("Routing", `User ${userId} switched primary execution region to ${preferredRegion}`);
         res.json({ success: true, region: preferredRegion });
       } catch (error2) {
         res.status(500).json({ error: "Failed to update routing preference" });
       }
     });
-    compliance_routes_default = router12;
+    compliance_routes_default = router13;
   }
 });
 
@@ -363016,9 +363161,9 @@ async function requestOtp(identifier, channel) {
     const codeHash = hashOtp(code);
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1e3);
     await db.delete(otpChallenges).where(
-      (0, import_drizzle_orm58.and)(
-        (0, import_drizzle_orm58.eq)(otpChallenges.identifier, identifier),
-        (0, import_drizzle_orm58.eq)(otpChallenges.channel, channel)
+      (0, import_drizzle_orm59.and)(
+        (0, import_drizzle_orm59.eq)(otpChallenges.identifier, identifier),
+        (0, import_drizzle_orm59.eq)(otpChallenges.channel, channel)
       )
     );
     await db.insert(otpChallenges).values({
@@ -363051,10 +363196,10 @@ async function verifyOtp(identifier, channel, code) {
   }
   try {
     const challenge = await db.query.otpChallenges.findFirst({
-      where: (0, import_drizzle_orm58.and)(
-        (0, import_drizzle_orm58.eq)(otpChallenges.identifier, identifier),
-        (0, import_drizzle_orm58.eq)(otpChallenges.channel, channel),
-        (0, import_drizzle_orm58.gt)(otpChallenges.expiresAt, /* @__PURE__ */ new Date())
+      where: (0, import_drizzle_orm59.and)(
+        (0, import_drizzle_orm59.eq)(otpChallenges.identifier, identifier),
+        (0, import_drizzle_orm59.eq)(otpChallenges.channel, channel),
+        (0, import_drizzle_orm59.gt)(otpChallenges.expiresAt, /* @__PURE__ */ new Date())
       )
     });
     if (!challenge) {
@@ -363065,10 +363210,10 @@ async function verifyOtp(identifier, channel, code) {
     }
     const codeHash = hashOtp(code);
     if (codeHash !== challenge.codeHash) {
-      await db.update(otpChallenges).set({ attempts: (challenge.attempts || 0) + 1 }).where((0, import_drizzle_orm58.eq)(otpChallenges.id, challenge.id));
+      await db.update(otpChallenges).set({ attempts: (challenge.attempts || 0) + 1 }).where((0, import_drizzle_orm59.eq)(otpChallenges.id, challenge.id));
       return { success: false, message: "Invalid OTP. Please check and try again." };
     }
-    await db.update(otpChallenges).set({ verifiedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm58.eq)(otpChallenges.id, challenge.id));
+    await db.update(otpChallenges).set({ verifiedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.eq)(otpChallenges.id, challenge.id));
     const { userId, isNewUser } = await findOrCreateUser(identifier, channel);
     logger.info("OtpAuth", "Email OTP verified", {
       identifier: maskIdentifier2(identifier),
@@ -363087,13 +363232,13 @@ async function verifyOtp(identifier, channel, code) {
   }
 }
 async function findOrCreateUser(identifier, channel) {
-  const whereClause = channel === "email" ? (0, import_drizzle_orm58.eq)(users.email, identifier) : (0, import_drizzle_orm58.eq)(users.phone, identifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm59.eq)(users.email, identifier) : (0, import_drizzle_orm59.eq)(users.phone, identifier);
   const existingUser = await db.query.users.findFirst({ where: whereClause });
   if (existingUser) {
     await db.update(users).set({
       lastLoginAt: /* @__PURE__ */ new Date(),
       ...channel === "email" ? { emailVerified: true } : { phoneVerified: true }
-    }).where((0, import_drizzle_orm58.eq)(users.id, existingUser.id));
+    }).where((0, import_drizzle_orm59.eq)(users.id, existingUser.id));
     return { userId: existingUser.id, isNewUser: false };
   }
   const username = generateUsername(identifier);
@@ -363107,7 +363252,7 @@ async function findOrCreateUser(identifier, channel) {
     lastLoginAt: /* @__PURE__ */ new Date()
   }).returning();
   try {
-    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm58.eq)(billingPlans.priceInPaise, 0)).limit(1);
+    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm59.eq)(billingPlans.priceInPaise, 0)).limit(1);
     if (freePlan) {
       const now = /* @__PURE__ */ new Date();
       const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1e3);
@@ -363181,13 +363326,13 @@ function maskIdentifier2(identifier) {
   }
   return `***${identifier.slice(-4)}`;
 }
-var import_drizzle_orm58, import_crypto23, OTP_LENGTH, OTP_EXPIRY_MINUTES, MAX_ATTEMPTS, FIREBASE_MOBILE_ERROR;
+var import_drizzle_orm59, import_crypto23, OTP_LENGTH, OTP_EXPIRY_MINUTES, MAX_ATTEMPTS, FIREBASE_MOBILE_ERROR;
 var init_otp_auth = __esm({
   "server/otp-auth.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm58 = require("drizzle-orm");
+    import_drizzle_orm59 = require("drizzle-orm");
     import_crypto23 = require("crypto");
     init_observability();
     OTP_LENGTH = 6;
@@ -363217,7 +363362,7 @@ function generateSlug(name) {
 }
 async function grantFreeTrialB2C(userId, defaultMinutes = 30) {
   try {
-    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm59.eq)(billingPlans.priceInPaise, 0)).limit(1);
+    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm60.eq)(billingPlans.priceInPaise, 0)).limit(1);
     if (!freePlan) return;
     const now = /* @__PURE__ */ new Date();
     const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1e3);
@@ -363301,7 +363446,7 @@ async function loginUser(input, context) {
     return { error: "INVALID_CREDENTIALS" };
   }
   if (needsPasswordRehash(user2.password)) {
-    await db.update(users).set({ password: hashPassword(input.password) }).where((0, import_drizzle_orm59.eq)(users.id, user2.id));
+    await db.update(users).set({ password: hashPassword(input.password) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
   }
   const requestedTenantSlug = normalizeTenantSlug(
     context?.requestedTenantSlug ?? input.tenantSlug ?? input.organizationSlug
@@ -363338,7 +363483,7 @@ async function forgotPassword(identifier, channel) {
     return { error: "PHONE_RESET_USES_FIREBASE" };
   }
   const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
-  const whereClause = channel === "email" ? (0, import_drizzle_orm59.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm59.eq)(users.phone, normalizedIdentifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm60.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm60.eq)(users.phone, normalizedIdentifier);
   const user2 = await db.query.users.findFirst({ where: whereClause });
   if (!user2) return { success: true };
   await requestOtp(normalizedIdentifier, channel);
@@ -363350,11 +363495,11 @@ async function resetPassword(identifier, channel, code, newPassword) {
   if (!otpResult.success) {
     return { error: "INVALID_OTP", message: otpResult.message };
   }
-  const whereClause = channel === "email" ? (0, import_drizzle_orm59.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm59.eq)(users.phone, normalizedIdentifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm60.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm60.eq)(users.phone, normalizedIdentifier);
   const user2 = await db.query.users.findFirst({ where: whereClause });
   if (!user2) return { error: "USER_NOT_FOUND" };
   await invalidateAllSessionsForUser(user2.id);
-  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm59.eq)(users.id, user2.id));
+  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
   const organization = user2.organizationId ? await storage2.getOrganization(user2.organizationId) : null;
   const token = await createSession(user2.id, void 0, void 0, buildSessionBinding(organization));
   const { password: _pw, ...safeUser } = user2;
@@ -363362,7 +363507,7 @@ async function resetPassword(identifier, channel, code, newPassword) {
 }
 async function changePassword(userId, currentPassword, newPassword) {
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm59.eq)(users.id, userId)
+    where: (0, import_drizzle_orm60.eq)(users.id, userId)
   });
   if (!user2) return { error: "USER_NOT_FOUND" };
   if (!user2.password) return { error: "PASSWORD_AUTH_NOT_AVAILABLE" };
@@ -363372,14 +363517,14 @@ async function changePassword(userId, currentPassword, newPassword) {
     return { error: "INVALID_CURRENT_PASSWORD" };
   }
   await invalidateAllSessionsForUser(user2.id);
-  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm59.eq)(users.id, user2.id));
+  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
   return { success: true };
 }
 async function firebaseVerify(idToken) {
   const firebaseUser = await verifyFirebaseToken(idToken);
   if (!firebaseUser) return { error: "INVALID_TOKEN" };
   let user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm59.eq)(users.phone, firebaseUser.phoneNumber)
+    where: (0, import_drizzle_orm60.eq)(users.phone, firebaseUser.phoneNumber)
   });
   const isNewUser = !user2;
   if (!user2) {
@@ -363391,10 +363536,10 @@ async function firebaseVerify(idToken) {
     user2 = newUser;
     try {
       const freePlan = await db.query.billingPlans.findFirst({
-        where: (0, import_drizzle_orm59.and)(
-          (0, import_drizzle_orm59.eq)(billingPlans.priceInPaise, 0),
-          (0, import_drizzle_orm59.eq)(billingPlans.planType, "b2c"),
-          (0, import_drizzle_orm59.eq)(billingPlans.isEnabled, true)
+        where: (0, import_drizzle_orm60.and)(
+          (0, import_drizzle_orm60.eq)(billingPlans.priceInPaise, 0),
+          (0, import_drizzle_orm60.eq)(billingPlans.planType, "b2c"),
+          (0, import_drizzle_orm60.eq)(billingPlans.isEnabled, true)
         )
       });
       if (freePlan) {
@@ -363454,7 +363599,7 @@ async function verifyAuthOtp(params) {
     }
     const verifiedPhone = verifiedToken.phoneNumber;
     let user3 = await db.query.users.findFirst({
-      where: (0, import_drizzle_orm59.or)((0, import_drizzle_orm59.eq)(users.phone, verifiedPhone), (0, import_drizzle_orm59.eq)(users.phone, verifiedPhone.replace(/^\+/, "")))
+      where: (0, import_drizzle_orm60.or)((0, import_drizzle_orm60.eq)(users.phone, verifiedPhone), (0, import_drizzle_orm60.eq)(users.phone, verifiedPhone.replace(/^\+/, "")))
     });
     if (!user3) {
       const username = `user_${Date.now().toString(36)}`;
@@ -363467,7 +363612,7 @@ async function verifyAuthOtp(params) {
       user3 = newUser;
       await grantFreeTrialB2C(newUser.id, 30);
     } else {
-      await db.update(users).set({ phoneVerified: true }).where((0, import_drizzle_orm59.eq)(users.id, user3.id));
+      await db.update(users).set({ phoneVerified: true }).where((0, import_drizzle_orm60.eq)(users.id, user3.id));
     }
     result = { success: true, userId: user3.id };
   } else {
@@ -363484,7 +363629,7 @@ async function verifyAuthOtp(params) {
     return { success: false, status: 400, message: result.message || "Verification failed" };
   }
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm59.eq)(users.id, result.userId),
+    where: (0, import_drizzle_orm60.eq)(users.id, result.userId),
     with: { organization: true }
   });
   if (!user2?.isActive) {
@@ -363535,7 +363680,7 @@ async function verifyAuthOtp(params) {
 }
 async function loginBySuperAdminEmail(email, context) {
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm59.eq)(users.email, email),
+    where: (0, import_drizzle_orm60.eq)(users.email, email),
     with: { organization: true }
   });
   if (!user2 || user2.role !== "super_admin") {
@@ -363589,7 +363734,7 @@ async function updateProfile(userId, updates) {
   if (updates.avatarUrl !== void 0) setValues.avatarUrl = updates.avatarUrl;
   if (updates.preferredLanguage !== void 0) setValues.preferredLanguage = updates.preferredLanguage;
   if (updates.pushNotificationsEnabled !== void 0) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
-  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm59.eq)(users.id, userId)).returning({
+  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm60.eq)(users.id, userId)).returning({
     id: users.id,
     username: users.username,
     avatarUrl: users.avatarUrl,
@@ -363606,7 +363751,7 @@ function issueSignalingToken(userId, sessionId, sessionToken, phone) {
     phoneNumber: phone ?? void 0
   }, 300);
 }
-var import_drizzle_orm59;
+var import_drizzle_orm60;
 var init_service5 = __esm({
   "server/modules/auth/service.ts"() {
     "use strict";
@@ -363621,7 +363766,7 @@ var init_service5 = __esm({
     init_schema();
     init_phone();
     init_auth_runtime();
-    import_drizzle_orm59 = require("drizzle-orm");
+    import_drizzle_orm60 = require("drizzle-orm");
     init_objectStorage();
     init_objectAcl();
   }
@@ -364029,14 +364174,14 @@ async function getConsent(userId) {
   if (consentCache.has(userId)) {
     return consentCache.get(userId);
   }
-  const [record] = await db.select().from(callConsents).where((0, import_drizzle_orm60.eq)(callConsents.userId, userId)).limit(1);
+  const [record] = await db.select().from(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).limit(1);
   if (!record) return null;
   const consent = dbToConsent(record);
   consentCache.set(userId, consent);
   return consent;
 }
 async function grantConsent(userId, options) {
-  const existing = await db.select().from(callConsents).where((0, import_drizzle_orm60.eq)(callConsents.userId, userId)).limit(1);
+  const existing = await db.select().from(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).limit(1);
   const consentData = {
     userId,
     translationProcessing: options.translationProcessing,
@@ -364047,7 +364192,7 @@ async function grantConsent(userId, options) {
   };
   let record;
   if (existing.length > 0) {
-    const [updated] = await db.update(callConsents).set(consentData).where((0, import_drizzle_orm60.eq)(callConsents.userId, userId)).returning();
+    const [updated] = await db.update(callConsents).set(consentData).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).returning();
     record = updated;
   } else {
     const [inserted] = await db.insert(callConsents).values(consentData).returning();
@@ -364058,7 +364203,7 @@ async function grantConsent(userId, options) {
   return consent;
 }
 async function revokeConsent(userId) {
-  await db.delete(callConsents).where((0, import_drizzle_orm60.eq)(callConsents.userId, userId));
+  await db.delete(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId));
   consentCache.delete(userId);
 }
 async function updateConsent(userId, updates) {
@@ -364067,7 +364212,7 @@ async function updateConsent(userId, updates) {
   const [updated] = await db.update(callConsents).set({
     ...updates,
     consentVersion: CONSENT_VERSION
-  }).where((0, import_drizzle_orm60.eq)(callConsents.userId, userId)).returning();
+  }).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).returning();
   if (!updated) return null;
   const consent = dbToConsent(updated);
   consentCache.set(userId, consent);
@@ -364145,13 +364290,13 @@ function logConsentAction(userId, action, details) {
 function getServiceDisclaimer() {
   return `${TELCO_SAFE_MESSAGING.serviceName}: ${TELCO_SAFE_MESSAGING.disclaimers.join(" ")}`;
 }
-var import_drizzle_orm60, CONSENT_VERSION, PRIVACY_DISCLOSURES, consentCache, auditLogs3, TELCO_SAFE_MESSAGING;
+var import_drizzle_orm61, CONSENT_VERSION, PRIVACY_DISCLOSURES, consentCache, auditLogs3, TELCO_SAFE_MESSAGING;
 var init_call_privacy = __esm({
   "server/call-privacy.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm60 = require("drizzle-orm");
+    import_drizzle_orm61 = require("drizzle-orm");
     CONSENT_VERSION = "1.0.0";
     PRIVACY_DISCLOSURES = {
       translationProcessing: {
@@ -364282,20 +364427,20 @@ async function startRecording(input) {
     await db.update(callRecordings).set({
       egressId: egressInfo.egressId,
       status: RECORDING_STATUS.ACTIVE
-    }).where((0, import_drizzle_orm61.eq)(callRecordings.id, recordingRow.id));
+    }).where((0, import_drizzle_orm62.eq)(callRecordings.id, recordingRow.id));
     logger.info("Recording", `Started recording for call ${input.callId}, egressId=${egressInfo.egressId}`);
     return { success: true, recordingId: recordingRow.id, egressId: egressInfo.egressId };
   } catch (error2) {
     await db.update(callRecordings).set({
       status: RECORDING_STATUS.FAILED,
       failureReason: String(error2 instanceof Error ? error2.message : error2).slice(0, 500)
-    }).where((0, import_drizzle_orm61.eq)(callRecordings.id, recordingRow.id));
+    }).where((0, import_drizzle_orm62.eq)(callRecordings.id, recordingRow.id));
     logger.error("Recording", `Egress start failed for call ${input.callId}`, error2);
     return { success: false, reason: "EGRESS_START_FAILED" };
   }
 }
 async function stopRecording(callId) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm61.eq)(callRecordings.callId, callId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.callId, callId));
   if (!row || !row.egressId || row.status !== RECORDING_STATUS.ACTIVE) return false;
   try {
     const egressClient = getEgressClient();
@@ -364307,7 +364452,7 @@ async function stopRecording(callId) {
   }
 }
 async function handleEgressEndedWebhook(event) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm61.eq)(callRecordings.egressId, event.egressId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.egressId, event.egressId));
   if (!row) return null;
   const failed = event.status === EgressStatus.EGRESS_FAILED || event.status === EgressStatus.EGRESS_ABORTED;
   const file = event.fileResults?.[0];
@@ -364318,12 +364463,12 @@ async function handleEgressEndedWebhook(event) {
     durationSeconds,
     failureReason: failed ? (event.error || "Egress reported failure").slice(0, 500) : null,
     completedAt: /* @__PURE__ */ new Date()
-  }).where((0, import_drizzle_orm61.eq)(callRecordings.id, row.id)).returning();
+  }).where((0, import_drizzle_orm62.eq)(callRecordings.id, row.id)).returning();
   logger.info("Recording", `Egress ${event.egressId} for call ${row.callId} finished: status=${EgressStatus[event.status]}, durationSeconds=${durationSeconds}`);
   return updated ?? null;
 }
 async function getRecordingForCall(callId) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm61.eq)(callRecordings.callId, callId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.callId, callId));
   return row ?? null;
 }
 async function getRecordingDownloadUrl(recording, expiresInSeconds = 300) {
@@ -364336,14 +364481,14 @@ async function getRecordingDownloadUrl(recording, expiresInSeconds = 300) {
   });
   return (0, import_s3_request_presigner2.getSignedUrl)(client, command5, { expiresIn: expiresInSeconds });
 }
-var import_client_s32, import_s3_request_presigner2, import_drizzle_orm61;
+var import_client_s32, import_s3_request_presigner2, import_drizzle_orm62;
 var init_recording_service = __esm({
   "server/recording-service.ts"() {
     "use strict";
     init_dist3();
     import_client_s32 = __toESM(require_dist_cjs16());
     import_s3_request_presigner2 = __toESM(require_dist_cjs17());
-    import_drizzle_orm61 = require("drizzle-orm");
+    import_drizzle_orm62 = require("drizzle-orm");
     init_db();
     init_schema();
     init_call_privacy();
@@ -365045,7 +365190,7 @@ async function isUserInRequesterOrganization(requester, targetUserId) {
       id: true,
       organizationId: true
     },
-    where: (0, import_drizzle_orm62.eq)(users.id, targetUserId)
+    where: (0, import_drizzle_orm63.eq)(users.id, targetUserId)
   });
   return !!targetUser && targetUser.organizationId === requester.organizationId;
 }
@@ -365070,7 +365215,7 @@ async function legacyCallMatchesRequesterOrganization(requester, call) {
   }
   const participantUsers = await db.select({
     organizationId: users.organizationId
-  }).from(users).where((0, import_drizzle_orm62.inArray)(users.id, participantIds));
+  }).from(users).where((0, import_drizzle_orm63.inArray)(users.id, participantIds));
   return participantUsers.some((participant) => participant.organizationId === requester.organizationId);
 }
 async function canAccessLegacyCall(requester, call) {
@@ -365164,6 +365309,16 @@ async function initiate(req, res) {
       return res.status(400).json({ message: "Invalid request", errors: parsed.error.flatten() });
     }
     const user2 = req.user;
+    const calleeIdentifier = parsed.data.calleeIdentifier;
+    const normalizedPhone = normalizePhoneNumber(calleeIdentifier);
+    const [calleeUser] = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm63.or)(
+      (0, import_drizzle_orm63.eq)(users.username, calleeIdentifier),
+      (0, import_drizzle_orm63.eq)(users.email, calleeIdentifier),
+      (0, import_drizzle_orm63.eq)(users.phone, normalizedPhone)
+    ));
+    if (calleeUser && await isBlocked(user2.id, calleeUser.id)) {
+      return res.status(403).json({ message: "This call can't be completed.", code: "BLOCKED" });
+    }
     const result = await initiateCall2({
       callerId: String(user2.id),
       callerUsername: user2.username,
@@ -366827,12 +366982,12 @@ async function transferCall(req, res) {
     res.status(500).json({ error: "Transfer failed" });
   }
 }
-var import_node_crypto21, import_drizzle_orm62, import_zod23, TRANSLATOR_BOT_IDENTITY, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
+var import_node_crypto21, import_drizzle_orm63, import_zod23, TRANSLATOR_BOT_IDENTITY, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
 var init_controller2 = __esm({
   "server/modules/calls/controller.ts"() {
     "use strict";
     import_node_crypto21 = require("node:crypto");
-    import_drizzle_orm62 = require("drizzle-orm");
+    import_drizzle_orm63 = require("drizzle-orm");
     import_zod23 = require("zod");
     init_observability();
     init_db();
@@ -366842,6 +366997,8 @@ var init_controller2 = __esm({
     init_streaming();
     init_call_privacy();
     init_schema();
+    init_phone();
+    init_blocking();
     init_service2();
     init_metrics2();
     init_lifecycle();
@@ -367132,7 +367289,7 @@ async function joinQueue(req, res) {
     if (!parsed.success) {
       return res.status(400).json({ success: false, error: parsed.error.message });
     }
-    const [queue2] = await db.select().from(callQueues).where((0, import_drizzle_orm63.eq)(callQueues.id, queueId));
+    const [queue2] = await db.select().from(callQueues).where((0, import_drizzle_orm64.eq)(callQueues.id, queueId));
     if (!queue2 || !queue2.isActive) {
       return res.status(404).json({ success: false, error: "Queue not found or inactive" });
     }
@@ -367194,12 +367351,12 @@ async function abandon(req, res) {
   });
   return res.json({ success: true });
 }
-var import_zod24, import_drizzle_orm63, joinQueueSchema;
+var import_zod24, import_drizzle_orm64, joinQueueSchema;
 var init_queue_controller = __esm({
   "server/modules/calls/queue-controller.ts"() {
     "use strict";
     import_zod24 = require("zod");
-    import_drizzle_orm63 = require("drizzle-orm");
+    import_drizzle_orm64 = require("drizzle-orm");
     init_db();
     init_schema();
     init_observability();
@@ -367269,7 +367426,7 @@ function buildSipUri(callId) {
 async function findUserByDID(calledNumber) {
   if (!calledNumber) return null;
   try {
-    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm64.eq)(orgDIDNumbers.phoneNumber, calledNumber)).limit(1);
+    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm65.eq)(orgDIDNumbers.phoneNumber, calledNumber)).limit(1);
     if (did && did.isActive && (did.type === "inbound" || did.type === "both")) {
       const agentUserId = await routeToSkillAgent(did.organizationId, []).catch((err) => {
         logger.warn("PSTNInbound", `skill routing failed for DID ${calledNumber}: ${String(err)}`);
@@ -367453,12 +367610,12 @@ async function getInboundCallJoinInfo(callId) {
     callerNumber: record.callerNumber
   };
 }
-var import_node_crypto23, import_drizzle_orm64, LIVEKIT_SIP_DOMAIN;
+var import_node_crypto23, import_drizzle_orm65, LIVEKIT_SIP_DOMAIN;
 var init_inbound = __esm({
   "server/pstn/inbound.ts"() {
     "use strict";
     import_node_crypto23 = require("node:crypto");
-    import_drizzle_orm64 = require("drizzle-orm");
+    import_drizzle_orm65 = require("drizzle-orm");
     init_registry();
     init_livekit_service();
     init_billing_engine();
@@ -367855,7 +368012,7 @@ async function inboundCallWebhook(req, res) {
     return res.status(400).json({ status: "error", error: "Missing caller number" });
   }
   if (toDID) {
-    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm65.eq)(orgDIDNumbers.phoneNumber, toDID)).limit(1).catch(() => []);
+    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm66.eq)(orgDIDNumbers.phoneNumber, toDID)).limit(1).catch(() => []);
     if (did && did.isActive && (did.type === "inbound" || did.type === "both")) {
       const orgId4 = did.organizationId;
       const ivrCfg = did.ivrConfig ?? {};
@@ -367924,11 +368081,11 @@ async function inboundCallWebhook(req, res) {
     res.json({ status: "error", error: e5.message });
   }
 }
-var import_drizzle_orm65, pendingVerifications;
+var import_drizzle_orm66, pendingVerifications;
 var init_controller3 = __esm({
   "server/modules/caller-id/controller.ts"() {
     "use strict";
-    import_drizzle_orm65 = require("drizzle-orm");
+    import_drizzle_orm66 = require("drizzle-orm");
     init_storage();
     init_observability();
     init_db();
@@ -367965,7 +368122,7 @@ async function canAccessCall(req, callIdentifier) {
   if (owners.includes(user2.id)) return true;
   const orgId4 = user2.organizationId;
   if (user2.role === "company_admin" && orgId4 && owners.length > 0) {
-    const owningUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm66.eq)(users.organizationId, orgId4));
+    const owningUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
     const orgUserIds = new Set(owningUsers.map((u) => u.id));
     return owners.some((id) => orgUserIds.has(id));
   }
@@ -368100,10 +368257,10 @@ async function getRetentionSettings(req, res) {
   try {
     const orgId4 = requireOrgAdmin(req, res);
     if (!orgId4) return;
-    const orgUsers = await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where((0, import_drizzle_orm66.eq)(users.organizationId, orgId4));
+    const orgUsers = await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
     const consents = await db.select().from(callConsents);
     const consentByUser = new Map(consents.map((c5) => [c5.userId, c5.dataRetention]));
-    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm66.eq)(organizations.id, orgId4));
+    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
     const orgDefault = org?.settings?.transcriptRetentionDefault ?? "none (platform default: 30 days)";
     res.json({
       orgDefault,
@@ -368127,9 +368284,9 @@ async function setOrgRetentionDefault(req, res) {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
     }
-    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm66.eq)(organizations.id, orgId4));
+    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
     const newSettings = { ...org?.settings ?? {}, transcriptRetentionDefault: parsed.data.dataRetention };
-    await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm66.eq)(organizations.id, orgId4));
+    await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
     await AuditHelpers.logSettingsChange(req.user.id, "org_transcript_retention_default", org?.settings, newSettings);
     res.json({ success: true, transcriptRetentionDefault: parsed.data.dataRetention });
   } catch (error2) {
@@ -368141,7 +368298,7 @@ async function getTranscriptAuditLog(req, res) {
   try {
     const orgId4 = requireOrgAdmin(req, res);
     if (!orgId4) return;
-    const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm66.eq)(users.organizationId, orgId4));
+    const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
     const orgUserIds = new Set(orgUsers.map((u) => u.id));
     const perType = await Promise.all(
       TRANSCRIPT_AUDIT_ENTITY_TYPES.map((entityType) => getAuditLogs({ entityType, limit: 200 }))
@@ -368160,7 +368317,7 @@ async function getMetrics(req, res) {
   }
   res.json(getTranscriptMetricsSnapshot());
 }
-var import_zod25, import_drizzle_orm66, searchSchema, EXPORT_FORMATS, adminSearchSchema, setOrgRetentionSchema, TRANSCRIPT_AUDIT_ENTITY_TYPES;
+var import_zod25, import_drizzle_orm67, searchSchema, EXPORT_FORMATS, adminSearchSchema, setOrgRetentionSchema, TRANSCRIPT_AUDIT_ENTITY_TYPES;
 var init_controller4 = __esm({
   "server/modules/transcripts/controller.ts"() {
     "use strict";
@@ -368169,7 +368326,7 @@ var init_controller4 = __esm({
     init_audit();
     init_db();
     init_schema();
-    import_drizzle_orm66 = require("drizzle-orm");
+    import_drizzle_orm67 = require("drizzle-orm");
     init_service();
     init_metrics();
     searchSchema = import_zod25.z.object({
@@ -368273,7 +368430,7 @@ async function updateVirtualNumberStatus(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [updated] = await db.update(communicationVirtualNumbers).set({ status: parsed.data.status, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm67.eq)(communicationVirtualNumbers.id, id)).returning();
+  const [updated] = await db.update(communicationVirtualNumbers).set({ status: parsed.data.status, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(communicationVirtualNumbers.id, id)).returning();
   if (!updated) return res.status(404).json({ success: false, error: "Not found" });
   return res.json({ success: true, data: updated });
 }
@@ -368282,7 +368439,7 @@ async function listOrgDIDs(req, res) {
   const orgId4 = Number(req.params.orgId);
   if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm67.eq)(orgDIDNumbers.organizationId, orgId4)).orderBy(orgDIDNumbers.createdAt);
+  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4)).orderBy(orgDIDNumbers.createdAt);
   return res.json({ success: true, data: dids });
 }
 async function addOrgDID(req, res) {
@@ -368300,7 +368457,7 @@ async function addOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const [inserted] = await db.insert(orgDIDNumbers).values({
     organizationId: orgId4,
@@ -368330,7 +368487,7 @@ async function updateOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm67.and)((0, import_drizzle_orm67.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm67.eq)(orgDIDNumbers.organizationId, orgId4))).returning();
+  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4))).returning();
   if (!updated) return res.status(404).json({ success: false, error: "DID not found" });
   return res.json({ success: true, data: updated });
 }
@@ -368340,7 +368497,7 @@ async function deleteOrgDID(req, res) {
   const didId = Number(req.params.didId);
   if (!Number.isFinite(orgId4) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm67.and)((0, import_drizzle_orm67.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm67.eq)(orgDIDNumbers.organizationId, orgId4)));
+  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4)));
   return res.json({ success: true });
 }
 async function setOrgOutboundCallerId(req, res) {
@@ -368354,11 +368511,11 @@ async function setOrgOutboundCallerId(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const existingSettings = org.settings ?? {};
   const newSettings = { ...existingSettings, outboundCallerId: parsed.data.callerId };
-  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
   logger.info("B2BAdmin", "Org outbound caller ID set", { orgId: orgId4, callerId: parsed.data.callerId });
   return res.json({ success: true, callerId: parsed.data.callerId });
 }
@@ -368373,7 +368530,7 @@ async function getOrgSettings(req, res) {
     settings: organizations.settings,
     plan: organizations.plan,
     status: organizations.status
-  }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+  }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const settings = org.settings ?? {};
   return res.json({
@@ -368399,7 +368556,7 @@ async function listAgentSkills(req, res) {
     updatedAt: agentSkills.updatedAt,
     userName: users.username,
     userEmail: users.email
-  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm67.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm67.eq)(agentSkills.organizationId, orgId4));
+  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm68.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4));
   return res.json({ success: true, data: rows });
 }
 async function upsertAgentSkill(req, res) {
@@ -368416,10 +368573,10 @@ async function upsertAgentSkill(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm67.and)((0, import_drizzle_orm67.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm67.eq)(agentSkills.organizationId, orgId4)));
+  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4)));
   let row;
   if (existing.length > 0) {
-    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm67.and)((0, import_drizzle_orm67.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm67.eq)(agentSkills.organizationId, orgId4))).returning();
+    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4))).returning();
   } else {
     [row] = await db.insert(agentSkills).values({
       userId: agentUserId,
@@ -368435,7 +368592,7 @@ async function deleteAgentSkill(req, res) {
   const agentUserId = Number(req.params.userId);
   if (!Number.isFinite(orgId4) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  await db.delete(agentSkills).where((0, import_drizzle_orm67.and)((0, import_drizzle_orm67.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm67.eq)(agentSkills.organizationId, orgId4)));
+  await db.delete(agentSkills).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4)));
   return res.json({ success: true });
 }
 function registerB2BAdminRoutes(app2) {
@@ -368452,11 +368609,11 @@ function registerB2BAdminRoutes(app2) {
   app2.put("/api/admin/orgs/:orgId/agent-skills/:userId", requireAuth, upsertAgentSkill);
   app2.delete("/api/admin/orgs/:orgId/agent-skills/:userId", requireAuth, deleteAgentSkill);
 }
-var import_drizzle_orm67, import_zod26;
+var import_drizzle_orm68, import_zod26;
 var init_routes11 = __esm({
   "server/modules/b2b-admin/routes.ts"() {
     "use strict";
-    import_drizzle_orm67 = require("drizzle-orm");
+    import_drizzle_orm68 = require("drizzle-orm");
     import_zod26 = require("zod");
     init_db();
     init_role_middleware();
@@ -369645,7 +369802,7 @@ function actorId2(req) {
   return req.user.id;
 }
 async function listDepartments(req, res) {
-  const rows = await db.select().from(departments).where((0, import_drizzle_orm68.eq)(departments.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(departments.name));
+  const rows = await db.select().from(departments).where((0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(departments.name));
   res.json(rows);
 }
 async function createDepartment(req, res) {
@@ -369657,20 +369814,20 @@ async function createDepartment(req, res) {
 }
 async function updateDepartment(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(departments.id, id), (0, import_drizzle_orm68.eq)(departments.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(departments.id, id), (0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(departments).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(departments.id, id)).returning();
+  const [row] = await db.update(departments).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(departments.id, id)).returning();
   res.json(row);
 }
 async function deleteDepartment(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(departments.id, id), (0, import_drizzle_orm68.eq)(departments.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(departments.id, id), (0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(departments).where((0, import_drizzle_orm68.eq)(departments.id, id));
+  await db.delete(departments).where((0, import_drizzle_orm69.eq)(departments.id, id));
   res.json({ success: true });
 }
 async function listBranches(req, res) {
-  const rows = await db.select().from(branches).where((0, import_drizzle_orm68.eq)(branches.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(branches.name));
+  const rows = await db.select().from(branches).where((0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(branches.name));
   res.json(rows);
 }
 async function createBranch(req, res) {
@@ -369682,20 +369839,20 @@ async function createBranch(req, res) {
 }
 async function updateBranch(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(branches.id, id), (0, import_drizzle_orm68.eq)(branches.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(branches.id, id), (0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(branches).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(branches.id, id)).returning();
+  const [row] = await db.update(branches).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(branches.id, id)).returning();
   res.json(row);
 }
 async function deleteBranch(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(branches.id, id), (0, import_drizzle_orm68.eq)(branches.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(branches.id, id), (0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(branches).where((0, import_drizzle_orm68.eq)(branches.id, id));
+  await db.delete(branches).where((0, import_drizzle_orm69.eq)(branches.id, id));
   res.json({ success: true });
 }
 async function listTeams(req, res) {
-  const rows = await db.select().from(teams).where((0, import_drizzle_orm68.eq)(teams.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(teams.name));
+  const rows = await db.select().from(teams).where((0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(teams.name));
   res.json(rows);
 }
 async function createTeam(req, res) {
@@ -369707,16 +369864,16 @@ async function createTeam(req, res) {
 }
 async function updateTeam(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(teams.id, id), (0, import_drizzle_orm68.eq)(teams.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teams.id, id), (0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(teams).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(teams.id, id)).returning();
+  const [row] = await db.update(teams).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(teams.id, id)).returning();
   res.json(row);
 }
 async function deleteTeam(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(teams.id, id), (0, import_drizzle_orm68.eq)(teams.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teams.id, id), (0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(teams).where((0, import_drizzle_orm68.eq)(teams.id, id));
+  await db.delete(teams).where((0, import_drizzle_orm69.eq)(teams.id, id));
   res.json({ success: true });
 }
 async function listTeamMembers(req, res) {
@@ -369729,7 +369886,7 @@ async function listTeamMembers(req, res) {
     joinedAt: teamMembers.joinedAt,
     userName: users.username,
     userEmail: users.email
-  }).from(teamMembers).innerJoin(users, (0, import_drizzle_orm68.eq)(teamMembers.userId, users.id)).where((0, import_drizzle_orm68.eq)(teamMembers.teamId, teamId));
+  }).from(teamMembers).innerJoin(users, (0, import_drizzle_orm69.eq)(teamMembers.userId, users.id)).where((0, import_drizzle_orm69.eq)(teamMembers.teamId, teamId));
   res.json(rows);
 }
 async function addTeamMember(req, res) {
@@ -369742,11 +369899,11 @@ async function addTeamMember(req, res) {
 async function removeTeamMember(req, res) {
   const teamId = parseInt(req.params.teamId);
   const userId = parseInt(req.params.userId);
-  await db.delete(teamMembers).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(teamMembers.teamId, teamId), (0, import_drizzle_orm68.eq)(teamMembers.userId, userId)));
+  await db.delete(teamMembers).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teamMembers.teamId, teamId), (0, import_drizzle_orm69.eq)(teamMembers.userId, userId)));
   res.json({ success: true });
 }
 async function listBusinessHours(req, res) {
-  const rows = await db.select().from(businessHours).where((0, import_drizzle_orm68.eq)(businessHours.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(businessHours.name));
+  const rows = await db.select().from(businessHours).where((0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(businessHours.name));
   res.json(rows);
 }
 async function createBusinessHours(req, res) {
@@ -369757,20 +369914,20 @@ async function createBusinessHours(req, res) {
 }
 async function updateBusinessHours(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(businessHours.id, id), (0, import_drizzle_orm68.eq)(businessHours.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(businessHours.id, id), (0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(businessHours.id, id)).returning();
+  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(businessHours.id, id)).returning();
   res.json(row);
 }
 async function deleteBusinessHours(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(businessHours.id, id), (0, import_drizzle_orm68.eq)(businessHours.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(businessHours.id, id), (0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(businessHours).where((0, import_drizzle_orm68.eq)(businessHours.id, id));
+  await db.delete(businessHours).where((0, import_drizzle_orm69.eq)(businessHours.id, id));
   res.json({ success: true });
 }
 async function listHolidays(req, res) {
-  const rows = await db.select().from(holidayCalendar).where((0, import_drizzle_orm68.eq)(holidayCalendar.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(holidayCalendar.date));
+  const rows = await db.select().from(holidayCalendar).where((0, import_drizzle_orm69.eq)(holidayCalendar.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(holidayCalendar.date));
   res.json(rows);
 }
 async function createHoliday(req, res) {
@@ -369781,13 +369938,13 @@ async function createHoliday(req, res) {
 }
 async function deleteHoliday(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(holidayCalendar).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(holidayCalendar.id, id), (0, import_drizzle_orm68.eq)(holidayCalendar.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(holidayCalendar).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(holidayCalendar.id, id), (0, import_drizzle_orm69.eq)(holidayCalendar.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(holidayCalendar).where((0, import_drizzle_orm68.eq)(holidayCalendar.id, id));
+  await db.delete(holidayCalendar).where((0, import_drizzle_orm69.eq)(holidayCalendar.id, id));
   res.json({ success: true });
 }
 async function listIvrMenus(req, res) {
-  const rows = await db.select().from(ivrMenus).where((0, import_drizzle_orm68.eq)(ivrMenus.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(ivrMenus.name));
+  const rows = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(ivrMenus.name));
   res.json(rows);
 }
 async function createIvrMenu(req, res) {
@@ -369798,21 +369955,21 @@ async function createIvrMenu(req, res) {
 }
 async function updateIvrMenu(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(ivrMenus.id, id), (0, import_drizzle_orm68.eq)(ivrMenus.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(ivrMenus.id, id), (0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(ivrMenus.id, id)).returning();
+  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(ivrMenus.id, id)).returning();
   res.json(row);
 }
 async function deleteIvrMenu(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(ivrMenus.id, id), (0, import_drizzle_orm68.eq)(ivrMenus.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(ivrMenus.id, id), (0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(ivrMenus).where((0, import_drizzle_orm68.eq)(ivrMenus.id, id));
+  await db.delete(ivrMenus).where((0, import_drizzle_orm69.eq)(ivrMenus.id, id));
   res.json({ success: true });
 }
 async function listIvrOptions(req, res) {
   const menuId = parseInt(req.params.menuId);
-  const rows = await db.select().from(ivrOptions).where((0, import_drizzle_orm68.eq)(ivrOptions.menuId, menuId)).orderBy((0, import_drizzle_orm68.asc)(ivrOptions.displayOrder));
+  const rows = await db.select().from(ivrOptions).where((0, import_drizzle_orm69.eq)(ivrOptions.menuId, menuId)).orderBy((0, import_drizzle_orm69.asc)(ivrOptions.displayOrder));
   res.json(rows);
 }
 async function createIvrOption(req, res) {
@@ -369824,11 +369981,11 @@ async function createIvrOption(req, res) {
 }
 async function deleteIvrOption(req, res) {
   const id = parseInt(req.params.optionId);
-  await db.delete(ivrOptions).where((0, import_drizzle_orm68.eq)(ivrOptions.id, id));
+  await db.delete(ivrOptions).where((0, import_drizzle_orm69.eq)(ivrOptions.id, id));
   res.json({ success: true });
 }
 async function listCallQueues(req, res) {
-  const rows = await db.select().from(callQueues).where((0, import_drizzle_orm68.eq)(callQueues.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(callQueues.name));
+  const rows = await db.select().from(callQueues).where((0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(callQueues.name));
   res.json(rows);
 }
 async function createCallQueue(req, res) {
@@ -369839,16 +369996,16 @@ async function createCallQueue(req, res) {
 }
 async function updateCallQueue(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(callQueues.id, id), (0, import_drizzle_orm68.eq)(callQueues.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(callQueues.id, id), (0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(callQueues.id, id)).returning();
+  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(callQueues.id, id)).returning();
   res.json(row);
 }
 async function deleteCallQueue(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(callQueues.id, id), (0, import_drizzle_orm68.eq)(callQueues.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(callQueues.id, id), (0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(callQueues).where((0, import_drizzle_orm68.eq)(callQueues.id, id));
+  await db.delete(callQueues).where((0, import_drizzle_orm69.eq)(callQueues.id, id));
   res.json({ success: true });
 }
 async function getOrgPresence(req, res) {
@@ -369865,7 +370022,7 @@ async function getOrgPresence(req, res) {
     userName: users.username,
     userEmail: users.email,
     avatarUrl: users.avatarUrl
-  }).from(agentPresence).innerJoin(users, (0, import_drizzle_orm68.eq)(agentPresence.userId, users.id)).where((0, import_drizzle_orm68.eq)(agentPresence.organizationId, orgId3(req)));
+  }).from(agentPresence).innerJoin(users, (0, import_drizzle_orm69.eq)(agentPresence.userId, users.id)).where((0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)));
   res.json(rows);
 }
 async function updateMyPresence(req, res) {
@@ -369887,11 +370044,11 @@ async function updateMyPresence(req, res) {
   res.json(row);
 }
 async function heartbeat(req, res) {
-  await db.update(agentPresence).set({ lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(agentPresence.userId, actorId2(req)));
+  await db.update(agentPresence).set({ lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(agentPresence.userId, actorId2(req)));
   res.json({ ok: true });
 }
 async function listPbxIntegrations(req, res) {
-  const rows = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm68.eq)(pbxIntegrations.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(pbxIntegrations.name));
+  const rows = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(pbxIntegrations.name));
   res.json(rows.map((r5) => ({ ...r5, password: r5.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: r5.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null })));
 }
 async function createPbxIntegration(req, res) {
@@ -369903,26 +370060,26 @@ async function createPbxIntegration(req, res) {
 }
 async function updatePbxIntegration(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm68.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
   const update = { ...req.body, updatedAt: /* @__PURE__ */ new Date() };
   if (update.password === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.password;
   if (update.apiKey === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.apiKey;
-  const [row] = await db.update(pbxIntegrations).set(update).where((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id)).returning();
+  const [row] = await db.update(pbxIntegrations).set(update).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id)).returning();
   res.json({ ...row, password: row.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: row.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null });
 }
 async function deletePbxIntegration(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm68.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(pbxIntegrations).where((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id));
+  await db.delete(pbxIntegrations).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
   res.json({ success: true });
 }
 async function testPbxConnection(req, res) {
   const id = parseInt(req.params.id);
-  const [pbx] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm68.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [pbx] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!pbx) return res.status(404).json({ error: "Not found" });
-  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
   const net2 = await import("net");
   const socket = new net2.Socket();
   const host = pbx.host;
@@ -369944,11 +370101,11 @@ async function testPbxConnection(req, res) {
     });
   });
   const status = result.success ? "connected" : "disconnected";
-  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
   res.json(result);
 }
 async function listCostCenters(req, res) {
-  const rows = await db.select().from(costCenters).where((0, import_drizzle_orm68.eq)(costCenters.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.asc)(costCenters.name));
+  const rows = await db.select().from(costCenters).where((0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(costCenters.name));
   res.json(rows);
 }
 async function createCostCenter(req, res) {
@@ -369959,16 +370116,16 @@ async function createCostCenter(req, res) {
 }
 async function updateCostCenter(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(costCenters.id, id), (0, import_drizzle_orm68.eq)(costCenters.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(costCenters.id, id), (0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(costCenters.id, id)).returning();
+  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(costCenters.id, id)).returning();
   res.json(row);
 }
 async function deleteCostCenter(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(costCenters.id, id), (0, import_drizzle_orm68.eq)(costCenters.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(costCenters.id, id), (0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(costCenters).where((0, import_drizzle_orm68.eq)(costCenters.id, id));
+  await db.delete(costCenters).where((0, import_drizzle_orm69.eq)(costCenters.id, id));
   res.json({ success: true });
 }
 function requireSupervisorOrAdmin(req, res, next) {
@@ -369984,16 +370141,16 @@ async function getActiveCalls2(req, res) {
     callId: agentPresence.currentCallId,
     status: agentPresence.status,
     lastHeartbeatAt: agentPresence.lastHeartbeatAt
-  }).from(agentPresence).leftJoin(users, (0, import_drizzle_orm68.eq)(agentPresence.userId, users.id)).where(
-    (0, import_drizzle_orm68.and)(
-      (0, import_drizzle_orm68.eq)(agentPresence.organizationId, orgId3(req)),
-      (0, import_drizzle_orm68.isNotNull)(agentPresence.currentCallId)
+  }).from(agentPresence).leftJoin(users, (0, import_drizzle_orm69.eq)(agentPresence.userId, users.id)).where(
+    (0, import_drizzle_orm69.and)(
+      (0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)),
+      (0, import_drizzle_orm69.isNotNull)(agentPresence.currentCallId)
     )
   );
   res.json(rows);
 }
 async function listSupervisorSessions(req, res) {
-  const rows = await db.select().from(supervisorSessions).where((0, import_drizzle_orm68.eq)(supervisorSessions.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm68.desc)(supervisorSessions.startedAt)).limit(100);
+  const rows = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.eq)(supervisorSessions.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.desc)(supervisorSessions.startedAt)).limit(100);
   res.json(rows);
 }
 async function startSupervisorSession(req, res) {
@@ -370002,10 +370159,10 @@ async function startSupervisorSession(req, res) {
     return res.status(400).json({ error: "callId, agentId, and mode (listen|whisper|barge) are required" });
   }
   const [agent] = await db.select().from(agentPresence).where(
-    (0, import_drizzle_orm68.and)(
-      (0, import_drizzle_orm68.eq)(agentPresence.organizationId, orgId3(req)),
-      (0, import_drizzle_orm68.eq)(agentPresence.userId, parseInt(agentId)),
-      (0, import_drizzle_orm68.eq)(agentPresence.currentCallId, callId)
+    (0, import_drizzle_orm69.and)(
+      (0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)),
+      (0, import_drizzle_orm69.eq)(agentPresence.userId, parseInt(agentId)),
+      (0, import_drizzle_orm69.eq)(agentPresence.currentCallId, callId)
     )
   );
   if (!agent) {
@@ -370048,17 +370205,17 @@ async function changeSupervisorMode(req, res) {
   if (!["listen", "whisper", "barge"].includes(mode)) {
     return res.status(400).json({ error: "mode must be listen|whisper|barge" });
   }
-  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(supervisorSessions.id, id), (0, import_drizzle_orm68.eq)(supervisorSessions.supervisorId, actorId2(req))));
+  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(supervisorSessions.id, id), (0, import_drizzle_orm69.eq)(supervisorSessions.supervisorId, actorId2(req))));
   if (!existing) return res.status(404).json({ error: "Session not found" });
   if (existing.endedAt) return res.status(409).json({ error: "Session already ended" });
-  const [updated] = await db.update(supervisorSessions).set({ mode }).where((0, import_drizzle_orm68.eq)(supervisorSessions.id, id)).returning();
+  const [updated] = await db.update(supervisorSessions).set({ mode }).where((0, import_drizzle_orm69.eq)(supervisorSessions.id, id)).returning();
   res.json(updated);
 }
 async function endSupervisorSession(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(supervisorSessions.id, id), (0, import_drizzle_orm68.eq)(supervisorSessions.supervisorId, actorId2(req))));
+  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(supervisorSessions.id, id), (0, import_drizzle_orm69.eq)(supervisorSessions.supervisorId, actorId2(req))));
   if (!existing) return res.status(404).json({ error: "Session not found" });
-  const [ended] = await db.update(supervisorSessions).set({ endedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(supervisorSessions.id, id)).returning();
+  const [ended] = await db.update(supervisorSessions).set({ endedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(supervisorSessions.id, id)).returning();
   res.json(ended);
 }
 function registerEnterpriseAdminRoutes(app2) {
@@ -370113,11 +370270,11 @@ function registerEnterpriseAdminRoutes(app2) {
   app2.patch("/api/enterprise/supervisor/sessions/:id/mode", ...supervisorGuard, changeSupervisorMode);
   app2.delete("/api/enterprise/supervisor/sessions/:id", ...supervisorGuard, endSupervisorSession);
 }
-var import_drizzle_orm68, guard2, supervisorGuard;
+var import_drizzle_orm69, guard2, supervisorGuard;
 var init_routes15 = __esm({
   "server/modules/enterprise-admin/routes.ts"() {
     "use strict";
-    import_drizzle_orm68 = require("drizzle-orm");
+    import_drizzle_orm69 = require("drizzle-orm");
     init_db();
     init_role_middleware();
     init_schema();
@@ -370146,10 +370303,10 @@ async function resolveAppLinkedContact(identifier) {
     email: users.email,
     phone: users.phone,
     preferredLanguage: users.preferredRegion
-  }).from(users).where((0, import_drizzle_orm69.or)(
-    (0, import_drizzle_orm69.eq)(users.username, trimmed),
-    (0, import_drizzle_orm69.eq)(users.email, trimmed),
-    (0, import_drizzle_orm69.eq)(users.phone, normalizedPhone)
+  }).from(users).where((0, import_drizzle_orm70.or)(
+    (0, import_drizzle_orm70.eq)(users.username, trimmed),
+    (0, import_drizzle_orm70.eq)(users.email, trimmed),
+    (0, import_drizzle_orm70.eq)(users.phone, normalizedPhone)
   ));
   if (!matchedUser) return null;
   return {
@@ -370165,7 +370322,7 @@ function registerContactRoutes(app2) {
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
-      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm69.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm69.desc)(userContacts.isFavorite), (0, import_drizzle_orm69.desc)(userContacts.lastCalledAt));
+      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm70.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm70.desc)(userContacts.isFavorite), (0, import_drizzle_orm70.desc)(userContacts.lastCalledAt));
       const hydratedContacts = await Promise.all(
         contacts.map(async (contact) => ({
           ...contact,
@@ -370217,7 +370374,7 @@ function registerContactRoutes(app2) {
       if (isFavorite !== void 0) updates.isFavorite = Boolean(isFavorite);
       if (notes !== void 0) updates.notes = notes ? String(notes).slice(0, 500) : null;
       if (avatarUrl !== void 0) updates.avatarUrl = avatarUrl;
-      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(userContacts.id, contactId), (0, import_drizzle_orm69.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -370235,7 +370392,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(userContacts.id, contactId), (0, import_drizzle_orm69.eq)(userContacts.userId, userId))).returning();
+      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
       if (!deleted) return res.status(404).json({ error: "Contact not found" });
       res.json({ message: "Contact deleted" });
     } catch (error2) {
@@ -370248,9 +370405,9 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(userContacts.id, contactId), (0, import_drizzle_orm69.eq)(userContacts.userId, userId)));
+      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId)));
       if (!existing) return res.status(404).json({ error: "Contact not found" });
-      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(userContacts.id, contactId)).returning();
+      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm70.eq)(userContacts.id, contactId)).returning();
       res.json({
         contact: {
           ...updated,
@@ -370267,7 +370424,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(userContacts.id, contactId), (0, import_drizzle_orm69.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -370282,13 +370439,13 @@ function registerContactRoutes(app2) {
   });
   console.log("[Routes] \u2714 Contact routes");
 }
-var import_drizzle_orm69;
+var import_drizzle_orm70;
 var init_contact_routes = __esm({
   "server/contact-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm69 = require("drizzle-orm");
+    import_drizzle_orm70 = require("drizzle-orm");
     init_phone();
   }
 });
@@ -370463,6 +370620,7 @@ async function registerRoutes(httpServer2, app2) {
   console.log("[Routes] \u2713 Voice memos routes");
   app2.use(group_chats_default);
   app2.use(personal_chat_routes_default);
+  app2.use(blocking_default);
   console.log("[Routes] \u2713 Group chats routes");
   registerLipSyncRoutes(app2);
   console.log("[Routes] \u2713 Lip-sync routes");
@@ -370792,6 +370950,7 @@ var init_routes16 = __esm({
     init_voice_memos();
     init_group_chats();
     init_personal_chat_routes();
+    init_blocking();
     init_lip_sync();
     init_openapi();
     init_room_routes();
@@ -370836,7 +370995,7 @@ function serveStatic(app2) {
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
   }
-  app2.use(import_express13.default.static(distPath, {
+  app2.use(import_express14.default.static(distPath, {
     maxAge: "1y",
     etag: true,
     lastModified: true,
@@ -370849,11 +371008,11 @@ function serveStatic(app2) {
     res.sendFile(import_path4.default.resolve(distPath, "index.html"));
   });
 }
-var import_express13, import_fs3, import_path4;
+var import_express14, import_fs3, import_path4;
 var init_static = __esm({
   "server/static.ts"() {
     "use strict";
-    import_express13 = __toESM(require("express"));
+    import_express14 = __toESM(require("express"));
     import_fs3 = __toESM(require("fs"));
     import_path4 = __toESM(require("path"));
   }
@@ -370868,7 +371027,7 @@ module.exports = __toCommonJS(index_exports);
 init_load_env();
 var import_fs4 = __toESM(require("fs"));
 var import_path5 = __toESM(require("path"));
-var import_express14 = __toESM(require("express"));
+var import_express15 = __toESM(require("express"));
 
 // node_modules/express-async-errors/index.js
 var Layer = require("express/lib/router/layer");
@@ -371363,7 +371522,7 @@ async function initRTPAIWorker() {
 }
 
 // server/index.ts
-var app = (0, import_express14.default)();
+var app = (0, import_express15.default)();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 var httpServer = (0, import_http.createServer)(app);
@@ -371379,14 +371538,14 @@ httpServer.on("error", (error2) => {
   void shutdownServer(1);
 });
 app.use(
-  import_express14.default.json({
+  import_express15.default.json({
     limit: "50mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     }
   })
 );
-app.use(import_express14.default.urlencoded({ extended: false, limit: "50mb" }));
+app.use(import_express15.default.urlencoded({ extended: false, limit: "50mb" }));
 app.use(requestContextMiddleware);
 app.use(httpMetricsMiddleware);
 app.use(corsMiddleware);

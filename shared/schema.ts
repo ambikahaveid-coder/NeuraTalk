@@ -305,6 +305,21 @@ export const messages = pgTable("messages", {
   index("messages_conversation_idx").on(table.conversationId),
 ]);
 
+// === USER BLOCKING ===
+// One-directional: A blocking B does not imply B blocked A. Enforcement
+// (server/blocking.ts) checks both directions so either party's block
+// stops chat/calls between them.
+export const blockedUsers = pgTable("blocked_users", {
+  id: serial("id").primaryKey(),
+  blockerUserId: integer("blocker_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  blockedUserId: integer("blocked_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("blocked_users_pair_idx").on(table.blockerUserId, table.blockedUserId),
+  index("blocked_users_blocker_idx").on(table.blockerUserId),
+  index("blocked_users_blocked_idx").on(table.blockedUserId),
+]);
+
 // === PERSONAL 1:1 MULTILINGUAL CHAT ===
 export const personalChatThreads = pgTable("personal_chat_threads", {
   id: serial("id").primaryKey(),
@@ -320,6 +335,13 @@ export const personalChatThreads = pgTable("personal_chat_threads", {
   // other participant's view or deleting any row.
   participantAClearedAt: timestamp("participant_a_cleared_at"),
   participantBClearedAt: timestamp("participant_b_cleared_at"),
+  // Pin/archive/mute are per-viewer, same reasoning as clearedAt above.
+  participantAPinned: boolean("participant_a_pinned").notNull().default(false),
+  participantBPinned: boolean("participant_b_pinned").notNull().default(false),
+  participantAArchived: boolean("participant_a_archived").notNull().default(false),
+  participantBArchived: boolean("participant_b_archived").notNull().default(false),
+  participantAMuted: boolean("participant_a_muted").notNull().default(false),
+  participantBMuted: boolean("participant_b_muted").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

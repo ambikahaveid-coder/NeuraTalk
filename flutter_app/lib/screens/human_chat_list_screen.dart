@@ -21,6 +21,8 @@ class HumanChatListScreen extends StatefulWidget {
 }
 
 class _HumanChatListScreenState extends State<HumanChatListScreen> {
+  bool _showArchived = false;
+
   @override
   void initState() {
     super.initState();
@@ -46,30 +48,97 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _visibleThreads(PersonalChatProvider provider) {
+    final filtered = provider.threads.where((t) => (t['isArchived'] == true) == _showArchived).toList();
+    filtered.sort((a, b) {
+      final aPinned = a['isPinned'] == true;
+      final bPinned = b['isPinned'] == true;
+      if (aPinned != bPinned) return aPinned ? -1 : 1;
+      final aTime = DateTime.tryParse(a['lastMessageAt']?.toString() ?? '') ?? DateTime(1970);
+      final bTime = DateTime.tryParse(b['lastMessageAt']?.toString() ?? '') ?? DateTime(1970);
+      return bTime.compareTo(aTime);
+    });
+    return filtered;
+  }
+
+  void _showThreadActions(Map<String, dynamic> thread) {
+    final threadId = thread['id'] as int;
+    final isPinned = thread['isPinned'] == true;
+    final isArchived = thread['isArchived'] == true;
+    final isMuted = thread['isMuted'] == true;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: AppColors.cyan),
+              title: Text(isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                context.read<PersonalChatProvider>().updateThreadState(threadId, pinned: !isPinned);
+              },
+            ),
+            ListTile(
+              leading: Icon(isMuted ? Icons.notifications_off : Icons.notifications_off_outlined, color: AppColors.cyan),
+              title: Text(isMuted ? 'Unmute' : 'Mute', style: const TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                context.read<PersonalChatProvider>().updateThreadState(threadId, muted: !isMuted);
+              },
+            ),
+            ListTile(
+              leading: Icon(isArchived ? Icons.unarchive_outlined : Icons.archive_outlined, color: AppColors.cyan),
+              title: Text(isArchived ? 'Unarchive' : 'Archive', style: const TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                context.read<PersonalChatProvider>().updateThreadState(threadId, archived: !isArchived);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PersonalChatProvider>();
+    final visible = _visibleThreads(provider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Chat'),
+        title: Text(_showArchived ? 'Archived' : 'Chat'),
+        leading: _showArchived
+            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _showArchived = false))
+            : null,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.auto_awesome, color: AppColors.cyan),
-            tooltip: 'NEURA AI',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
-          ),
-          IconButton(
-            icon: const Icon(Icons.groups_outlined, color: AppColors.cyan),
-            tooltip: 'Groups',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GroupChatListScreen())),
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_add_alt_1, color: AppColors.cyan),
-            tooltip: 'New chat',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
-          ),
+          if (!_showArchived) ...[
+            IconButton(
+              icon: const Icon(Icons.archive_outlined, color: AppColors.cyan),
+              tooltip: 'Archived',
+              onPressed: () => setState(() => _showArchived = true),
+            ),
+            IconButton(
+              icon: const Icon(Icons.auto_awesome, color: AppColors.cyan),
+              tooltip: 'NEURA AI',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
+            ),
+            IconButton(
+              icon: const Icon(Icons.groups_outlined, color: AppColors.cyan),
+              tooltip: 'Groups',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GroupChatListScreen())),
+            ),
+            IconButton(
+              icon: const Icon(Icons.person_add_alt_1, color: AppColors.cyan),
+              tooltip: 'New chat',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
+            ),
+          ],
         ],
       ),
       body: RefreshIndicator(
@@ -79,11 +148,13 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
             ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
             : provider.threadsError != null
                 ? Center(child: Text(provider.threadsError!, style: const TextStyle(color: AppColors.red)))
-                : provider.threads.isEmpty
-                    ? _emptyState()
+                : visible.isEmpty
+                    ? (_showArchived
+                        ? const Center(child: Text('No archived chats', style: TextStyle(color: AppColors.textMuted)))
+                        : _emptyState())
                     : ListView.builder(
-                        itemCount: provider.threads.length,
-                        itemBuilder: (_, i) => _threadTile(provider.threads[i]),
+                        itemCount: visible.length,
+                        itemBuilder: (_, i) => _threadTile(visible[i]),
                       ),
       ),
     );
@@ -126,6 +197,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     final peer = (thread['peer'] as Map<String, dynamic>?) ?? const {};
     final avatarUrl = peer['avatarUrl'] as String?;
     final unread = (thread['unreadCount'] as int?) ?? 0;
+    final isPinned = thread['isPinned'] == true;
+    final isMuted = thread['isMuted'] == true;
 
     return ListTile(
       leading: CircleAvatar(
@@ -134,9 +207,18 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
         backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
         child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
       ),
-      title: Text(
-        peer['displayName']?.toString() ?? 'Unknown user',
-        style: TextStyle(color: AppColors.white, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              peer['displayName']?.toString() ?? 'Unknown user',
+              style: TextStyle(color: AppColors.white, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (isPinned) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.push_pin, size: 13, color: AppColors.textMuted)),
+          if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.notifications_off, size: 13, color: AppColors.textMuted)),
+        ],
       ),
       subtitle: Text(
         thread['lastMessagePreview']?.toString() ?? 'Say hello 👋',
@@ -163,6 +245,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => ConversationScreen(thread: thread)));
         if (mounted) context.read<PersonalChatProvider>().loadThreads();
       },
+      onLongPress: () => _showThreadActions(thread),
     );
   }
 }
