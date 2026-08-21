@@ -1,5 +1,5 @@
 import type { Express } from "express";
-import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectStorageService, ObjectNotFoundError, isObjectStorageConfigured } from "./objectStorage";
 import { canAccessObject, ObjectPermission } from "./objectAcl";
 import { loadUser, requireAuth } from "../../role-middleware";
 
@@ -52,6 +52,10 @@ export function registerObjectStorageRoutes(app: Express): void {
    */
   app.post("/api/uploads/request-url", loadUser, requireAuth, async (req, res) => {
     try {
+      if (!isObjectStorageConfigured()) {
+        return res.status(503).json({ error: "File uploads are not available right now." });
+      }
+
       const { name, size, contentType } = req.body;
 
       if (!name || typeof name !== "string") {

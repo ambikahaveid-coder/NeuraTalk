@@ -1,6 +1,9 @@
-import { File } from "@google-cloud/storage";
+import type { ObjectFileHandle } from "./objectStorage";
 
-const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
+// S3 metadata keys are lowercased and delivered without the "x-amz-meta-"
+// prefix by the SDK, and may not contain colons -- unlike the GCS custom
+// metadata key this replaced.
+const ACL_POLICY_METADATA_KEY = "aclpolicy";
 
 // The type of the access group.
 //
@@ -104,12 +107,12 @@ function createObjectAccessGroup(
 
 // Sets the ACL policy to the object metadata.
 export async function setObjectAclPolicy(
-  objectFile: File,
+  objectFile: ObjectFileHandle,
   aclPolicy: ObjectAclPolicy,
 ): Promise<void> {
   const [exists] = await objectFile.exists();
   if (!exists) {
-    throw new Error(`Object not found: ${objectFile.name}`);
+    throw new Error(`Object not found: ${objectFile.key}`);
   }
 
   await objectFile.setMetadata({
@@ -121,7 +124,7 @@ export async function setObjectAclPolicy(
 
 // Gets the ACL policy from the object metadata.
 export async function getObjectAclPolicy(
-  objectFile: File,
+  objectFile: ObjectFileHandle,
 ): Promise<ObjectAclPolicy | null> {
   const [metadata] = await objectFile.getMetadata();
   const aclPolicy = metadata?.metadata?.[ACL_POLICY_METADATA_KEY];
@@ -138,7 +141,7 @@ export async function canAccessObject({
   requestedPermission,
 }: {
   userId?: string;
-  objectFile: File;
+  objectFile: ObjectFileHandle;
   requestedPermission: ObjectPermission;
 }): Promise<boolean> {
   // When this function is called, the acl policy is required.

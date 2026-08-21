@@ -1,7 +1,8 @@
 export {
   ObjectStorageService,
   ObjectNotFoundError,
-  objectStorageClient,
+  ObjectFileHandle,
+  isObjectStorageConfigured,
 } from "./objectStorage";
 
 export type {

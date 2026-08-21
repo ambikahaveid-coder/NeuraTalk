@@ -88,7 +88,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await context.read<AuthProvider>().fetchProfile();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      setState(() => _error = 'Could not save profile. Please try again.');
+      setState(() => _error = e is ApiException ? e.message : 'Could not save profile. Please try again.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
