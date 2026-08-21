@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,9 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/personal_chat_provider.dart';
+import 'providers/group_chat_provider.dart';
 import 'services/call_service.dart';
+import 'services/push_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/incoming_call_screen.dart';
@@ -53,6 +56,7 @@ class NeuraTalkApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
         ChangeNotifierProvider(create: (_) => CallService()),
         ChangeNotifierProvider(create: (_) => PersonalChatProvider()),
+        ChangeNotifierProvider(create: (_) => GroupChatProvider()),
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,
@@ -108,6 +112,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         setState(() {});
         if (auth.isLoggedIn) {
           calls.startPolling();
+          unawaited(PushService.init());
         } else {
           calls.stopPolling();
         }
@@ -115,6 +120,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
       calls.addListener(_onCallServiceChanged);
       if (auth.isLoggedIn) {
         calls.startPolling();
+        unawaited(PushService.init());
       }
     }
   }

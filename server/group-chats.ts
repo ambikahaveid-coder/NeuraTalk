@@ -8,6 +8,7 @@ import crypto from "crypto";
 import { openai } from "./ai_integrations/audio/client";
 import { Readable } from "stream";
 import { requireAuth } from "./role-middleware";
+import { sendPushNotification } from "./firebase-admin";
 
 const objectStorage = new ObjectStorageService();
 const router = Router();
@@ -422,7 +423,18 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Reque
     await db.update(groupChats)
       .set({ updatedAt: new Date() })
       .where(eq(groupChats.id, groupId));
-    
+
+    // Background/terminated-app push to every other member -- best-effort.
+    const [senderRow] = await db.select({ username: users.username }).from(users).where(eq(users.id, senderId));
+    const recipients = members.map((m) => m.userId).filter((id) => id !== senderId);
+    for (const recipientId of recipients) {
+      sendPushNotification(recipientId, {
+        title: senderRow?.username || "New group message",
+        body: content,
+        data: { type: "group_chat_message", groupId: String(groupId) },
+      }).catch(() => {});
+    }
+
     res.status(201).json(message[0]);
   } catch (error) {
     console.error("Error sending message:", error);

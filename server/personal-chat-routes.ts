@@ -9,6 +9,7 @@ import { openai } from "./ai_integrations/audio/client";
 import { requireAuth } from "./role-middleware";
 import { ObjectStorageService } from "./ai_integrations/object_storage/objectStorage";
 import { setObjectAclPolicy } from "./ai_integrations/object_storage/objectAcl";
+import { sendPushNotification } from "./firebase-admin";
 
 const router = Router();
 
@@ -690,6 +691,14 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
         ? (message.createdAt instanceof Date ? message.createdAt.toISOString() : new Date(message.createdAt).toISOString())
         : new Date().toISOString(),
     });
+
+    // Background/terminated-app push -- best-effort, never blocks the send.
+    // The SSE event above only reaches a peer with the app open/foregrounded.
+    sendPushNotification(context.peerUserId, {
+      title: req.user!.username || "New message",
+      body: lastMessagePreview,
+      data: { type: "personal_chat_message", threadId: String(threadId) },
+    }).catch(() => {});
 
     res.status(201).json({
       message: formatMessage(message, viewerId, context.viewerLanguage),

@@ -357925,6 +357925,7 @@ var init_group_chats = __esm({
     import_crypto19 = __toESM(require("crypto"));
     init_client2();
     init_role_middleware();
+    init_firebase_admin();
     objectStorage3 = new ObjectStorageService();
     router10 = (0, import_express10.Router)();
     ENCRYPTION_ALGORITHM3 = "aes-256-gcm";
@@ -358170,6 +358171,16 @@ var init_group_chats = __esm({
           replyToId: replyToId || null
         }).returning();
         await db.update(groupChats).set({ updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm52.eq)(groupChats.id, groupId));
+        const [senderRow] = await db.select({ username: users.username }).from(users).where((0, import_drizzle_orm52.eq)(users.id, senderId));
+        const recipients = members.map((m3) => m3.userId).filter((id) => id !== senderId);
+        for (const recipientId of recipients) {
+          sendPushNotification(recipientId, {
+            title: senderRow?.username || "New group message",
+            body: content,
+            data: { type: "group_chat_message", groupId: String(groupId) }
+          }).catch(() => {
+          });
+        }
         res.status(201).json(message2[0]);
       } catch (error2) {
         console.error("Error sending message:", error2);
@@ -358508,6 +358519,7 @@ var init_personal_chat_routes = __esm({
     init_role_middleware();
     init_objectStorage();
     init_objectAcl();
+    init_firebase_admin();
     router11 = (0, import_express11.Router)();
     createThreadSchema = import_zod15.z.object({
       userId: import_zod15.z.number().int().positive().optional(),
@@ -358844,6 +358856,12 @@ var init_personal_chat_routes = __esm({
           messageType: input.messageType || "text",
           lastMessagePreview,
           messageCreatedAt: message2.createdAt ? message2.createdAt instanceof Date ? message2.createdAt.toISOString() : new Date(message2.createdAt).toISOString() : (/* @__PURE__ */ new Date()).toISOString()
+        });
+        sendPushNotification(context.peerUserId, {
+          title: req.user.username || "New message",
+          body: lastMessagePreview,
+          data: { type: "personal_chat_message", threadId: String(threadId) }
+        }).catch(() => {
         });
         res.status(201).json({
           message: formatMessage(message2, viewerId, context.viewerLanguage)
