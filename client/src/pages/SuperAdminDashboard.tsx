@@ -29,13 +29,14 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection } from "./AdminSections";
+import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
 
-type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "payments" | "audit" | "settings";
+type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations";
 
 const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="w-4 h-4" />, group: "Dashboard" },
   { id: "companies", label: "Companies", icon: <Building2 className="w-4 h-4" />, group: "Management" },
+  { id: "tenants", label: "Tenants", icon: <Building2 className="w-4 h-4" />, group: "Management" },
   { id: "users", label: "Users & Roles", icon: <Users className="w-4 h-4" />, group: "Management" },
   { id: "calls", label: "Call Logs", icon: <PhoneCall className="w-4 h-4" />, group: "Management" },
   { id: "billing", label: "Billing & Plans", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
@@ -43,11 +44,17 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: "analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, group: "Revenue" },
   { id: "languages", label: "Languages", icon: <Globe className="w-4 h-4" />, group: "Platform" },
   { id: "integrations", label: "API & Keys", icon: <Key className="w-4 h-4" />, group: "Platform" },
+  { id: "webhooks", label: "Webhooks", icon: <Key className="w-4 h-4" />, group: "Platform" },
+  { id: "communication-api", label: "Communication API", icon: <Key className="w-4 h-4" />, group: "Platform" },
+  { id: "locations", label: "Locations", icon: <Globe className="w-4 h-4" />, group: "Platform" },
   { id: "feature-flags", label: "Feature Flags", icon: <ToggleLeft className="w-4 h-4" />, group: "Platform" },
+  { id: "platform-settings", label: "Platform Settings", icon: <Settings className="w-4 h-4" />, group: "Platform" },
   { id: "legal", label: "Legal & Content", icon: <Scale className="w-4 h-4" />, group: "Content" },
   { id: "support", label: "Support", icon: <Headphones className="w-4 h-4" />, group: "Content" },
   { id: "health", label: "System Health", icon: <HeartPulse className="w-4 h-4" />, group: "System" },
   { id: "sla", label: "SLA Dashboard", icon: <HeartPulse className="w-4 h-4" />, group: "System" },
+  { id: "diagnostics", label: "Diagnostics", icon: <HeartPulse className="w-4 h-4" />, group: "System" },
+  { id: "compliance", label: "Compliance", icon: <Shield className="w-4 h-4" />, group: "System" },
   { id: "abuse", label: "Abuse Reports", icon: <Shield className="w-4 h-4" />, group: "System" },
   { id: "audit", label: "Audit Logs", icon: <History className="w-4 h-4" />, group: "System" },
   { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" />, group: "System" },
@@ -127,7 +134,7 @@ export default function SuperAdminDashboard() {
             <div>
               <h1 className="text-2xl font-bold capitalize">{activeSection}</h1>
               <p className="text-sm text-muted-foreground">
-                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", "feature-flags": "Toggle platform features & rollout control", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", abuse: "Review and act on user-submitted reports", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
+                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -173,8 +180,15 @@ export default function SuperAdminDashboard() {
           {activeSection === "support" && <SupportSection />}
           {activeSection === "health" && <SystemHealthSection />}
           {activeSection === "sla" && <SlaDashboardSection />}
+          {activeSection === "diagnostics" && <DiagnosticsSection />}
+          {activeSection === "compliance" && <ComplianceSection />}
           {activeSection === "abuse" && <AbuseReportsSection />}
           {activeSection === "payments" && <PaymentGatewaysSection />}
+          {activeSection === "platform-settings" && <PlatformSettingsSection />}
+          {activeSection === "webhooks" && <WebhooksSection />}
+          {activeSection === "tenants" && <TenantsSection />}
+          {activeSection === "communication-api" && <CommunicationApiSection />}
+          {activeSection === "locations" && <LocationsSection />}
           {activeSection === "audit" && <AuditSection />}
           {activeSection === "settings" && <SettingsSection />}
         </div>
@@ -3101,6 +3115,17 @@ function AuditSection() {
     },
   });
 
+  const { data: statsData } = useQuery({
+    queryKey: ["/api/admin/audit-stats"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/audit-stats?days=7", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+  });
+  const stats: { action: string; count: number }[] = statsData?.data || [];
+
   const logs = auditData?.logs || [];
 
   const actionIcons: Record<string, React.ReactNode> = {
@@ -3139,6 +3164,19 @@ function AuditSection() {
           </Button>
         </div>
       </div>
+
+      {stats.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">Activity Breakdown (last 7 days)</CardTitle></CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {stats.map((s) => (
+              <Badge key={s.action} variant="outline" className="text-xs">
+                {s.action.replace(/_/g, ' ')}: {s.count}
+              </Badge>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">

@@ -21,6 +21,7 @@ import {
   Globe, Flag, ToggleLeft, Scale, Edit, Plus, Trash2,
   HeartPulse, Headphones, FileText, RefreshCw, Download,
   CheckCircle, XCircle, Shield, AlertTriangle, Activity, CreditCard,
+  Database, MapPin, Webhook, Bot, ChevronRight, Copy,
 } from "lucide-react";
 
 // ============================================================================
@@ -1042,6 +1043,673 @@ export function PaymentGatewaysSection() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// COMPLIANCE SECTION (Backups + Data Residency)
+// ============================================================================
+export function ComplianceSection() {
+  const { data: backupData, isLoading: loadingBackups } = useQuery({
+    queryKey: ["/api/admin/backups"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/backups", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { backups: [] };
+      return res.json();
+    },
+  });
+
+  const { data: residencyData, isLoading: loadingResidency } = useQuery({
+    queryKey: ["/api/admin/data-residency"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/data-residency", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { policies: [] };
+      return res.json();
+    },
+  });
+
+  const backups = backupData?.backups || [];
+  const policies = residencyData?.policies || [];
+  const fmtBytes = (n: number | null) => {
+    if (!n) return "N/A";
+    const mb = n / (1024 * 1024);
+    return mb > 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Database className="w-4 h-4" />Backup Jobs</CardTitle></CardHeader>
+        <CardContent>
+          {loadingBackups ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : backups.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No backup jobs recorded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {backups.map((b: any) => (
+                <div key={b.id} className="flex items-center justify-between p-3 rounded-lg border text-sm">
+                  <div className="flex items-center gap-3">
+                    <Badge variant={b.status === "completed" ? "default" : b.status === "failed" ? "destructive" : "outline"} className="capitalize">{b.status}</Badge>
+                    <span className="font-medium capitalize">{b.type}</span>
+                    <span className="text-muted-foreground">{b.scope}</span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                    <span>{fmtBytes(b.sizeBytes)}</span>
+                    <span>{b.startedAt ? new Date(b.startedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><MapPin className="w-4 h-4" />Data Residency Policies</CardTitle></CardHeader>
+        <CardContent>
+          {loadingResidency ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : policies.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No data residency policies configured.</p>
+          ) : (
+            <div className="space-y-2">
+              {policies.map((p: any) => (
+                <div key={p.id} className="p-3 rounded-lg border text-sm">
+                  <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{JSON.stringify(p, null, 2)}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// PLATFORM SETTINGS SECTION (generic key/value store)
+// ============================================================================
+export function PlatformSettingsSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [editing, setEditing] = useState<Record<string, string>>({});
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/platform-settings"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/platform-settings", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async ({ key, value, description }: { key: string; value: string; description?: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/platform-settings/${encodeURIComponent(key)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ value, description }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/platform-settings"] });
+      toast({ title: "Setting saved" });
+      setNewKey(""); setNewValue(""); setNewDescription("");
+    },
+    onError: () => toast({ title: "Could not save setting", variant: "destructive" }),
+  });
+
+  const settings = data?.data || [];
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">Generic platform key/value settings, separate from the main Settings page. Use for platform-wide config that doesn't have a dedicated screen yet.</p>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Add / Update Setting</CardTitle></CardHeader>
+        <CardContent className="flex gap-2 flex-wrap">
+          <Input placeholder="key" value={newKey} onChange={(e) => setNewKey(e.target.value)} className="w-40" />
+          <Input placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} className="w-40" />
+          <Input placeholder="description (optional)" value={newDescription} onChange={(e) => setNewDescription(e.target.value)} className="flex-1 min-w-[180px]" />
+          <Button
+            disabled={!newKey || !newValue || saveMutation.isPending}
+            onClick={() => saveMutation.mutate({ key: newKey, value: newValue, description: newDescription || undefined })}
+          >
+            <Plus className="w-4 h-4 mr-2" />Save
+          </Button>
+        </CardContent>
+      </Card>
+
+      {settings.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">No platform settings set yet.</CardContent></Card>
+      ) : (
+        <div className="space-y-2">
+          {settings.map((s: any) => (
+            <Card key={s.key}>
+              <CardContent className="pt-4 pb-4 flex items-center gap-3">
+                <div className="flex-1">
+                  <p className="font-mono text-sm font-medium">{s.key}</p>
+                  {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
+                </div>
+                <Input
+                  value={editing[s.key] ?? s.value ?? ""}
+                  onChange={(e) => setEditing((prev) => ({ ...prev, [s.key]: e.target.value }))}
+                  className="w-48"
+                />
+                <Button
+                  size="sm" variant="outline"
+                  disabled={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate({ key: s.key, value: editing[s.key] ?? s.value, description: s.description })}
+                >
+                  Update
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// WEBHOOKS SECTION (per-organization, org picker)
+// ============================================================================
+export function WebhooksSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [orgId, setOrgId] = useState<string>("");
+  const [newUrl, setNewUrl] = useState("");
+  const [newEvents, setNewEvents] = useState<string[]>([]);
+  const [newSecret, setNewSecret] = useState<string | null>(null);
+
+  const EVENT_TYPES = ["call.initiated", "call.connected", "call.ended", "call.failed", "translation.started", "translation.completed", "recording.ready"];
+
+  const { data: companiesData } = useQuery({
+    queryKey: ["/api/admin/companies"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/companies", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { companies: [] };
+      return res.json();
+    },
+  });
+
+  const { data: webhooksData, isLoading } = useQuery({
+    queryKey: ["/api/admin/orgs", orgId, "webhooks"],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { webhooks: [] };
+      return res.json();
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ url: newUrl, subscribedEvents: newEvents }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Failed to create webhook");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/orgs", orgId, "webhooks"] });
+      setNewSecret(data.webhook?.signingSecret || data.webhook?.secret || null);
+      setNewUrl(""); setNewEvents([]);
+      toast({ title: "Webhook created" });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isActive }),
+      });
+      if (!res.ok) throw new Error("Failed to update");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/admin/orgs", orgId, "webhooks"] }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/orgs", orgId, "webhooks"] });
+      toast({ title: "Webhook deleted" });
+    },
+  });
+
+  const companies = companiesData?.companies || [];
+  const webhooks = webhooksData?.webhooks || [];
+
+  return (
+    <div className="space-y-6">
+      <Select value={orgId} onValueChange={(v) => { setOrgId(v); setNewSecret(null); }}>
+        <SelectTrigger className="w-72"><SelectValue placeholder="Select a company..." /></SelectTrigger>
+        <SelectContent>
+          {companies.map((c: any) => (
+            <SelectItem key={c.id || c.organizationId} value={String(c.organizationId || c.id)}>{c.name || c.companyName}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {!orgId ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground"><Webhook className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>Select a company to manage its webhooks</p></CardContent></Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader><CardTitle className="text-base">New Webhook</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <Input placeholder="https://example.com/webhook" value={newUrl} onChange={(e) => setNewUrl(e.target.value)} />
+              <div className="flex flex-wrap gap-2">
+                {EVENT_TYPES.map((ev) => (
+                  <Badge
+                    key={ev}
+                    variant={newEvents.includes(ev) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => setNewEvents((prev) => prev.includes(ev) ? prev.filter((e) => e !== ev) : [...prev, ev])}
+                  >
+                    {ev}
+                  </Badge>
+                ))}
+              </div>
+              <Button disabled={!newUrl || newEvents.length === 0 || createMutation.isPending} onClick={() => createMutation.mutate()}>
+                <Plus className="w-4 h-4 mr-2" />Create Webhook
+              </Button>
+              {newSecret && (
+                <div className="p-3 rounded-lg border border-amber-500/50 bg-amber-500/10 text-sm">
+                  <p className="font-medium mb-1">Signing secret (shown once — copy it now):</p>
+                  <code className="text-xs break-all">{newSecret}</code>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : webhooks.length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-muted-foreground">No webhooks for this company yet.</CardContent></Card>
+          ) : (
+            <div className="space-y-2">
+              {webhooks.map((w: any) => (
+                <Card key={w.id}>
+                  <CardContent className="pt-4 pb-4 flex items-center justify-between gap-4">
+                    <div>
+                      <p className="font-mono text-sm">{w.url}</p>
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {(w.subscribedEvents || []).map((e: string) => <Badge key={e} variant="outline" className="text-[10px]">{e}</Badge>)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Switch checked={w.isActive} onCheckedChange={(v) => toggleMutation.mutate({ id: w.id, isActive: v })} />
+                      <Button size="sm" variant="ghost" className="text-red-400" onClick={() => deleteMutation.mutate(w.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// TENANTS SECTION
+// ============================================================================
+export function TenantsSection() {
+  const { toast } = useToast();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/tenants"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/tenants", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { tenants: [] };
+      return res.json();
+    },
+  });
+
+  const { data: detail, isLoading: loadingDetail, refetch: refetchDetail } = useQuery({
+    queryKey: ["/api/admin/tenants", selectedId],
+    enabled: selectedId !== null,
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/tenants/${selectedId}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return res.json();
+    },
+  });
+
+  const runHealthCheck = async () => {
+    if (selectedId === null) return;
+    const token = getAuthToken();
+    const res = await fetch(`/api/admin/tenants/${selectedId}/health-check`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { toast({ title: "Health check started" }); refetchDetail(); }
+    else toast({ title: "Health check failed to start", variant: "destructive" });
+  };
+
+  const tenants = data?.tenants || [];
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  if (selectedId !== null) {
+    return (
+      <div className="space-y-6">
+        <Button variant="outline" size="sm" onClick={() => setSelectedId(null)}>← Back to tenants</Button>
+        {loadingDetail ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>
+        ) : !detail ? (
+          <p className="text-sm text-muted-foreground">Could not load tenant details.</p>
+        ) : (
+          <>
+            <Card>
+              <CardHeader><CardTitle className="text-base">{detail.organization?.name}</CardTitle><CardDescription>{detail.organization?.slug}</CardDescription></CardHeader>
+              <CardContent className="flex items-center gap-4">
+                <Badge variant="outline" className="capitalize">{detail.organization?.plan}</Badge>
+                <Badge variant={detail.organization?.isActive ? "default" : "destructive"}>{detail.organization?.isActive ? "Active" : "Inactive"}</Badge>
+                <Button size="sm" variant="outline" onClick={runHealthCheck}><RefreshCw className="w-4 h-4 mr-2" />Run Health Check</Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-base">Database Isolation</CardTitle></CardHeader>
+              <CardContent><pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{JSON.stringify(detail.databaseConfig, null, 2)}</pre></CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-base">Security Policy</CardTitle></CardHeader>
+              <CardContent><pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{JSON.stringify(detail.securityPolicy, null, 2)}</pre></CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle className="text-base">Health</CardTitle></CardHeader>
+              <CardContent><pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">{JSON.stringify(detail.health, null, 2)}</pre></CardContent>
+            </Card>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {tenants.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">No tenants (organizations) found.</CardContent></Card>
+      ) : tenants.map((t: any) => (
+        <Card key={t.organization.id} className="cursor-pointer hover:border-primary/50" onClick={() => setSelectedId(t.organization.id)}>
+          <CardContent className="pt-4 pb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Building2 className="w-5 h-5 text-primary" />
+              <div>
+                <p className="font-medium">{t.organization.name}</p>
+                <p className="text-xs text-muted-foreground">{t.stats.users} users · {t.stats.communicationSessions} sessions</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={t.database ? "default" : "outline"} className="text-[10px]">{t.database ? "DB isolated" : "shared DB"}</Badge>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// DIAGNOSTICS SECTION (Active translator bots + live translation pipeline test)
+// ============================================================================
+export function DiagnosticsSection() {
+  const { toast } = useToast();
+  const [testText, setTestText] = useState("Hello, how are you?");
+  const [fromLang, setFromLang] = useState("en");
+  const [toLang, setToLang] = useState("hi");
+  const [testResult, setTestResult] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+
+  const { data: botsData, isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/bots"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/bots", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { count: 0, bots: [] };
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  const runTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/translation/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: testText, from: fromLang, to: toLang }),
+      });
+      setTestResult(await res.json());
+    } catch (e) {
+      toast({ title: "Test failed to run", variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2"><Bot className="w-4 h-4" />Active Translator Bots</CardTitle>
+            <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : (
+            <>
+              <p className="text-2xl font-bold text-primary mb-3">{botsData?.count ?? 0} <span className="text-sm font-normal text-muted-foreground">active right now</span></p>
+              {(botsData?.bots || []).length > 0 && (
+                <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground p-3 rounded bg-muted/30">{JSON.stringify(botsData.bots, null, 2)}</pre>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Live Translation Pipeline Test</CardTitle><CardDescription>Runs a real STT/translation/TTS round-trip through the actual production pipeline</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea value={testText} onChange={(e) => setTestText(e.target.value)} rows={2} />
+          <div className="flex gap-2">
+            <Input placeholder="from (e.g. en)" value={fromLang} onChange={(e) => setFromLang(e.target.value)} className="w-32" />
+            <Input placeholder="to (e.g. hi)" value={toLang} onChange={(e) => setToLang(e.target.value)} className="w-32" />
+            <Button disabled={testing} onClick={runTest}>{testing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}Run Test</Button>
+          </div>
+          {testResult && (
+            <pre className="text-xs whitespace-pre-wrap font-mono p-3 rounded bg-muted/30">{JSON.stringify(testResult, null, 2)}</pre>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// COMMUNICATION API SECTION
+// ============================================================================
+export function CommunicationApiSection() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/communication-api/overview"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/communication-api/overview", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { recentSessions: [], pricingConfigs: [] };
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  const sessions = data?.recentSessions || [];
+  const pricing = data?.pricingConfigs || [];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Recent API Sessions</CardTitle></CardHeader>
+        <CardContent>
+          {sessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No Communication API sessions yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map((s: any) => (
+                <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border text-sm">
+                  <span className="font-mono text-xs">{s.sessionId || s.id}</span>
+                  <Badge variant="outline" className="capitalize">{s.status}</Badge>
+                  <span className="text-xs text-muted-foreground">{s.createdAt ? new Date(s.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">API Key Pricing Configs</CardTitle></CardHeader>
+        <CardContent>
+          {pricing.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No per-key pricing overrides configured — using platform defaults.</p>
+          ) : (
+            <div className="space-y-2">
+              {pricing.map((p: any) => (
+                <div key={p.id} className="p-3 rounded-lg border text-sm flex items-center justify-between">
+                  <span>API Key #{p.apiKeyId} · Org #{p.organizationId}</span>
+                  <div className="flex gap-3 text-xs text-muted-foreground">
+                    <span>Voice: ₹{((p.voiceRatePerSecondPaise || 0) / 100).toFixed(3)}/s</span>
+                    <span>Video: ₹{((p.videoRatePerSecondPaise || 0) / 100).toFixed(3)}/s</span>
+                    <Badge variant="outline" className="capitalize">{p.billingModel}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// LOCATIONS SECTION
+// ============================================================================
+export function LocationsSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [bulkJson, setBulkJson] = useState("");
+  const [bulkType, setBulkType] = useState("countries");
+
+  const { data: countriesData, isLoading } = useQuery({
+    queryKey: ["/api/locations/countries"],
+    queryFn: async () => {
+      const res = await fetch("/api/locations/countries");
+      if (!res.ok) return { countries: [] };
+      return res.json();
+    },
+  });
+
+  const bulkImportMutation = useMutation({
+    mutationFn: async () => {
+      const token = getAuthToken();
+      let parsed;
+      try { parsed = JSON.parse(bulkJson); } catch { throw new Error("Invalid JSON"); }
+      const res = await fetch("/api/admin/locations/bulk-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: bulkType, records: parsed }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || "Import failed");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/locations/countries"] });
+      toast({ title: "Import complete", description: JSON.stringify(data).slice(0, 200) });
+      setBulkJson("");
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const countries = countriesData?.countries || countriesData?.data || (Array.isArray(countriesData) ? countriesData : []);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><MapPin className="w-4 h-4" />Countries</CardTitle></CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+          ) : countries.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No countries in the database yet — use bulk import below.</p>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {countries.map((c: any) => (
+                <div key={c.id} className="p-2 rounded border text-sm flex items-center justify-between">
+                  <span>{c.name}</span>
+                  {c.isEnabled === false && <Badge variant="outline" className="text-[10px]">disabled</Badge>}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Bulk Import</CardTitle><CardDescription>Paste a JSON array of records (countries/states/districts/cities/villages/pincodes)</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          <Select value={bulkType} onValueChange={setBulkType}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {["countries", "states", "districts", "cities", "villages", "pincodes"].map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Textarea placeholder='[{"name": "India", "code": "IN"}]' value={bulkJson} onChange={(e) => setBulkJson(e.target.value)} rows={6} className="font-mono text-xs" />
+          <Button disabled={!bulkJson || bulkImportMutation.isPending} onClick={() => bulkImportMutation.mutate()}>
+            {bulkImportMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}Import
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
