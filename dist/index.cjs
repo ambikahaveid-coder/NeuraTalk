@@ -261630,12 +261630,12 @@ async function resolveCallee(identifier) {
   }
   const loweredIdentifier = rawIdentifier.toLowerCase();
   const byIdentity = await db.query.users.findFirst({
-    where: (users5, { and: and47, eq: eq69, or: or16, sql: sql21 }) => and47(
-      eq69(users5.isActive, true),
+    where: (users4, { and: and47, eq: eq69, or: or16, sql: sql21 }) => and47(
+      eq69(users4.isActive, true),
       or16(
-        eq69(users5.username, rawIdentifier),
-        sql21`LOWER(${users5.email}) = ${loweredIdentifier}`,
-        sql21`REPLACE(COALESCE(${users5.phone}, ''), ' ', '') = ${normalizedPhone}`
+        eq69(users4.username, rawIdentifier),
+        sql21`LOWER(${users4.email}) = ${loweredIdentifier}`,
+        sql21`REPLACE(COALESCE(${users4.phone}, ''), ' ', '') = ${normalizedPhone}`
       )
     )
   });
@@ -348208,17 +348208,54 @@ function registerProductionRoutes(app2) {
     try {
       const status = req.query.status;
       const reports = await db.query.abuseReports.findMany({
-        where: status ? (0, import_drizzle_orm31.eq)(abuseReports.status, status) : void 0,
+        where: status && status !== "all" ? (0, import_drizzle_orm31.eq)(abuseReports.status, status) : void 0,
         orderBy: [(0, import_drizzle_orm31.desc)(abuseReports.createdAt)],
         limit: 100
       });
+      const userIds = Array.from(new Set(
+        reports.flatMap((r5) => [r5.reporterUserId, r5.reportedUserId, r5.reviewedBy]).filter((id) => typeof id === "number")
+      ));
+      const userRows = userIds.length > 0 ? await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where((0, import_drizzle_orm31.inArray)(users.id, userIds)) : [];
+      const userById = new Map(userRows.map((u) => [u.id, u]));
       res.json({
         success: true,
-        reports
+        reports: reports.map((r5) => ({
+          ...r5,
+          reporter: r5.reporterUserId ? userById.get(r5.reporterUserId) || null : null,
+          reportedUser: r5.reportedUserId ? userById.get(r5.reportedUserId) || null : null,
+          reviewer: r5.reviewedBy ? userById.get(r5.reviewedBy) || null : null
+        }))
       });
     } catch (err) {
       logger.error("ProductionRoutes", "Abuse reports fetch failed", err);
       res.status(500).json({ success: false, message: "Failed to fetch reports" });
+    }
+  });
+  app2.patch("/api/admin/abuse-reports/:id", loadUser, requireSuperAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ success: false, message: "Invalid report ID" });
+      const schema = import_zod4.z.object({
+        status: import_zod4.z.enum(["pending", "reviewing", "resolved", "dismissed"]).optional(),
+        reviewNotes: import_zod4.z.string().max(2e3).optional(),
+        resolution: import_zod4.z.string().max(2e3).optional()
+      });
+      const input = schema.parse(req.body);
+      if (Object.keys(input).length === 0) return res.status(400).json({ success: false, message: "No fields to update" });
+      const setValues = { ...input, reviewedBy: req.user.id };
+      if (input.status === "resolved" || input.status === "dismissed") {
+        setValues.resolvedAt = /* @__PURE__ */ new Date();
+      }
+      const [updated] = await db.update(abuseReports).set(setValues).where((0, import_drizzle_orm31.eq)(abuseReports.id, id)).returning();
+      if (!updated) return res.status(404).json({ success: false, message: "Report not found" });
+      logger.info("ProductionRoutes", "Abuse report updated", { reportId: id, status: input.status, byUserId: req.user.id });
+      res.json({ success: true, report: updated });
+    } catch (err) {
+      if (err instanceof import_zod4.z.ZodError) {
+        return res.status(400).json({ success: false, message: err.errors[0].message });
+      }
+      logger.error("ProductionRoutes", "Abuse report update failed", err);
+      res.status(500).json({ success: false, message: "Failed to update report" });
     }
   });
   app2.get("/api/user/accessibility", loadUser, requireAuth, async (req, res) => {
@@ -370898,8 +370935,8 @@ Your personality:
     if (!req.user || !["admin", "super_admin"].includes(req.user.role) && req.user.organizationId !== orgId4) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    const users5 = await storage2.getUsersByOrg(orgId4);
-    res.json(users5);
+    const users4 = await storage2.getUsersByOrg(orgId4);
+    res.json(users4);
   });
   app2.post(api.organizations.addMember.path, requireAuth, async (req, res) => {
     if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
@@ -370923,8 +370960,8 @@ Your personality:
     if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {
       return res.status(403).json({ message: "Forbidden" });
     }
-    const users5 = await storage2.getAllUsers();
-    res.json(users5);
+    const users4 = await storage2.getAllUsers();
+    res.json(users4);
   });
   app2.patch(api.users.updateRole.path, requireAuth, async (req, res) => {
     if (!req.user || !["admin", "super_admin"].includes(req.user.role)) {

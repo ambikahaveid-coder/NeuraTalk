@@ -20,7 +20,7 @@ import {
   Loader2, Phone, Building2, Users, PhoneCall, Zap, Search,
   Globe, Flag, ToggleLeft, Scale, Edit, Plus, Trash2,
   HeartPulse, Headphones, FileText, RefreshCw, Download,
-  CheckCircle, XCircle
+  CheckCircle, XCircle, Shield, AlertTriangle, Activity, CreditCard,
 } from "lucide-react";
 
 // ============================================================================
@@ -753,6 +753,295 @@ export function SystemHealthSection() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// SLA DASHBOARD SECTION
+// ============================================================================
+export function SlaDashboardSection() {
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["/api/admin/sla-dashboard"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/sla-dashboard", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    refetchInterval: 15000,
+  });
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  const pct = (v: number | null | undefined) => v === null || v === undefined ? "N/A" : `${(v * 100).toFixed(1)}%`;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Auto-refreshes every 15s{data?.generatedAt ? ` · last updated ${new Date(data.generatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()}><RefreshCw className="w-4 h-4 mr-2" />Refresh</Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="pt-6 text-center">
+          <p className="text-3xl font-bold text-primary">{data?.availability?.percent ?? "N/A"}{data?.availability?.percent !== null && data?.availability?.percent !== undefined ? "%" : ""}</p>
+          <p className="text-sm text-muted-foreground">Availability</p>
+          {data?.availability?.note && <p className="text-[10px] text-muted-foreground mt-1">{data.availability.note}</p>}
+        </CardContent></Card>
+        <Card><CardContent className="pt-6 text-center">
+          <p className="text-3xl font-bold text-green-500">{pct(data?.successRate?.calls)}</p>
+          <p className="text-sm text-muted-foreground">Call Success Rate</p>
+        </CardContent></Card>
+        <Card><CardContent className="pt-6 text-center">
+          <p className="text-3xl font-bold text-red-400">{pct(data?.errorRate?.calls)}</p>
+          <p className="text-sm text-muted-foreground">Call Drop Rate</p>
+        </CardContent></Card>
+        <Card><CardContent className="pt-6 text-center">
+          <p className="text-3xl font-bold text-blue-500">{data?.activeSessions?.activeCalls ?? 0}</p>
+          <p className="text-sm text-muted-foreground">Active Calls</p>
+        </CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Activity className="w-4 h-4" />HTTP Response Time</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">p50</Label><p className="font-bold text-lg">{data?.responseTime?.httpP50Ms ?? "N/A"}ms</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">p95</Label><p className="font-bold text-lg">{data?.responseTime?.httpP95Ms ?? "N/A"}ms</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">p99</Label><p className="font-bold text-lg">{data?.responseTime?.httpP99Ms ?? "N/A"}ms</p></div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><Globe className="w-4 h-4" />Translation Throughput</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">Total Translations</Label><p className="font-bold text-lg">{data?.translationThroughput?.totalTranslations ?? 0}</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">Avg Setup Time</Label><p className="font-bold text-lg">{data?.translationThroughput?.avgSetupTimeMs ?? 0}ms</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">p50 Latency</Label><p className="font-bold text-lg">{data?.responseTime?.translationP50Ms ?? "N/A"}ms</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">p95 Latency</Label><p className="font-bold text-lg">{data?.responseTime?.translationP95Ms ?? "N/A"}ms</p></div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2"><HeartPulse className="w-4 h-4" />Active Sessions</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">Active Calls</Label><p className="font-bold text-lg">{data?.activeSessions?.activeCalls ?? 0}</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">Translator Bots</Label><p className="font-bold text-lg">{data?.activeSessions?.activeTranslatorBots ?? 0}</p></div>
+            <div className="p-3 rounded-lg bg-muted/30"><Label className="text-xs text-muted-foreground">Incoming Queue Depth</Label><p className="font-bold text-lg">{data?.activeSessions?.incomingCallQueueDepth ?? 0}</p></div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// ABUSE REPORTS SECTION
+// ============================================================================
+export function AbuseReportsSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [notesDraft, setNotesDraft] = useState<Record<number, string>>({});
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/abuse-reports", statusFilter],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/abuse-reports?status=${statusFilter}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { reports: [] };
+      return res.json();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, status, reviewNotes }: { id: number; status: string; reviewNotes?: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/abuse-reports/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status, ...(reviewNotes ? { reviewNotes } : {}) }),
+      });
+      if (!res.ok) throw new Error("Failed to update report");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/abuse-reports"] });
+      toast({ title: "Report updated" });
+    },
+    onError: () => toast({ title: "Could not update report", variant: "destructive" }),
+  });
+
+  const reports = data?.reports || [];
+  const categoryColor: Record<string, string> = {
+    harassment: "text-red-400", spam: "text-amber-500", fraud: "text-red-500",
+    inappropriate: "text-orange-400", other: "text-muted-foreground",
+  };
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="reviewing">Reviewing</SelectItem>
+            <SelectItem value="resolved">Resolved</SelectItem>
+            <SelectItem value="dismissed">Dismissed</SelectItem>
+            <SelectItem value="all">All Reports</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {reports.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">
+          <Shield className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <p>No {statusFilter !== "all" ? statusFilter : ""} reports</p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {reports.map((r: any) => (
+            <Card key={r.id}>
+              <CardContent className="pt-4 pb-4 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className={`w-4 h-4 ${categoryColor[r.category] || "text-muted-foreground"}`} />
+                    <span className="font-medium capitalize">{r.category}</span>
+                    <Badge variant="outline" className="text-[10px] capitalize">{r.status}</Badge>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</span>
+                </div>
+                <div className="text-xs text-muted-foreground grid grid-cols-2 gap-2">
+                  <p>Reported by: <span className="text-foreground">{r.reporter?.username || r.reporter?.email || `User #${r.reporterUserId}`}</span></p>
+                  {r.reportedUser && <p>Reported user: <span className="text-foreground">{r.reportedUser.username || r.reportedUser.email}</span></p>}
+                  <p>Entity: <span className="text-foreground">{r.reportedEntityType}{r.reportedEntityId ? ` #${r.reportedEntityId}` : ""}</span></p>
+                  {r.reviewer && <p>Reviewed by: <span className="text-foreground">{r.reviewer.username || r.reviewer.email}</span></p>}
+                </div>
+                {r.description && <p className="text-sm p-2 rounded bg-muted/30">{r.description}</p>}
+                {r.status === "pending" || r.status === "reviewing" ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="Resolution notes (optional)"
+                      value={notesDraft[r.id] ?? ""}
+                      onChange={(e) => setNotesDraft((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                      className="flex-1"
+                    />
+                    {r.status === "pending" && (
+                      <Button size="sm" variant="outline" onClick={() => updateMutation.mutate({ id: r.id, status: "reviewing", reviewNotes: notesDraft[r.id] })}>
+                        Mark Reviewing
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => updateMutation.mutate({ id: r.id, status: "resolved", reviewNotes: notesDraft[r.id] })}>
+                      Resolve
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => updateMutation.mutate({ id: r.id, status: "dismissed", reviewNotes: notesDraft[r.id] })}>
+                      Dismiss
+                    </Button>
+                  </div>
+                ) : r.reviewNotes ? (
+                  <p className="text-xs text-muted-foreground italic">Resolution: {r.reviewNotes}</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// PAYMENT GATEWAYS SECTION
+// ============================================================================
+export function PaymentGatewaysSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/payment-gateways"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/admin/payment-gateways", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...updates }: { id: number; isEnabled?: boolean; isTestMode?: boolean }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/payment-gateways/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to update gateway");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-gateways"] });
+      toast({ title: "Gateway updated" });
+    },
+    onError: () => toast({ title: "Could not update gateway", variant: "destructive" }),
+  });
+
+  const gateways = data?.data || [];
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">Sensitive keys (API secrets, webhook signing secrets) are never shown here -- they're set via environment variables. This only controls which gateways are active and in test vs live mode.</p>
+
+      {gateways.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">
+          <CreditCard className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <p>No payment gateways configured</p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {gateways.map((g: any) => (
+            <Card key={g.id}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                      <CreditCard className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{g.displayName}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{g.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Test Mode</Label>
+                      <Switch checked={g.isTestMode} onCheckedChange={(v) => updateMutation.mutate({ id: g.id, isTestMode: v })} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Enabled</Label>
+                      <Switch checked={g.isEnabled} onCheckedChange={(v) => updateMutation.mutate({ id: g.id, isEnabled: v })} />
+                    </div>
+                  </div>
+                </div>
+                {(g.keyIdEnvVar || g.keySecretEnvVar) && (
+                  <div className="mt-3 pt-3 border-t flex gap-4 text-[10px] text-muted-foreground font-mono">
+                    {g.keyIdEnvVar && <span>Key ID env: {g.keyIdEnvVar}</span>}
+                    {g.keySecretEnvVar && <span>Secret env: {g.keySecretEnvVar}</span>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

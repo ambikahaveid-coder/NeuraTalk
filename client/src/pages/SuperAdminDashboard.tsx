@@ -29,9 +29,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection } from "./AdminSections";
+import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection } from "./AdminSections";
 
-type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "audit" | "settings";
+type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "payments" | "audit" | "settings";
 
 const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="w-4 h-4" />, group: "Dashboard" },
@@ -39,6 +39,7 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: "users", label: "Users & Roles", icon: <Users className="w-4 h-4" />, group: "Management" },
   { id: "calls", label: "Call Logs", icon: <PhoneCall className="w-4 h-4" />, group: "Management" },
   { id: "billing", label: "Billing & Plans", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
+  { id: "payments", label: "Payment Gateways", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
   { id: "analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, group: "Revenue" },
   { id: "languages", label: "Languages", icon: <Globe className="w-4 h-4" />, group: "Platform" },
   { id: "integrations", label: "API & Keys", icon: <Key className="w-4 h-4" />, group: "Platform" },
@@ -46,6 +47,8 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: "legal", label: "Legal & Content", icon: <Scale className="w-4 h-4" />, group: "Content" },
   { id: "support", label: "Support", icon: <Headphones className="w-4 h-4" />, group: "Content" },
   { id: "health", label: "System Health", icon: <HeartPulse className="w-4 h-4" />, group: "System" },
+  { id: "sla", label: "SLA Dashboard", icon: <HeartPulse className="w-4 h-4" />, group: "System" },
+  { id: "abuse", label: "Abuse Reports", icon: <Shield className="w-4 h-4" />, group: "System" },
   { id: "audit", label: "Audit Logs", icon: <History className="w-4 h-4" />, group: "System" },
   { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" />, group: "System" },
 ];
@@ -124,7 +127,7 @@ export default function SuperAdminDashboard() {
             <div>
               <h1 className="text-2xl font-bold capitalize">{activeSection}</h1>
               <p className="text-sm text-muted-foreground">
-                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", "feature-flags": "Toggle platform features & rollout control", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
+                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", "feature-flags": "Toggle platform features & rollout control", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", abuse: "Review and act on user-submitted reports", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -169,6 +172,9 @@ export default function SuperAdminDashboard() {
           {activeSection === "legal" && <LegalSection />}
           {activeSection === "support" && <SupportSection />}
           {activeSection === "health" && <SystemHealthSection />}
+          {activeSection === "sla" && <SlaDashboardSection />}
+          {activeSection === "abuse" && <AbuseReportsSection />}
+          {activeSection === "payments" && <PaymentGatewaysSection />}
           {activeSection === "audit" && <AuditSection />}
           {activeSection === "settings" && <SettingsSection />}
         </div>

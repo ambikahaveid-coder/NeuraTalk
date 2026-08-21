@@ -23,7 +23,7 @@ import {
   userAccessibilityPrefs, dataResidencyPolicies, environmentConfigs,
   users, bridgedCalls, registeredDevices, callBillingRecords
 } from "@shared/schema";
-import { eq, desc, and, sql, gte } from "drizzle-orm";
+import { eq, desc, and, sql, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
 import { logger } from "./observability";
@@ -870,23 +870,71 @@ export function registerProductionRoutes(app: Express): void {
   app.get("/api/admin/abuse-reports", loadUser, requireSuperAdmin, async (req, res) => {
     try {
       const status = req.query.status as string;
-      
+
       const reports = await db.query.abuseReports.findMany({
-        where: status ? eq(abuseReports.status, status) : undefined,
+        where: status && status !== "all" ? eq(abuseReports.status, status) : undefined,
         orderBy: [desc(abuseReports.createdAt)],
         limit: 100,
       });
-      
+
+      const userIds = Array.from(new Set(
+        reports.flatMap((r) => [r.reporterUserId, r.reportedUserId, r.reviewedBy]).filter((id): id is number => typeof id === "number"),
+      ));
+      const userRows = userIds.length > 0
+        ? await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where(inArray(users.id, userIds))
+        : [];
+      const userById = new Map(userRows.map((u) => [u.id, u]));
+
       res.json({
         success: true,
-        reports,
+        reports: reports.map((r) => ({
+          ...r,
+          reporter: r.reporterUserId ? userById.get(r.reporterUserId) || null : null,
+          reportedUser: r.reportedUserId ? userById.get(r.reportedUserId) || null : null,
+          reviewer: r.reviewedBy ? userById.get(r.reviewedBy) || null : null,
+        })),
       });
     } catch (err) {
       logger.error("ProductionRoutes", "Abuse reports fetch failed", err as Error);
       res.status(500).json({ success: false, message: "Failed to fetch reports" });
     }
   });
-  
+
+  /**
+   * Update abuse report status/resolution (admin only)
+   */
+  app.patch("/api/admin/abuse-reports/:id", loadUser, requireSuperAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ success: false, message: "Invalid report ID" });
+
+      const schema = z.object({
+        status: z.enum(["pending", "reviewing", "resolved", "dismissed"]).optional(),
+        reviewNotes: z.string().max(2000).optional(),
+        resolution: z.string().max(2000).optional(),
+      });
+      const input = schema.parse(req.body);
+      if (Object.keys(input).length === 0) return res.status(400).json({ success: false, message: "No fields to update" });
+
+      const setValues: Record<string, unknown> = { ...input, reviewedBy: req.user!.id };
+      if (input.status === "resolved" || input.status === "dismissed") {
+        setValues.resolvedAt = new Date();
+      }
+
+      const [updated] = await db.update(abuseReports).set(setValues).where(eq(abuseReports.id, id)).returning();
+      if (!updated) return res.status(404).json({ success: false, message: "Report not found" });
+
+      logger.info("ProductionRoutes", "Abuse report updated", { reportId: id, status: input.status, byUserId: req.user!.id });
+      res.json({ success: true, report: updated });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ success: false, message: err.errors[0].message });
+      }
+      logger.error("ProductionRoutes", "Abuse report update failed", err as Error);
+      res.status(500).json({ success: false, message: "Failed to update report" });
+    }
+  });
+
   // ========================================================================
   // ACCESSIBILITY PREFERENCES
   // ========================================================================
