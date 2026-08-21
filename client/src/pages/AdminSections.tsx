@@ -98,7 +98,7 @@ export function CallLogsSection() {
           <p className="text-sm text-muted-foreground">Total Calls</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-green-500">{billingOverview?.activeCalls ?? 0}</p>
+          <p className="text-3xl font-bold text-green-500">{billingOverview?.data?.activeCalls ?? 0}</p>
           <p className="text-sm text-muted-foreground">Active Now</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
