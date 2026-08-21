@@ -8,6 +8,7 @@ import 'conversation_screen.dart';
 import 'user_discovery_screen.dart';
 import 'chat_screen.dart';
 import 'group_chat_list_screen.dart';
+import 'contacts_screen.dart';
 
 /// Real human-to-human conversations (server/personal-chat-routes.ts).
 /// This is the "Chat" bottom-nav tab. NEURA AI (the existing assistant,
@@ -127,6 +128,11 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               icon: const Icon(Icons.auto_awesome, color: AppColors.cyan),
               tooltip: 'NEURA AI',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
+            ),
+            IconButton(
+              icon: const Icon(Icons.contacts_outlined, color: AppColors.cyan),
+              tooltip: 'Contacts',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen())),
             ),
             IconButton(
               icon: const Icon(Icons.groups_outlined, color: AppColors.cyan),

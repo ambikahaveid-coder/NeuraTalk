@@ -6,7 +6,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { userContacts, users } from "@shared/schema";
-import { eq, and, desc, or } from "drizzle-orm";
+import { eq, and, desc, or, inArray } from "drizzle-orm";
 import { normalizePhoneNumber } from "@shared/phone";
 
 function preferredAppIdentifier(user: { username?: string | null; email?: string | null; phone?: string | null }) {
@@ -42,6 +42,51 @@ async function resolveAppLinkedContact(identifier: string) {
 }
 
 export function registerContactRoutes(app: Router) {
+  // POST /api/contacts/match-phones — Privacy-preserving device-contacts
+  // sync. The client sends the phone numbers from its own address book
+  // (never names, photos, emails, or notes); the server returns only the
+  // NeuraTalk users among them. Numbers with no match are never named back
+  // to the client or logged, and non-NeuraTalk numbers are never exposed
+  // to anyone else.
+  app.post("/api/contacts/match-phones", async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Not authenticated" });
+
+      const { phones } = req.body as { phones?: unknown };
+      if (!Array.isArray(phones) || phones.length === 0) {
+        return res.status(400).json({ error: "phones array required" });
+      }
+      if (phones.length > 2000) {
+        return res.status(400).json({ error: "Too many numbers in one request" });
+      }
+
+      const normalized = Array.from(new Set(
+        phones
+          .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+          .map((p) => normalizePhoneNumber(p.trim()))
+          .filter(Boolean),
+      ));
+      if (normalized.length === 0) return res.json({ matches: [] });
+
+      const matched = await db.select({
+        id: users.id,
+        username: users.username,
+        avatarUrl: users.avatarUrl,
+        phone: users.phone,
+      }).from(users).where(inArray(users.phone, normalized));
+
+      res.json({
+        matches: matched
+          .filter((u) => u.id !== userId)
+          .map((u) => ({ id: u.id, username: u.username, avatarUrl: u.avatarUrl, phone: u.phone })),
+      });
+    } catch (error) {
+      console.error("[Contacts] match-phones error:", error);
+      res.status(500).json({ error: "Failed to match contacts" });
+    }
+  });
+
   // GET /api/contacts — List all contacts for the logged-in user
   app.get("/api/contacts", async (req: Request, res: Response) => {
     try {

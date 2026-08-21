@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { EventEmitter } from "node:events";
-import { and, asc, desc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { personalChatMessages, personalChatThreads, userContacts, users } from "@shared/schema";
@@ -562,12 +562,14 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
     const peerContact = await findBestContact(viewerId, peer);
 
     const viewerClearedAt = context.isParticipantA ? thread.participantAClearedAt : thread.participantBClearedAt;
-    const messages = await db.select().from(personalChatMessages)
+    const now = Date.now();
+    const messages = (await db.select().from(personalChatMessages)
       .where(and(
         eq(personalChatMessages.threadId, threadId),
         ...(viewerClearedAt ? [gt(personalChatMessages.createdAt, viewerClearedAt)] : []),
       ))
-      .orderBy(asc(personalChatMessages.createdAt), asc(personalChatMessages.id));
+      .orderBy(asc(personalChatMessages.createdAt), asc(personalChatMessages.id)))
+      .filter((m) => !m.expiresAt || new Date(m.expiresAt).getTime() > now);
 
     const deliverableIds = messages
       .filter((message) => message.senderUserId !== viewerId && !message.deliveredAt)
@@ -664,6 +666,10 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       translations[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
     }
 
+    const expiresAt = thread.disappearingSeconds
+      ? new Date(Date.now() + thread.disappearingSeconds * 1000)
+      : null;
+
     const [message] = await db.insert(personalChatMessages).values({
       threadId,
       senderUserId: viewerId,
@@ -674,6 +680,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       clientMessageId: input.clientMessageId || null,
       deliveryStatus: "sent",
       replyToId: input.replyToId || null,
+      expiresAt,
       metadata: {
         peerLanguage: context.peerLanguage,
         viewerLanguage: context.viewerLanguage,
@@ -787,6 +794,42 @@ router.post("/api/personal-chats/:threadId/clear", requireAuth, async (req: Auth
   } catch (error) {
     console.error("[PersonalChat] clear chat failed:", error);
     res.status(500).json({ error: "Failed to clear chat." });
+  }
+});
+
+const ALLOWED_DISAPPEARING_SECONDS = [0, 86400, 604800, 7776000]; // off, 24h, 7d, 90d
+
+// Disappearing messages -- unlike pin/archive/mute/clear above, this is
+// shared between both participants (either one can change it, and it
+// governs messages sent from that point on for both).
+router.patch("/api/personal-chats/:threadId/disappearing", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    const threadId = Number(req.params.threadId);
+    if (!Number.isFinite(threadId)) return res.status(400).json({ error: "Invalid chat thread." });
+
+    const parsed = z.object({ seconds: z.number().int().min(0) }).safeParse(req.body);
+    if (!parsed.success || !ALLOWED_DISAPPEARING_SECONDS.includes(parsed.data.seconds)) {
+      return res.status(400).json({ error: "Invalid duration." });
+    }
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+    if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+
+    await db.update(personalChatThreads)
+      .set({ disappearingSeconds: parsed.data.seconds || null, updatedAt: new Date() })
+      .where(eq(personalChatThreads.id, threadId));
+
+    const context = getViewerContext(thread, viewerId);
+    emitPersonalChatEvent([viewerId, context.peerUserId], { type: "thread_updated", threadId });
+
+    res.json({ success: true, disappearingSeconds: parsed.data.seconds || null });
+  } catch (error) {
+    console.error("[PersonalChat] update disappearing setting failed:", error);
+    res.status(500).json({ error: "Failed to update disappearing messages." });
   }
 });
 
@@ -934,5 +977,15 @@ router.get("/api/personal-chats/:threadId/presence", requireAuth, async (req: Au
     res.status(500).json({ error: "Failed to load presence state." });
   }
 });
+
+/** Real deletion (not soft-delete) of expired disappearing messages -- run
+ * on an interval from server/index.ts. Privacy intent of "disappearing"
+ * means the row should actually stop existing, not just be hidden. */
+export async function deleteExpiredPersonalChatMessages(): Promise<number> {
+  const deleted = await db.delete(personalChatMessages)
+    .where(and(isNotNull(personalChatMessages.expiresAt), lt(personalChatMessages.expiresAt, new Date())))
+    .returning({ id: personalChatMessages.id });
+  return deleted.length;
+}
 
 export default router;

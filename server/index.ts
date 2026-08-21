@@ -29,6 +29,7 @@ import { configService } from "./config-service";
 import { startSmartCallWatchdog } from "./modules/calls/smart-router";
 import { runScheduledHealthCheck } from "./pstn/monitor";
 import { initFreeSwitchESL } from "./media/freeswitch/esl-client";
+import { deleteExpiredPersonalChatMessages } from "./personal-chat-routes";
 import { initRTPAIWorker } from "./ai-pipeline/rtp-worker";
 
 const app = express();
@@ -274,6 +275,7 @@ function startRedisDependentRuntime(): void {
   startCommunicationBillingLoop();
   startSmartCallWatchdog();
   setInterval(() => { void runScheduledHealthCheck(); }, 60_000).unref?.();
+  setInterval(() => { void deleteExpiredPersonalChatMessages(); }, 5 * 60_000).unref?.();
   void initFreeSwitchESL();
   void initRTPAIWorker();
 }

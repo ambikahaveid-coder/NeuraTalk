@@ -342,6 +342,10 @@ export const personalChatThreads = pgTable("personal_chat_threads", {
   participantBArchived: boolean("participant_b_archived").notNull().default(false),
   participantAMuted: boolean("participant_a_muted").notNull().default(false),
   participantBMuted: boolean("participant_b_muted").notNull().default(false),
+  // Disappearing messages -- shared per-thread (not per-viewer, unlike the
+  // fields above): null/0 = off, otherwise seconds until a new message
+  // auto-expires. Applied at send time to compute each message's expiresAt.
+  disappearingSeconds: integer("disappearing_seconds"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -366,6 +370,7 @@ export const personalChatMessages = pgTable("personal_chat_messages", {
   seenAt: timestamp("seen_at"),
   replyToId: integer("reply_to_id"),
   isDeleted: boolean("is_deleted").notNull().default(false),
+  expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

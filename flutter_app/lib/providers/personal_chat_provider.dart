@@ -220,6 +220,15 @@ class PersonalChatProvider extends ChangeNotifier {
     }
   }
 
+  /// Disappearing messages -- shared per-thread, not per-viewer.
+  Future<void> setDisappearing(int threadId, int seconds) async {
+    await ApiService.patch('/api/personal-chats/$threadId/disappearing', {'seconds': seconds});
+    if (activeThread != null && activeThread!['id'] == threadId) {
+      activeThread = {...activeThread!, 'disappearingSeconds': seconds == 0 ? null : seconds};
+      notifyListeners();
+    }
+  }
+
   /// Debounced typing: call on every keystroke. Sends isTyping=true at most
   /// once per burst, and auto-sends isTyping=false after 3s of silence
   /// (matches the server's own 8s TTL with margin to spare).

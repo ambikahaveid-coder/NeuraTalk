@@ -276,6 +276,50 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     }
   }
 
+  static const _disappearingOptions = {
+    0: 'Off',
+    86400: '24 hours',
+    604800: '7 days',
+    7776000: '90 days',
+  };
+
+  Future<void> _showDisappearingDialog() async {
+    final provider = context.read<PersonalChatProvider>();
+    int selected = (provider.activeThread?['disappearingSeconds'] as int?) ?? 0;
+
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text('Disappearing messages', style: TextStyle(color: AppColors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: _disappearingOptions.entries.map((entry) => RadioListTile<int>(
+              value: entry.key,
+              groupValue: selected,
+              activeColor: AppColors.cyan,
+              title: Text(entry.value, style: const TextStyle(color: AppColors.white)),
+              onChanged: (v) => setDialogState(() => selected = v ?? selected),
+            )).toList(),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, selected), child: const Text('Save', style: TextStyle(color: AppColors.cyan))),
+          ],
+        ),
+      ),
+    );
+
+    if (chosen == null || !mounted) return;
+    try {
+      await provider.setDisappearing(_threadId, chosen);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Disappearing messages: ${_disappearingOptions[chosen]}')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update this setting.')));
+    }
+  }
+
   void _toggleEmoji() {
     if (_showEmoji) {
       setState(() => _showEmoji = false);
@@ -464,6 +508,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 case 'clear':
                   _confirmClearChat();
                   break;
+                case 'disappearing':
+                  _showDisappearingDialog();
+                  break;
                 case 'block':
                   _toggleBlock();
                   break;
@@ -474,6 +521,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.white))),
               PopupMenuItem(
                 value: 'block',
                 child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.white : AppColors.red)),

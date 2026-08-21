@@ -1,7 +1,7 @@
 name: neuratalk
 description: NeuraTalk - Real-time multilingual voice AI communication
 publish_to: 'none'
-version: 2.0.0+10
+version: 2.0.0+11
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -21,6 +21,9 @@ dependencies:
 
   # Permissions
   permission_handler: ^11.3.1
+
+  # Device contacts (Contacts sync)
+  flutter_contacts: ^1.1.9+2
 
   # Connectivity
   connectivity_plus: ^7.2.0
