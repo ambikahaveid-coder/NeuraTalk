@@ -161,6 +161,12 @@ export const users = pgTable("users", {
   // pushes (sendPushNotification) are.
   preferredLanguage: text("preferred_language").default("en"),
   pushNotificationsEnabled: boolean("push_notifications_enabled").notNull().default(true),
+  // Real per-user override for the "Translation Settings" screen -- when
+  // false, both chat and call translation are skipped for this user (their
+  // messages stay in their own language, their calls run without the
+  // translator bot pipeline) even if the other participant's language
+  // differs. Defaults on since that's the whole point of the app.
+  translationEnabled: boolean("translation_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("users_email_unique_idx").on(table.email).where(sql`email IS NOT NULL`),

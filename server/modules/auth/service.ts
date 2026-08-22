@@ -545,6 +545,7 @@ export async function updateProfile(
     avatarUrl?: string;
     preferredLanguage?: string;
     pushNotificationsEnabled?: boolean;
+    translationEnabled?: boolean;
   },
 ): Promise<{
   id: number;
@@ -552,12 +553,14 @@ export async function updateProfile(
   avatarUrl: string | null;
   preferredLanguage: string | null;
   pushNotificationsEnabled: boolean;
+  translationEnabled: boolean;
 }> {
   const setValues: Record<string, unknown> = {};
   if (updates.username !== undefined) setValues.username = updates.username;
   if (updates.avatarUrl !== undefined) setValues.avatarUrl = updates.avatarUrl;
   if (updates.preferredLanguage !== undefined) setValues.preferredLanguage = updates.preferredLanguage;
   if (updates.pushNotificationsEnabled !== undefined) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
+  if (updates.translationEnabled !== undefined) setValues.translationEnabled = updates.translationEnabled;
 
   const [updated] = await db
     .update(users)
@@ -569,6 +572,7 @@ export async function updateProfile(
       avatarUrl: users.avatarUrl,
       preferredLanguage: users.preferredLanguage,
       pushNotificationsEnabled: users.pushNotificationsEnabled,
+      translationEnabled: users.translationEnabled,
     });
 
   return updated;

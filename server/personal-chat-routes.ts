@@ -692,12 +692,20 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
     const originalLanguage = normalizeLanguage(
       input.originalLanguage || await detectLanguage(input.content, [context.viewerLanguage, context.peerLanguage]),
     );
+    // Real wiring for the Translation Settings on/off toggle -- previously
+    // this flag was stored but never read anywhere, so turning it off did
+    // nothing. Skip translating THIS sender's messages when they've opted
+    // out; the recipient's own messages back are unaffected by the
+    // sender's setting.
+    const [senderRow] = await db.select({ translationEnabled: users.translationEnabled }).from(users).where(eq(users.id, viewerId));
     const translations: Record<string, string> = {};
-    if (context.peerLanguage !== originalLanguage) {
-      translations[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
-    }
-    if (context.viewerLanguage !== originalLanguage && context.viewerLanguage !== context.peerLanguage) {
-      translations[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
+    if (senderRow?.translationEnabled !== false) {
+      if (context.peerLanguage !== originalLanguage) {
+        translations[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
+      }
+      if (context.viewerLanguage !== originalLanguage && context.viewerLanguage !== context.peerLanguage) {
+        translations[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
+      }
     }
 
     const expiresAt = thread.disappearingSeconds

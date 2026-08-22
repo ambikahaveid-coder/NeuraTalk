@@ -1056,10 +1056,18 @@ async function initiateCallLocked(
     joinMethod: requestedJoinMethod,
   });
   let callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
+  // The Translation Settings screen's real on/off toggle (users.translationEnabled)
+  // previously had nowhere to plug in -- calls always fell through to pure
+  // language-difference inference with no way for a user to actually turn
+  // call translation off. An explicit per-call request (req.translationEnabled)
+  // still wins; otherwise, respect the caller's own saved preference when
+  // they've turned it off.
   const translationEnabled = resolveTranslationEnabled({
     callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage,
-    requestedTranslationEnabled: req.translationEnabled,
+    requestedTranslationEnabled: req.translationEnabled ?? (
+      (callerUser as any)?.translationEnabled === false ? false : undefined
+    ),
   });
   const operationalWarnings: string[] = [];
   if (requestedJoinMethod === "app_to_pstn" && req.callType === "video") {

@@ -6209,6 +6209,12 @@ var init_schema = __esm({
       // pushes (sendPushNotification) are.
       preferredLanguage: (0, import_pg_core.text)("preferred_language").default("en"),
       pushNotificationsEnabled: (0, import_pg_core.boolean)("push_notifications_enabled").notNull().default(true),
+      // Real per-user override for the "Translation Settings" screen -- when
+      // false, both chat and call translation are skipped for this user (their
+      // messages stay in their own language, their calls run without the
+      // translator bot pipeline) even if the other participant's language
+      // differs. Defaults on since that's the whole point of the app.
+      translationEnabled: (0, import_pg_core.boolean)("translation_enabled").notNull().default(true),
       createdAt: (0, import_pg_core.timestamp)("created_at").defaultNow()
     }, (table) => [
       (0, import_pg_core.uniqueIndex)("users_email_unique_idx").on(table.email).where(import_drizzle_orm.sql`email IS NOT NULL`),
@@ -20249,6 +20255,7 @@ async function loadUser(req, _res, next) {
       avatarUrl: user2.avatarUrl,
       preferredLanguage: user2.preferredLanguage,
       pushNotificationsEnabled: user2.pushNotificationsEnabled,
+      translationEnabled: user2.translationEnabled,
       role: user2.role,
       organizationId: user2.organizationId,
       tenantSlug: session.tenantSlug ?? user2.organization?.slug ?? null,
@@ -262203,7 +262210,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
   const translationEnabled = resolveTranslationEnabled({
     callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage,
-    requestedTranslationEnabled: req.translationEnabled
+    requestedTranslationEnabled: req.translationEnabled ?? (callerUser?.translationEnabled === false ? false : void 0)
   });
   const operationalWarnings = [];
   if (requestedJoinMethod === "app_to_pstn" && req.callType === "video") {
@@ -300644,12 +300651,15 @@ var init_personal_chat_routes = __esm({
         const originalLanguage = normalizeLanguage2(
           input.originalLanguage || await detectLanguage(input.content, [context.viewerLanguage, context.peerLanguage])
         );
+        const [senderRow] = await db.select({ translationEnabled: users.translationEnabled }).from(users).where((0, import_drizzle_orm17.eq)(users.id, viewerId));
         const translations2 = {};
-        if (context.peerLanguage !== originalLanguage) {
-          translations2[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
-        }
-        if (context.viewerLanguage !== originalLanguage && context.viewerLanguage !== context.peerLanguage) {
-          translations2[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
+        if (senderRow?.translationEnabled !== false) {
+          if (context.peerLanguage !== originalLanguage) {
+            translations2[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
+          }
+          if (context.viewerLanguage !== originalLanguage && context.viewerLanguage !== context.peerLanguage) {
+            translations2[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
+          }
         }
         const expiresAt = thread.disappearingSeconds ? new Date(Date.now() + thread.disappearingSeconds * 1e3) : null;
         const [message2] = await db.insert(personalChatMessages).values({
@@ -363835,12 +363845,14 @@ async function updateProfile(userId, updates) {
   if (updates.avatarUrl !== void 0) setValues.avatarUrl = updates.avatarUrl;
   if (updates.preferredLanguage !== void 0) setValues.preferredLanguage = updates.preferredLanguage;
   if (updates.pushNotificationsEnabled !== void 0) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
+  if (updates.translationEnabled !== void 0) setValues.translationEnabled = updates.translationEnabled;
   const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm60.eq)(users.id, userId)).returning({
     id: users.id,
     username: users.username,
     avatarUrl: users.avatarUrl,
     preferredLanguage: users.preferredLanguage,
-    pushNotificationsEnabled: users.pushNotificationsEnabled
+    pushNotificationsEnabled: users.pushNotificationsEnabled,
+    translationEnabled: users.translationEnabled
   });
   return updated;
 }
@@ -364027,6 +364039,7 @@ async function me(req, res) {
       avatarUrl: req.user.avatarUrl || null,
       preferredLanguage: req.user.preferredLanguage || "en",
       pushNotificationsEnabled: req.user.pushNotificationsEnabled !== false,
+      translationEnabled: req.user.translationEnabled !== false,
       role: req.user.role,
       organizationId: req.user.organizationId,
       organization: req.user.organization || null,
@@ -364065,14 +364078,16 @@ async function updateMe(req, res) {
       username: parsed.data.username,
       avatarUrl,
       preferredLanguage: parsed.data.preferredLanguage,
-      pushNotificationsEnabled: parsed.data.pushNotificationsEnabled
+      pushNotificationsEnabled: parsed.data.pushNotificationsEnabled,
+      translationEnabled: parsed.data.translationEnabled
     });
     res.json({
       id: updated.id,
       username: updated.username,
       avatarUrl: updated.avatarUrl,
       preferredLanguage: updated.preferredLanguage,
-      pushNotificationsEnabled: updated.pushNotificationsEnabled
+      pushNotificationsEnabled: updated.pushNotificationsEnabled,
+      translationEnabled: updated.translationEnabled
     });
   } catch (err) {
     logger.error("Auth", "Profile update failed", err);
@@ -364221,7 +364236,8 @@ var init_controller = __esm({
       username: import_zod22.z.string().trim().min(1).max(100).optional(),
       avatarUrl: import_zod22.z.string().trim().min(1).optional(),
       preferredLanguage: import_zod22.z.string().trim().min(2).max(16).optional(),
-      pushNotificationsEnabled: import_zod22.z.boolean().optional()
+      pushNotificationsEnabled: import_zod22.z.boolean().optional(),
+      translationEnabled: import_zod22.z.boolean().optional()
     });
   }
 });

@@ -212,6 +212,7 @@ export async function me(req: Request, res: Response) {
       avatarUrl: req.user.avatarUrl || null,
       preferredLanguage: req.user.preferredLanguage || "en",
       pushNotificationsEnabled: req.user.pushNotificationsEnabled !== false,
+      translationEnabled: req.user.translationEnabled !== false,
       role: req.user.role,
       organizationId: req.user.organizationId,
       organization: req.user.organization || null,
@@ -232,6 +233,7 @@ const updateMeSchema = z.object({
   avatarUrl: z.string().trim().min(1).optional(),
   preferredLanguage: z.string().trim().min(2).max(16).optional(),
   pushNotificationsEnabled: z.boolean().optional(),
+  translationEnabled: z.boolean().optional(),
 });
 
 export async function updateMe(req: Request, res: Response) {
@@ -262,6 +264,7 @@ export async function updateMe(req: Request, res: Response) {
       avatarUrl,
       preferredLanguage: parsed.data.preferredLanguage,
       pushNotificationsEnabled: parsed.data.pushNotificationsEnabled,
+      translationEnabled: parsed.data.translationEnabled,
     });
 
     res.json({
@@ -270,6 +273,7 @@ export async function updateMe(req: Request, res: Response) {
       avatarUrl: updated.avatarUrl,
       preferredLanguage: updated.preferredLanguage,
       pushNotificationsEnabled: updated.pushNotificationsEnabled,
+      translationEnabled: updated.translationEnabled,
     });
   } catch (err) {
     logger.error("Auth", "Profile update failed", err as Error);

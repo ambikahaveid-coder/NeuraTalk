@@ -38,6 +38,7 @@ export interface AuthenticatedUser {
   avatarUrl: string | null;
   preferredLanguage?: string | null;
   pushNotificationsEnabled?: boolean;
+  translationEnabled?: boolean;
   role: string;
   organizationId: number | null;
   tenantSlug?: string | null;
@@ -498,6 +499,7 @@ export async function loadUser(
       avatarUrl: user.avatarUrl,
       preferredLanguage: user.preferredLanguage,
       pushNotificationsEnabled: user.pushNotificationsEnabled,
+      translationEnabled: user.translationEnabled,
       role: user.role,
       organizationId: user.organizationId,
       tenantSlug: session.tenantSlug ?? user.organization?.slug ?? null,
