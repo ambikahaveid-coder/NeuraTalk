@@ -45,6 +45,24 @@ class GroupChatProvider extends ChangeNotifier {
     });
   }
 
+  /// Admin-only role change -- server/group-chats.ts's PATCH enforces this
+  /// server-side too; the client-side admin check in the UI is just for a
+  /// better error-free experience, not the real security boundary.
+  Future<void> setMemberRole(int groupId, int userId, String role) async {
+    await ApiService.patch('/api/group-chats/$groupId/members/$userId', {'role': role});
+  }
+
+  /// Removes another member (admin-only) or leaves the group yourself
+  /// (userId == your own id, allowed for anyone) -- same endpoint, same
+  /// distinction server/group-chats.ts's DELETE handler makes.
+  Future<void> removeMember(int groupId, int userId) async {
+    await ApiService.delete('/api/group-chats/$groupId/members/$userId');
+  }
+
+  Future<Map<String, dynamic>> fetchGroupDetail(int groupId) async {
+    return await ApiService.get('/api/group-chats/$groupId') as Map<String, dynamic>;
+  }
+
   Future<void> openGroup(int groupId) async {
     loadingMessages = true;
     messagesError = null;

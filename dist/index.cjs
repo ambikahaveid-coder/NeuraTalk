@@ -300185,7 +300185,7 @@ function buildMessagePreview(messageType, content, attachmentTitle) {
   if (messageType === "voice_note") {
     return attachmentTitle?.trim() || "Voice note";
   }
-  if (messageType === "attachment") {
+  if (messageType === "attachment" || messageType === "file") {
     return attachmentTitle?.trim() || content.trim() || "Attachment";
   }
   return content.trim().slice(0, 180);
@@ -300359,7 +300359,13 @@ var init_personal_chat_routes = __esm({
       content: import_zod2.z.string().trim().min(1).max(4e3),
       originalLanguage: import_zod2.z.string().trim().min(2).max(16).optional(),
       clientMessageId: import_zod2.z.string().trim().min(1).max(120).optional(),
-      messageType: import_zod2.z.enum(["text", "voice_note", "attachment"]).optional(),
+      // "file" added for non-image attachments (PDF/DOC/XLS/PPT/ZIP/video/etc.)
+      // -- flutter_app/lib/screens/conversation_screen.dart's _pickAndSendFile()
+      // already sends this, but this enum was never updated to match, so every
+      // non-image file upload succeeded (the object storage PUT genuinely
+      // completed) and then failed at the message-send step with a 400,
+      // silently losing the message the recipient was supposed to see.
+      messageType: import_zod2.z.enum(["text", "voice_note", "attachment", "file"]).optional(),
       attachmentUrl: import_zod2.z.string().trim().min(1).max(2e3).optional(),
       attachmentTitle: import_zod2.z.string().trim().min(1).max(240).optional(),
       replyToId: import_zod2.z.number().int().positive().optional()

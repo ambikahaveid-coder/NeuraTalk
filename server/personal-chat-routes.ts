@@ -27,7 +27,13 @@ const sendMessageSchema = z.object({
   content: z.string().trim().min(1).max(4000),
   originalLanguage: z.string().trim().min(2).max(16).optional(),
   clientMessageId: z.string().trim().min(1).max(120).optional(),
-  messageType: z.enum(["text", "voice_note", "attachment"]).optional(),
+  // "file" added for non-image attachments (PDF/DOC/XLS/PPT/ZIP/video/etc.)
+  // -- flutter_app/lib/screens/conversation_screen.dart's _pickAndSendFile()
+  // already sends this, but this enum was never updated to match, so every
+  // non-image file upload succeeded (the object storage PUT genuinely
+  // completed) and then failed at the message-send step with a 400,
+  // silently losing the message the recipient was supposed to see.
+  messageType: z.enum(["text", "voice_note", "attachment", "file"]).optional(),
   attachmentUrl: z.string().trim().min(1).max(2000).optional(),
   attachmentTitle: z.string().trim().min(1).max(240).optional(),
   replyToId: z.number().int().positive().optional(),
@@ -129,14 +135,14 @@ function emitPersonalChatEvent(userIds: number[], event: Record<string, unknown>
 }
 
 function buildMessagePreview(
-  messageType: "text" | "voice_note" | "attachment",
+  messageType: "text" | "voice_note" | "attachment" | "file",
   content: string,
   attachmentTitle?: string | null,
 ) {
   if (messageType === "voice_note") {
     return attachmentTitle?.trim() || "Voice note";
   }
-  if (messageType === "attachment") {
+  if (messageType === "attachment" || messageType === "file") {
     return attachmentTitle?.trim() || content.trim() || "Attachment";
   }
   return content.trim().slice(0, 180);

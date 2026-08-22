@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/group_chat_provider.dart';
 import '../providers/auth_provider.dart';
+import 'group_info_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
 /// (that backend has no SSE stream, unlike 1:1 chat).
@@ -117,14 +118,24 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(groupName, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('${members.length} member${members.length == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
-          ],
+        title: InkWell(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId))),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(groupName, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+              Text('${members.length} member${members.length == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+            ],
+          ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.group_outlined),
+            tooltip: 'Group Info',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId))),
+          ),
+        ],
       ),
       body: Column(
         children: [
