@@ -171,15 +171,16 @@ export async function sendVoIPPush(
       callType: payload.callType,
       callerName: payload.callerName || payload.callerId,
     },
+    // Android: deliberately data-only (no "notification" block). A message
+    // with a "notification" key is auto-displayed by the OS while the app
+    // is backgrounded/killed and never reaches app code until the user taps
+    // it -- too late to ring. A pure data message is delivered immediately
+    // to the background isolate (see flutter_app/lib/main.dart's
+    // FirebaseMessaging.onBackgroundMessage handler), which is what shows
+    // the actual native ringing UI via flutter_callkit_incoming.
     android: {
       priority: "high",
       ttl: 30000,
-      notification: {
-        title: `📲 Incoming ${payload.callType} call`,
-        body: `${payload.callerName || payload.callerId} is calling`,
-        sound: "default",
-        channelId: "incoming_calls",
-      },
     },
     apns: {
       headers: {

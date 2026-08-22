@@ -1,7 +1,7 @@
 name: neuratalk
 description: NeuraTalk - Real-time multilingual voice AI communication
 publish_to: 'none'
-version: 2.0.0+11
+version: 2.0.0+12
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -55,6 +55,11 @@ dependencies:
   firebase_crashlytics: ^4.1.6
   firebase_messaging: ^15.1.6
 
+  # Native lock-screen incoming-call UI + ringtone (CallKit on iOS,
+  # full-screen ringing activity on Android) -- makes incoming calls ring
+  # even when the app is backgrounded or fully killed.
+  flutter_callkit_incoming: ^2.5.8
+
   # URL launcher
   url_launcher: ^6.3.1
 
@@ -73,6 +78,16 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.1
+
+# record_linux 0.7.2 (transitively pulled by record ^5.2.0) doesn't
+# implement the newer record_platform_interface 1.6.0 abstract methods
+# (startStream, hasPermission's `request` param), which breaks the Dart
+# kernel compile for ALL platforms, not just Linux, since the plugin is
+# still statically analyzed. Not app code we own -- Linux desktop isn't a
+# build target here; pinning to a version that matches the interface we
+# actually resolve to is the standard fix.
+dependency_overrides:
+  record_linux: ^1.3.0
 
 flutter:
   uses-material-design: true

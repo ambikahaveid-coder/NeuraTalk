@@ -5,11 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'theme/app_theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/personal_chat_provider.dart';
 import 'providers/group_chat_provider.dart';
 import 'services/call_service.dart';
+import 'services/callkit_service.dart';
 import 'services/push_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
@@ -17,9 +19,31 @@ import 'screens/incoming_call_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// Runs in a separate background isolate the OS spins up to deliver an FCM
+/// message while the app is backgrounded or fully killed -- it has no access
+/// to the running app's widget tree/providers, so it can only show the
+/// native ringing UI from the push payload itself (server/firebase-admin.ts's
+/// sendVoIPPush). The actual accept/decline handling (which needs the real
+/// LiveKit join info) happens later, in the main isolate, via
+/// CallKitService.startListening() once the app resumes.
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  final data = message.data;
+  if (data['type'] == 'incoming_call') {
+    await CallKitService.showIncomingCall(
+      callId: data['callId'] as String? ?? '',
+      callerName: data['callerName'] as String? ?? 'Unknown',
+      callType: data['callType'] as String? ?? 'voice',
+    );
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  CallKitService.startListening();
 
   // Crash reporting — Flutter framework errors and uncaught async errors
   // are forwarded to Crashlytics in release builds. Left OFF in debug so
@@ -54,7 +78,7 @@ class NeuraTalkApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()..init()),
-        ChangeNotifierProvider(create: (_) => CallService()),
+        ChangeNotifierProvider(create: (_) => CallService(), lazy: false),
         ChangeNotifierProvider(create: (_) => PersonalChatProvider()),
         ChangeNotifierProvider(create: (_) => GroupChatProvider()),
       ],

@@ -11,14 +11,31 @@ import '../models/call_session.dart';
 /// `GET /api/calls/incoming` every 4s, mirroring the web client's SSE
 /// fallback interval. This only works while the app is foregrounded/alive.
 class CallService extends ChangeNotifier {
+  /// Set by the constructor so top-level handlers that live outside the
+  /// widget tree (the CallKit accept/decline event listener in
+  /// callkit_service.dart) can reach the single app-wide instance without
+  /// a BuildContext.
+  static CallService? instance;
+
   Timer? _pollTimer;
   CallSession? _incomingCall;
   bool _polling = false;
   bool _hasConnectivity = true;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
+  // Calls already actioned via the native CallKit UI -- skips them in the
+  // poll loop so it doesn't also pop up the in-app IncomingCallScreen for a
+  // call the user already accepted/declined from the lock screen.
+  final Set<String> _handledCallIds = {};
+
+  CallService() {
+    instance = this;
+  }
+
   CallSession? get incomingCall => _incomingCall;
   bool get hasConnectivity => _hasConnectivity;
+
+  void markHandledExternally(String callId) => _handledCallIds.add(callId);
 
   void startPolling() {
     if (_polling) return;
@@ -55,12 +72,36 @@ class CallService extends ChangeNotifier {
       final res = await ApiService.get('/api/calls/incoming') as Map<String, dynamic>;
       final incoming = res['incoming'];
       if (incoming is Map<String, dynamic>) {
+        final id = incoming['callId'] as String?;
+        if (id != null && _handledCallIds.contains(id)) return;
         _incomingCall = CallSession.fromIncomingPayload(incoming);
         notifyListeners();
       }
     } catch (_) {
       // Transient network errors shouldn't tear down the poll loop.
     }
+  }
+
+  /// Used by the CallKit accept action, which only has callId/callerName/
+  /// callType from the push payload (see server/firebase-admin.ts's
+  /// sendVoIPPush) -- resolves the queued call's real LiveKit join info
+  /// (the same /api/calls/incoming payload the poll loop consumes) and marks
+  /// it answered, mirroring IncomingCallScreen._accept(). Returns null if
+  /// the call already expired or was handled elsewhere.
+  Future<CallSession?> fetchAndAnswerIncoming(String callId) async {
+    CallSession? session = _incomingCall?.callId == callId ? _incomingCall : null;
+    if (session == null) {
+      final res = await ApiService.get('/api/calls/incoming') as Map<String, dynamic>;
+      final incoming = res['incoming'];
+      if (incoming is Map<String, dynamic> && incoming['callId'] == callId) {
+        session = CallSession.fromIncomingPayload(incoming);
+      }
+    }
+    if (session == null) return null;
+    await answerCall(callId);
+    if (_incomingCall?.callId == callId) _incomingCall = null;
+    notifyListeners();
+    return session;
   }
 
   /// Forces an immediate poll outside the regular 4s cadence — used on app

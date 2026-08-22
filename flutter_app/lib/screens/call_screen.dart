@@ -161,6 +161,23 @@ class _CallScreenState extends State<CallScreen> {
         ..on<lk.TrackSubscribedEvent>(_onTrackSubscribed)
         ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed);
 
+      // The other participant may have joined and already published video
+      // before this side's room.connect() resolved and the listener above
+      // was attached -- a TrackSubscribedEvent that already fired before
+      // the listener existed is never redelivered, so without this the
+      // remote video silently never appears even though the connection and
+      // audio work fine. Sync any already-subscribed video track directly
+      // off room state rather than relying purely on future events.
+      for (final participant in _room.remoteParticipants.values) {
+        for (final pub in participant.videoTrackPublications) {
+          if (pub.subscribed && pub.track != null) {
+            _remoteVideoTrack = pub.track;
+            break;
+          }
+        }
+        if (_remoteVideoTrack != null) break;
+      }
+
       await _room.localParticipant?.setMicrophoneEnabled(true);
       if (widget.session.isVideo && cameraGrantedForVideo) {
         await _room.localParticipant?.setCameraEnabled(true);

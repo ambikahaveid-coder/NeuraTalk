@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
+import '../services/callkit_service.dart';
 import 'call_screen.dart';
 
 /// Full-screen accept/reject UI, pushed by the top-level incoming-call
@@ -50,6 +51,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
+      widget.callService.markHandledExternally(widget.session.callId);
+      unawaited(CallKitService.endCall(widget.session.callId));
       await widget.callService.answerCall(widget.session.callId);
       widget.callService.clearIncomingCall();
       if (!mounted) return;
@@ -69,6 +72,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Future<void> _reject() async {
     if (_busy) return;
     setState(() => _busy = true);
+    widget.callService.markHandledExternally(widget.session.callId);
+    unawaited(CallKitService.endCall(widget.session.callId));
     try {
       await widget.callService.rejectCall(widget.session.callId);
     } catch (_) {
