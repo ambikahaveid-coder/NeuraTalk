@@ -63,6 +63,7 @@ const SUPPORTED_LANGUAGES = [
   { code: "gu", name: "Gujarati" },
   { code: "bn", name: "Bengali" },
   { code: "pa", name: "Punjabi" },
+  { code: "ur", name: "Urdu" },
   { code: "fr", name: "French" },
   { code: "de", name: "German" },
   { code: "ja", name: "Japanese" },
@@ -71,8 +72,13 @@ const SUPPORTED_LANGUAGES = [
   { code: "ar", name: "Arabic" },
   { code: "pt", name: "Portuguese" },
   { code: "ru", name: "Russian" },
-  { code: "it", name: "Italian" },
 ];
+// Italian was previously listed here but has no real Azure TTS voice
+// mapped (see AZURE_VOICES in azure-service.ts) -- picking it silently
+// fell back to an English voice for call/message audio. Swapped for Urdu,
+// which does have a real mapped voice and was missing from this list
+// despite being one of the "20 supported languages" shown in the admin
+// panel.
 
 async function translateText(text: string, fromLang: string, toLang: string): Promise<string> {
   if (fromLang === toLang) return text;

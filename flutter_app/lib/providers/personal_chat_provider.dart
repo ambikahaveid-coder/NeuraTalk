@@ -76,6 +76,24 @@ class PersonalChatProvider extends ChangeNotifier {
     }
   }
 
+  /// Re-fetches the active thread's messages without the loadingMessages/
+  /// wipe-then-reload cycle openThread() does -- used for SSE-driven
+  /// refreshes (a new message or a read-receipt landing while the thread is
+  /// already open) so the screen doesn't blank out and show a full-screen
+  /// spinner on every incoming message.
+  Future<void> _refreshActiveThreadSilently(int threadId) async {
+    try {
+      final res = await ApiService.get('/api/personal-chats/$threadId') as Map<String, dynamic>;
+      if (activeThread == null || activeThread!['id'].toString() != threadId.toString()) return;
+      activeThread = res['thread'] as Map<String, dynamic>?;
+      messages = (res['messages'] as List).cast<Map<String, dynamic>>();
+      notifyListeners();
+      unawaited(markSeen(threadId));
+    } catch (_) {
+      // Best-effort -- keep showing the last known-good messages.
+    }
+  }
+
   void closeThread() {
     activeThread = null;
     messages = [];
@@ -329,9 +347,10 @@ class PersonalChatProvider extends ChangeNotifier {
       case 'message_created':
         final threadId = payload['threadId'];
         if (activeThread != null && activeThread!['id'].toString() == threadId.toString()) {
-          // Peer's message landed while we're viewing this thread — reload
-          // just the tail rather than guessing the shape from the event.
-          openThread(threadId is int ? threadId : int.parse(threadId.toString()));
+          // Peer's message landed while we're viewing this thread — refresh
+          // silently rather than guessing the shape from the event, but
+          // without wiping the list and flashing a full-screen spinner.
+          _refreshActiveThreadSilently(threadId is int ? threadId : int.parse(threadId.toString()));
         }
         loadThreads();
         break;
@@ -348,7 +367,7 @@ class PersonalChatProvider extends ChangeNotifier {
       case 'messages_delivered':
         if (activeThread != null && activeThread!['id'].toString() == payload['threadId'].toString()) {
           final threadId = payload['threadId'];
-          openThread(threadId is int ? threadId : int.parse(threadId.toString()));
+          _refreshActiveThreadSilently(threadId is int ? threadId : int.parse(threadId.toString()));
         }
         break;
       case 'thread_created':

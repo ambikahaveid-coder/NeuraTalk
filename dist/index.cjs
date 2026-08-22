@@ -358888,6 +358888,7 @@ var init_group_chats = __esm({
       { code: "gu", name: "Gujarati" },
       { code: "bn", name: "Bengali" },
       { code: "pa", name: "Punjabi" },
+      { code: "ur", name: "Urdu" },
       { code: "fr", name: "French" },
       { code: "de", name: "German" },
       { code: "ja", name: "Japanese" },
@@ -358895,8 +358896,7 @@ var init_group_chats = __esm({
       { code: "zh", name: "Chinese" },
       { code: "ar", name: "Arabic" },
       { code: "pt", name: "Portuguese" },
-      { code: "ru", name: "Russian" },
-      { code: "it", name: "Italian" }
+      { code: "ru", name: "Russian" }
     ];
     router12.get("/api/group-chats/languages", (_req, res) => {
       res.json(SUPPORTED_LANGUAGES2);
