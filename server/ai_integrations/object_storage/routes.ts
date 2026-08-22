@@ -3,17 +3,34 @@ import { ObjectStorageService, ObjectNotFoundError, isObjectStorageConfigured } 
 import { canAccessObject, ObjectPermission } from "./objectAcl";
 import { loadUser, requireAuth } from "../../role-middleware";
 
-const MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+// Bumped from 25MB -- real chat file sharing (video clips, PPT decks) needs
+// more headroom than the original example-route default.
+const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 const ALLOWED_UPLOAD_CONTENT_TYPES = [
   "image/jpeg",
   "image/png",
   "image/webp",
+  "image/gif",
   "application/pdf",
   "text/csv",
+  "text/plain",
   "audio/wav",
   "audio/mpeg",
   "audio/webm",
   "audio/mp4",
+  "audio/aac",
+  "video/mp4",
+  "video/quicktime",
+  "video/webm",
+  "video/3gpp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/zip",
+  "application/x-zip-compressed",
 ];
 
 /**

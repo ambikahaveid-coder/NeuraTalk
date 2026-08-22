@@ -349263,17 +349263,32 @@ var init_routes5 = __esm({
     init_objectStorage();
     init_objectAcl();
     init_role_middleware();
-    MAX_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024;
+    MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
     ALLOWED_UPLOAD_CONTENT_TYPES = [
       "image/jpeg",
       "image/png",
       "image/webp",
+      "image/gif",
       "application/pdf",
       "text/csv",
+      "text/plain",
       "audio/wav",
       "audio/mpeg",
       "audio/webm",
-      "audio/mp4"
+      "audio/mp4",
+      "audio/aac",
+      "video/mp4",
+      "video/quicktime",
+      "video/webm",
+      "video/3gpp",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "application/zip",
+      "application/x-zip-compressed"
     ];
   }
 });

@@ -37,6 +37,10 @@ dependencies:
   # Profile photo picker / chat image attachments
   image_picker: ^1.1.2
 
+  # General file attachments (documents, videos, zips) -- image_picker only
+  # covers photos/videos from the gallery, not arbitrary files.
+  file_picker: ^8.1.6
+
   # Emoji picker for chat composer
   emoji_picker_flutter: ^3.1.0
 

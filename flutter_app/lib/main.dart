@@ -191,6 +191,15 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
                   // handler -- no direct reference to that screen needed.
                   await calls.endCall(activeSession.callId);
                 }
+                // Mirrors IncomingCallScreen._accept() -- without this the
+                // call never transitions server-side past "ringing", so the
+                // caller's own status poll would never see it as answered.
+                try {
+                  await calls.answerCall(incoming.callId);
+                } catch (_) {
+                  // Best-effort -- CallScreen's own _connect() still tries
+                  // the LiveKit join regardless.
+                }
                 calls.clearIncomingCall();
                 navigatorKey.currentState?.push(MaterialPageRoute(
                   builder: (_) => CallScreen(session: incoming, callService: calls),

@@ -247,7 +247,16 @@ class _CallScreenState extends State<CallScreen> {
     if (message != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
-    Navigator.of(context).maybePop();
+    // Call-waiting can push a NEW CallScreen on top of this one (via ending
+    // this call server-side, which delivers this exact disconnect event) --
+    // Navigator.of(context).maybePop() pops whatever is CURRENTLY on top of
+    // the shared navigator, not necessarily this route. Without this guard,
+    // a disconnect event arriving after the new call screen is already on
+    // top would pop the new, active call instead of just retiring this
+    // stale one.
+    if (ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   Future<void> _toggleMute() async {

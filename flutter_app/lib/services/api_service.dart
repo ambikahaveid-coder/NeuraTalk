@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,7 +97,7 @@ class ApiService {
     final res = await http.get(
       Uri.parse('$baseUrl$path'),
       headers: _headers,
-    ).timeout(const Duration(seconds: 20));
+    ).timeout(const Duration(minutes: 5));
     if (res.statusCode >= 400) {
       String message = 'Request failed';
       try {
@@ -121,6 +122,57 @@ class ApiService {
     }
   }
 
+  /// Same upload, but streamed in chunks with a real progress callback and
+  /// cooperative cancellation -- the plain putBytes above sends the whole
+  /// body in one shot with no visibility into how much has actually gone
+  /// out, which is fine for a small image but not for a real "upload
+  /// progress" bar on a multi-MB file, and has no way to cancel mid-flight.
+  /// The 30s flat timeout on putBytes is also unrealistic for large files on
+  /// slow connections, so this uses a much longer cap instead.
+  static Future<void> putBytesWithProgress(
+    String uploadUrl,
+    List<int> bytes,
+    String contentType, {
+    void Function(double progress)? onProgress,
+    UploadCancelToken? cancelToken,
+  }) async {
+    final client = http.Client();
+    try {
+      final request = http.StreamedRequest('PUT', Uri.parse(uploadUrl));
+      request.headers['Content-Type'] = contentType;
+      request.contentLength = bytes.length;
+
+      const chunkSize = 64 * 1024;
+      unawaited(() async {
+        for (var i = 0; i < bytes.length; i += chunkSize) {
+          if (cancelToken?.cancelled == true) break;
+          final end = (i + chunkSize < bytes.length) ? i + chunkSize : bytes.length;
+          request.sink.add(bytes.sublist(i, end));
+          onProgress?.call(end / bytes.length);
+          // Yield so the progress callback's setState actually gets a frame
+          // instead of the whole loop running synchronously to completion.
+          await Future.delayed(Duration.zero);
+        }
+        await request.sink.close();
+      }());
+
+      if (cancelToken?.cancelled == true) {
+        throw ApiException('Upload cancelled', 0);
+      }
+
+      final streamedResponse = await client.send(request).timeout(const Duration(minutes: 10));
+      if (cancelToken?.cancelled == true) {
+        throw ApiException('Upload cancelled', 0);
+      }
+      final res = await http.Response.fromStream(streamedResponse);
+      if (res.statusCode >= 400) {
+        throw ApiException('Upload failed', res.statusCode);
+      }
+    } finally {
+      client.close();
+    }
+  }
+
   static dynamic _parse(http.Response res) {
     final data = jsonDecode(res.body);
     if (res.statusCode >= 400) {
@@ -137,6 +189,14 @@ class ApiService {
 /// [message], since the backend's machine-readable `code` field (e.g.
 /// "LIVEKIT_UNAVAILABLE") is a separate JSON field from the human-readable
 /// `message`, and the two are not guaranteed to contain the same text.
+/// Cooperative cancellation for putBytesWithProgress -- set [cancelled] to
+/// stop an in-flight upload; there's no lower-level abort on http's
+/// StreamedRequest, so this is checked between chunks instead.
+class UploadCancelToken {
+  bool cancelled = false;
+  void cancel() => cancelled = true;
+}
+
 class ApiException implements Exception {
   final String message;
   final int statusCode;
