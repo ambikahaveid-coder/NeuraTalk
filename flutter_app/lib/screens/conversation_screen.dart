@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -379,10 +380,68 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 _pickAndSendFile();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.location_on_outlined, color: AppColors.cyan),
+              title: const Text('Current Location', style: TextStyle(color: AppColors.white)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _shareCurrentLocation();
+              },
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _shareCurrentLocation() async {
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('Location permission is required to share your location.'),
+          action: permission == LocationPermission.deniedForever
+              ? SnackBarAction(label: 'Open Settings', onPressed: Geolocator.openAppSettings)
+              : null,
+        ));
+      }
+      return;
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Turn on location services to share your location.')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _uploading = true);
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
+      );
+      if (!mounted) return;
+      await context.read<PersonalChatProvider>().sendMessage(
+            _threadId,
+            'Location',
+            messageType: 'location',
+            attachmentUrl: 'geo:${position.latitude},${position.longitude}',
+            attachmentTitle: 'My Location',
+          );
+      _scrollToBottom();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not get your location. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   Future<void> _pickAndSendImage() async {
@@ -1046,6 +1105,38 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
                             ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: bubbleFg))
                             : Icon(Icons.download_outlined, color: bubbleFg, size: 20),
                       ),
+                    ],
+                  ),
+                ),
+              )
+            else if (messageType == 'location' && attachmentUrl != null)
+              GestureDetector(
+                onTap: () async {
+                  final coords = attachmentUrl.replaceFirst('geo:', '');
+                  final url = Uri.parse('https://www.google.com/maps?q=$coords');
+                  final opened = await launchUrl(url, mode: LaunchMode.externalApplication).catchError((_) => false);
+                  if (!opened && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Could not open maps.')),
+                    );
+                  }
+                },
+                child: Container(
+                  width: 220,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: bubbleFg.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.location_on, color: bubbleFg, size: 32),
+                      const SizedBox(height: 8),
+                      Text(attachmentTitle ?? 'Location', style: TextStyle(color: bubbleFg, fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text('Tap to open in Maps', style: TextStyle(color: bubbleFg.withOpacity(0.65), fontSize: 11)),
                     ],
                   ),
                 ),

@@ -300188,6 +300188,9 @@ function buildMessagePreview(messageType, content, attachmentTitle) {
   if (messageType === "attachment" || messageType === "file") {
     return attachmentTitle?.trim() || content.trim() || "Attachment";
   }
+  if (messageType === "location") {
+    return "\u{1F4CD} Location";
+  }
   return content.trim().slice(0, 180);
 }
 function translationsObject(value) {
@@ -300365,7 +300368,7 @@ var init_personal_chat_routes = __esm({
       // non-image file upload succeeded (the object storage PUT genuinely
       // completed) and then failed at the message-send step with a 400,
       // silently losing the message the recipient was supposed to see.
-      messageType: import_zod2.z.enum(["text", "voice_note", "attachment", "file"]).optional(),
+      messageType: import_zod2.z.enum(["text", "voice_note", "attachment", "file", "location"]).optional(),
       attachmentUrl: import_zod2.z.string().trim().min(1).max(2e3).optional(),
       attachmentTitle: import_zod2.z.string().trim().min(1).max(240).optional(),
       replyToId: import_zod2.z.number().int().positive().optional()

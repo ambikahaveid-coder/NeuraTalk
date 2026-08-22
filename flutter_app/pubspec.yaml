@@ -41,6 +41,9 @@ dependencies:
   # covers photos/videos from the gallery, not arbitrary files.
   file_picker: ^8.1.6
 
+  # Current-location sharing in chat
+  geolocator: ^13.0.2
+
   # Emoji picker for chat composer
   emoji_picker_flutter: ^3.1.0
 
