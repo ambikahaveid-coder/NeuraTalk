@@ -8,8 +8,9 @@ import 'login_screen.dart';
 import 'edit_profile_screen.dart';
 import 'notifications_settings_screen.dart';
 import 'language_preferences_screen.dart';
-import 'microphone_settings_screen.dart';
 import 'translation_settings_screen.dart';
+import 'calls_settings_screen.dart';
+import 'privacy_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -40,25 +41,26 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 8),
             _section('Account', [
               _tile(Icons.person_outline, 'Profile', () => _openEditProfile(context)),
-              _tile(Icons.notifications_outlined, 'Notifications', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsSettingsScreen()))),
               _tile(Icons.language_outlined, 'Language Preferences', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LanguagePreferencesScreen()))),
             ]),
             const SizedBox(height: 8),
-            _section('Calls', [
-              _tile(Icons.mic_outlined, 'Microphone Settings', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MicrophoneSettingsScreen()))),
-              _tile(Icons.translate_outlined, 'Translation Settings', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TranslationSettingsScreen()))),
+            _section('Communication', [
+              _tile(Icons.notifications_outlined, 'Notifications', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsSettingsScreen()))),
+              _tile(Icons.call_outlined, 'Calls & Calling', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CallsSettingsScreen()))),
+              _tile(Icons.translate_outlined, 'Translation', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TranslationSettingsScreen()))),
               _tile(Icons.record_voice_over_outlined, 'Voice Clone', () => _openWebPage(context, '/settings/voice-clone')),
             ]),
             const SizedBox(height: 8),
-            _section('Privacy & Legal', [
+            _section('Privacy & Security', [
+              _tile(Icons.shield_outlined, 'Privacy', () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyScreen()))),
+            ]),
+            const SizedBox(height: 8),
+            _section('Support & Legal', [
+              _tile(Icons.help_outline, 'Help Center', () => _openWebPage(context, '/help')),
+              _tile(Icons.mail_outline, 'Contact Support', () => _openWebPage(context, '/contact')),
               _tile(Icons.privacy_tip_outlined, 'Privacy Policy', () => _openWebPage(context, '/privacy')),
               _tile(Icons.description_outlined, 'Terms of Service', () => _openWebPage(context, '/terms')),
               _tile(Icons.security_outlined, 'Data & Privacy', () => _openWebPage(context, '/data-retention')),
-            ]),
-            const SizedBox(height: 8),
-            _section('Support', [
-              _tile(Icons.help_outline, 'Help Center', () => _openWebPage(context, '/help')),
-              _tile(Icons.mail_outline, 'Contact Support', () => _openWebPage(context, '/contact')),
               _tile(Icons.info_outline, 'About NeuraTalk', () => _openWebPage(context, '/about')),
             ]),
             const SizedBox(height: 24),

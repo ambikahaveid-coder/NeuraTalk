@@ -300084,7 +300084,7 @@ var init_blocking = __esm({
         const blockerUserId = req.user.id;
         const rows = await db.select({ blockedUserId: blockedUsers.blockedUserId, createdAt: blockedUsers.createdAt }).from(blockedUsers).where((0, import_drizzle_orm16.eq)(blockedUsers.blockerUserId, blockerUserId));
         const userIds = rows.map((r5) => r5.blockedUserId);
-        const blockedUserRows = userIds.length > 0 ? await db.select({ id: users.id, username: users.username, avatarUrl: users.avatarUrl }).from(users).where((0, import_drizzle_orm16.inArray)(users.id, userIds)) : [];
+        const blockedUserRows = userIds.length > 0 ? await db.select({ id: users.id, username: users.username, avatarUrl: users.avatarUrl, phone: users.phone }).from(users).where((0, import_drizzle_orm16.inArray)(users.id, userIds)) : [];
         res.json({
           blocked: rows.map((r5) => ({
             ...blockedUserRows.find((u) => u.id === r5.blockedUserId),

@@ -66,7 +66,7 @@ router.get("/api/users/blocked", requireAuth, async (req: Request, res: Response
 
     const userIds = rows.map((r) => r.blockedUserId);
     const blockedUserRows = userIds.length > 0
-      ? await db.select({ id: users.id, username: users.username, avatarUrl: users.avatarUrl }).from(users).where(inArray(users.id, userIds))
+      ? await db.select({ id: users.id, username: users.username, avatarUrl: users.avatarUrl, phone: users.phone }).from(users).where(inArray(users.id, userIds))
       : [];
 
     res.json({
