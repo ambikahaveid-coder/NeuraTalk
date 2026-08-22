@@ -1012,7 +1012,24 @@ async function initiateCallLocked(
   // Fetch callee user in background — only needed for org routing, non-blocking
   const calleeUserPromise = calleeUserId ? storage.getUser(calleeUserId) : Promise.resolve(undefined);
 
-  const effectiveCalleeLanguage = (req.calleeLanguage ?? callee.preferredLanguage ?? "auto")?.trim().toLowerCase() || "auto";
+  // The app always sends the literal string "auto" for myLanguage/
+  // theirLanguage on every call (it never asks the user's real
+  // preferredLanguage) -- using `??`/`||` against a truthy "auto" string
+  // never falls through to the user's actual saved language, so the
+  // translator bot's STT stayed pinned to English for both speakers on
+  // every call regardless of what languages the participants really speak.
+  // Treat "auto" the same as "not specified" so the real profile language
+  // is used when available, falling back to genuine runtime auto-detect
+  // only when neither side has one on file.
+  const requestedCalleeLanguage = req.calleeLanguage?.trim().toLowerCase();
+  const effectiveCalleeLanguage = (
+    requestedCalleeLanguage && requestedCalleeLanguage !== "auto"
+      ? requestedCalleeLanguage
+      : callee.preferredLanguage || "auto"
+  ).trim().toLowerCase() || "auto";
+  const effectiveCallerLanguage = (
+    callerLanguage !== "auto" ? callerLanguage : (callerUser as any)?.preferredLanguage || "auto"
+  ).trim().toLowerCase() || "auto";
   const requestedJoinMethod = resolveRequestedJoinMethod({
     transportPreference: req.transportPreference ?? "auto",
     calleeHasApp: callee.hasApp,
@@ -1028,7 +1045,7 @@ async function initiateCallLocked(
   });
   let callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
   const translationEnabled = resolveTranslationEnabled({
-    callerLanguage,
+    callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage,
     requestedTranslationEnabled: req.translationEnabled,
   });
@@ -1091,7 +1108,7 @@ async function initiateCallLocked(
   logSetupLatency(callId, requestedJoinMethod, "create_room", elapsedMs(stageStartNs));
 
   await initCallLanguageTracking(callId, [
-    { speakerId: req.callerId, preferredLanguage: callerLanguage },
+    { speakerId: req.callerId, preferredLanguage: effectiveCallerLanguage },
     ...(callee.userId ? [{ speakerId: callee.userId, preferredLanguage: effectiveCalleeLanguage }] : []),
     ...(!callee.userId && callee.phoneNumber ? [{ speakerId: `pstn:${callee.phoneNumber}`, preferredLanguage: effectiveCalleeLanguage }] : []),
   ]);
@@ -1100,7 +1117,7 @@ async function initiateCallLocked(
   const callerToken = await issueAccessToken(callId, {
     userId: req.callerId,
     displayName: req.callerDisplayName || req.callerId,
-    language: callerLanguage,
+    language: effectiveCallerLanguage,
     translationMode: translationEnabled ? (req.callerTranslationMode || "subtitles") : "off",
     role: "caller",
   });
@@ -1126,7 +1143,7 @@ async function initiateCallLocked(
     calleeUserId: requestedJoinMethod === "app_to_app" ? callee.userId ?? null : null,
     calleeOrganizationId: (await calleeUserPromise)?.organizationId ?? null,
     callType: effectiveCallType,
-    callerLanguage,
+    callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage ?? null,
     livekitUrl: process.env.LIVEKIT_URL ?? null,
     languageDetectionActive: translationEnabled,

@@ -262179,7 +262179,9 @@ async function initiateCallLocked(req, callId, callerLanguage) {
   ]);
   const calleeUserId = callee.userId && Number.isFinite(Number(callee.userId)) ? Number(callee.userId) : null;
   const calleeUserPromise = calleeUserId ? storage2.getUser(calleeUserId) : Promise.resolve(void 0);
-  const effectiveCalleeLanguage = (req.calleeLanguage ?? callee.preferredLanguage ?? "auto")?.trim().toLowerCase() || "auto";
+  const requestedCalleeLanguage = req.calleeLanguage?.trim().toLowerCase();
+  const effectiveCalleeLanguage = (requestedCalleeLanguage && requestedCalleeLanguage !== "auto" ? requestedCalleeLanguage : callee.preferredLanguage || "auto").trim().toLowerCase() || "auto";
+  const effectiveCallerLanguage = (callerLanguage !== "auto" ? callerLanguage : callerUser?.preferredLanguage || "auto").trim().toLowerCase() || "auto";
   const requestedJoinMethod = resolveRequestedJoinMethod({
     transportPreference: req.transportPreference ?? "auto",
     calleeHasApp: callee.hasApp,
@@ -262195,7 +262197,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
   });
   let callerIdentityDisclaimer = buildCallerIdentityDisclaimer(callerIdentityMode, requestedJoinMethod);
   const translationEnabled = resolveTranslationEnabled({
-    callerLanguage,
+    callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage,
     requestedTranslationEnabled: req.translationEnabled
   });
@@ -262251,7 +262253,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
   });
   logSetupLatency(callId, requestedJoinMethod, "create_room", elapsedMs(stageStartNs));
   await initCallLanguageTracking(callId, [
-    { speakerId: req.callerId, preferredLanguage: callerLanguage },
+    { speakerId: req.callerId, preferredLanguage: effectiveCallerLanguage },
     ...callee.userId ? [{ speakerId: callee.userId, preferredLanguage: effectiveCalleeLanguage }] : [],
     ...!callee.userId && callee.phoneNumber ? [{ speakerId: `pstn:${callee.phoneNumber}`, preferredLanguage: effectiveCalleeLanguage }] : []
   ]);
@@ -262259,7 +262261,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
   const callerToken = await issueAccessToken(callId, {
     userId: req.callerId,
     displayName: req.callerDisplayName || req.callerId,
-    language: callerLanguage,
+    language: effectiveCallerLanguage,
     translationMode: translationEnabled ? req.callerTranslationMode || "subtitles" : "off",
     role: "caller"
   });
@@ -262282,7 +262284,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
     calleeUserId: requestedJoinMethod === "app_to_app" ? callee.userId ?? null : null,
     calleeOrganizationId: (await calleeUserPromise)?.organizationId ?? null,
     callType: effectiveCallType,
-    callerLanguage,
+    callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage ?? null,
     livekitUrl: process.env.LIVEKIT_URL ?? null,
     languageDetectionActive: translationEnabled,
@@ -263038,10 +263040,11 @@ async function initiateCall2(params) {
   if (result.joinMethod === "app_to_app") {
     const callee = await resolveCalleeUser(params.calleeIdentifier);
     if (callee && result.livekitUrl) {
+      const requestedCalleeLanguage = params.calleeLanguage?.trim().toLowerCase();
       const calleeToken = await issueAccessToken(result.callId, {
         userId: String(callee.id),
         displayName: callee.username || String(callee.id),
-        language: params.calleeLanguage || callee.preferredLanguage || "auto",
+        language: (requestedCalleeLanguage && requestedCalleeLanguage !== "auto" ? requestedCalleeLanguage : callee.preferredLanguage) || "auto",
         translationMode: params.calleeTranslationMode || (params.translationEnabled === false ? "off" : "subtitles"),
         role: "callee"
       });
@@ -300478,8 +300481,9 @@ var init_personal_chat_routes = __esm({
           (0, import_drizzle_orm17.eq)(personalChatThreads.participantAUserId, pair.participantAUserId),
           (0, import_drizzle_orm17.eq)(personalChatThreads.participantBUserId, pair.participantBUserId)
         ));
-        const sourceLanguage = normalizeLanguage2(input.sourceLanguage || "en");
-        const targetLanguage = normalizeLanguage2(input.targetLanguage || "en");
+        const viewerUser = (await db.select().from(users).where((0, import_drizzle_orm17.eq)(users.id, viewerId)))[0];
+        const sourceLanguage = normalizeLanguage2(input.sourceLanguage || viewerUser?.preferredLanguage || "en");
+        const targetLanguage = normalizeLanguage2(input.targetLanguage || recipient.preferredLanguage || "en");
         const participantValues = viewerId === pair.participantAUserId ? {
           participantALanguage: sourceLanguage,
           participantBLanguage: targetLanguage
@@ -302816,7 +302820,7 @@ async function assignCallToAgent(callId, agentUserId) {
     userId: String(agentUserId),
     displayName: agentUser?.username || String(agentUserId),
     role: "callee",
-    language: "auto"
+    language: agentUser?.preferredLanguage || "auto"
   });
   await queueIncomingCall(String(agentUserId), {
     callId,

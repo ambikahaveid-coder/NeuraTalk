@@ -476,8 +476,16 @@ router.post("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: 
       eq(personalChatThreads.participantBUserId, pair.participantBUserId),
     ));
 
-    const sourceLanguage = normalizeLanguage(input.sourceLanguage || "en");
-    const targetLanguage = normalizeLanguage(input.targetLanguage || "en");
+    // The Flutter/web clients never actually send sourceLanguage/
+    // targetLanguage on thread creation -- without this fallback both ended
+    // up hardcoded to "en" for every single chat thread, which made
+    // translation a permanent no-op (viewerLanguage === peerLanguage) even
+    // between two users with genuinely different preferredLanguage profile
+    // settings. Fall back to each user's own saved preference instead of a
+    // blind "en" default.
+    const viewerUser = (await db.select().from(users).where(eq(users.id, viewerId)))[0];
+    const sourceLanguage = normalizeLanguage(input.sourceLanguage || viewerUser?.preferredLanguage || "en");
+    const targetLanguage = normalizeLanguage(input.targetLanguage || recipient.preferredLanguage || "en");
 
     const participantValues = viewerId === pair.participantAUserId
       ? {

@@ -254,7 +254,7 @@ async function assignCallToAgent(callId: string, agentUserId: number): Promise<b
     userId: String(agentUserId),
     displayName: agentUser?.username || String(agentUserId),
     role: "callee",
-    language: "auto",
+    language: (agentUser as any)?.preferredLanguage || "auto",
   });
 
   await queueIncomingCall(String(agentUserId), {

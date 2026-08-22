@@ -316,10 +316,18 @@ export async function initiateCall(params: InitiateCallParams): Promise<CallInit
   if (result.joinMethod === "app_to_app") {
     const callee = await resolveCalleeUser(params.calleeIdentifier);
     if (callee && result.livekitUrl) {
+      // params.calleeLanguage is the app's client-guessed "theirLanguage",
+      // which the client always sends as the literal string "auto" -- that
+      // is truthy, so `||` never fell through to the callee's own real
+      // preferredLanguage, pinning the translator bot's STT to English
+      // regardless of what language the callee actually speaks.
+      const requestedCalleeLanguage = params.calleeLanguage?.trim().toLowerCase();
       const calleeToken = await issueAccessToken(result.callId, {
         userId: String(callee.id),
         displayName: (callee as any).username || String(callee.id),
-        language: params.calleeLanguage || (callee as any).preferredLanguage || "auto",
+        language: (requestedCalleeLanguage && requestedCalleeLanguage !== "auto"
+          ? requestedCalleeLanguage
+          : (callee as any).preferredLanguage) || "auto",
         translationMode: params.calleeTranslationMode || (params.translationEnabled === false ? "off" : "subtitles"),
         role: "callee",
       });
