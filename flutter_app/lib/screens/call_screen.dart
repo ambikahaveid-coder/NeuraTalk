@@ -52,6 +52,7 @@ class _CallScreenState extends State<CallScreen> {
     super.initState();
     _room = lk.Room();
     _videoOn = widget.session.isVideo;
+    widget.callService.setActiveCall(widget.session);
     if (widget.session.isIncoming) {
       _connect();
     } else {
@@ -178,7 +179,18 @@ class _CallScreenState extends State<CallScreen> {
         if (_remoteVideoTrack != null) break;
       }
 
-      await _room.localParticipant?.setMicrophoneEnabled(true);
+      // Explicit rather than relying on the SDK/WebRTC defaults -- some
+      // Android OEM audio stacks don't apply the standard WebRTC defaults
+      // consistently, so asking for these outright is the safer bet for
+      // reducing background noise, echo and volume jumps on real devices.
+      await _room.localParticipant?.setMicrophoneEnabled(
+        true,
+        audioCaptureOptions: const lk.AudioCaptureOptions(
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        ),
+      );
       if (widget.session.isVideo && cameraGrantedForVideo) {
         await _room.localParticipant?.setCameraEnabled(true);
       } else if (widget.session.isVideo) {
@@ -290,8 +302,15 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _endCall() async {
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
-    await _room.disconnect();
-    await widget.callService.endCall(widget.session.callId);
+    _durationTimer?.cancel();
+    // Both calls are plain network/native awaits with no built-in timeout --
+    // a stalled network or a slow LiveKit disconnect would hang this whole
+    // function forever with nothing left to cancel it, leaving the End Call
+    // button looking unresponsive and the screen stuck. Cap each at 3s and
+    // fall through to popping the screen regardless, since the local intent
+    // (leave the call) should never be blocked on a server round-trip.
+    await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
+    await widget.callService.endCall(widget.session.callId).timeout(const Duration(seconds: 3), onTimeout: () {});
     if (mounted) Navigator.of(context).maybePop();
   }
 
@@ -302,6 +321,9 @@ class _CallScreenState extends State<CallScreen> {
     _ringingTimeoutTimer?.cancel();
     _listener?.dispose();
     _room.disconnect();
+    if (widget.callService.activeCallSession?.callId == widget.session.callId) {
+      widget.callService.setActiveCall(null);
+    }
     super.dispose();
   }
 

@@ -795,6 +795,18 @@ export async function updateSmartCallStatus(
     });
   }
 
+  // Mark the callee busy once they've actually answered (not merely rung) --
+  // this key was previously only ever set for the caller and for PSTN
+  // inbound callees, so a user already mid-call had no busy state at all:
+  // a second app-to-app call to them would ring straight through as if they
+  // were idle instead of surfacing as call-waiting. The generic cleanup at
+  // call-end (keyed off call_metadata:{callId}:callee) already handles
+  // release; this is the missing "set" half for app-to-app calls.
+  if (nextState === SMART_CALL_STATE.ANSWERED && updated.joinMethod === "app_to_app" && updated.calleeUserId) {
+    await redisClient().set(`user:active_call:${updated.calleeUserId}`, callId, "EX", 3600);
+    await redisClient().set(`call_metadata:${callId}:callee`, String(updated.calleeUserId), "EX", 7200);
+  }
+
   const lifecycleEvent = nextState === SMART_CALL_STATE.RINGING
     ? "call_ringing"
     : nextState === SMART_CALL_STATE.ANSWERED

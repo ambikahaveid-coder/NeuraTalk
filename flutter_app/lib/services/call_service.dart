@@ -6,10 +6,9 @@ import '../models/call_session.dart';
 
 /// Owns outbound/inbound call HTTP calls and the incoming-call poll loop.
 ///
-/// There is no push notification / CallKit wiring yet (see the mobile
-/// calling plan) — incoming calls are detected by polling
-/// `GET /api/calls/incoming` every 4s, mirroring the web client's SSE
-/// fallback interval. This only works while the app is foregrounded/alive.
+/// Incoming calls are surfaced two ways: a native CallKit push (see
+/// callkit_service.dart, works even backgrounded/killed) and this class's
+/// own `GET /api/calls/incoming` poll every 4s as a foreground fallback.
 class CallService extends ChangeNotifier {
   /// Set by the constructor so top-level handlers that live outside the
   /// widget tree (the CallKit accept/decline event listener in
@@ -28,14 +27,28 @@ class CallService extends ChangeNotifier {
   // call the user already accepted/declined from the lock screen.
   final Set<String> _handledCallIds = {};
 
+  // True for as long as a CallScreen route is on top -- lets the app tell a
+  // genuinely new incoming call apart from "already on a call", so a second
+  // caller gets a proper call-waiting prompt instead of a duplicate
+  // full-screen IncomingCallScreen stacking on top of the active call.
+  bool _inActiveCall = false;
+  CallSession? _activeCallSession;
+
   CallService() {
     instance = this;
   }
 
   CallSession? get incomingCall => _incomingCall;
   bool get hasConnectivity => _hasConnectivity;
+  bool get inActiveCall => _inActiveCall;
+  CallSession? get activeCallSession => _activeCallSession;
 
   void markHandledExternally(String callId) => _handledCallIds.add(callId);
+
+  void setActiveCall(CallSession? session) {
+    _activeCallSession = session;
+    _inActiveCall = session != null;
+  }
 
   void startPolling() {
     if (_polling) return;

@@ -262029,6 +262029,10 @@ async function updateSmartCallStatus(callId, status, metadata) {
       logger.warn("SmartCallRouter", `billing status sync failed for ${callId}: ${String(error2)}`);
     });
   }
+  if (nextState === SMART_CALL_STATE.ANSWERED && updated.joinMethod === "app_to_app" && updated.calleeUserId) {
+    await redisClient2().set(`user:active_call:${updated.calleeUserId}`, callId, "EX", 3600);
+    await redisClient2().set(`call_metadata:${callId}:callee`, String(updated.calleeUserId), "EX", 7200);
+  }
   const lifecycleEvent = nextState === SMART_CALL_STATE.RINGING ? "call_ringing" : nextState === SMART_CALL_STATE.ANSWERED ? "call_answered" : nextState === SMART_CALL_STATE.ACTIVE ? "call_active" : nextState === SMART_CALL_STATE.CREATED ? "call_created" : "call_state_terminal";
   emitStructuredCallEvent(lifecycleEvent, updated, {
     previousStatus,

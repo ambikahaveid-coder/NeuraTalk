@@ -16,6 +16,7 @@ import 'services/push_service.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/incoming_call_screen.dart';
+import 'screens/call_screen.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -149,10 +150,61 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
     }
   }
 
+  bool _showingCallWaiting = false;
+
   void _onCallServiceChanged() {
     final calls = context.read<CallService>();
     final incoming = calls.incomingCall;
-    if (incoming != null && !_showingIncomingCall) {
+    if (incoming == null) return;
+
+    if (calls.inActiveCall) {
+      // A second real caller while already talking to someone -- must not
+      // silently vanish or stack a duplicate full-screen IncomingCallScreen
+      // on top of the live call. Surface it as a proper call-waiting prompt.
+      if (_showingCallWaiting) return;
+      _showingCallWaiting = true;
+      final activeSession = calls.activeCallSession;
+      showDialog<void>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Call waiting'),
+          content: Text('${incoming.remoteName} is calling while you\'re on another call.'),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                calls.markHandledExternally(incoming.callId);
+                await calls.rejectCall(incoming.callId);
+                calls.clearIncomingCall();
+              },
+              child: const Text('Reject'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                calls.markHandledExternally(incoming.callId);
+                if (activeSession != null) {
+                  // Ending the current call server-side tears down its
+                  // LiveKit room, which delivers the active CallScreen a
+                  // RoomDisconnectedEvent and pops it via its own existing
+                  // handler -- no direct reference to that screen needed.
+                  await calls.endCall(activeSession.callId);
+                }
+                calls.clearIncomingCall();
+                navigatorKey.currentState?.push(MaterialPageRoute(
+                  builder: (_) => CallScreen(session: incoming, callService: calls),
+                ));
+              },
+              child: const Text('End current & Accept'),
+            ),
+          ],
+        ),
+      ).then((_) => _showingCallWaiting = false);
+      return;
+    }
+
+    if (!_showingIncomingCall) {
       _showingIncomingCall = true;
       navigatorKey.currentState
           ?.push(MaterialPageRoute(
