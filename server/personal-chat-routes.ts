@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { EventEmitter } from "node:events";
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { personalChatMessages, personalChatThreads, userContacts, users } from "@shared/schema";
@@ -344,6 +344,13 @@ router.get("/api/personal-chats/discover", requireAuth, async (req: AuthedReques
       return res.json({ results: [] });
     }
 
+    // Real bug: eq() requires an exact full match, so searching "qa_test"
+    // for a real user "qa_test_hindi_beta" (or any partial name/email a
+    // real person would actually type) always returned zero results --
+    // this is the New Chat search AND the Block Contact search (both call
+    // this endpoint), so both silently looked broken/empty. Phone stays an
+    // exact match (partial phone matching is a privacy/precision concern,
+    // not a usability one -- numbers are typed in full or not at all).
     const normalizedPhone = normalizePhoneNumber(query);
     const candidates = await db.select({
       id: users.id,
@@ -352,8 +359,8 @@ router.get("/api/personal-chats/discover", requireAuth, async (req: AuthedReques
       phone: users.phone,
       avatarUrl: users.avatarUrl,
     }).from(users).where(or(
-      eq(users.username, query),
-      eq(users.email, query),
+      ilike(users.username, `%${query}%`),
+      ilike(users.email, `%${query}%`),
       eq(users.phone, normalizedPhone),
     ));
 

@@ -300388,8 +300388,8 @@ var init_personal_chat_routes = __esm({
           phone: users.phone,
           avatarUrl: users.avatarUrl
         }).from(users).where((0, import_drizzle_orm17.or)(
-          (0, import_drizzle_orm17.eq)(users.username, query),
-          (0, import_drizzle_orm17.eq)(users.email, query),
+          (0, import_drizzle_orm17.ilike)(users.username, `%${query}%`),
+          (0, import_drizzle_orm17.ilike)(users.email, `%${query}%`),
           (0, import_drizzle_orm17.eq)(users.phone, normalizedPhone)
         ));
         const results = candidates.filter((candidate) => candidate.id !== viewerId).slice(0, 10).map((candidate) => ({

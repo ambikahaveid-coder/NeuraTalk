@@ -47,23 +47,42 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  void _goToCallScreen() {
+    widget.callService.clearIncomingCall();
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => CallScreen(session: widget.session, callService: widget.callService)),
+    );
+  }
+
   Future<void> _accept() async {
     if (_busy) return;
     setState(() => _busy = true);
+    widget.callService.markHandledExternally(widget.session.callId);
+    unawaited(CallKitService.endCall(widget.session.callId));
     try {
-      widget.callService.markHandledExternally(widget.session.callId);
-      unawaited(CallKitService.endCall(widget.session.callId));
       await widget.callService.answerCall(widget.session.callId);
-      widget.callService.clearIncomingCall();
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => CallScreen(session: widget.session, callService: widget.callService)),
-      );
-    } catch (_) {
+      _goToCallScreen();
+    } catch (e) {
+      // The native CallKit UI and this in-app screen can both be reachable
+      // for the same call at once -- if CallKit's own accept already
+      // answered it (e.g. the app was foregrounded right as the push
+      // arrived), this connect call fails even though the call is genuinely
+      // already answered. Check real status before declaring failure rather
+      // than showing an error for a call that's actually fine.
+      try {
+        final status = await widget.callService.getCallStatus(widget.session.callId);
+        if (status == 'answered' || status == 'active') {
+          _goToCallScreen();
+          return;
+        }
+      } catch (_) {
+        // Fall through to the error below.
+      }
       if (mounted) {
         setState(() => _busy = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not answer the call')),
+          SnackBar(content: Text('Could not answer the call ($e)')),
         );
       }
     }

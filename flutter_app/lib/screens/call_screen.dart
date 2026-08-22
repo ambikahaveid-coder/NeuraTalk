@@ -318,8 +318,24 @@ class _CallScreenState extends State<CallScreen> {
     // button looking unresponsive and the screen stuck. Cap each at 3s and
     // fall through to popping the screen regardless, since the local intent
     // (leave the call) should never be blocked on a server round-trip.
-    await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
-    await widget.callService.endCall(widget.session.callId).timeout(const Duration(seconds: 3), onTimeout: () {});
+    //
+    // Real bug fixed here: neither await was ever wrapped in try/catch.
+    // room.disconnect() throws (not just hangs) if the room is already in a
+    // disconnected/errored state -- e.g. the peer hung up moments earlier,
+    // _onRoomDisconnected already ran, and the user then also taps End Call
+    // manually. A .timeout() only guards against hanging, not throwing --
+    // an uncaught synchronous throw here skipped the final pop entirely,
+    // which is exactly what "screen doesn't close, stuck" looks like.
+    try {
+      await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {
+      // Best-effort -- leaving the call locally must never get stuck here.
+    }
+    try {
+      await widget.callService.endCall(widget.session.callId).timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {
+      // endCall() already swallows its own errors, but guard regardless.
+    }
     if (mounted) Navigator.of(context).maybePop();
   }
 
