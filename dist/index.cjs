@@ -356614,7 +356614,7 @@ function registerAdminUserRoutes(app2) {
         signupMap.set(new Date(r5.date).toISOString().split("T")[0], Number(r5.signups));
       });
       const callRows = await db.execute(
-        import_drizzle_orm46.sql`SELECT DATE(started_at) as date, COUNT(*) as calls FROM call_billing_records WHERE started_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(started_at) ORDER BY date`
+        import_drizzle_orm46.sql`SELECT DATE(created_at) as date, COUNT(*) as calls FROM call_billing_records WHERE created_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
       );
       const callMap = /* @__PURE__ */ new Map();
       callRows.rows.forEach((r5) => {
@@ -356641,7 +356641,7 @@ function registerAdminUserRoutes(app2) {
         totalCalls: (0, import_drizzle_orm46.count)(),
         failedCalls: import_drizzle_orm46.sql`COUNT(*) FILTER (WHERE ${callBillingRecords.status} = 'failed')`,
         avgDurationSeconds: import_drizzle_orm46.sql`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`
-      }).from(callBillingRecords).where(import_drizzle_orm46.sql`${callBillingRecords.startedAt} >= ${windowStart}`);
+      }).from(callBillingRecords).where(import_drizzle_orm46.sql`${callBillingRecords.createdAt} >= ${windowStart}`);
       const totalCalls = Number(callSummary?.totalCalls ?? 0);
       const failedCalls = Number(callSummary?.failedCalls ?? 0);
       const successRate = totalCalls > 0 ? Math.round((totalCalls - failedCalls) / totalCalls * 1e3) / 10 : 100;

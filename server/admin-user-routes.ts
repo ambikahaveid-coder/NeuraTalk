@@ -389,7 +389,7 @@ export function registerAdminUserRoutes(app: Express) {
       });
 
       const callRows = await db.execute(
-        sql`SELECT DATE(started_at) as date, COUNT(*) as calls FROM call_billing_records WHERE started_at >= NOW() - CAST(${String(days) + ' days'} AS INTERVAL) GROUP BY DATE(started_at) ORDER BY date`
+        sql`SELECT DATE(created_at) as date, COUNT(*) as calls FROM call_billing_records WHERE created_at >= NOW() - CAST(${String(days) + ' days'} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
       );
       const callMap = new Map<string, number>();
       (callRows as any).rows.forEach((r: any) => {
@@ -422,7 +422,7 @@ export function registerAdminUserRoutes(app: Express) {
           avgDurationSeconds: sql<number>`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`,
         })
         .from(callBillingRecords)
-        .where(sql`${callBillingRecords.startedAt} >= ${windowStart}`);
+        .where(sql`${callBillingRecords.createdAt} >= ${windowStart}`);
 
       const totalCalls = Number(callSummary?.totalCalls ?? 0);
       const failedCalls = Number(callSummary?.failedCalls ?? 0);
