@@ -300180,7 +300180,7 @@ function translationsObject(value) {
     Object.entries(value).filter((entry) => typeof entry[1] === "string")
   );
 }
-async function detectLanguage(text2) {
+async function detectLanguageRaw(text2) {
   try {
     const { isAzureTranslatorAvailable: isAzureTranslatorAvailable2, azureDetectLanguage: azureDetectLanguage2 } = await Promise.resolve().then(() => (init_azure_service(), azure_service_exports));
     if (isAzureTranslatorAvailable2()) {
@@ -300204,6 +300204,15 @@ async function detectLanguage(text2) {
   } catch {
     return "en";
   }
+}
+async function detectLanguage(text2, candidates = []) {
+  const pool2 = Array.from(new Set(candidates.map((c5) => normalizeLanguage2(c5)).filter(Boolean)));
+  const detected = await detectLanguageRaw(text2);
+  const wordCount2 = text2.trim().split(/\s+/).filter(Boolean).length;
+  if (pool2.length > 0 && !pool2.includes(detected) && wordCount2 <= 5) {
+    return pool2[0];
+  }
+  return detected;
 }
 async function translatePersonalText(text2, fromLang, toLang) {
   if (!text2.trim() || normalizeLanguage2(fromLang) === normalizeLanguage2(toLang)) {
@@ -300628,7 +300637,9 @@ var init_personal_chat_routes = __esm({
         if (input.attachmentUrl) {
           await finalizeChatAttachment(viewerId, input.attachmentUrl);
         }
-        const originalLanguage = normalizeLanguage2(input.originalLanguage || await detectLanguage(input.content));
+        const originalLanguage = normalizeLanguage2(
+          input.originalLanguage || await detectLanguage(input.content, [context.viewerLanguage, context.peerLanguage])
+        );
         const translations2 = {};
         if (context.peerLanguage !== originalLanguage) {
           translations2[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
@@ -358792,7 +358803,7 @@ async function translateText3(text2, fromLang, toLang) {
     }
   }
 }
-async function detectLanguage4(text2) {
+async function detectLanguageRaw2(text2) {
   try {
     const { isAzureTranslatorAvailable: isAzureTranslatorAvailable2, azureDetectLanguage: azureDetectLanguage2 } = await Promise.resolve().then(() => (init_azure_service(), azure_service_exports));
     if (isAzureTranslatorAvailable2()) {
@@ -358813,6 +358824,14 @@ async function detectLanguage4(text2) {
   } catch {
     return "en";
   }
+}
+async function detectLanguage4(text2, senderLanguage) {
+  const detected = await detectLanguageRaw2(text2);
+  const wordCount2 = text2.trim().split(/\s+/).filter(Boolean).length;
+  if (senderLanguage && senderLanguage !== detected && wordCount2 <= 5) {
+    return senderLanguage;
+  }
+  return detected;
 }
 async function processVoiceMessage(messageId) {
   try {
@@ -359096,7 +359115,7 @@ var init_group_chats = __esm({
         if (senderMember.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
         }
-        const detectedLang = originalLanguage || await detectLanguage4(content);
+        const detectedLang = originalLanguage || await detectLanguage4(content, senderMember[0]?.preferredLanguage ?? void 0);
         const members = await db.select({
           userId: groupChatMembers.userId,
           preferredLanguage: groupChatMembers.preferredLanguage

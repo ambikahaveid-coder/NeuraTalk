@@ -149,7 +149,7 @@ function translationsObject(value: unknown): Record<string, string> {
   );
 }
 
-async function detectLanguage(text: string): Promise<string> {
+async function detectLanguageRaw(text: string): Promise<string> {
   try {
     const { isAzureTranslatorAvailable, azureDetectLanguage } = await import("./azure-service");
     if (isAzureTranslatorAvailable()) {
@@ -176,6 +176,30 @@ async function detectLanguage(text: string): Promise<string> {
   } catch {
     return "en";
   }
+}
+
+/**
+ * candidates should be the two chat participants' own known languages
+ * (sender's own preference first). Short, casual, romanized Indian-language
+ * text (e.g. Telugu written in Latin script -- "bayam", "eklada", "alla
+ * kadu") is frequently misidentified by generic language-ID as an unrelated
+ * language: real production data from this app showed such words tagged as
+ * Malay, Polish, Tagalog, and Finnish, which then produced nonsense
+ * translations. These detectors are tuned for script-based detection, not
+ * romanized text, and have no real signal on a 1-3 word message. When the
+ * raw detection doesn't match either participant's own known language and
+ * the message is short, trust the sender's own profile language instead of
+ * the wild guess -- in a 1:1 chat, the sender's own language is overwhelmingly
+ * the correct answer for short ambiguous text.
+ */
+async function detectLanguage(text: string, candidates: string[] = []): Promise<string> {
+  const pool = Array.from(new Set(candidates.map((c) => normalizeLanguage(c)).filter(Boolean)));
+  const detected = await detectLanguageRaw(text);
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  if (pool.length > 0 && !pool.includes(detected) && wordCount <= 5) {
+    return pool[0];
+  }
+  return detected;
 }
 
 async function translatePersonalText(text: string, fromLang: string, toLang: string): Promise<string> {
@@ -665,7 +689,9 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
       await finalizeChatAttachment(viewerId, input.attachmentUrl);
     }
 
-    const originalLanguage = normalizeLanguage(input.originalLanguage || await detectLanguage(input.content));
+    const originalLanguage = normalizeLanguage(
+      input.originalLanguage || await detectLanguage(input.content, [context.viewerLanguage, context.peerLanguage]),
+    );
     const translations: Record<string, string> = {};
     if (context.peerLanguage !== originalLanguage) {
       translations[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);

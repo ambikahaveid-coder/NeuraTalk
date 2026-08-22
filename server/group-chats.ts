@@ -118,7 +118,7 @@ async function translateText(text: string, fromLang: string, toLang: string): Pr
   }
 }
 
-async function detectLanguage(text: string): Promise<string> {
+async function detectLanguageRaw(text: string): Promise<string> {
   // 1. Try Azure language detection first
   try {
     const { isAzureTranslatorAvailable, azureDetectLanguage } = await import("./azure-service");
@@ -143,6 +143,21 @@ async function detectLanguage(text: string): Promise<string> {
   } catch {
     return "en";
   }
+}
+
+// Short, casual, romanized Indian-language text is frequently misidentified
+// by generic language-ID as an unrelated language (real production data from
+// the 1:1 chat path showed this exact failure -- Telugu words tagged as
+// Malay, Polish, Tagalog, Finnish). When the raw detection doesn't match the
+// sender's own known language and the message is short, trust the sender's
+// profile language instead of the wild guess.
+async function detectLanguage(text: string, senderLanguage?: string): Promise<string> {
+  const detected = await detectLanguageRaw(text);
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  if (senderLanguage && senderLanguage !== detected && wordCount <= 5) {
+    return senderLanguage;
+  }
+  return detected;
 }
 
 router.get("/api/group-chats/languages", (_req: Request, res: Response) => {
@@ -400,7 +415,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Reque
       return res.status(403).json({ error: "Not a member of this group" });
     }
     
-    const detectedLang = originalLanguage || await detectLanguage(content);
+    const detectedLang = originalLanguage || await detectLanguage(content, senderMember[0]?.preferredLanguage ?? undefined);
     
     const members = await db.select({
       userId: groupChatMembers.userId,
