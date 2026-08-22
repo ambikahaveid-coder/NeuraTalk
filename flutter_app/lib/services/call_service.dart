@@ -208,3 +208,34 @@ class CallServiceException implements Exception {
   @override
   String toString() => message;
 }
+
+/// Maps a call-start failure to real user-facing copy. Previously only
+/// calls_screen.dart had this mapping -- conversation_screen.dart (the most
+/// commonly used call-start path, from inside a chat) and teams_screen.dart
+/// showed the raw backend error `message` directly instead, which meant a
+/// server-side error code like "CONCURRENT_CALL_RESTRICTED" (see
+/// smart-router.ts) was shown to the user verbatim rather than translated
+/// into something a real user could understand.
+String friendlyCallError(Object e) {
+  if (e is CallServiceException) return e.message;
+  if (e is! ApiException) return 'Could not start the call. Please try again.';
+
+  switch (e.code) {
+    case 'LIVEKIT_UNAVAILABLE':
+      return 'Calling is temporarily unavailable. Please try again shortly.';
+    case 'PSTN_NOT_CONFIGURED':
+      return 'Calling mobile numbers is not available right now.';
+    case 'BLOCKED':
+      return "This call can't be completed.";
+  }
+
+  final reason = e.message.toUpperCase();
+  if (reason.contains('BALANCE') || reason.contains('SUBSCRIPTION') || reason.contains('CREDIT_LIMIT') || reason.contains('PAYMENT_REQUIRED')) {
+    return 'Insufficient balance or subscription to place this call.';
+  }
+  if (reason.contains('CONCURRENT_CALL') || reason.contains('RESTRICTED')) {
+    return "You're already on a call, or your last call is still wrapping up. Please try again in a moment.";
+  }
+
+  return 'Could not start the call. Please try again.';
+}

@@ -188,11 +188,9 @@ class _TeamCard extends StatelessWidget {
         builder: (_) => CallScreen(session: session, callService: callService),
       ));
     } catch (e) {
-      final message = e is CallServiceException
-          ? e.message
-          : e is ApiException && e.statusCode == 403
-              ? 'You need admin access to start a team call right now.'
-              : 'Could not start the team call.';
+      final message = e is ApiException && e.statusCode == 403
+          ? 'You need admin access to start a team call right now.'
+          : friendlyCallError(e);
       messenger.showSnackBar(SnackBar(content: Text(message)));
     }
   }

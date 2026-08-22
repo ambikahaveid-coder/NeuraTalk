@@ -297,31 +297,8 @@ class _DialPadState extends State<_DialPad> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _calling = false);
-      messenger.showSnackBar(SnackBar(content: Text(_friendlyCallError(e))));
+      messenger.showSnackBar(SnackBar(content: Text(friendlyCallError(e))));
     }
-  }
-
-  String _friendlyCallError(Object e) {
-    if (e is CallServiceException) return e.message;
-    if (e is! ApiException) return 'Could not start the call. Please try again.';
-
-    switch (e.code) {
-      case 'LIVEKIT_UNAVAILABLE':
-        return 'Calling is temporarily unavailable. Please try again shortly.';
-      case 'PSTN_NOT_CONFIGURED':
-        return 'Calling mobile numbers is not available right now.';
-    }
-
-    // No dedicated error code for balance/subscription failures — the
-    // backend returns the raw reason string as `message` in that case
-    // (server/modules/calls/controller.ts respondWithInitiateError,
-    // generic 500 fallback branch).
-    final reason = e.message.toUpperCase();
-    if (reason.contains('BALANCE') || reason.contains('SUBSCRIPTION') || reason.contains('CREDIT_LIMIT') || reason.contains('PAYMENT_REQUIRED')) {
-      return 'Insufficient balance or subscription to place this call.';
-    }
-
-    return 'Could not start the call. Please try again.';
   }
 
   @override

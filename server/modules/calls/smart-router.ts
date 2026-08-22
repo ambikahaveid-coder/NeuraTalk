@@ -793,15 +793,34 @@ export async function updateSmartCallStatus(
     await BillingEngine.setCallSessionStatus(callId, billingStatusForState(nextState)).catch((error) => {
       logger.warn("SmartCallRouter", `billing status sync failed for ${callId}: ${String(error)}`);
     });
+  } else {
+    // Real, confirmed production bug: a call that ends up MISSED/DECLINED/
+    // BUSY/CANCELLED/FAILED here (e.g. server/modules/calls/controller.ts's
+    // reject handler, which calls this function directly and never calls
+    // the separate endCall()) never released the caller's
+    // user:active_call:{id} lock -- that only happened in endCall(), a
+    // SEPARATE code path only reached when the client explicitly hits
+    // POST /api/calls/:id/end. If a caller's app is backgrounded/killed
+    // before their own ringing-timeout poll loop gets a chance to call
+    // that endpoint (very easy in real use -- call, no answer, switch
+    // apps), the lock sits until its own 1-hour TTL expires, and every
+    // call they place in the meantime fails with CONCURRENT_CALL_RESTRICTED
+    // (surfaced to the user as a raw "Restricted"-looking error in
+    // conversation_screen.dart, which shows ApiException.message directly).
+    // Terminal-state transitions must release both locks themselves,
+    // unconditionally, regardless of whether/when endCall() also runs.
+    const lockCallerId = await redisClient().get(`call_metadata:${callId}:caller`);
+    if (lockCallerId) await redisClient().del(`user:active_call:${lockCallerId}`);
+    const lockCalleeId = await redisClient().get(`call_metadata:${callId}:callee`);
+    if (lockCalleeId) await redisClient().del(`user:active_call:${lockCalleeId}`);
   }
 
   // Mark the callee busy once they've actually answered (not merely rung) --
   // this key was previously only ever set for the caller and for PSTN
   // inbound callees, so a user already mid-call had no busy state at all:
   // a second app-to-app call to them would ring straight through as if they
-  // were idle instead of surfacing as call-waiting. The generic cleanup at
-  // call-end (keyed off call_metadata:{callId}:callee) already handles
-  // release; this is the missing "set" half for app-to-app calls.
+  // were idle instead of surfacing as call-waiting. Released above on this
+  // same call's terminal transition, or in endCall() if that runs first.
   if (nextState === SMART_CALL_STATE.ANSWERED && updated.joinMethod === "app_to_app" && updated.calleeUserId) {
     await redisClient().set(`user:active_call:${updated.calleeUserId}`, callId, "EX", 3600);
     await redisClient().set(`call_metadata:${callId}:callee`, String(updated.calleeUserId), "EX", 7200);

@@ -578,10 +578,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       if (!mounted) return;
       navigator.push(MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
     } catch (e) {
-      final message = e is CallServiceException
-          ? e.message
-          : (e is ApiException ? e.message : 'Could not start the call. Please try again.');
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      messenger.showSnackBar(SnackBar(content: Text(friendlyCallError(e))));
     } finally {
       if (mounted) setState(() => _calling = false);
     }

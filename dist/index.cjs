@@ -262035,6 +262035,11 @@ async function updateSmartCallStatus(callId, status, metadata) {
     await BillingEngine.setCallSessionStatus(callId, billingStatusForState(nextState)).catch((error2) => {
       logger.warn("SmartCallRouter", `billing status sync failed for ${callId}: ${String(error2)}`);
     });
+  } else {
+    const lockCallerId = await redisClient2().get(`call_metadata:${callId}:caller`);
+    if (lockCallerId) await redisClient2().del(`user:active_call:${lockCallerId}`);
+    const lockCalleeId = await redisClient2().get(`call_metadata:${callId}:callee`);
+    if (lockCalleeId) await redisClient2().del(`user:active_call:${lockCalleeId}`);
   }
   if (nextState === SMART_CALL_STATE.ANSWERED && updated.joinMethod === "app_to_app" && updated.calleeUserId) {
     await redisClient2().set(`user:active_call:${updated.calleeUserId}`, callId, "EX", 3600);
