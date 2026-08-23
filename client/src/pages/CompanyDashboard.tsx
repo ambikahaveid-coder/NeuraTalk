@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { QueryErrorState } from "@/components/QueryErrorState";
+import { useUpload } from "@/hooks/use-upload";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -1480,32 +1481,330 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
   );
 }
 
+interface BusinessProfileData {
+  id: number;
+  name: string;
+  legalBusinessName: string | null;
+  description: string | null;
+  industry: string | null;
+  website: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  addressCity: string | null;
+  addressState: string | null;
+  addressCountry: string | null;
+  addressPostalCode: string | null;
+  logoUrl: string | null;
+  status: string | null;
+}
+interface BusinessBrandingData {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+}
+
 function SettingsTab({ organization, user, canManageCompany }: { organization: any; user: any; canManageCompany: boolean }) {
+  const businessId = organization?.id;
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { uploadFile, isUploading } = useUpload();
+
+  const { data: profileData, isLoading: profileLoading, error: profileError } = useQuery<{ success: boolean; profile: BusinessProfileData }>({
+    queryKey: ["/api/business", businessId, "profile"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/profile`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to load business profile");
+      return res.json();
+    },
+    enabled: !!businessId,
+  });
+
+  const { data: brandingData } = useQuery<{ success: boolean; branding: BusinessBrandingData }>({
+    queryKey: ["/api/business", businessId, "branding"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/branding`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to load branding");
+      return res.json();
+    },
+    enabled: !!businessId,
+  });
+
+  const [form, setForm] = useState<Partial<BusinessProfileData>>({});
+  const [brandingForm, setBrandingForm] = useState<BusinessBrandingData>({});
+
+  useEffect(() => {
+    if (profileData?.profile) setForm(profileData.profile);
+  }, [profileData]);
+  useEffect(() => {
+    if (brandingData?.branding) setBrandingForm(brandingData.branding);
+  }, [brandingData]);
+
+  const profileMutation = useMutation({
+    mutationFn: async (patch: Record<string, unknown>) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to save profile");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "profile"] });
+      toast({ title: "Profile saved" });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  const brandingMutation = useMutation({
+    mutationFn: async (patch: BusinessBrandingData) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/branding`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to save branding");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "branding"] });
+      toast({ title: "Branding saved" });
+    },
+    onError: (err: any) => toast({ title: "Save failed", description: err.message, variant: "destructive" }),
+  });
+
+  const setLogoMutation = useMutation({
+    mutationFn: async (objectPath: string) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/branding/logo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ objectPath }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to set logo");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "profile"] });
+      toast({ title: "Logo updated" });
+    },
+    onError: (err: any) => toast({ title: "Logo upload failed", description: err.message, variant: "destructive" }),
+  });
+
+  const removeLogoMutation = useMutation({
+    mutationFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/branding/logo`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed to remove logo");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "profile"] });
+      toast({ title: "Logo removed" });
+    },
+    onError: (err: any) => toast({ title: "Failed to remove logo", description: err.message, variant: "destructive" }),
+  });
+
+  const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      toast({ title: "Unsupported file type", description: "Logo must be a JPEG, PNG, WebP, or GIF image.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Logo must be under 5MB.", variant: "destructive" });
+      return;
+    }
+    const result = await uploadFile(file);
+    if (result) setLogoMutation.mutate(result.objectPath);
+    e.target.value = "";
+  };
+
+  if (!canManageCompany) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Organization Settings</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div><label className="text-xs text-muted-foreground">Name</label><p className="font-bold">{organization?.name}</p></div>
+          <div><label className="text-xs text-muted-foreground">Status</label><Badge>{organization?.status}</Badge></div>
+          <div><label className="text-xs text-muted-foreground">Your Role</label><p className="font-bold">{user?.role || "unknown"}</p></div>
+          <div>
+            <label className="text-xs text-muted-foreground">Access Scope</label>
+            <p className="text-sm text-muted-foreground">Operational access only. Business Profile and Branding are restricted to company admins.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (profileLoading) {
+    return <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  }
+  if (profileError) {
+    return <QueryErrorState error={profileError} label="business profile" onRetry={() => queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "profile"] })} />;
+  }
+
+  const field = (key: keyof BusinessProfileData, label: string, placeholder?: string) => (
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
+      <Input
+        value={(form[key] as string) ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+        data-testid={`input-profile-${key}`}
+      />
+    </div>
+  );
+
+  const colorField = (key: keyof BusinessBrandingData, label: string) => (
+    <div>
+      <label className="text-xs text-muted-foreground">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={brandingForm[key] || "#000000"}
+          onChange={(e) => setBrandingForm((b) => ({ ...b, [key]: e.target.value }))}
+          className="h-9 w-12 rounded border border-white/10 bg-transparent"
+          data-testid={`input-branding-${key}`}
+        />
+        <Input
+          value={brandingForm[key] ?? ""}
+          placeholder="#1a2b3c"
+          onChange={(e) => setBrandingForm((b) => ({ ...b, [key]: e.target.value }))}
+          className="w-32"
+        />
+      </div>
+    </div>
+  );
+
   return (
-    <Card>
-      <CardHeader><CardTitle className="text-sm">Organization Settings</CardTitle></CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <label className="text-xs text-muted-foreground">Name</label>
-          <p className="font-bold">{organization?.name}</p>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Status</label>
-          <Badge>{organization?.status}</Badge>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Your Role</label>
-          <p className="font-bold">{user?.role || "unknown"}</p>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground">Access Scope</label>
-          <p className="text-sm text-muted-foreground">
-            {canManageCompany
-              ? "Full company admin access for billing, API keys, team management, and audit review."
-              : "Operational access only. Billing, API credentials, and audit controls stay restricted to company admins."}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Business Profile</CardTitle>
+          <CardDescription>Who is this business? Shown to your team and used across billing, invoices, and support.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {field("name", "Display / Business Name")}
+            {field("legalBusinessName", "Legal Business Name")}
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">Description</label>
+            <textarea
+              className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
+              rows={3}
+              value={form.description ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              data-testid="input-profile-description"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {field("industry", "Business Category / Industry")}
+            {field("website", "Website", "https://")}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {field("email", "Support / Contact Email")}
+            {field("phone", "Support / Contact Phone")}
+          </div>
+          <div>{field("address", "Address")}</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {field("addressCity", "City")}
+            {field("addressState", "State")}
+            {field("addressCountry", "Country")}
+            {field("addressPostalCode", "Postal Code")}
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Button
+              size="sm"
+              disabled={profileMutation.isPending}
+              onClick={() => profileMutation.mutate(form)}
+              data-testid="button-save-profile"
+            >
+              {profileMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Save Profile
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setForm(profileData?.profile ?? {})}>Cancel</Button>
+            <Badge variant="outline">{organization?.status}</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Branding</CardTitle>
+          <CardDescription>How does this business appear? Logo and brand colors used in your admin UI.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground">Logo</label>
+            <div className="flex items-center gap-3 mt-1">
+              {form.logoUrl ? (
+                <img src={form.logoUrl} alt="Business logo" className="w-14 h-14 rounded object-cover border border-white/10" />
+              ) : (
+                <div className="w-14 h-14 rounded border border-dashed border-white/20 flex items-center justify-center text-muted-foreground">
+                  <Building2 className="w-6 h-6" />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <label className={isUploading || setLogoMutation.isPending ? "pointer-events-none opacity-60" : undefined}>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleLogoFile}
+                    disabled={isUploading || setLogoMutation.isPending}
+                    data-testid="input-logo-file"
+                  />
+                  <span className="inline-flex items-center h-9 px-3 rounded-md border border-white/10 text-sm cursor-pointer hover:bg-white/5">
+                    {isUploading || setLogoMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+                    {form.logoUrl ? "Replace" : "Upload"} Logo
+                  </span>
+                </label>
+                {form.logoUrl && (
+                  <Button size="sm" variant="ghost" disabled={removeLogoMutation.isPending} onClick={() => removeLogoMutation.mutate()} data-testid="button-remove-logo">
+                    Remove
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {colorField("primaryColor", "Primary Color")}
+            {colorField("secondaryColor", "Secondary Color")}
+            {colorField("accentColor", "Accent Color")}
+          </div>
+          <div className="flex items-center gap-2 pt-2">
+            <Button
+              size="sm"
+              disabled={brandingMutation.isPending}
+              onClick={() => brandingMutation.mutate(brandingForm)}
+              data-testid="button-save-branding"
+            >
+              {brandingMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              Save Branding
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setBrandingForm(brandingData?.branding ?? {})}>Cancel</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Access</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          <div><label className="text-xs text-muted-foreground">Your Role</label><p className="font-bold">{user?.role || "unknown"}</p></div>
+          <p className="text-sm text-muted-foreground">Full company admin access for billing, API keys, team management, and audit review.</p>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

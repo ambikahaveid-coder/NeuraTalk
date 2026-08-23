@@ -51,9 +51,22 @@ export const organizations = pgTable("organizations", {
   status: text("status").default("pending"), // pending, approved, rejected, suspended
   email: text("email"), // Company contact email
   phone: text("phone"), // Company phone
-  industry: text("industry"), // Industry type
+  industry: text("industry"), // Industry type -- reused as "business category" for Business Profile
   website: text("website"),
-  address: text("address"),
+  address: text("address"), // street-line; city/state/country/postalCode are separate columns below
+  // Business Profile fields (Phase 1, 2026-08-23). See
+  // docs/neura-ecosystem/26_BUSINESS_PROFILE_BRANDING_IMPLEMENTATION.md section 2
+  // for the full existing-field-reuse mapping -- these are the only genuinely
+  // new columns; display name/logo/contact/website/industry/address/status all
+  // reuse fields that already existed above. Branding (colors etc.) intentionally
+  // has NO new columns -- it lives in the existing `settings` jsonb (see the
+  // BRANDING_SETTINGS_KEY constant near the bottom of this section).
+  legalBusinessName: text("legal_business_name"), // distinct from `name` (display name) -- the registered legal entity name
+  description: text("description"), // company description, no prior field existed for this
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
+  addressCountry: text("address_country"),
+  addressPostalCode: text("address_postal_code"),
   // Approval workflow
   approvedAt: timestamp("approved_at"),
   approvedBy: integer("approved_by"), // Super Admin user ID
@@ -82,6 +95,28 @@ export const organizations = pgTable("organizations", {
   index("organizations_status_idx").on(table.status),
   uniqueIndex("organizations_email_unique_idx").on(table.email).where(sql`email IS NOT NULL`),
 ]);
+
+/**
+ * Business Branding (Phase 1, 2026-08-23) -- stored under this key inside
+ * `organizations.settings` (existing jsonb column), NOT as new table columns.
+ * See docs/neura-ecosystem/26_BUSINESS_PROFILE_BRANDING_IMPLEMENTATION.md
+ * section 6. Deliberately minimal for this phase -- full white-label
+ * (custom domain, favicon, email-sender identity, etc.) is a later phase.
+ */
+export const BRANDING_SETTINGS_KEY = "branding";
+
+export interface BusinessBranding {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+}
+
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color like #1a2b3c");
+export const businessBrandingSchema = z.object({
+  primaryColor: hexColor.optional(),
+  secondaryColor: hexColor.optional(),
+  accentColor: hexColor.optional(),
+}).strict();
 
 // OTP Challenges for authentication
 export const otpChallenges = pgTable("otp_challenges", {
