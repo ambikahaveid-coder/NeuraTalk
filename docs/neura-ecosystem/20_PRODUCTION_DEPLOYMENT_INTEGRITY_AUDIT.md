@@ -1,6 +1,29 @@
 # Production Deployment Integrity Audit
 
-Read-only audit. No code, schema, or deployment changes made in this pass. All findings below are evidence-based (file:line, commit SHA, or timestamped `doctl`/log output) — anywhere evidence is incomplete, it is marked **NOT VERIFIABLE** rather than inferred.
+Originally a read-only audit (Sections 1-10 below, unmodified from the audit pass). Section 0 below documents the **approved and implemented** fix, added in a follow-up session — see [21_PRODUCTION_DEPLOYMENT_RUNBOOK.md](21_PRODUCTION_DEPLOYMENT_RUNBOOK.md) for the canonical day-to-day procedure this produced.
+
+## 0. Implementation record (Model A, implemented)
+
+**Exact configuration change** — `.do/app.yaml`:
+```diff
+-    build_command: npm ci --omit=dev
++    build_command: npm ci --omit=dev && npm run build
+```
+`vite` and `esbuild` are regular `dependencies` (not `devDependencies`) in `package.json`, so `--omit=dev` does not strip them — no further change to the install step was needed.
+
+**dist strategy**: `dist/` removed from git tracking (`git rm -r --cached dist/`), `.gitignore` changed from a commented-out `# dist` (i.e. tracked) to an active `dist` ignore rule. Verified no other consumer depends on it being committed: the only real production consumers are `package.json`'s `start` script, `vite.config.ts`'s `outDir`, and `script/build.mjs`'s `outfile` — all of which only require `dist/` to exist at runtime after a build, not to be version-controlled. (`server/package.json`/`server/package-lock.json` and `script/build.ts` are pre-existing dead/legacy files from an earlier architecture, unrelated to the active build path — left untouched, out of scope for this fix.) A dormant, unused `Dockerfile` was also found in the repo root with its own correct multi-stage `npm run build` step — not switched to, since fixing `build_command` in the already-configured buildpack path is the smaller, lower-risk change and achieves the same "build from source" guarantee; noted here for future reference in case Docker-based deployment is ever revisited.
+
+**Build identity** (`GET /api/health/build`, added in `server/routes.ts`): returns `commitSha`, `buildTimestamp`, `version` — no secrets, no env dump. Values are embedded at build time via `esbuild`'s `define` (`script/build.mjs`, `resolveBuildIdentity()`): `git rev-parse HEAD` for the commit (wrapped in try/catch, falls back to `"unknown"` rather than failing the build if `.git` isn't available in a given build context), `package.json`'s `version` field, and `new Date().toISOString()` for the build timestamp.
+
+**Reproducibility, directly verified**: two clean local builds from the identical commit (`8a87e3e...`) produced byte-identical `dist/index.cjs` output after normalizing only the embedded build timestamp (the one field that legitimately differs run to run) — confirmed via a scripted diff, not asserted.
+
+**Build failure safety**: unchanged from existing buildpack behavior — `build_command`'s two steps are joined with `&&`, so a `npm run build` failure short-circuits before `run_command` ever runs, and DigitalOcean does not deploy a container when the build step fails. No new fallback-to-stale-artifact path was introduced (none existed to remove — the previous bug was the *absence* of a build step, not a fallback within one).
+
+See the Final Report message (delivered alongside this doc update) for the specific deployment ID, runtime build-identity probe result, and behavior/security probe results from the actual production rollout of this fix.
+
+---
+
+Read-only audit (original pass). No code, schema, or deployment changes made in this pass. All findings below are evidence-based (file:line, commit SHA, or timestamped `doctl`/log output) — anywhere evidence is incomplete, it is marked **NOT VERIFIABLE** rather than inferred.
 
 ## 1. Current build pipeline
 
@@ -157,4 +180,4 @@ The stale-dist fix itself (`eb69b44`) is a rebuild, not a schema or logic change
 
 ---
 
-**Audit complete. No code, schema, or deployment changes made. Stopping and waiting for approval before any implementation (Model A/B decision, build-identity endpoint, or CI setup).**
+**Original audit pass: complete, no code/schema/deployment changes made, stopped for approval.** Model A was subsequently approved and implemented — see Section 0 above and [21_PRODUCTION_DEPLOYMENT_RUNBOOK.md](21_PRODUCTION_DEPLOYMENT_RUNBOOK.md).

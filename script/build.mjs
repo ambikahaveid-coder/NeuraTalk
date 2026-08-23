@@ -1,6 +1,24 @@
 import * as esbuild from "esbuild";
 import { execFileSync } from "node:child_process";
-import { statSync } from "node:fs";
+import { statSync, readFileSync } from "node:fs";
+
+function resolveBuildIdentity() {
+  // Best-effort: a shallow/archive checkout (some CI/build environments) may
+  // not have git history available, so this must never fail the build.
+  let commitSha = "unknown";
+  try {
+    commitSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    // no .git available in this build context -- leave as "unknown" rather than fail the build
+  }
+  let version = "unknown";
+  try {
+    version = JSON.parse(readFileSync("package.json", "utf8")).version || "unknown";
+  } catch {
+    // ignore
+  }
+  return { commitSha, buildTimestamp: new Date().toISOString(), version };
+}
 
 const externalPackages = [
   "@sentry/node",
@@ -50,6 +68,8 @@ async function build() {
   });
 
   console.log("building server...");
+  const { commitSha, buildTimestamp, version } = resolveBuildIdentity();
+  console.log(`  build identity: commit=${commitSha} version=${version} time=${buildTimestamp}`);
   await esbuild.build({
     entryPoints: ["server/index.ts"],
     outfile: "dist/index.cjs",
@@ -65,6 +85,9 @@ async function build() {
     logLevel: "warning",
     define: {
       "process.env.NODE_ENV": '"production"',
+      "process.env.BUILD_COMMIT_SHA": JSON.stringify(commitSha),
+      "process.env.BUILD_TIMESTAMP": JSON.stringify(buildTimestamp),
+      "process.env.BUILD_VERSION": JSON.stringify(version),
     },
   });
 

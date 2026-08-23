@@ -1,6 +1,10 @@
 node_modules
-# dist is pre-built and committed — DO uses it directly (no build step needed)
-# dist
+# dist is a generated build artifact -- DigitalOcean now runs "npm run build"
+# during deployment (.do/app.yaml build_command). Committing dist/ was the
+# root cause of a real incident: see
+# docs/neura-ecosystem/20_PRODUCTION_DEPLOYMENT_INTEGRITY_AUDIT.md.
+# Never re-commit it -- if you find yourself running `git add dist/`, stop.
+dist
 .DS_Store
 server/public
 vite.config.ts.*

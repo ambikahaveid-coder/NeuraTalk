@@ -138,7 +138,13 @@ services:
       repo: jagopro452-cloud/Neura-Talk
       branch: neuratalk-clean-release
       deploy_on_push: true
-    build_command: npm ci --omit=dev
+    # Builds the exact deployed commit -- do NOT revert to a bare "npm ci"
+    # here without a real build step. dist/ is no longer committed to git
+    # (see .gitignore, docs/neura-ecosystem/20_PRODUCTION_DEPLOYMENT_INTEGRITY_AUDIT.md);
+    # if this build_command doesn't produce it, the app has nothing to run.
+    # `npm run build` failing here fails the deployment (buildpack default) --
+    # there is no fallback to a stale artifact.
+    build_command: npm ci --omit=dev && npm run build
     run_command: node dist/index.cjs
     environment_slug: node-js
     instance_count: 1

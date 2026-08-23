@@ -99,6 +99,19 @@ export async function registerRoutes(
     });
   });
 
+  // Build identity — proves the running process was actually built from a
+  // given commit, not just that a deployment is nominally "ACTIVE". Values
+  // are inlined at build time (script/build.mjs, esbuild `define`) from the
+  // exact commit being built, so they cannot drift from what's running.
+  // Safe by construction: no secrets, no env dump, just 3 public identifiers.
+  app.get("/api/health/build", (req, res) => {
+    res.json({
+      commitSha: process.env.BUILD_COMMIT_SHA || "unknown",
+      buildTimestamp: process.env.BUILD_TIMESTAMP || "unknown",
+      version: process.env.BUILD_VERSION || "unknown",
+    });
+  });
+
   // Keys status — shows which services are configured (true/false, never exposes actual keys)
   app.get("/api/health/keys", (req, res) => {
     const e = process.env;
