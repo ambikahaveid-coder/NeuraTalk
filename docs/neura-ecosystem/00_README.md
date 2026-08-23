@@ -26,6 +26,7 @@ This folder is scoped narrowly to the current ecosystem-transformation initiativ
 | 10 | `10_MASTER_MIGRATION_ROADMAP.md` | Dependency-ordered phase sequence |
 | 11 | `11_ARCHITECTURE_DECISION_RECORDS.md` | ADRs for the load-bearing decisions in this initiative |
 | 12 | `12_PRODUCTION_RISK_REGISTER.md` | Top risks, P0–P3, with owner-facing tracking columns |
+| 13 | `13_BUSINESS_PLATFORM_MASTER_AUDIT.md` | Multi-channel (WhatsApp/SMS-DLT/Email) adapters, white-label tenancy, template/campaign/automation engines, event catalog — extends 01-12, doesn't replace them |
 
 **Visual artifact (current-state + target-state, published earlier this session):** https://claude.ai/code/artifact/444207ba-36c1-4739-8b30-ae16f208719d
 
