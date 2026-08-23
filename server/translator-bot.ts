@@ -205,7 +205,9 @@ export async function startBotWorker(callId: string, botToken: string): Promise<
   activeSessions.set(callId, session);
 
   try {
+    logger.info("TranslatorBot", `[translator-diag] worker.start START`, { callId });
     await worker.start();
+    logger.info("TranslatorBot", `[translator-diag] worker.start RESOLVED`, { callId });
     session.status = "active";
     logger.info("TranslatorBot", `translator bot active for ${callId}`);
   } catch (error) {
@@ -389,10 +391,12 @@ class LiveKitRealtimeTranslatorBot {
       throw new Error("LiveKit is not configured");
     }
 
+    logger.info("TranslatorBot", `[translator-diag] LiveKit CONNECT START`, { callId: this.callId });
     await room.connect(livekitConfig.url, this.botToken, {
       autoSubscribe: true,
       dynacast: true,
     });
+    logger.info("TranslatorBot", `[translator-diag] LiveKit CONNECT RESOLVED`, { callId: this.callId });
 
     this.room = room;
   }

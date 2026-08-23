@@ -52,7 +52,35 @@ const PROVIDER_TIMEOUT_ACTIVE_MS = parsePositiveInt(process.env.SMART_CALL_PROVI
 const PROVIDER_TIMEOUT_RINGING_MS = parsePositiveInt(process.env.SMART_CALL_PROVIDER_TIMEOUT_RINGING_MS, 90_000);
 const MEDIA_HEARTBEAT_INTERVAL_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_HEARTBEAT_INTERVAL_MS, 1_000);
 const MEDIA_STALL_WARN_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_STALL_WARN_MS, 30_000);
+// P0 diagnostic (2026-08-23): a real cross-language call showed a bot token
+// issued with zero TranslatorBot log output afterward -- no success, no
+// retry warning, no final failure, no latency trace -- for the entire call.
+// Every branch of spawnTranslatorBot()/startBotWorker() logs something on
+// both success and failure, so total silence means the startup promise
+// chain (dynamic import and/or worker.start()'s LiveKit connect) never
+// settled at all, rather than failing loudly. This bounds that wait so a
+// hang becomes an observable, retried, eventually-reported failure instead
+// of an indefinitely pending operation.
+const TRANSLATOR_BOT_STARTUP_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_STARTUP_TIMEOUT_MS, 10_000);
 let billingTerminationBound = false;
+
+function withStartupTimeout<T>(promise: Promise<T>, callId: string, stage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`TRANSLATOR_BOT_STARTUP_TIMEOUT:${stage}:${callId}:${TRANSLATOR_BOT_STARTUP_TIMEOUT_MS}ms`));
+    }, TRANSLATOR_BOT_STARTUP_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 let watchdogStarted = false;
 
 export const smartCallEvents = new EventEmitter();
@@ -949,16 +977,38 @@ export async function routeToSkillAgent(
 }
 
 async function spawnTranslatorBot(callId: string, botToken: string): Promise<void> {
+  const spawnStartedAt = Date.now();
+  const elapsed = () => Date.now() - spawnStartedAt;
+  logger.info("SmartCallRouter", `[translator-diag] ENTER spawnTranslatorBot`, { callId, elapsedMs: elapsed() });
+
   const attemptStart = async (): Promise<boolean> => {
+    logger.info("SmartCallRouter", `[translator-diag] dynamic import START`, { callId, elapsedMs: elapsed() });
     const mod: any = await import("../../translator-bot").catch((err) => {
       logger.debug("SmartCallRouter", `translator-bot optional module not loaded: ${String(err)}`);
       return {};
     });
+    logger.info("SmartCallRouter", `[translator-diag] dynamic import RESOLVED`, { callId, elapsedMs: elapsed() });
     if (typeof mod.startBotWorker !== "function") {
       logger.warn("SmartCallRouter", `translator-bot module not found - call ${callId} has no translation`);
       return false;
     }
-    await mod.startBotWorker(callId, botToken);
+    logger.info("SmartCallRouter", `[translator-diag] startBotWorker INVOKED`, { callId, elapsedMs: elapsed() });
+    try {
+      await withStartupTimeout(mod.startBotWorker(callId, botToken), callId, "startBotWorker");
+    } catch (error) {
+      // On timeout specifically, startBotWorker's own promise is still
+      // running in the background -- we only stopped waiting for it, we
+      // didn't cancel it. Its activeSessions entry (status "starting")
+      // would otherwise make the next attemptStart() call hit the
+      // "already active" guard in startBotWorker and silently no-op
+      // instead of actually retrying. Force-clean it so a real retry can
+      // happen.
+      if (error instanceof Error && error.message.startsWith("TRANSLATOR_BOT_STARTUP_TIMEOUT")) {
+        await mod.stopBotWorker?.(callId).catch(() => undefined);
+      }
+      throw error;
+    }
+    logger.info("SmartCallRouter", `[translator-diag] startBotWorker RESOLVED`, { callId, elapsedMs: elapsed() });
     return true;
   };
 
@@ -967,19 +1017,29 @@ async function spawnTranslatorBot(callId: string, botToken: string): Promise<voi
     if (!started) {
       await markTranslationUnavailable(callId, "bot_module_missing");
     } else {
+      logger.info("SmartCallRouter", `[translator-diag] TranslatorBot ACTIVE`, { callId, elapsedMs: elapsed() });
       smartCallEvents.emit("translation_started", { callId });
     }
     return;
   } catch (firstError) {
-    logger.warn("SmartCallRouter", `bot worker start failed, retrying once for ${callId}: ${String(firstError)}`);
+    logger.warn("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (attempt 1), retrying once`, {
+      callId,
+      elapsedMs: elapsed(),
+      error: String(firstError),
+    });
   }
 
   try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await attemptStart();
+    logger.info("SmartCallRouter", `[translator-diag] TranslatorBot ACTIVE (retry)`, { callId, elapsedMs: elapsed() });
     smartCallEvents.emit("translation_started", { callId });
   } catch (error) {
-    logger.error("SmartCallRouter", `bot worker start failed after retry for ${callId}: ${String(error)}`);
+    logger.error("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (retry) -- giving up`, {
+      callId,
+      elapsedMs: elapsed(),
+      error: String(error),
+    });
     await markTranslationUnavailable(callId, String(error instanceof Error ? error.message : error));
   }
 }
