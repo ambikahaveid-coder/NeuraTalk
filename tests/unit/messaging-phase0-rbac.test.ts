@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
  * Phase 0 RBAC and request-validation tests -- exercises the real
@@ -18,7 +18,13 @@ vi.mock("../../server/modules/messaging/service", () => ({
   listMessages: vi.fn(),
   InvalidParticipantError: class InvalidParticipantError extends Error {},
   NotFoundError: class NotFoundError extends Error {},
+  NotAParticipantError: class NotAParticipantError extends Error {},
+  SenderIdentityMismatchError: class SenderIdentityMismatchError extends Error {},
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 function makeReqRes(user: any) {
   const req: any = { user, params: {}, body: {}, query: {} };
@@ -123,7 +129,7 @@ describe("Controller payload validation (malformed requests)", () => {
 
   it("postMessage rejects empty content at the schema level (before hitting the service)", async () => {
     const ctrl = await import("../../server/modules/messaging/controller");
-    const { req, res } = makeReqRes(undefined);
+    const { req, res } = makeReqRes({ id: 42 });
     req.params.businessId = "1";
     req.params.id = "1";
     req.body = { senderParticipantId: 1, content: "" };
@@ -136,7 +142,7 @@ describe("Controller payload validation (malformed requests)", () => {
     (service.createMessage as any).mockResolvedValue({ message: { id: 1, category: "conversational" }, deliveries: [] });
 
     const ctrl = await import("../../server/modules/messaging/controller");
-    const { req, res } = makeReqRes(undefined);
+    const { req, res } = makeReqRes({ id: 42 });
     req.params.businessId = "1";
     req.params.id = "1";
     req.body = { senderParticipantId: 1, content: "hi", category: "marketing" };
@@ -144,6 +150,70 @@ describe("Controller payload validation (malformed requests)", () => {
 
     const callArg = (service.createMessage as any).mock.calls[0][0];
     expect(callArg.category).toBeUndefined();
+  });
+
+  it("P1: postMessage derives authenticatedUserId from req.user.id, NEVER from the request body -- even if the body tries to smuggle a different one", async () => {
+    const service = await import("../../server/modules/messaging/service");
+    (service.createMessage as any).mockResolvedValue({ message: { id: 1, category: "conversational" }, deliveries: [] });
+
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeReqRes({ id: 42 }); // authenticated as user 42
+    req.params.businessId = "1";
+    req.params.id = "1";
+    // body attempts to smuggle a different authenticatedUserId-shaped field --
+    // the controller's schema doesn't even have such a field, so this must
+    // be structurally impossible to influence.
+    req.body = { senderParticipantId: 1, content: "hi", authenticatedUserId: 999 };
+    await ctrl.postMessage(req, res);
+
+    const callArg = (service.createMessage as any).mock.calls[0][0];
+    expect(callArg.authenticatedUserId).toBe(42); // from req.user.id, not the body's 999
+  });
+
+  it("P1: postMessage still forwards a client-supplied senderParticipantId as a consistency-check value only (service layer enforces the match)", async () => {
+    const service = await import("../../server/modules/messaging/service");
+    (service.createMessage as any).mockResolvedValue({ message: { id: 1, category: "conversational" }, deliveries: [] });
+
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeReqRes({ id: 42 });
+    req.params.businessId = "1";
+    req.params.id = "1";
+    req.body = { senderParticipantId: 7, content: "hi" };
+    await ctrl.postMessage(req, res);
+
+    const callArg = (service.createMessage as any).mock.calls[0][0];
+    expect(callArg.senderParticipantId).toBe(7);
+    expect(callArg.authenticatedUserId).toBe(42);
+  });
+
+  it("P1: postMessage maps SenderIdentityMismatchError to 403, not 500 or silent success", async () => {
+    const service = await import("../../server/modules/messaging/service");
+    const { SenderIdentityMismatchError } = service as any;
+    (service.createMessage as any).mockRejectedValue(new SenderIdentityMismatchError());
+
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeReqRes({ id: 42 });
+    req.params.businessId = "1";
+    req.params.id = "1";
+    req.body = { content: "hi" };
+    await ctrl.postMessage(req, res);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("P1: postMessage maps NotAParticipantError to 403 (non-member)", async () => {
+    const service = await import("../../server/modules/messaging/service");
+    const { NotAParticipantError } = service as any;
+    (service.createMessage as any).mockRejectedValue(new NotAParticipantError());
+
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeReqRes({ id: 42 });
+    req.params.businessId = "1";
+    req.params.id = "1";
+    req.body = { content: "hi" };
+    await ctrl.postMessage(req, res);
+
+    expect(res.statusCode).toBe(403);
   });
 
   it("getMessages rejects a non-numeric limit/offset query param", async () => {

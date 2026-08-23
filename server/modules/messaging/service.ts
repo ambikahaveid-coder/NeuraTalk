@@ -39,6 +39,26 @@ export class NotFoundError extends Error {
     this.name = "NotFoundError";
   }
 }
+/** The authenticated caller has no participant record in this conversation. */
+export class NotAParticipantError extends Error {
+  constructor() {
+    super("You are not a participant in this conversation");
+    this.name = "NotAParticipantError";
+  }
+}
+/**
+ * The client supplied a senderParticipantId that does not match the
+ * participant record resolved from the authenticated caller's own
+ * identity. Never silently substituted -- always rejected (P1 fix,
+ * 2026-08-23, see docs/neura-ecosystem/24_CANONICAL_MESSAGING_FOUNDATION.md
+ * section 16).
+ */
+export class SenderIdentityMismatchError extends Error {
+  constructor() {
+    super("senderParticipantId does not match your own participant identity in this conversation");
+    this.name = "SenderIdentityMismatchError";
+  }
+}
 
 /**
  * Phase 0 only supports participant types with a real backing table to
@@ -150,7 +170,15 @@ export async function getBusinessConversation(businessId: number, conversationId
 export interface CreateMessageInput {
   businessId: number;
   businessConversationId: number;
-  senderParticipantId: number;
+  /** The authenticated caller's own user id (req.user.id) -- NEVER a
+   * client-suppliable value. The message sender is always resolved from
+   * this, never trusted from the request body. */
+  authenticatedUserId: number;
+  /** Optional, client-supplied -- treated ONLY as a consistency check
+   * against the participant resolved from authenticatedUserId. If present
+   * and it doesn't match, the request is rejected outright; it is never
+   * used to pick a different sender. See SenderIdentityMismatchError. */
+  senderParticipantId?: number;
   content: string;
   messageType?: string;
 }
@@ -165,6 +193,16 @@ export interface CreateMessageResult {
  * doc 24 section 6) -- Phase 0 always writes `conversational`. Marketing/
  * authentication/utility categories are set only by their own dedicated
  * send paths, which don't exist yet.
+ *
+ * Sender identity (P1 fix, 2026-08-23): the actual sender participant is
+ * ALWAYS resolved server-side from `authenticatedUserId` -- the caller's
+ * own `messaging_participants` row (participantType='user', participantId
+ * = authenticatedUserId) in this specific conversation. A client-supplied
+ * `senderParticipantId` is never trusted as the write value; if present it
+ * must match the resolved participant or the request is rejected. A caller
+ * with no participant row in this conversation is rejected as a
+ * non-member -- Phase 0 does not auto-join business members into
+ * conversations they weren't explicitly added to.
  */
 export async function createMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
   return db.transaction(async (tx) => {
@@ -172,12 +210,18 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
       .where(and(eq(businessConversations.id, input.businessConversationId), eq(businessConversations.businessId, input.businessId)));
     if (!bizConversation) throw new NotFoundError("Conversation not found");
 
-    const [senderParticipant] = await tx.select().from(messagingParticipants)
+    const [ownParticipant] = await tx.select().from(messagingParticipants)
       .where(and(
-        eq(messagingParticipants.id, input.senderParticipantId),
         eq(messagingParticipants.conversationId, bizConversation.conversationId),
+        eq(messagingParticipants.participantType, MESSAGING_PARTICIPANT_TYPE.USER),
+        eq(messagingParticipants.participantId, input.authenticatedUserId),
       ));
-    if (!senderParticipant) throw new NotFoundError("Sender participant not found in this conversation");
+    if (!ownParticipant) throw new NotAParticipantError();
+
+    if (input.senderParticipantId !== undefined && input.senderParticipantId !== ownParticipant.id) {
+      throw new SenderIdentityMismatchError();
+    }
+    const senderParticipantId = ownParticipant.id;
 
     const content = input.content?.trim();
     if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
@@ -189,7 +233,7 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
 
     const [message] = await tx.insert(messagingMessages).values({
       conversationId: bizConversation.conversationId,
-      senderParticipantId: input.senderParticipantId,
+      senderParticipantId,
       messageType,
       category: MESSAGE_CATEGORY.CONVERSATIONAL,
       content,
@@ -198,7 +242,7 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
     const recipients = await tx.select().from(messagingParticipants)
       .where(and(
         eq(messagingParticipants.conversationId, bizConversation.conversationId),
-        ne(messagingParticipants.id, input.senderParticipantId),
+        ne(messagingParticipants.id, senderParticipantId),
       ));
 
     const deliveries: (typeof messagingDeliveries.$inferSelect)[] = [];
@@ -215,7 +259,7 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
       conversationId: bizConversation.conversationId,
       messageId: message.id,
       eventType: MESSAGE_EVENT_TYPE.MESSAGE_CREATED,
-      payload: { senderParticipantId: input.senderParticipantId, recipientCount: recipients.length },
+      payload: { senderParticipantId, recipientCount: recipients.length },
     });
 
     return { message, deliveries };

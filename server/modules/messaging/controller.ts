@@ -8,6 +8,8 @@ import {
   listMessages,
   InvalidParticipantError,
   NotFoundError,
+  NotAParticipantError,
+  SenderIdentityMismatchError,
 } from "./service";
 import { MESSAGING_PARTICIPANT_TYPE } from "@shared/schema";
 
@@ -55,7 +57,11 @@ export async function getConversation(req: Request, res: Response) {
 }
 
 const createMessageSchema = z.object({
-  senderParticipantId: z.number().int().positive(),
+  // Optional, and NEVER trusted as the write value -- see service.ts's
+  // createMessage doc comment. Consistency-check only against the sender
+  // identity resolved server-side from the authenticated user (P1 fix,
+  // 2026-08-23).
+  senderParticipantId: z.number().int().positive().optional(),
   content: z.string().min(1).max(8192),
   messageType: z.string().optional(),
   // category is deliberately NOT accepted here -- structural governance,
@@ -74,6 +80,7 @@ export async function postMessage(req: Request, res: Response) {
     const result = await createMessage({
       businessId,
       businessConversationId: conversationId,
+      authenticatedUserId: req.user!.id,
       senderParticipantId: parsed.data.senderParticipantId,
       content: parsed.data.content,
       messageType: parsed.data.messageType,
@@ -81,6 +88,8 @@ export async function postMessage(req: Request, res: Response) {
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
+    if (error instanceof NotAParticipantError) return res.status(403).json({ success: false, error: error.message });
+    if (error instanceof SenderIdentityMismatchError) return res.status(403).json({ success: false, error: error.message });
     const message = error instanceof Error ? error.message : String(error);
     if (message === "VALIDATION_EMPTY_CONTENT") return badRequest(res, "content must not be empty");
     if (message === "VALIDATION_CONTENT_TOO_LONG") return badRequest(res, "content exceeds maximum length");
