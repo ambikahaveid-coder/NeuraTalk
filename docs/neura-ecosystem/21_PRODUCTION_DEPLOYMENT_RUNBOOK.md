@@ -16,6 +16,16 @@ Developer commits server/, client/, shared/ source
 
 `dist/` is `.gitignore`d. **Never run `git add dist/`.** If you find yourself doing that, stop — it means you're trying to work around the build pipeline instead of using it, and it's exactly the mistake that caused the incident this runbook exists to prevent.
 
+## `.do/app.yaml` is a reference file, not the live config
+
+Editing `.do/app.yaml` and pushing it to git **does not** change what DigitalOcean actually runs. The live app spec is a separate control-plane resource. To apply a change made in `.do/app.yaml`:
+
+```
+doctl apps update <app-id> --spec .do/app.yaml
+```
+
+**Before running that**, diff it against the actual live spec (`doctl apps spec get <app-id>`) — `.do/app.yaml` has drifted from reality before (it named the wrong GitHub fork for months; the live app was always connected to `ambikahaveid-coder/NeuraTalk`, not `jagopro452-cloud/Neura-Talk`, corrected in this same fix). Blindly pushing a stale local file can silently revert unrelated live settings. This exact gap caused a real incident during this fix's rollout: the build-command change was pushed to git and to the (wrong) file, the deployment showed the old command still running, and the discrepancy wasn't visible until a behavior probe caught it — see doc 20 §0 timeline.
+
 ## Local developer workflow
 
 | Task | Command |

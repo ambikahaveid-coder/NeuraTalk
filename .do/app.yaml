@@ -135,7 +135,12 @@ envs:
 services:
   - name: web
     github:
-      repo: jagopro452-cloud/Neura-Talk
+      # This must match the repo the live DigitalOcean app is actually
+      # connected to (verified via `doctl apps spec get`) -- this file is a
+      # reference copy, not the live source of truth. Pushing changes to this
+      # file to git does NOT update DO's app spec; that requires
+      # `doctl apps update <app-id> --spec .do/app.yaml` explicitly.
+      repo: ambikahaveid-coder/NeuraTalk
       branch: neuratalk-clean-release
       deploy_on_push: true
     # Builds the exact deployed commit -- do NOT revert to a bare "npm ci"
