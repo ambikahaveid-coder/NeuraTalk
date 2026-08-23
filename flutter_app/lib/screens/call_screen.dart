@@ -251,7 +251,7 @@ class _CallScreenState extends State<CallScreen> {
     // guessing from duration numbers alone.
     if (event.reason != lk.DisconnectReason.clientInitiated &&
         event.reason != lk.DisconnectReason.roomDeleted) {
-      unawaited(widget.callService.endCall(widget.session.callId, reason: 'client_disconnect_${event.reason.name}'));
+      unawaited(widget.callService.endCall(widget.session.callId, reason: 'client_disconnect_${event.reason?.name ?? "unknown"}'));
     }
     if (!mounted) return;
     final message = switch (event.reason) {
