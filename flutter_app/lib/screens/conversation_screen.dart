@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:record/record.dart';
@@ -454,7 +455,32 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 
   Future<void> _pickAndSendImage() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 82);
+    // image_picker returning null is ambiguous by itself -- could mean the
+    // user backed out of the gallery, or that Android silently refused
+    // because photo access isn't granted. Previously this just returned
+    // with no feedback either way, which looks identical to "nothing
+    // happened" from a real permission denial -- check status explicitly so
+    // a real denial gets a real message instead of silence.
+    final photosStatus = await Permission.photos.status;
+    if (photosStatus.isPermanentlyDenied) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Photo access is disabled for NeuraTalk. Enable it in system Settings > Apps > NeuraTalk > Permissions.')),
+        );
+      }
+      return;
+    }
+    XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 82);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open photos ($e).')),
+        );
+      }
+      return;
+    }
     if (picked == null) return;
     final bytes = await File(picked.path).readAsBytes();
     final ext = picked.path.split('.').last.toLowerCase();
@@ -469,7 +495,17 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 
   Future<void> _pickAndSendFile() async {
-    final result = await FilePicker.platform.pickFiles(withData: false);
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(withData: false);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open files ($e).')),
+        );
+      }
+      return;
+    }
     if (result == null || result.files.isEmpty) return;
     final picked = result.files.first;
     final path = picked.path;

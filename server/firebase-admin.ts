@@ -12,7 +12,7 @@
  */
 
 import admin from "firebase-admin";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { db } from "./db";
 import { registeredDevices, users } from "@shared/schema";
 import { logger } from "./observability";
@@ -213,6 +213,7 @@ export async function sendVoIPPush(
   });
 
   if (response.failureCount > 0) {
+    const deadTokens: string[] = [];
     response.responses.forEach((result, index) => {
       if (!result.success) {
         logger.warn("FirebaseAdmin", "Call push delivery failed", {
@@ -221,8 +222,26 @@ export async function sendVoIPPush(
           tokenSuffix: tokens[index]?.slice(-8),
           error: result.error?.message,
         });
+        // NotRegistered / mismatched-credential mean this exact token is
+        // permanently dead (e.g. app reinstalled, elsewhere the token
+        // rotated) -- every future call keeps silently failing to it
+        // otherwise, since nothing previously pruned these. Anything else
+        // (transient network/quota errors) is left alone to retry normally.
+        const code = result.error?.code;
+        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+          deadTokens.push(tokens[index]);
+        }
       }
     });
+    if (deadTokens.length > 0) {
+      await Promise.allSettled(deadTokens.map(async (token) => {
+        await db.update(registeredDevices)
+          .set({ pushToken: sql`CASE WHEN ${registeredDevices.pushToken} = ${token} THEN NULL ELSE ${registeredDevices.pushToken} END`,
+                 voipToken: sql`CASE WHEN ${registeredDevices.voipToken} = ${token} THEN NULL ELSE ${registeredDevices.voipToken} END` })
+          .where(and(eq(registeredDevices.userId, numericUserId), or(eq(registeredDevices.pushToken, token), eq(registeredDevices.voipToken, token))));
+      }));
+      logger.info("FirebaseAdmin", "Pruned dead push tokens", { userId, count: deadTokens.length });
+    }
   }
 
   logger.info("FirebaseAdmin", "Incoming call push sent", {
