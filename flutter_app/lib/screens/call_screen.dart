@@ -48,6 +48,22 @@ class _CallScreenState extends State<CallScreen> {
 
   static const _ringingTimeout = Duration(seconds: 45);
 
+  // Real P0 bug found from physical-device testing (same class as
+  // incoming_call_screen.dart): PopScope(canPop: false) here paired its
+  // onPopInvokedWithResult with a plain Navigator.maybePop() call inside
+  // _endCall() itself -- since canPop stayed false forever, that pop was
+  // permanently swallowed by Flutter's own popDisposition handling, which
+  // re-invoked onPopInvokedWithResult, which called _endCall() again,
+  // which tried to pop again... a self-triggering loop with no working
+  // exit, each cycle firing a real network request. _allowPop flips to
+  // true only immediately before this class's own deliberate pop, and
+  // _ending makes the network/cleanup side of that a single logical
+  // operation no matter how many times something tries to trigger it
+  // (button tap, PopScope interception, remote disconnect, ringing
+  // timeout/poll result all funnel through the same guarded path).
+  bool _allowPop = false;
+  bool _ending = false;
+
   @override
   void initState() {
     super.initState();
@@ -111,24 +127,53 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
+  /// Single owner of the network/cleanup side of ending this call --
+  /// idempotent regardless of how many call sites try to trigger it.
+  Future<void> _performEndCallNetwork({String? reason}) async {
+    if (_ending) return;
+    _ending = true;
+    _ringingPollTimer?.cancel();
+    _ringingTimeoutTimer?.cancel();
+    _durationTimer?.cancel();
+    try {
+      await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {
+      // Best-effort -- leaving the call locally must never get stuck here.
+    }
+    try {
+      await widget.callService.endCall(widget.session.callId, reason: reason).timeout(const Duration(seconds: 3), onTimeout: () {});
+    } catch (_) {
+      // endCall() already swallows its own errors, but guard regardless.
+    }
+  }
+
+  /// Single owner of "actually leave this screen". PopScope's canPop is
+  /// backed by a ValueNotifier that only picks up a new widget value inside
+  /// didUpdateWidget -- i.e. on the *next rebuild*, not synchronously right
+  /// after setState(). Popping in the same call stack as the setState()
+  /// that flips _allowPop would still read the stale `false` and get
+  /// swallowed again, same as the original bug. Waiting a frame first is
+  /// what actually makes canPop's new value visible to the pop request.
+  void _exitScreen() {
+    if (!mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
   void _endWaitingWithMessage(String message) {
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
-    if (!mounted) return;
-    setState(() {
-      _waitingForAnswer = false;
-      _error = message;
-    });
-    unawaited(widget.callService.endCall(widget.session.callId));
-    Future.delayed(const Duration(seconds: 2), () {
-      // Same real bug already found and fixed in _onRoomDisconnected: if
-      // another screen was pushed on top in the meantime (e.g. call
-      // waiting), a plain maybePop() here would pop THAT screen instead of
-      // this stale one -- guard on this route actually being current.
-      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
-        Navigator.of(context).maybePop();
-      }
-    });
+    if (mounted) {
+      setState(() {
+        _waitingForAnswer = false;
+        _error = message;
+      });
+    }
+    unawaited(_performEndCallNetwork());
+    Future.delayed(const Duration(seconds: 2), _exitScreen);
   }
 
   Future<void> _connect() async {
@@ -147,7 +192,7 @@ class _CallScreenState extends State<CallScreen> {
         _error = 'Microphone permission is required to make calls.';
         _permissionPermanentlyDenied = micGranted.isPermanentlyDenied;
       });
-      unawaited(widget.callService.endCall(widget.session.callId));
+      unawaited(_performEndCallNetwork());
       return;
     }
     bool cameraGrantedForVideo = false;
@@ -241,17 +286,16 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _onRoomDisconnected(lk.RoomDisconnectedEvent event) {
-    _durationTimer?.cancel();
     // clientInitiated/roomDeleted are the normal outcome of someone tapping
-    // End Call, which already reports a reason via _endCall(). Anything else
-    // here is a real, previously-silent connection failure -- the call
-    // record was left with no explanation at all (defaulting to "completed"
-    // on whichever side happened to call /end next, if any side did). Report
-    // it so a real cause is visible next time this happens, instead of
-    // guessing from duration numbers alone.
+    // End Call, which already reports a reason via _performEndCallNetwork().
+    // Anything else here is a real, previously-silent connection failure --
+    // report it so a real cause is visible next time this happens, instead
+    // of guessing from duration numbers alone. _performEndCallNetwork's own
+    // _ending guard makes this safe to call even if a manual End Call tap
+    // is already in flight.
     if (event.reason != lk.DisconnectReason.clientInitiated &&
         event.reason != lk.DisconnectReason.roomDeleted) {
-      unawaited(widget.callService.endCall(widget.session.callId, reason: 'client_disconnect_${event.reason?.name ?? "unknown"}'));
+      unawaited(_performEndCallNetwork(reason: 'client_disconnect_${event.reason?.name ?? "unknown"}'));
     }
     if (!mounted) return;
     final message = switch (event.reason) {
@@ -265,16 +309,7 @@ class _CallScreenState extends State<CallScreen> {
     if (message != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     }
-    // Call-waiting can push a NEW CallScreen on top of this one (via ending
-    // this call server-side, which delivers this exact disconnect event) --
-    // Navigator.of(context).maybePop() pops whatever is CURRENTLY on top of
-    // the shared navigator, not necessarily this route. Without this guard,
-    // a disconnect event arriving after the new call screen is already on
-    // top would pop the new, active call instead of just retiring this
-    // stale one.
-    if (ModalRoute.of(context)?.isCurrent == true) {
-      Navigator.of(context).maybePop();
-    }
+    _exitScreen();
   }
 
   Future<void> _toggleMute() async {
@@ -327,40 +362,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _endCall() async {
-    _ringingPollTimer?.cancel();
-    _ringingTimeoutTimer?.cancel();
-    _durationTimer?.cancel();
-    // Both calls are plain network/native awaits with no built-in timeout --
-    // a stalled network or a slow LiveKit disconnect would hang this whole
-    // function forever with nothing left to cancel it, leaving the End Call
-    // button looking unresponsive and the screen stuck. Cap each at 3s and
-    // fall through to popping the screen regardless, since the local intent
-    // (leave the call) should never be blocked on a server round-trip.
-    //
-    // Real bug fixed here: neither await was ever wrapped in try/catch.
-    // room.disconnect() throws (not just hangs) if the room is already in a
-    // disconnected/errored state -- e.g. the peer hung up moments earlier,
-    // _onRoomDisconnected already ran, and the user then also taps End Call
-    // manually. A .timeout() only guards against hanging, not throwing --
-    // an uncaught synchronous throw here skipped the final pop entirely,
-    // which is exactly what "screen doesn't close, stuck" looks like.
-    try {
-      await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
-    } catch (_) {
-      // Best-effort -- leaving the call locally must never get stuck here.
-    }
-    try {
-      await widget.callService.endCall(widget.session.callId).timeout(const Duration(seconds: 3), onTimeout: () {});
-    } catch (_) {
-      // endCall() already swallows its own errors, but guard regardless.
-    }
-    // Same wrong-screen-pop bug already fixed in _onRoomDisconnected and
-    // _endWaitingWithMessage: a call-waiting flow can push a new screen on
-    // top of this one during the awaits above, so a plain maybePop() here
-    // would close whatever is currently on top instead of this stale one.
-    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
-      Navigator.of(context).maybePop();
-    }
+    await _performEndCallNetwork();
+    _exitScreen();
   }
 
   @override
@@ -385,7 +388,7 @@ class _CallScreenState extends State<CallScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await _endCall();

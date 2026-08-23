@@ -178,11 +178,28 @@ class CallService extends ChangeNotifier {
     await ApiService.post('/api/calls/$callId/reject', {});
   }
 
+  // Service-level idempotency guard: CallScreen already guards its own
+  // repeated triggers locally, but endCall() is also reachable from
+  // main.dart's call-waiting flow -- a separate call site with no shared
+  // state. Without this, two independent triggers for the same callId
+  // (e.g. a manual End Call tap racing a room-disconnect event) still fire
+  // two real /end requests. Keyed by callId, not a single bool, since
+  // multiple different calls can legitimately end around the same time.
+  final Set<String> _endingCallIds = {};
+
   Future<void> endCall(String callId, {String? reason}) async {
+    if (_endingCallIds.contains(callId)) return;
+    _endingCallIds.add(callId);
     try {
       await ApiService.post('/api/calls/$callId/end', reason != null ? {'reason': reason} : {});
     } catch (_) {
       // Best-effort — the LiveKit room disconnect already happened locally.
+    } finally {
+      // Cleared (not left forever) so a genuinely new call reusing an old
+      // callId pattern, or a legitimate retry after a real failure, isn't
+      // permanently blocked -- this guards against near-simultaneous
+      // duplicate triggers, not all future calls to end this callId ever.
+      _endingCallIds.remove(callId);
     }
   }
 

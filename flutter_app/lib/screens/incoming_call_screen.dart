@@ -29,6 +29,19 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Timer? _expiryTimer;
   bool _busy = false;
 
+  // Real P0 bug found from physical-device testing: this screen used
+  // PopScope(canPop: false) with no onPopInvokedWithResult, and every
+  // internal dismissal path (_dismiss/_reject/error-path in _accept) called
+  // Navigator.maybePop(). Per Flutter's own Navigator.maybePop() source,
+  // when canPop is false and there's no override handler, that pop is
+  // permanently swallowed -- the route is NEVER actually removed. Reject,
+  // remote cancellation, and expiry-timeout all silently failed to close
+  // this screen; only Accept worked, because it uses pushReplacement, which
+  // doesn't go through the canPop gate at all. _allowPop flips to true only
+  // immediately before a deliberate, code-initiated exit, so the OS back
+  // button/gesture is still intercepted at all other times.
+  bool _allowPop = false;
+
   @override
   void initState() {
     super.initState();
@@ -43,15 +56,26 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     }
   }
 
+  /// Single owner of "actually leave this screen". PopScope's canPop is
+  /// backed by a ValueNotifier that only picks up a new widget value inside
+  /// didUpdateWidget -- i.e. on the *next rebuild*, not synchronously right
+  /// after setState(). Popping in the same call stack as the setState()
+  /// that flips _allowPop would still read the stale `false` and get
+  /// swallowed again, same as the original bug. Waiting a frame first is
+  /// what actually makes canPop's new value visible to the pop request.
+  void _exitScreen() {
+    _expiryTimer?.cancel();
+    if (!mounted) return;
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
   void _dismiss() {
     widget.callService.clearIncomingCall();
-    // Same wrong-screen-pop class of bug fixed elsewhere in the call flow:
-    // this timer can fire after another screen (e.g. call-waiting) has
-    // already been pushed on top, so an unguarded maybePop() would close
-    // that screen instead of this stale one.
-    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
-      Navigator.of(context).maybePop();
-    }
+    _exitScreen();
   }
 
   void _goToCallScreen() {
@@ -95,8 +119,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('This call has ended.')),
             );
-            Navigator.of(context).maybePop();
           }
+          _exitScreen();
           return;
         }
       } catch (_) {
@@ -122,9 +146,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       // Best-effort — dismiss locally regardless.
     }
     widget.callService.clearIncomingCall();
-    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
-      Navigator.of(context).maybePop();
-    }
+    _exitScreen();
   }
 
   @override
@@ -138,7 +160,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     final session = widget.session;
     final displayName = ContactResolver.instance.displayNameFor(session.remoteName);
     return PopScope(
-      canPop: false,
+      canPop: _allowPop,
       child: Scaffold(
         backgroundColor: AppColors.background,
         body: SafeArea(
