@@ -263,6 +263,10 @@ export const PERMISSIONS = {
   API_READ: "api:read",
   API_WRITE: "api:write",
   API_MANAGE_KEYS: "api:manage_keys",
+
+  // Canonical business messaging (Phase 0 foundation)
+  MESSAGING_VIEW: "messaging:view",
+  MESSAGING_SEND: "messaging:send",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -3317,4 +3321,216 @@ export const fraudFlags = pgTable("fraud_flags", {
 
 export const insertFraudFlagSchema = createInsertSchema(fraudFlags).omit({ id: true, createdAt: true });
 export type FraudFlag = typeof fraudFlags.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// CANONICAL MESSAGING FOUNDATION (Phase 0, 2026-08-23)
+//
+// See docs/neura-ecosystem/24_CANONICAL_MESSAGING_FOUNDATION.md for the
+// full design. Purely additive -- does NOT touch the existing AI chat
+// (conversations/messages), personal chat (personalChatThreads/
+// personalChatMessages), or group chat (groupChats/groupChatMessages)
+// systems. Table names use a messaging_ SQL prefix to avoid colliding
+// with the existing conversations/messages tables (AI chat) while the
+// logical entity names (Conversation, Message, ...) stay as approved.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const MESSAGING_CONVERSATION_TYPE = {
+  AI: "ai",
+  DIRECT: "direct",
+  GROUP: "group",
+  BUSINESS: "business",
+} as const;
+export type MessagingConversationType = typeof MESSAGING_CONVERSATION_TYPE[keyof typeof MESSAGING_CONVERSATION_TYPE];
+
+export const MESSAGING_PARTICIPANT_TYPE = {
+  USER: "user",
+  AI_AGENT: "ai_agent",
+  BUSINESS: "business",
+  CUSTOMER: "customer",
+  SYSTEM: "system",
+} as const;
+export type MessagingParticipantType = typeof MESSAGING_PARTICIPANT_TYPE[keyof typeof MESSAGING_PARTICIPANT_TYPE];
+
+export const MESSAGE_CATEGORY = {
+  AUTHENTICATION: "authentication",
+  UTILITY: "utility",
+  MARKETING: "marketing",
+  CONVERSATIONAL: "conversational",
+  SYSTEM: "system",
+  AI: "ai",
+} as const;
+export type MessageCategory = typeof MESSAGE_CATEGORY[keyof typeof MESSAGE_CATEGORY];
+
+export const MESSAGE_TYPE = {
+  TEXT: "text",
+  IMAGE: "image",
+  VIDEO: "video",
+  DOCUMENT: "document",
+  TEMPLATE: "template",
+  VOICE: "voice",
+  SYSTEM: "system",
+} as const;
+export type MessagingMessageType = typeof MESSAGE_TYPE[keyof typeof MESSAGE_TYPE];
+
+export const MESSAGE_DELIVERY_STATUS = {
+  QUEUED: "queued",
+  SENT: "sent",
+  DELIVERED: "delivered",
+  READ: "read",
+  FAILED: "failed",
+} as const;
+export type MessageDeliveryStatus = typeof MESSAGE_DELIVERY_STATUS[keyof typeof MESSAGE_DELIVERY_STATUS];
+
+export const MESSAGE_EVENT_TYPE = {
+  MESSAGE_CREATED: "message.created",
+  MESSAGE_SENT: "message.sent",
+  MESSAGE_DELIVERED: "message.delivered",
+  MESSAGE_READ: "message.read",
+  MESSAGE_FAILED: "message.failed",
+  MESSAGE_DELETED: "message.deleted",
+  CONVERSATION_CREATED: "conversation.created",
+} as const;
+export type MessagingEventType = typeof MESSAGE_EVENT_TYPE[keyof typeof MESSAGE_EVENT_TYPE];
+
+export const BUSINESS_CONVERSATION_STATUS = {
+  OPEN: "open",
+  ASSIGNED: "assigned",
+  CLOSED: "closed",
+} as const;
+
+export const messagingConversations = pgTable("messaging_conversations", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  metadata: jsonb("metadata").default({}),
+  isArchived: boolean("is_archived").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("messaging_conversations_org_idx").on(t.organizationId),
+]);
+
+export const businessConversations = pgTable("business_conversations", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => messagingConversations.id, { onDelete: "cascade" }).unique(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id"), // forward reference -- no FK yet, `customers` table doesn't exist until Phase 4
+  status: text("status").notNull().default(BUSINESS_CONVERSATION_STATUS.OPEN),
+  assignedToUserId: integer("assigned_to_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("business_conversations_business_idx").on(t.businessId),
+  index("business_conversations_customer_idx").on(t.customerId),
+]);
+
+export const messagingParticipants = pgTable("messaging_participants", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => messagingConversations.id, { onDelete: "cascade" }),
+  participantType: text("participant_type").notNull(),
+  participantId: integer("participant_id").notNull(), // polymorphic -- see doc 24 section 13; validated at the application layer, not the DB
+  role: text("role"),
+  joinedAt: timestamp("joined_at").defaultNow(),
+  leftAt: timestamp("left_at"),
+}, (t) => [
+  index("messaging_participants_conversation_idx").on(t.conversationId),
+  index("messaging_participants_type_id_idx").on(t.participantType, t.participantId),
+]);
+
+export const messagingMessages = pgTable("messaging_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => messagingConversations.id, { onDelete: "cascade" }),
+  senderParticipantId: integer("sender_participant_id").notNull().references(() => messagingParticipants.id),
+  messageType: text("message_type").notNull().default(MESSAGE_TYPE.TEXT),
+  category: text("category").notNull().default(MESSAGE_CATEGORY.CONVERSATIONAL),
+  content: text("content").notNull(),
+  templateId: integer("template_id"), // forward reference -- no FK yet, `templates` table doesn't exist until Phase 2
+  replyToMessageId: integer("reply_to_message_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  editedAt: timestamp("edited_at"),
+  deletedAt: timestamp("deleted_at"), // soft delete -- never hard-delete a message
+}, (t) => [
+  index("messaging_messages_conversation_created_idx").on(t.conversationId, t.createdAt),
+  index("messaging_messages_category_idx").on(t.category),
+]);
+
+export const messagingDeliveries = pgTable("messaging_deliveries", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),
+  participantId: integer("participant_id").notNull().references(() => messagingParticipants.id),
+  status: text("status").notNull().default(MESSAGE_DELIVERY_STATUS.QUEUED),
+  statusAt: timestamp("status_at").defaultNow(),
+  failureReason: text("failure_reason"),
+  providerRef: text("provider_ref"),
+}, (t) => [
+  index("messaging_deliveries_message_idx").on(t.messageId),
+  index("messaging_deliveries_participant_status_idx").on(t.participantId, t.status),
+]);
+
+export const messagingAttachments = pgTable("messaging_attachments", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),
+  attachmentType: text("attachment_type").notNull(),
+  url: text("url").notNull(),
+  mimeType: text("mime_type"),
+  sizeBytes: integer("size_bytes"),
+  durationSeconds: integer("duration_seconds"),
+}, (t) => [
+  index("messaging_attachments_message_idx").on(t.messageId),
+]);
+
+export const messagingTranslations = pgTable("messaging_translations", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),
+  language: text("language").notNull(),
+  translatedContent: text("translated_content").notNull(),
+  translatedAt: timestamp("translated_at").defaultNow(),
+}, (t) => [
+  index("messaging_translations_message_idx").on(t.messageId),
+]);
+
+export const messagingReadStates = pgTable("messaging_read_states", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => messagingConversations.id, { onDelete: "cascade" }),
+  participantId: integer("participant_id").notNull().references(() => messagingParticipants.id),
+  lastReadMessageId: integer("last_read_message_id").references(() => messagingMessages.id),
+  lastReadAt: timestamp("last_read_at"),
+}, (t) => [
+  uniqueIndex("messaging_read_states_conv_participant_idx").on(t.conversationId, t.participantId),
+]);
+
+export const messagingReactions = pgTable("messaging_reactions", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),
+  participantId: integer("participant_id").notNull().references(() => messagingParticipants.id),
+  reaction: text("reaction").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("messaging_reactions_message_participant_idx").on(t.messageId, t.participantId),
+]);
+
+export const messagingEvents = pgTable("messaging_events", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => messagingConversations.id, { onDelete: "cascade" }),
+  messageId: integer("message_id").references(() => messagingMessages.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(),
+  payload: jsonb("payload").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("messaging_events_conversation_created_idx").on(t.conversationId, t.createdAt),
+  index("messaging_events_message_idx").on(t.messageId),
+]);
+
+export const insertBusinessConversationSchema = createInsertSchema(businessConversations).omit({ id: true, createdAt: true });
+export const insertMessagingMessageSchema = createInsertSchema(messagingMessages).omit({ id: true, createdAt: true, editedAt: true, deletedAt: true });
+
+export type MessagingConversation = typeof messagingConversations.$inferSelect;
+export type BusinessConversation = typeof businessConversations.$inferSelect;
+export type MessagingParticipant = typeof messagingParticipants.$inferSelect;
+export type MessagingMessage = typeof messagingMessages.$inferSelect;
+export type MessagingDelivery = typeof messagingDeliveries.$inferSelect;
+export type MessagingAttachment = typeof messagingAttachments.$inferSelect;
+export type MessagingTranslation = typeof messagingTranslations.$inferSelect;
+export type MessagingReadState = typeof messagingReadStates.$inferSelect;
+export type MessagingReaction = typeof messagingReactions.$inferSelect;
+export type MessagingEvent = typeof messagingEvents.$inferSelect;
 export type InsertFraudFlag = z.infer<typeof insertFraudFlagSchema>;
