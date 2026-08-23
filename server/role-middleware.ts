@@ -115,6 +115,8 @@ const COMPANY_ADMIN_PERMISSIONS = [
   PERMISSIONS.AI_TRANSLATION,
   PERMISSIONS.MESSAGING_VIEW,
   PERMISSIONS.MESSAGING_SEND,
+  PERMISSIONS.TEMPLATES_MANAGE,
+  PERMISSIONS.TEMPLATES_APPROVE,
 ];
 
 const MANAGER_PERMISSIONS = [
@@ -133,6 +135,10 @@ const MANAGER_PERMISSIONS = [
   PERMISSIONS.API_READ,
   PERMISSIONS.MESSAGING_VIEW,
   PERMISSIONS.MESSAGING_SEND,
+  PERMISSIONS.TEMPLATES_MANAGE,
+  // Deliberately no TEMPLATES_APPROVE -- manager is the content/author role,
+  // approval stays with company_admin (or a custom role) by default. See
+  // doc 27 section 8 for the full separation-of-duties reasoning.
 ];
 
 const AGENT_PERMISSIONS = [

@@ -302,6 +302,13 @@ export const PERMISSIONS = {
   // Canonical business messaging (Phase 0 foundation)
   MESSAGING_VIEW: "messaging:view",
   MESSAGING_SEND: "messaging:send",
+
+  // Business message templates (Phase 2). Deliberately 2 permissions, not the
+  // 6 a naive per-action mapping would suggest -- TEMPLATES_MANAGE covers the
+  // author side (create/view/edit/submit/archive), TEMPLATES_APPROVE is kept
+  // separate specifically to support separation of duties (see doc 27 section 8).
+  TEMPLATES_MANAGE: "templates:manage",
+  TEMPLATES_APPROVE: "templates:approve",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -1061,6 +1068,9 @@ export const AUDIT_ACTION = {
   SETTINGS_CHANGE: "settings_change",
   CREDIT_ADJUSTMENT: "credit_adjustment",
   ROLE_CHANGE: "role_change",
+  SUBMIT: "submit",
+  ARCHIVE: "archive",
+  RETURN_TO_DRAFT: "return_to_draft",
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTION[keyof typeof AUDIT_ACTION];
@@ -3569,3 +3579,80 @@ export type MessagingReadState = typeof messagingReadStates.$inferSelect;
 export type MessagingReaction = typeof messagingReactions.$inferSelect;
 export type MessagingEvent = typeof messagingEvents.$inferSelect;
 export type InsertFraudFlag = z.infer<typeof insertFraudFlagSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS MESSAGE TEMPLATE ENGINE (Phase 2, 2026-08-24)
+//
+// See docs/neura-ecosystem/27_BUSINESS_TEMPLATE_ENGINE_IMPLEMENTATION.md.
+// Purely additive -- does not touch canonical messaging (Phase 0), the
+// organizations/business-profile columns (Phase 1), or any existing chat
+// system. `category` reuses MESSAGE_CATEGORY (Phase 0) as-is -- no parallel
+// category enum. No sender-identity fields exist on these tables at all,
+// per doc 25: templates are owned by the business, actual message sender
+// is resolved later by whichever send operation (Campaign/OTP/Utility,
+// none built yet) eventually uses an approved version.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const TEMPLATE_VERSION_STATUS = {
+  DRAFT: "draft",
+  SUBMITTED: "submitted",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  ARCHIVED: "archived",
+} as const;
+export type TemplateVersionStatus = typeof TEMPLATE_VERSION_STATUS[keyof typeof TEMPLATE_VERSION_STATUS];
+
+export const TEMPLATE_VARIABLE_TYPE = {
+  TEXT: "text",
+  NUMBER: "number",
+  DATE: "date",
+} as const;
+export type TemplateVariableType = typeof TEMPLATE_VARIABLE_TYPE[keyof typeof TEMPLATE_VARIABLE_TYPE];
+
+export interface TemplateVariableDeclaration {
+  name: string; // must match /^[a-zA-Z_][a-zA-Z0-9_]*$/
+  type: TemplateVariableType;
+  required: boolean;
+}
+
+export const templates = pgTable("templates", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(), // stable identifier within the business, e.g. "appointment_confirmation"
+  category: text("category").notNull(), // MESSAGE_CATEGORY value -- server-governed, never arbitrary client strings
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("templates_business_name_idx").on(t.businessId, t.name),
+  index("templates_business_idx").on(t.businessId),
+]);
+
+export const templateVersions = pgTable("template_versions", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").notNull().references(() => templates.id, { onDelete: "cascade" }),
+  language: text("language").notNull().default("en"),
+  versionNumber: integer("version_number").notNull(),
+  status: text("status").notNull().default(TEMPLATE_VERSION_STATUS.DRAFT),
+  title: text("title"), // optional short label/subject, e.g. push-notification title
+  content: text("content").notNull(), // body with {{variable}} placeholders
+  variables: jsonb("variables").default([]), // TemplateVariableDeclaration[]
+  mediaType: text("media_type"), // forward-reference only, per doc 24's precedent (messagingMessages.templateId) --
+  mediaUrl: text("media_url"),   // no upload/delivery flow implemented in Phase 2
+  metadata: jsonb("metadata").default({}),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  submittedBy: integer("submitted_by").references(() => users.id),
+  submittedAt: timestamp("submitted_at"),
+  decidedBy: integer("decided_by").references(() => users.id), // the approver/rejecter
+  decidedAt: timestamp("decided_at"),
+  rejectionReason: text("rejection_reason"),
+  archivedBy: integer("archived_by").references(() => users.id),
+  archivedAt: timestamp("archived_at"),
+}, (t) => [
+  uniqueIndex("template_versions_template_lang_version_idx").on(t.templateId, t.language, t.versionNumber),
+  index("template_versions_template_lang_idx").on(t.templateId, t.language),
+  index("template_versions_status_idx").on(t.status),
+]);
+
+export type Template = typeof templates.$inferSelect;
+export type TemplateVersion = typeof templateVersions.$inferSelect;
