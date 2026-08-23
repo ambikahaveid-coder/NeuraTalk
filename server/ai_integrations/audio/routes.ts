@@ -132,56 +132,17 @@ export function registerAudioRoutes(app: Express): void {
     }
   });
 
-  // Get all conversations
-  app.get("/api/conversations", async (req: Request, res: Response) => {
-    try {
-      const conversations = await chatStorage.getAllConversations();
-      res.json(conversations);
-    } catch (error) {
-      console.error("Error fetching conversations:", error);
-      res.status(500).json({ error: "Failed to fetch conversations" });
-    }
-  });
-
-  // Get single conversation with messages
-  app.get("/api/conversations/:id", async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const conversation = await chatStorage.getConversation(id);
-      if (!conversation) {
-        return res.status(404).json({ error: "Conversation not found" });
-      }
-      const messages = await chatStorage.getMessagesByConversation(id);
-      res.json({ ...conversation, messages });
-    } catch (error) {
-      console.error("Error fetching conversation:", error);
-      res.status(500).json({ error: "Failed to fetch conversation" });
-    }
-  });
-
-  // Create new conversation
-  app.post("/api/conversations", async (req: Request, res: Response) => {
-    try {
-      const { title } = req.body;
-      const conversation = await chatStorage.createConversation(title || "New Chat");
-      res.status(201).json(conversation);
-    } catch (error) {
-      console.error("Error creating conversation:", error);
-      res.status(500).json({ error: "Failed to create conversation" });
-    }
-  });
-
-  // Delete conversation
-  app.delete("/api/conversations/:id", async (req: Request, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      await chatStorage.deleteConversation(id);
-      res.status(204).send();
-    } catch (error) {
-      console.error("Error deleting conversation:", error);
-      res.status(500).json({ error: "Failed to delete conversation" });
-    }
-  });
+  // NOTE (2026-08-23): the four CRUD routes for /api/conversations that used
+  // to live here (GET list, GET one, POST create, DELETE) were an exact
+  // duplicate of server/ai_integrations/chat/routes.ts's registerChatRoutes,
+  // registered second (server/routes.ts registers chat routes first) --
+  // Express matches the first-registered handler for an identical
+  // path+method, so this block was dead, unreachable code, not a second
+  // live implementation. Removed rather than updated when chat/routes.ts's
+  // copy got the P0 auth/ownership fix, to avoid maintaining a second,
+  // divergent (and here, security-sensitive) definition of the same routes.
+  // The voice-message route below is a real, distinct feature (different
+  // request/response shape) and is unaffected.
 
   // Send voice message and get streaming audio response
   // Uses gpt-4o-mini-transcribe for STT, gpt-audio-mini for voice response

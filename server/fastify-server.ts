@@ -184,10 +184,14 @@ export async function createFastifyServer() {
     const startTime = Date.now();
 
     try {
-      // Parallel fetch all user context
-      const [user, conversations] = await Promise.all([
+      // Parallel fetch all user context. getAllConversations(userId) now
+      // filters at the query level (P0 security fix, 2026-08-23) --
+      // this endpoint already verifies the session above, but previously
+      // fetched every user's conversations just to discard all but this
+      // one's in JS afterward.
+      const [user, userConversations] = await Promise.all([
         storage.getUser(userId),
-        chatStorage.getAllConversations(),
+        chatStorage.getAllConversations(userId),
       ]);
 
       if (!user) {
@@ -200,8 +204,6 @@ export async function createFastifyServer() {
         organization = await storage.getOrganization(user.organizationId);
       }
 
-      // Filter conversations for this user
-      const userConversations = conversations.filter((c) => c.userId === userId);
       const recentConversations = userConversations.slice(0, 5);
 
       // Cache the context
