@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
+import '../services/contact_resolver.dart';
 
 /// Real in-call screen — connects to the LiveKit room for [session] and
 /// exposes mute/speaker/hold/video/end controls. There is no CallKit
@@ -120,7 +121,13 @@ class _CallScreenState extends State<CallScreen> {
     });
     unawaited(widget.callService.endCall(widget.session.callId));
     Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.of(context).maybePop();
+      // Same real bug already found and fixed in _onRoomDisconnected: if
+      // another screen was pushed on top in the meantime (e.g. call
+      // waiting), a plain maybePop() here would pop THAT screen instead of
+      // this stale one -- guard on this route actually being current.
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        Navigator.of(context).maybePop();
+      }
     });
   }
 
@@ -379,7 +386,7 @@ class _CallScreenState extends State<CallScreen> {
                       lk.VideoTrackRenderer(_remoteVideoTrack!)
                     else
                       _RemotePlaceholder(
-                        name: widget.session.remoteName,
+                        name: ContactResolver.instance.displayNameFor(widget.session.remoteName),
                         connecting: _connecting,
                         error: _error,
                         statusLabel: _waitingForAnswer ? _ringingLabel : null,

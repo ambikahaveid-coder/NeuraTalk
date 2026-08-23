@@ -13,6 +13,7 @@ import 'providers/group_chat_provider.dart';
 import 'services/call_service.dart';
 import 'services/callkit_service.dart';
 import 'services/push_service.dart';
+import 'services/contact_resolver.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/incoming_call_screen.dart';
@@ -138,6 +139,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         if (auth.isLoggedIn) {
           calls.startPolling();
           unawaited(PushService.init());
+          unawaited(ContactResolver.instance.ensureLoaded());
         } else {
           calls.stopPolling();
         }
@@ -146,6 +148,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
       if (auth.isLoggedIn) {
         calls.startPolling();
         unawaited(PushService.init());
+        unawaited(ContactResolver.instance.ensureLoaded());
       }
     }
   }

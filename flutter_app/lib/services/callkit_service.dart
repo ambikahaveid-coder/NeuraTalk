@@ -113,12 +113,33 @@ class CallKitService {
           }
           break;
         case Event.actionCallDecline:
-        case Event.actionCallTimeout:
+          // A deliberate user action (swipe/tap Decline) -- genuinely reject
+          // the call server-side.
           callService?.markHandledExternally(callId);
           if (callService != null) {
             unawaited(callService.rejectCall(callId));
             callService.clearIncomingCall();
           }
+          break;
+        case Event.actionCallTimeout:
+          // Real bug, root-caused from a physical-device failure: this fires
+          // when CallKit's own LOCAL ring timer (45s, set in
+          // showIncomingCall above) expires -- it is not authoritative that
+          // the call is actually over, only that this device stopped
+          // ringing locally. That local timer runs the same ~45s duration
+          // as the backend's own incoming-call TTL, so a genuine
+          // last-moment Accept tap can race against it and lose: this
+          // handler used to call rejectCall() here too, marking the call
+          // MISSED server-side a few hundred ms before the real Accept
+          // request landed, which then failed with
+          // INVALID_CALL_STATE_TRANSITION:missed->answered on a call the
+          // user was actively answering. "No longer ringing on this
+          // device" must not equal "this call is over" -- that
+          // determination belongs to the caller's own giving-up action
+          // (call_screen.dart's _endWaitingWithMessage, which calls the
+          // real /end endpoint) or an explicit Decline. Just stop showing
+          // the local incoming-call state; don't touch server call state.
+          callService?.clearIncomingCall();
           break;
         default:
           break;

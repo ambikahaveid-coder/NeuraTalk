@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
 import '../services/callkit_service.dart';
+import '../services/contact_resolver.dart';
 import 'call_screen.dart';
 
 /// Full-screen accept/reject UI, pushed by the top-level incoming-call
@@ -76,6 +77,22 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           _goToCallScreen();
           return;
         }
+        // The call is genuinely over (caller gave up, or it was declined
+        // elsewhere) -- retrying Answer here can only ever fail again with
+        // the same INVALID_CALL_STATE_TRANSITION. Dismiss with a real
+        // explanation instead of leaving a dead-end error the user can tap
+        // Answer on forever.
+        const terminal = {'missed', 'cancelled', 'busy', 'failed', 'ended'};
+        if (terminal.contains(status)) {
+          widget.callService.clearIncomingCall();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('This call has ended.')),
+            );
+            Navigator.of(context).maybePop();
+          }
+          return;
+        }
       } catch (_) {
         // Fall through to the error below.
       }
@@ -111,6 +128,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   @override
   Widget build(BuildContext context) {
     final session = widget.session;
+    final displayName = ContactResolver.instance.displayNameFor(session.remoteName);
     return PopScope(
       canPop: false,
       child: Scaffold(
@@ -125,12 +143,12 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 decoration: const BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
                 alignment: Alignment.center,
                 child: Text(
-                  session.remoteName.isNotEmpty ? session.remoteName[0].toUpperCase() : '?',
+                  displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
                   style: const TextStyle(color: AppColors.cyan, fontSize: 44, fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(height: 24),
-              Text(session.remoteName, style: const TextStyle(color: AppColors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+              Text(displayName, style: const TextStyle(color: AppColors.white, fontSize: 26, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
                 session.isVideo ? 'Incoming video call' : 'Incoming voice call',

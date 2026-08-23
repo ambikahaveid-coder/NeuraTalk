@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -16,6 +17,7 @@ import '../providers/auth_provider.dart';
 import '../providers/personal_chat_provider.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
+import '../services/contact_resolver.dart';
 import 'call_screen.dart';
 import 'media_viewer_screen.dart';
 
@@ -57,6 +59,13 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.openThread(_threadId).then((_) => _scrollToBottom());
     _loadBlockStatus();
+    // Best-effort -- if contacts permission isn't already granted this is a
+    // no-op (ContactResolver never itself prompts); if it is, this makes
+    // the real saved name available for the header below instead of a raw
+    // phone number.
+    unawaited(ContactResolver.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    }));
   }
 
   Future<void> _loadBlockStatus() async {
@@ -568,18 +577,39 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     }
   }
 
+  // Real bug found from physical-device testing: this used to be a
+  // press-and-hold gesture (onLongPress/onLongPressUp). hasPermission()
+  // shows a real OS permission dialog on first use, which steals touch
+  // focus while the finger is still down -- the held gesture gets
+  // cancelled by the OS instead of delivering onLongPressUp, so recording
+  // started but could never be stopped/sent from that gesture again (the
+  // recording bar only ever had a Cancel button, no Send). A plain tap to
+  // start and a second tap to stop has no "held" gesture to lose, so
+  // nothing here is time-sensitive to touch focus anymore.
+  bool _startingRecording = false;
+
   Future<void> _startRecording() async {
-    if (!await _recorder.hasPermission()) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Microphone permission is required for voice messages.')));
-      return;
+    if (_startingRecording || _recording) return;
+    _startingRecording = true;
+    try {
+      if (!await _recorder.hasPermission()) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Microphone permission is required for voice messages.')));
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/voice_${DateTime.now().microsecondsSinceEpoch}.m4a';
+      await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+      if (mounted) {
+        setState(() {
+          _recording = true;
+          _recordingStartedAt = DateTime.now();
+        });
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start recording. Please try again.')));
+    } finally {
+      _startingRecording = false;
     }
-    final dir = await getTemporaryDirectory();
-    final path = '${dir.path}/voice_${DateTime.now().microsecondsSinceEpoch}.m4a';
-    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
-    setState(() {
-      _recording = true;
-      _recordingStartedAt = DateTime.now();
-    });
   }
 
   Future<void> _stopRecordingAndSend({required bool cancel}) async {
@@ -662,7 +692,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   Widget build(BuildContext context) {
     final provider = context.watch<PersonalChatProvider>();
     final avatarUrl = _peer['avatarUrl'] as String?;
-    final displayName = _peer['displayName']?.toString() ?? 'Chat';
+    final displayName = ContactResolver.instance.nameFor(_peer['phone']?.toString()) ?? _peer['displayName']?.toString() ?? 'Chat';
 
     return PopScope(
       canPop: !_showEmoji,
@@ -867,7 +897,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         children: [
           const Icon(Icons.mic, color: AppColors.red, size: 18),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Recording…', style: TextStyle(color: AppColors.textPrimary, fontSize: 13))),
+          const Expanded(child: Text('Recording… tap the mic button to send', style: TextStyle(color: AppColors.textPrimary, fontSize: 13))),
           TextButton(
             onPressed: () => _stopRecordingAndSend(cancel: true),
             child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
@@ -917,13 +947,19 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             builder: (_, value, __) {
               final hasText = value.text.trim().isNotEmpty;
               return GestureDetector(
-                onTap: hasText ? _send : null,
-                onLongPress: hasText || _uploading ? null : _startRecording,
-                onLongPressUp: hasText || _uploading ? null : () => _stopRecordingAndSend(cancel: false),
+                onTap: hasText
+                    ? _send
+                    : _uploading
+                        ? null
+                        : (_recording ? () => _stopRecordingAndSend(cancel: false) : _startRecording),
                 child: Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(color: _recording ? AppColors.red : AppColors.cyan, shape: BoxShape.circle),
-                  child: Icon(hasText ? Icons.send : Icons.mic, color: AppColors.background, size: 20),
+                  child: Icon(
+                    hasText ? Icons.send : (_recording ? Icons.stop : Icons.mic),
+                    color: AppColors.background,
+                    size: 20,
+                  ),
                 ),
               );
             },
