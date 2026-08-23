@@ -178,9 +178,9 @@ class CallService extends ChangeNotifier {
     await ApiService.post('/api/calls/$callId/reject', {});
   }
 
-  Future<void> endCall(String callId) async {
+  Future<void> endCall(String callId, {String? reason}) async {
     try {
-      await ApiService.post('/api/calls/$callId/end', {});
+      await ApiService.post('/api/calls/$callId/end', reason != null ? {'reason': reason} : {});
     } catch (_) {
       // Best-effort — the LiveKit room disconnect already happened locally.
     }

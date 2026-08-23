@@ -45,7 +45,13 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
   void _dismiss() {
     widget.callService.clearIncomingCall();
-    if (mounted) Navigator.of(context).maybePop();
+    // Same wrong-screen-pop class of bug fixed elsewhere in the call flow:
+    // this timer can fire after another screen (e.g. call-waiting) has
+    // already been pushed on top, so an unguarded maybePop() would close
+    // that screen instead of this stale one.
+    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   void _goToCallScreen() {
@@ -116,7 +122,9 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       // Best-effort — dismiss locally regardless.
     }
     widget.callService.clearIncomingCall();
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override

@@ -241,8 +241,19 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _onRoomDisconnected(lk.RoomDisconnectedEvent event) {
-    if (!mounted) return;
     _durationTimer?.cancel();
+    // clientInitiated/roomDeleted are the normal outcome of someone tapping
+    // End Call, which already reports a reason via _endCall(). Anything else
+    // here is a real, previously-silent connection failure -- the call
+    // record was left with no explanation at all (defaulting to "completed"
+    // on whichever side happened to call /end next, if any side did). Report
+    // it so a real cause is visible next time this happens, instead of
+    // guessing from duration numbers alone.
+    if (event.reason != lk.DisconnectReason.clientInitiated &&
+        event.reason != lk.DisconnectReason.roomDeleted) {
+      unawaited(widget.callService.endCall(widget.session.callId, reason: 'client_disconnect_${event.reason.name}'));
+    }
+    if (!mounted) return;
     final message = switch (event.reason) {
       lk.DisconnectReason.clientInitiated => null,
       lk.DisconnectReason.participantRemoved => 'You were removed from the call.',
@@ -343,7 +354,13 @@ class _CallScreenState extends State<CallScreen> {
     } catch (_) {
       // endCall() already swallows its own errors, but guard regardless.
     }
-    if (mounted) Navigator.of(context).maybePop();
+    // Same wrong-screen-pop bug already fixed in _onRoomDisconnected and
+    // _endWaitingWithMessage: a call-waiting flow can push a new screen on
+    // top of this one during the awaits above, so a plain maybePop() here
+    // would close whatever is currently on top instead of this stale one.
+    if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override

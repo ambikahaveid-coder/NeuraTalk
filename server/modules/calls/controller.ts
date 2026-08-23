@@ -535,7 +535,15 @@ export async function end(req: Request, res: Response) {
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
 
-      const result = await svc.endCallById(rawCallId);
+      // Client-reported reason (e.g. a real LiveKit disconnect cause like
+      // "signalingConnectionFailure") -- previously always defaulted to the
+      // generic "completed", which made every call end look like a normal
+      // hangup in the stored record even when it was actually a connection
+      // failure, masking the true cause for diagnosis.
+      const rawReason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 64) : undefined;
+      const reason = rawReason && /^[a-zA-Z0-9_.:-]+$/.test(rawReason) ? rawReason : undefined;
+
+      const result = await svc.endCallById(rawCallId, reason);
       return res.json({
         callId: rawCallId,
         status: SMART_CALL_STATE.ENDED,
