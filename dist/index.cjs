@@ -6106,7 +6106,23 @@ var init_schema = __esm({
       approvedBy: (0, import_pg_core.integer)("approved_by"),
       // Super Admin user ID
       rejectedAt: (0, import_pg_core.timestamp)("rejected_at"),
+      rejectedBy: (0, import_pg_core.integer)("rejected_by"),
+      // Super Admin user ID
       rejectionReason: (0, import_pg_core.text)("rejection_reason"),
+      // Lifecycle governance (P1 foundation hardening, 2026-08-23): suspend/reactivate/deactivate.
+      // status remains free-text for backward compatibility with existing `=== "approved"` gates
+      // across the codebase (auth, billing, API-key middleware) -- "approved" continues to mean
+      // operationally ACTIVE. "suspended" and "deactivated" are the two non-operational values
+      // these new columns support. See server/modules/b2b-admin/org-lifecycle.ts for the
+      // canonical 7-state model and legal transition table built on top of this storage.
+      suspendedAt: (0, import_pg_core.timestamp)("suspended_at"),
+      suspendedBy: (0, import_pg_core.integer)("suspended_by"),
+      suspensionReason: (0, import_pg_core.text)("suspension_reason"),
+      reactivatedAt: (0, import_pg_core.timestamp)("reactivated_at"),
+      reactivatedBy: (0, import_pg_core.integer)("reactivated_by"),
+      deactivatedAt: (0, import_pg_core.timestamp)("deactivated_at"),
+      deactivatedBy: (0, import_pg_core.integer)("deactivated_by"),
+      deactivationReason: (0, import_pg_core.text)("deactivation_reason"),
       // Language configuration
       primaryLanguage: (0, import_pg_core.text)("primary_language").default("en"),
       supportedLanguages: (0, import_pg_core.jsonb)("supported_languages").default(["en"]),
@@ -7009,6 +7025,9 @@ var init_schema = __esm({
       APPROVE: "approve",
       REJECT: "reject",
       SUSPEND: "suspend",
+      REACTIVATE: "reactivate",
+      DEACTIVATE: "deactivate",
+      CONSENT_ACTION: "consent_action",
       LOGIN: "login",
       LOGOUT: "logout",
       SETTINGS_CHANGE: "settings_change",
@@ -12262,14 +12281,14 @@ var require_lodash = __commonJS({
       return result;
     }
     function assignInDefaults(objValue, srcValue, key2, object) {
-      if (objValue === void 0 || eq69(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
+      if (objValue === void 0 || eq71(objValue, objectProto[key2]) && !hasOwnProperty.call(object, key2)) {
         return srcValue;
       }
       return objValue;
     }
     function assignValue(object, key2, value) {
       var objValue = object[key2];
-      if (!(hasOwnProperty.call(object, key2) && eq69(objValue, value)) || value === void 0 && !(key2 in object)) {
+      if (!(hasOwnProperty.call(object, key2) && eq71(objValue, value)) || value === void 0 && !(key2 in object)) {
         object[key2] = value;
       }
     }
@@ -12339,7 +12358,7 @@ var require_lodash = __commonJS({
       }
       var type = typeof index2;
       if (type == "number" ? isArrayLike(object) && isIndex(index2, object.length) : type == "string" && index2 in object) {
-        return eq69(object[index2], value);
+        return eq71(object[index2], value);
       }
       return false;
     }
@@ -12356,7 +12375,7 @@ var require_lodash = __commonJS({
       }
       return result;
     }
-    function eq69(value, other) {
+    function eq71(value, other) {
       return value === other || value !== value && other !== other;
     }
     function isArguments(value) {
@@ -21052,6 +21071,7 @@ async function logAuditEvent(entry) {
       subscription_changed: "info",
       api_key_created: "info",
       api_key_revoked: "warning",
+      api_key_rotated: "warning",
       admin_action: "info",
       billing_wallet_credit: "info",
       billing_wallet_debit: "info",
@@ -21761,7 +21781,7 @@ var init_billing_engine = __esm({
           if (input.organizationId && !context.organization) {
             return this.denied("ORGANIZATION_NOT_FOUND");
           }
-          if (context.organization && (!context.organization.isActive || ["rejected", "suspended"].includes(context.organization.status || ""))) {
+          if (context.organization && (!context.organization.isActive || ["rejected", "suspended", "deactivated"].includes(context.organization.status || ""))) {
             return this.denied("ORGANIZATION_BLOCKED");
           }
           if (context.settings?.isBlocked || context.account?.isBlocked || context.account?.status === "blocked") {
@@ -234193,6 +234213,7 @@ async function sendVoIPPush(userId, payload) {
     }
   });
   if (response.failureCount > 0) {
+    const deadTokens = [];
     response.responses.forEach((result, index2) => {
       if (!result.success) {
         logger.warn("FirebaseAdmin", "Call push delivery failed", {
@@ -234201,8 +234222,21 @@ async function sendVoIPPush(userId, payload) {
           tokenSuffix: tokens[index2]?.slice(-8),
           error: result.error?.message
         });
+        const code = result.error?.code;
+        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+          deadTokens.push(tokens[index2]);
+        }
       }
     });
+    if (deadTokens.length > 0) {
+      await Promise.allSettled(deadTokens.map(async (token) => {
+        await db.update(registeredDevices).set({
+          pushToken: import_drizzle_orm11.sql`CASE WHEN ${registeredDevices.pushToken} = ${token} THEN NULL ELSE ${registeredDevices.pushToken} END`,
+          voipToken: import_drizzle_orm11.sql`CASE WHEN ${registeredDevices.voipToken} = ${token} THEN NULL ELSE ${registeredDevices.voipToken} END`
+        }).where((0, import_drizzle_orm11.and)((0, import_drizzle_orm11.eq)(registeredDevices.userId, numericUserId), (0, import_drizzle_orm11.or)((0, import_drizzle_orm11.eq)(registeredDevices.pushToken, token), (0, import_drizzle_orm11.eq)(registeredDevices.voipToken, token))));
+      }));
+      logger.info("FirebaseAdmin", "Pruned dead push tokens", { userId, count: deadTokens.length });
+    }
   }
   logger.info("FirebaseAdmin", "Incoming call push sent", {
     userId,
@@ -260329,7 +260363,9 @@ async function startBotWorker(callId, botToken) {
   };
   activeSessions.set(callId, session);
   try {
+    logger.info("TranslatorBot", `[translator-diag] worker.start START`, { callId });
     await worker.start();
+    logger.info("TranslatorBot", `[translator-diag] worker.start RESOLVED`, { callId });
     session.status = "active";
     logger.info("TranslatorBot", `translator bot active for ${callId}`);
   } catch (error2) {
@@ -260613,10 +260649,12 @@ var init_translator_bot = __esm({
         if (!livekitConfig2.url) {
           throw new Error("LiveKit is not configured");
         }
+        logger.info("TranslatorBot", `[translator-diag] LiveKit CONNECT START`, { callId: this.callId });
         await room.connect(livekitConfig2.url, this.botToken, {
           autoSubscribe: true,
           dynacast: true
         });
+        logger.info("TranslatorBot", `[translator-diag] LiveKit CONNECT RESOLVED`, { callId: this.callId });
         this.room = room;
       }
       async stop() {
@@ -261502,6 +261540,7 @@ var init_translator_bot = __esm({
 var smart_router_exports = {};
 __export(smart_router_exports, {
   activatePstnFallback: () => activatePstnFallback,
+  elapsedMs: () => elapsedMs,
   endCall: () => endCall,
   getSmartCall: () => getSmartCall,
   initiateCall: () => initiateCall,
@@ -261510,6 +261549,7 @@ __export(smart_router_exports, {
   isSmartCallId: () => isSmartCallId,
   listSmartActiveCalls: () => listSmartActiveCalls,
   listSmartCallsForUser: () => listSmartCallsForUser,
+  logSetupLatency: () => logSetupLatency,
   recordSmartCallMediaActivity: () => recordSmartCallMediaActivity,
   recordSmartCallProviderEvent: () => recordSmartCallProviderEvent,
   registerInboundSmartCall: () => registerInboundSmartCall,
@@ -261523,10 +261563,27 @@ __export(smart_router_exports, {
 function redisClient2() {
   return getRedisClient();
 }
+function withStartupTimeout(promise, callId, stage) {
+  return new Promise((resolve, reject2) => {
+    const timer = setTimeout(() => {
+      reject2(new Error(`TRANSLATOR_BOT_STARTUP_TIMEOUT:${stage}:${callId}:${TRANSLATOR_BOT_STARTUP_TIMEOUT_MS}ms`));
+    }, TRANSLATOR_BOT_STARTUP_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error2) => {
+        clearTimeout(timer);
+        reject2(error2);
+      }
+    );
+  });
+}
 function elapsedMs(startNs) {
   return Number((Number(process.hrtime.bigint() - startNs) / 1e6).toFixed(3));
 }
-function logSetupLatency(callId, joinMethod, stage, latencyMs) {
+function logSetupLatency(callId, joinMethod, stage, latencyMs, opts = {}) {
   try {
     console.log(JSON.stringify({
       type: "call_setup_latency",
@@ -261534,6 +261591,8 @@ function logSetupLatency(callId, joinMethod, stage, latencyMs) {
       joinMethod,
       stage,
       latencyMs,
+      success: opts.success ?? true,
+      provider: opts.provider ?? null,
       ts: Date.now()
     }));
   } catch {
@@ -261638,12 +261697,12 @@ async function resolveCallee(identifier) {
   }
   const loweredIdentifier = rawIdentifier.toLowerCase();
   const byIdentity = await db.query.users.findFirst({
-    where: (users4, { and: and47, eq: eq69, or: or16, sql: sql21 }) => and47(
-      eq69(users4.isActive, true),
+    where: (users4, { and: and48, eq: eq71, or: or16, sql: sql22 }) => and48(
+      eq71(users4.isActive, true),
       or16(
-        eq69(users4.username, rawIdentifier),
-        sql21`LOWER(${users4.email}) = ${loweredIdentifier}`,
-        sql21`REPLACE(COALESCE(${users4.phone}, ''), ' ', '') = ${normalizedPhone}`
+        eq71(users4.username, rawIdentifier),
+        sql22`LOWER(${users4.email}) = ${loweredIdentifier}`,
+        sql22`REPLACE(COALESCE(${users4.phone}, ''), ' ', '') = ${normalizedPhone}`
       )
     )
   });
@@ -262123,16 +262182,30 @@ async function routeToSkillAgent(organizationId, requiredSkills) {
   }
 }
 async function spawnTranslatorBot(callId, botToken) {
+  const spawnStartedAt = Date.now();
+  const elapsed = () => Date.now() - spawnStartedAt;
+  logger.info("SmartCallRouter", `[translator-diag] ENTER spawnTranslatorBot`, { callId, elapsedMs: elapsed() });
   const attemptStart = async () => {
+    logger.info("SmartCallRouter", `[translator-diag] dynamic import START`, { callId, elapsedMs: elapsed() });
     const mod = await Promise.resolve().then(() => (init_translator_bot(), translator_bot_exports)).catch((err) => {
       logger.debug("SmartCallRouter", `translator-bot optional module not loaded: ${String(err)}`);
       return {};
     });
+    logger.info("SmartCallRouter", `[translator-diag] dynamic import RESOLVED`, { callId, elapsedMs: elapsed() });
     if (typeof mod.startBotWorker !== "function") {
       logger.warn("SmartCallRouter", `translator-bot module not found - call ${callId} has no translation`);
       return false;
     }
-    await mod.startBotWorker(callId, botToken);
+    logger.info("SmartCallRouter", `[translator-diag] startBotWorker INVOKED`, { callId, elapsedMs: elapsed() });
+    try {
+      await withStartupTimeout(mod.startBotWorker(callId, botToken), callId, "startBotWorker");
+    } catch (error2) {
+      if (error2 instanceof Error && error2.message.startsWith("TRANSLATOR_BOT_STARTUP_TIMEOUT")) {
+        await mod.stopBotWorker?.(callId).catch(() => void 0);
+      }
+      throw error2;
+    }
+    logger.info("SmartCallRouter", `[translator-diag] startBotWorker RESOLVED`, { callId, elapsedMs: elapsed() });
     return true;
   };
   try {
@@ -262140,18 +262213,28 @@ async function spawnTranslatorBot(callId, botToken) {
     if (!started2) {
       await markTranslationUnavailable(callId, "bot_module_missing");
     } else {
+      logger.info("SmartCallRouter", `[translator-diag] TranslatorBot ACTIVE`, { callId, elapsedMs: elapsed() });
       smartCallEvents.emit("translation_started", { callId });
     }
     return;
   } catch (firstError) {
-    logger.warn("SmartCallRouter", `bot worker start failed, retrying once for ${callId}: ${String(firstError)}`);
+    logger.warn("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (attempt 1), retrying once`, {
+      callId,
+      elapsedMs: elapsed(),
+      error: String(firstError)
+    });
   }
   try {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await attemptStart();
+    logger.info("SmartCallRouter", `[translator-diag] TranslatorBot ACTIVE (retry)`, { callId, elapsedMs: elapsed() });
     smartCallEvents.emit("translation_started", { callId });
   } catch (error2) {
-    logger.error("SmartCallRouter", `bot worker start failed after retry for ${callId}: ${String(error2)}`);
+    logger.error("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (retry) -- giving up`, void 0, {
+      callId,
+      elapsedMs: elapsed(),
+      error: String(error2)
+    });
     await markTranslationUnavailable(callId, String(error2 instanceof Error ? error2.message : error2));
   }
 }
@@ -262173,26 +262256,31 @@ async function markTranslationUnavailable(callId, reason) {
   }
 }
 async function initiateCall(req) {
+  const requestReceivedNs = process.hrtime.bigint();
   const callId = req.sessionIdOverride?.trim() || `call_${(0, import_node_crypto10.randomUUID)()}`;
   const callerLanguage = (req.callerLanguage || "auto").trim().toLowerCase() || "auto";
   const activeCallKey = `user:active_call:${req.callerId}`;
+  const lockStartNs = process.hrtime.bigint();
   const acquiredLock = await redisClient2().set(activeCallKey, callId, "EX", 3600, "NX");
+  logSetupLatency(callId, "pending", "redis_lock_acquire", elapsedMs(lockStartNs));
   if (!acquiredLock) {
     throw new Error("CONCURRENT_CALL_RESTRICTED");
   }
   try {
-    return await initiateCallLocked(req, callId, callerLanguage);
+    return await initiateCallLocked(req, callId, callerLanguage, requestReceivedNs);
   } catch (error2) {
     await redisClient2().del(activeCallKey).catch(() => void 0);
     throw error2;
   }
 }
-async function initiateCallLocked(req, callId, callerLanguage) {
+async function initiateCallLocked(req, callId, callerLanguage, requestReceivedNs) {
   const callerUserId = Number.isFinite(Number(req.callerId)) ? Number(req.callerId) : null;
+  const resolveStartNs = process.hrtime.bigint();
   const [callee, callerUser] = await Promise.all([
     resolveCallee(req.calleeIdentifier),
     callerUserId ? storage2.getUser(callerUserId) : Promise.resolve(void 0)
   ]);
+  logSetupLatency(callId, "pending", "resolve_caller_callee", elapsedMs(resolveStartNs));
   const calleeUserId = callee.userId && Number.isFinite(Number(callee.userId)) ? Number(callee.userId) : null;
   const calleeUserPromise = calleeUserId ? storage2.getUser(calleeUserId) : Promise.resolve(void 0);
   const requestedCalleeLanguage = req.calleeLanguage?.trim().toLowerCase();
@@ -262238,6 +262326,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
       recordingPerMinutePaise: currentRates.recordingPerMinutePaise || 0
     };
   }
+  const billingAuthStartNs = process.hrtime.bigint();
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: callerUserId,
@@ -262249,6 +262338,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
     activateOnAnswer: true,
     pricingOverride: billingOverride
   });
+  logSetupLatency(callId, requestedJoinMethod, "billing_authorization", elapsedMs(billingAuthStartNs), { success: auth.allowed });
   if (!auth.allowed) {
     throw new Error(auth.reason || "PAYMENT_REQUIRED");
   }
@@ -262289,7 +262379,7 @@ async function initiateCallLocked(req, callId, callerLanguage) {
     (error2) => logger.error("SmartCallRouter", `bot spawn failed: ${String(error2)}`)
   );
   await redisClient2().set(`call_metadata:${callId}:caller`, req.callerId, "EX", 7200);
-  await storeSmartCall({
+  const smartCallRecord = {
     callId,
     joinMethod: requestedJoinMethod,
     status: SMART_CALL_STATE.CREATED,
@@ -262320,27 +262410,33 @@ async function initiateCallLocked(req, callId, callerLanguage) {
       requestedCallType: req.callType,
       pstnVideoDowngraded: requestedJoinMethod === "app_to_pstn" && req.callType === "video"
     }
+  };
+  const persistStartNs = process.hrtime.bigint();
+  await storeSmartCall(smartCallRecord);
+  logSetupLatency(callId, requestedJoinMethod, "smart_call_persistence", elapsedMs(persistStartNs));
+  emitStructuredCallEvent("call_created", smartCallRecord, {
+    requestedJoinMethod,
+    translationEnabled
   });
-  const createdRecord = await getSmartCall(callId);
-  if (createdRecord) {
-    emitStructuredCallEvent("call_created", createdRecord, {
-      requestedJoinMethod,
-      translationEnabled
-    });
-  }
   try {
     if (requestedJoinMethod === "app_to_app") {
       if (callee.hasApp && callee.userId) {
-        await sendIncomingCallPush(callee.userId, {
+        const pushStartNs = process.hrtime.bigint();
+        void sendIncomingCallPush(callee.userId, {
           callId,
           callerId: req.callerId,
           callType: req.callType,
           callerName: req.callerDisplayName || req.callerId
+        }).then(() => {
+          logSetupLatency(callId, requestedJoinMethod, "fcm_dispatch", elapsedMs(pushStartNs), { provider: "fcm" });
         });
       }
       await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
         calleeIdentifier: req.calleeIdentifier
       });
+      if (requestReceivedNs) {
+        logSetupLatency(callId, requestedJoinMethod, "total_call_response", elapsedMs(requestReceivedNs));
+      }
       return {
         callId,
         joinMethod: "app_to_app",
@@ -262807,7 +262903,7 @@ async function isActiveSmartCall(callId) {
   const state2 = normalizeSmartCallState(record.status);
   return !!state2 && isActiveSmartCallState(state2);
 }
-var import_node_crypto10, import_node_events2, import_drizzle_orm12, SMART_CALL_TTL_SECONDS, PROVIDER_TIMEOUT_ACTIVE_MS, PROVIDER_TIMEOUT_RINGING_MS, MEDIA_HEARTBEAT_INTERVAL_MS, MEDIA_STALL_WARN_MS, billingTerminationBound, watchdogStarted, smartCallEvents;
+var import_node_crypto10, import_node_events2, import_drizzle_orm12, SMART_CALL_TTL_SECONDS, PROVIDER_TIMEOUT_ACTIVE_MS, PROVIDER_TIMEOUT_RINGING_MS, MEDIA_HEARTBEAT_INTERVAL_MS, MEDIA_STALL_WARN_MS, TRANSLATOR_BOT_STARTUP_TIMEOUT_MS, billingTerminationBound, watchdogStarted, smartCallEvents;
 var init_smart_router = __esm({
   "server/modules/calls/smart-router.ts"() {
     "use strict";
@@ -262835,6 +262931,7 @@ var init_smart_router = __esm({
     PROVIDER_TIMEOUT_RINGING_MS = parsePositiveInt5(process.env.SMART_CALL_PROVIDER_TIMEOUT_RINGING_MS, 9e4);
     MEDIA_HEARTBEAT_INTERVAL_MS = parsePositiveInt5(process.env.SMART_CALL_MEDIA_HEARTBEAT_INTERVAL_MS, 1e3);
     MEDIA_STALL_WARN_MS = parsePositiveInt5(process.env.SMART_CALL_MEDIA_STALL_WARN_MS, 3e4);
+    TRANSLATOR_BOT_STARTUP_TIMEOUT_MS = parsePositiveInt5(process.env.TRANSLATOR_BOT_STARTUP_TIMEOUT_MS, 1e4);
     billingTerminationBound = false;
     watchdogStarted = false;
     smartCallEvents = new import_node_events2.EventEmitter();
@@ -302465,9 +302562,11 @@ __export(service_exports3, {
   listWebhookEndpoints: () => listWebhookEndpoints,
   registerWebhookEndpoint: () => registerWebhookEndpoint,
   retryDueWebhookDeliveries: () => retryDueWebhookDeliveries,
+  rotateWebhookSecret: () => rotateWebhookSecret,
   setWebhookEndpointActive: () => setWebhookEndpointActive,
   signWebhookPayload: () => signWebhookPayload,
   startWebhookRetryScheduler: () => startWebhookRetryScheduler,
+  updateWebhookEndpoint: () => updateWebhookEndpoint,
   verifyWebhookSignature: () => verifyWebhookSignature
 });
 function isValidWebhookEventType(value) {
@@ -302552,6 +302651,27 @@ async function deleteWebhookEndpoint(organizationId, id) {
 async function setWebhookEndpointActive(organizationId, id, isActive) {
   const result = await db.update(webhookEndpoints).set({ isActive, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm20.and)((0, import_drizzle_orm20.eq)(webhookEndpoints.id, id), (0, import_drizzle_orm20.eq)(webhookEndpoints.organizationId, organizationId))).returning({ id: webhookEndpoints.id });
   return result.length > 0;
+}
+async function updateWebhookEndpoint(organizationId, id, input) {
+  if (input.url) {
+    await assertWebhookUrlIsSafe(input.url);
+  }
+  if (input.subscribedEvents) {
+    const unknownEvents = input.subscribedEvents.filter((e5) => !isValidWebhookEventType(e5));
+    if (unknownEvents.length > 0) {
+      throw new Error(`UNKNOWN_EVENT_TYPES:${unknownEvents.join(",")}`);
+    }
+  }
+  const patch = { updatedAt: /* @__PURE__ */ new Date() };
+  if (input.url) patch.url = input.url;
+  if (input.subscribedEvents) patch.subscribedEvents = input.subscribedEvents;
+  const result = await db.update(webhookEndpoints).set(patch).where((0, import_drizzle_orm20.and)((0, import_drizzle_orm20.eq)(webhookEndpoints.id, id), (0, import_drizzle_orm20.eq)(webhookEndpoints.organizationId, organizationId))).returning({ id: webhookEndpoints.id });
+  return result.length > 0;
+}
+async function rotateWebhookSecret(organizationId, id) {
+  const secret = (0, import_crypto10.randomBytes)(32).toString("hex");
+  const result = await db.update(webhookEndpoints).set({ secret, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm20.and)((0, import_drizzle_orm20.eq)(webhookEndpoints.id, id), (0, import_drizzle_orm20.eq)(webhookEndpoints.organizationId, organizationId))).returning({ id: webhookEndpoints.id });
+  return result.length > 0 ? secret : null;
 }
 function signWebhookPayload(secret, rawBody) {
   return (0, import_crypto10.createHmac)("sha256", secret).update(rawBody).digest("hex");
@@ -316326,10 +316446,10 @@ var require_codegen = __commonJS({
     }
     exports2.not = not2;
     var andCode = mappend(exports2.operators.AND);
-    function and47(...args) {
+    function and48(...args) {
       return args.reduce(andCode);
     }
-    exports2.and = and47;
+    exports2.and = and48;
     var orCode = mappend(exports2.operators.OR);
     function or16(...args) {
       return args.reduce(orCode);
@@ -327927,8 +328047,8 @@ var require_eq = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/eq.js"(exports2, module2) {
     "use strict";
     var compare = require_compare();
-    var eq69 = (a5, b5, loose) => compare(a5, b5, loose) === 0;
-    module2.exports = eq69;
+    var eq71 = (a5, b5, loose) => compare(a5, b5, loose) === 0;
+    module2.exports = eq71;
   }
 });
 
@@ -327966,7 +328086,7 @@ var require_lte = __commonJS({
 var require_cmp = __commonJS({
   "node_modules/fastify/node_modules/semver/functions/cmp.js"(exports2, module2) {
     "use strict";
-    var eq69 = require_eq();
+    var eq71 = require_eq();
     var neq = require_neq();
     var gt6 = require_gt();
     var gte10 = require_gte();
@@ -327993,7 +328113,7 @@ var require_cmp = __commonJS({
         case "":
         case "=":
         case "==":
-          return eq69(a5, b5, loose);
+          return eq71(a5, b5, loose);
         case "!=":
           return neq(a5, b5, loose);
         case ">":
@@ -328974,15 +329094,15 @@ var require_subset = __commonJS({
           return null;
         }
       }
-      for (const eq69 of eqSet) {
-        if (gt6 && !satisfies(eq69, String(gt6), options)) {
+      for (const eq71 of eqSet) {
+        if (gt6 && !satisfies(eq71, String(gt6), options)) {
           return null;
         }
-        if (lt8 && !satisfies(eq69, String(lt8), options)) {
+        if (lt8 && !satisfies(eq71, String(lt8), options)) {
           return null;
         }
         for (const c5 of dom) {
-          if (!satisfies(eq69, String(c5), options)) {
+          if (!satisfies(eq71, String(c5), options)) {
             return false;
           }
         }
@@ -329086,7 +329206,7 @@ var require_semver2 = __commonJS({
     var rsort = require_rsort();
     var gt6 = require_gt();
     var lt8 = require_lt();
-    var eq69 = require_eq();
+    var eq71 = require_eq();
     var neq = require_neq();
     var gte10 = require_gte();
     var lte7 = require_lte();
@@ -329124,7 +329244,7 @@ var require_semver2 = __commonJS({
       rsort,
       gt: gt6,
       lt: lt8,
-      eq: eq69,
+      eq: eq71,
       neq,
       gte: gte10,
       lte: lte7,
@@ -340835,21 +340955,24 @@ var init_storage2 = __esm({
     init_schema();
     import_drizzle_orm22 = require("drizzle-orm");
     chatStorage = {
-      async getConversation(id) {
-        const [conversation] = await db.select().from(conversations).where((0, import_drizzle_orm22.eq)(conversations.id, id));
+      async getConversation(id, userId) {
+        const [conversation] = await db.select().from(conversations).where((0, import_drizzle_orm22.and)((0, import_drizzle_orm22.eq)(conversations.id, id), (0, import_drizzle_orm22.eq)(conversations.userId, userId)));
         return conversation;
       },
-      async getAllConversations() {
-        return db.select().from(conversations).orderBy((0, import_drizzle_orm22.desc)(conversations.createdAt));
+      async getAllConversations(userId) {
+        return db.select().from(conversations).where((0, import_drizzle_orm22.eq)(conversations.userId, userId)).orderBy((0, import_drizzle_orm22.desc)(conversations.createdAt));
       },
-      async createConversation(title) {
-        const [conversation] = await db.insert(conversations).values({ title }).returning();
+      async createConversation(title, userId) {
+        const [conversation] = await db.insert(conversations).values({ title, userId }).returning();
         return conversation;
       },
-      async deleteConversation(id) {
+      async deleteConversation(id, userId) {
         await db.delete(messages).where((0, import_drizzle_orm22.eq)(messages.conversationId, id));
-        await db.delete(conversations).where((0, import_drizzle_orm22.eq)(conversations.id, id));
+        await db.delete(conversations).where((0, import_drizzle_orm22.and)((0, import_drizzle_orm22.eq)(conversations.id, id), (0, import_drizzle_orm22.eq)(conversations.userId, userId)));
       },
+      // Scoped by conversationId only -- callers are required to have already
+      // verified conversation ownership via getConversation(id, userId) before
+      // reaching these, since a message has no direct userId of its own.
       async getMessagesByConversation(conversationId) {
         return db.select().from(messages).where((0, import_drizzle_orm22.eq)(messages.conversationId, conversationId)).orderBy(messages.createdAt);
       },
@@ -340973,9 +341096,9 @@ async function createFastifyServer() {
     }
     const startTime = Date.now();
     try {
-      const [user2, conversations3] = await Promise.all([
+      const [user2, userConversations] = await Promise.all([
         storage2.getUser(userId),
-        chatStorage.getAllConversations()
+        chatStorage.getAllConversations(userId)
       ]);
       if (!user2) {
         return reply.status(404).send({ error: "User not found" });
@@ -340984,7 +341107,6 @@ async function createFastifyServer() {
       if (user2.organizationId) {
         organization = await storage2.getOrganization(user2.organizationId);
       }
-      const userConversations = conversations3.filter((c5) => c5.userId === userId);
       const recentConversations = userConversations.slice(0, 5);
       const context = {
         user: user2,
@@ -347586,19 +347708,19 @@ var init_routes = __esm({
 
 // server/ai_integrations/chat/routes.ts
 function registerChatRoutes(app2) {
-  app2.get("/api/conversations", async (req, res) => {
+  app2.get("/api/conversations", loadUser, requireAuth, async (req, res) => {
     try {
-      const conversations3 = await chatStorage.getAllConversations();
+      const conversations3 = await chatStorage.getAllConversations(req.user.id);
       res.json(conversations3);
     } catch (error2) {
       console.error("Error fetching conversations:", error2);
       res.status(500).json({ error: "Failed to fetch conversations" });
     }
   });
-  app2.get("/api/conversations/:id", async (req, res) => {
+  app2.get("/api/conversations/:id", loadUser, requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const conversation = await chatStorage.getConversation(id);
+      const conversation = await chatStorage.getConversation(id, req.user.id);
       if (!conversation) {
         return res.status(404).json({ error: "Conversation not found" });
       }
@@ -347609,30 +347731,38 @@ function registerChatRoutes(app2) {
       res.status(500).json({ error: "Failed to fetch conversation" });
     }
   });
-  app2.post("/api/conversations", async (req, res) => {
+  app2.post("/api/conversations", loadUser, requireAuth, async (req, res) => {
     try {
       const { title } = req.body;
-      const conversation = await chatStorage.createConversation(title || "New Chat");
+      const conversation = await chatStorage.createConversation(title || "New Chat", req.user.id);
       res.status(201).json(conversation);
     } catch (error2) {
       console.error("Error creating conversation:", error2);
       res.status(500).json({ error: "Failed to create conversation" });
     }
   });
-  app2.delete("/api/conversations/:id", async (req, res) => {
+  app2.delete("/api/conversations/:id", loadUser, requireAuth, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      await chatStorage.deleteConversation(id);
+      const owned = await chatStorage.getConversation(id, req.user.id);
+      if (!owned) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      await chatStorage.deleteConversation(id, req.user.id);
       res.status(204).send();
     } catch (error2) {
       console.error("Error deleting conversation:", error2);
       res.status(500).json({ error: "Failed to delete conversation" });
     }
   });
-  app2.post("/api/conversations/:id/messages", async (req, res) => {
+  app2.post("/api/conversations/:id/messages", loadUser, requireAuth, async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);
       const { content } = req.body;
+      const owned = await chatStorage.getConversation(conversationId, req.user.id);
+      if (!owned) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
       await chatStorage.createMessage(conversationId, "user", content);
       const messages3 = await chatStorage.getMessagesByConversation(conversationId);
       const chatMessages = messages3.map((m3) => ({
@@ -347700,6 +347830,7 @@ var init_routes2 = __esm({
     import_openai8 = __toESM(require("openai"));
     init_storage2();
     init_openai_config();
+    init_role_middleware();
     openai3 = new import_openai8.default({
       apiKey: getOpenAIKey() || "",
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL
@@ -348574,49 +348705,6 @@ function registerAudioRoutes(app2) {
       res.status(500).json({ error: "Text-to-speech failed" });
     }
   });
-  app2.get("/api/conversations", async (req, res) => {
-    try {
-      const conversations3 = await chatStorage.getAllConversations();
-      res.json(conversations3);
-    } catch (error2) {
-      console.error("Error fetching conversations:", error2);
-      res.status(500).json({ error: "Failed to fetch conversations" });
-    }
-  });
-  app2.get("/api/conversations/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const conversation = await chatStorage.getConversation(id);
-      if (!conversation) {
-        return res.status(404).json({ error: "Conversation not found" });
-      }
-      const messages3 = await chatStorage.getMessagesByConversation(id);
-      res.json({ ...conversation, messages: messages3 });
-    } catch (error2) {
-      console.error("Error fetching conversation:", error2);
-      res.status(500).json({ error: "Failed to fetch conversation" });
-    }
-  });
-  app2.post("/api/conversations", async (req, res) => {
-    try {
-      const { title } = req.body;
-      const conversation = await chatStorage.createConversation(title || "New Chat");
-      res.status(201).json(conversation);
-    } catch (error2) {
-      console.error("Error creating conversation:", error2);
-      res.status(500).json({ error: "Failed to create conversation" });
-    }
-  });
-  app2.delete("/api/conversations/:id", async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      await chatStorage.deleteConversation(id);
-      res.status(204).send();
-    } catch (error2) {
-      console.error("Error deleting conversation:", error2);
-      res.status(500).json({ error: "Failed to delete conversation" });
-    }
-  });
   app2.post("/api/conversations/:id/messages", async (req, res) => {
     try {
       const conversationId = parseInt(req.params.id);
@@ -349318,6 +349406,13 @@ var init_object_storage = __esm({
 });
 
 // server/audit.ts
+var audit_exports = {};
+__export(audit_exports, {
+  AuditHelpers: () => AuditHelpers,
+  createAuditLog: () => createAuditLog,
+  getAuditLogs: () => getAuditLogs,
+  getAuditStats: () => getAuditStats
+});
 function sanitizeForAudit(data) {
   if (!data) return void 0;
   const sensitiveKeys = [
@@ -349941,25 +350036,174 @@ var init_voice_training = __esm({
   }
 });
 
+// server/modules/b2b-admin/org-lifecycle.ts
+function mapStoredStatusToOrgState(status, isActive) {
+  switch (status) {
+    case "pending":
+      return ORG_STATE.PENDING_APPROVAL;
+    case "approved":
+      return isActive === false ? ORG_STATE.APPROVED : ORG_STATE.ACTIVE;
+    case "suspended":
+      return ORG_STATE.SUSPENDED;
+    case "deactivated":
+      return ORG_STATE.DEACTIVATED;
+    case "rejected":
+      return ORG_STATE.REJECTED;
+    default:
+      return ORG_STATE.DRAFT;
+  }
+}
+function assertLegalTransition(from, to) {
+  const allowed = LEGAL_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new IllegalOrgTransitionError(from, to);
+  }
+}
+async function suspendOrganization(orgId4, actorUserId, reason) {
+  const [org] = await db.select().from(organizations).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  if (!org) return { ok: false, reason: "NOT_FOUND" };
+  const current = mapStoredStatusToOrgState(org.status, org.isActive);
+  try {
+    assertLegalTransition(current, ORG_STATE.SUSPENDED);
+  } catch {
+    return { ok: false, reason: "ILLEGAL_TRANSITION", previousState: current };
+  }
+  await db.update(organizations).set({
+    status: "suspended",
+    isActive: false,
+    suspendedAt: /* @__PURE__ */ new Date(),
+    suspendedBy: actorUserId,
+    suspensionReason: reason
+  }).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  await createAuditLog({
+    userId: actorUserId,
+    organizationId: orgId4,
+    action: AUDIT_ACTION.SUSPEND,
+    entityType: "organization",
+    entityId: orgId4,
+    oldValue: { status: org.status, isActive: org.isActive },
+    newValue: { status: "suspended", isActive: false },
+    metadata: { reason }
+  }).catch((err) => logger.error("OrgLifecycle", "Failed to audit-log suspend", err));
+  logger.info("OrgLifecycle", "Organization suspended", { orgId: orgId4, actorUserId, reason });
+  return { ok: true, previousState: current, newState: ORG_STATE.SUSPENDED };
+}
+async function reactivateOrganization(orgId4, actorUserId) {
+  const [org] = await db.select().from(organizations).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  if (!org) return { ok: false, reason: "NOT_FOUND" };
+  const current = mapStoredStatusToOrgState(org.status, org.isActive);
+  try {
+    assertLegalTransition(current, ORG_STATE.ACTIVE);
+  } catch {
+    return { ok: false, reason: "ILLEGAL_TRANSITION", previousState: current };
+  }
+  await db.update(organizations).set({
+    status: "approved",
+    isActive: true,
+    reactivatedAt: /* @__PURE__ */ new Date(),
+    reactivatedBy: actorUserId
+  }).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  await createAuditLog({
+    userId: actorUserId,
+    organizationId: orgId4,
+    action: AUDIT_ACTION.REACTIVATE,
+    entityType: "organization",
+    entityId: orgId4,
+    oldValue: { status: org.status, isActive: org.isActive },
+    newValue: { status: "approved", isActive: true }
+  }).catch((err) => logger.error("OrgLifecycle", "Failed to audit-log reactivate", err));
+  logger.info("OrgLifecycle", "Organization reactivated", { orgId: orgId4, actorUserId });
+  return { ok: true, previousState: current, newState: ORG_STATE.ACTIVE };
+}
+async function deactivateOrganization(orgId4, actorUserId, reason) {
+  const [org] = await db.select().from(organizations).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  if (!org) return { ok: false, reason: "NOT_FOUND" };
+  const current = mapStoredStatusToOrgState(org.status, org.isActive);
+  try {
+    assertLegalTransition(current, ORG_STATE.DEACTIVATED);
+  } catch {
+    return { ok: false, reason: "ILLEGAL_TRANSITION", previousState: current };
+  }
+  await db.update(organizations).set({
+    status: "deactivated",
+    isActive: false,
+    deactivatedAt: /* @__PURE__ */ new Date(),
+    deactivatedBy: actorUserId,
+    deactivationReason: reason
+  }).where((0, import_drizzle_orm34.eq)(organizations.id, orgId4));
+  await createAuditLog({
+    userId: actorUserId,
+    organizationId: orgId4,
+    action: AUDIT_ACTION.DEACTIVATE,
+    entityType: "organization",
+    entityId: orgId4,
+    oldValue: { status: org.status, isActive: org.isActive },
+    newValue: { status: "deactivated", isActive: false },
+    metadata: { reason }
+  }).catch((err) => logger.error("OrgLifecycle", "Failed to audit-log deactivate", err));
+  logger.info("OrgLifecycle", "Organization deactivated", { orgId: orgId4, actorUserId, reason });
+  return { ok: true, previousState: current, newState: ORG_STATE.DEACTIVATED };
+}
+var import_drizzle_orm34, ORG_STATE, LEGAL_TRANSITIONS, IllegalOrgTransitionError;
+var init_org_lifecycle = __esm({
+  "server/modules/b2b-admin/org-lifecycle.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    import_drizzle_orm34 = require("drizzle-orm");
+    init_audit();
+    init_schema();
+    init_observability();
+    ORG_STATE = {
+      DRAFT: "DRAFT",
+      PENDING_APPROVAL: "PENDING_APPROVAL",
+      APPROVED: "APPROVED",
+      ACTIVE: "ACTIVE",
+      SUSPENDED: "SUSPENDED",
+      DEACTIVATED: "DEACTIVATED",
+      REJECTED: "REJECTED"
+    };
+    LEGAL_TRANSITIONS = {
+      [ORG_STATE.DRAFT]: [ORG_STATE.PENDING_APPROVAL],
+      [ORG_STATE.PENDING_APPROVAL]: [ORG_STATE.APPROVED, ORG_STATE.REJECTED],
+      [ORG_STATE.APPROVED]: [ORG_STATE.ACTIVE],
+      [ORG_STATE.ACTIVE]: [ORG_STATE.SUSPENDED, ORG_STATE.DEACTIVATED],
+      [ORG_STATE.SUSPENDED]: [ORG_STATE.ACTIVE],
+      [ORG_STATE.DEACTIVATED]: [],
+      [ORG_STATE.REJECTED]: []
+    };
+    IllegalOrgTransitionError = class extends Error {
+      constructor(from, to) {
+        super(`Illegal organization state transition: ${from} -> ${to}`);
+        this.from = from;
+        this.to = to;
+        this.name = "IllegalOrgTransitionError";
+      }
+      from;
+      to;
+    };
+  }
+});
+
 // server/b2b-routes.ts
 function toOpeningBalancePaise(input) {
   const rupees = input.initialWalletRupees ?? 0;
   return Math.max(0, Math.round(rupees * 100));
 }
 async function getDefaultB2BPlan() {
-  const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm34.and)(
-    (0, import_drizzle_orm34.eq)(billingPlans.planType, "b2b"),
-    (0, import_drizzle_orm34.eq)(billingPlans.isEnabled, true)
-  )).orderBy((0, import_drizzle_orm34.desc)(billingPlans.isDefault), billingPlans.displayOrder, billingPlans.priceInPaise).limit(1);
+  const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm35.and)(
+    (0, import_drizzle_orm35.eq)(billingPlans.planType, "b2b"),
+    (0, import_drizzle_orm35.eq)(billingPlans.isEnabled, true)
+  )).orderBy((0, import_drizzle_orm35.desc)(billingPlans.isDefault), billingPlans.displayOrder, billingPlans.priceInPaise).limit(1);
   return plan ?? null;
 }
 async function ensureOrganizationBillingReady(organizationId, actorUserId, openingBalancePaise = 0) {
-  const [existingSubscription] = await db.select().from(subscriptions).where((0, import_drizzle_orm34.and)(
-    (0, import_drizzle_orm34.eq)(subscriptions.organizationId, organizationId),
-    (0, import_drizzle_orm34.eq)(subscriptions.status, "active")
-  )).orderBy((0, import_drizzle_orm34.desc)(subscriptions.createdAt)).limit(1);
+  const [existingSubscription] = await db.select().from(subscriptions).where((0, import_drizzle_orm35.and)(
+    (0, import_drizzle_orm35.eq)(subscriptions.organizationId, organizationId),
+    (0, import_drizzle_orm35.eq)(subscriptions.status, "active")
+  )).orderBy((0, import_drizzle_orm35.desc)(subscriptions.createdAt)).limit(1);
   let activeSubscription = existingSubscription ?? null;
-  const defaultPlan = activeSubscription ? await db.query.billingPlans.findFirst({ where: (0, import_drizzle_orm34.eq)(billingPlans.id, activeSubscription.planId) }) : await getDefaultB2BPlan();
+  const defaultPlan = activeSubscription ? await db.query.billingPlans.findFirst({ where: (0, import_drizzle_orm35.eq)(billingPlans.id, activeSubscription.planId) }) : await getDefaultB2BPlan();
   if (!activeSubscription && defaultPlan) {
     const now = /* @__PURE__ */ new Date();
     const endDate = new Date(now);
@@ -350003,14 +350247,14 @@ async function getOrganizationSubscription(organizationId) {
     billingModel: subscriptions.billingModel,
     endDate: subscriptions.endDate,
     planName: billingPlans.name
-  }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm34.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm34.and)(
-    (0, import_drizzle_orm34.eq)(subscriptions.organizationId, organizationId),
-    (0, import_drizzle_orm34.eq)(subscriptions.status, "active")
-  )).orderBy((0, import_drizzle_orm34.desc)(subscriptions.createdAt)).limit(1);
+  }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm35.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm35.and)(
+    (0, import_drizzle_orm35.eq)(subscriptions.organizationId, organizationId),
+    (0, import_drizzle_orm35.eq)(subscriptions.status, "active")
+  )).orderBy((0, import_drizzle_orm35.desc)(subscriptions.createdAt)).limit(1);
   return row ?? null;
 }
 async function getOrganizationWalletLedger(organizationId, limit = 50) {
-  return db.select().from(billingLedgerEntries).where((0, import_drizzle_orm34.eq)(billingLedgerEntries.organizationId, organizationId)).orderBy((0, import_drizzle_orm34.desc)(billingLedgerEntries.createdAt)).limit(limit);
+  return db.select().from(billingLedgerEntries).where((0, import_drizzle_orm35.eq)(billingLedgerEntries.organizationId, organizationId)).orderBy((0, import_drizzle_orm35.desc)(billingLedgerEntries.createdAt)).limit(limit);
 }
 function safeAverageDuration(seconds, count3) {
   if (!count3 || seconds <= 0) return "0:00";
@@ -350021,7 +350265,7 @@ function safeAverageDuration(seconds, count3) {
 }
 async function getAgentStatusRows(organizationId) {
   const members = await db.query.orgMembers.findMany({
-    where: (0, import_drizzle_orm34.eq)(orgMembers.organizationId, organizationId),
+    where: (0, import_drizzle_orm35.eq)(orgMembers.organizationId, organizationId),
     with: { user: true }
   });
   const activeSmartCalls = await listSmartActiveCalls2();
@@ -350190,7 +350434,7 @@ function registerB2BRoutes(app2) {
       const input = companySignupSchema.parse(req.body);
       const slug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       const existing = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm34.eq)(organizations.slug, slug)
+        where: (0, import_drizzle_orm35.eq)(organizations.slug, slug)
       });
       if (existing) {
         return res.status(400).json({
@@ -350210,7 +350454,7 @@ function registerB2BRoutes(app2) {
         plan: "free"
       }).returning();
       const existingUser = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm34.eq)(users.email, input.email)
+        where: (0, import_drizzle_orm35.eq)(users.email, input.email)
       });
       let adminUser;
       const displayUsername = input.adminName || `${slug}_admin`;
@@ -350221,7 +350465,7 @@ function registerB2BRoutes(app2) {
           organizationId: company.id,
           username: uniqueUsername
           // Use the admin name as username
-        }).where((0, import_drizzle_orm34.eq)(users.id, existingUser.id)).returning();
+        }).where((0, import_drizzle_orm35.eq)(users.id, existingUser.id)).returning();
         adminUser = updated;
       } else {
         const [created] = await db.insert(users).values({
@@ -350269,7 +350513,7 @@ function registerB2BRoutes(app2) {
   app2.get("/api/admin/companies", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const companies = await db.query.organizations.findMany({
-        orderBy: [(0, import_drizzle_orm34.desc)(organizations.createdAt)]
+        orderBy: [(0, import_drizzle_orm35.desc)(organizations.createdAt)]
       });
       const companiesWithBilling = await Promise.all(companies.map(async (company) => {
         const billing = await getOrganizationBillingSnapshot(company.id);
@@ -350310,19 +350554,19 @@ function registerB2BRoutes(app2) {
       }
       const data = validation.data;
       if (data.companyEmail) {
-        const [existingOrg] = await db.select().from(organizations).where((0, import_drizzle_orm34.eq)(organizations.email, data.companyEmail));
+        const [existingOrg] = await db.select().from(organizations).where((0, import_drizzle_orm35.eq)(organizations.email, data.companyEmail));
         if (existingOrg) {
           return res.status(400).json({ success: false, message: "Company email already exists" });
         }
       }
       if (data.adminEmail) {
-        const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm34.eq)(users.email, data.adminEmail));
+        const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm35.eq)(users.email, data.adminEmail));
         if (existingUser) {
           return res.status(400).json({ success: false, message: "Admin email already exists" });
         }
       }
       if (data.adminPhone) {
-        const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm34.eq)(users.phone, data.adminPhone));
+        const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm35.eq)(users.phone, data.adminPhone));
         if (existingUser) {
           return res.status(400).json({ success: false, message: "Admin phone already exists" });
         }
@@ -350393,12 +350637,23 @@ function registerB2BRoutes(app2) {
   app2.post("/api/admin/companies/:id/approve", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
+      const [existing] = await db.select().from(organizations).where((0, import_drizzle_orm35.eq)(organizations.id, companyId));
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "Company not found" });
+      }
+      const currentState = mapStoredStatusToOrgState(existing.status, existing.isActive);
+      if (currentState !== ORG_STATE.PENDING_APPROVAL) {
+        return res.status(409).json({
+          success: false,
+          message: `Cannot approve a company in state ${currentState}. Only PENDING_APPROVAL companies can be approved.`
+        });
+      }
       await db.update(organizations).set({
         status: "approved",
         approvedAt: /* @__PURE__ */ new Date(),
         approvedBy: req.user.id,
         isActive: true
-      }).where((0, import_drizzle_orm34.eq)(organizations.id, companyId));
+      }).where((0, import_drizzle_orm35.eq)(organizations.id, companyId));
       const billing = await ensureOrganizationBillingReady(companyId, req.user.id, 0);
       await AuditHelpers.logCompanyApproval(req.user.id, companyId, true);
       logger.info("B2BRoutes", "Company approved", {
@@ -350415,12 +350670,27 @@ function registerB2BRoutes(app2) {
     try {
       const companyId = parseInt(req.params.id);
       const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A rejection reason is required" });
+      }
+      const [existing] = await db.select().from(organizations).where((0, import_drizzle_orm35.eq)(organizations.id, companyId));
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "Company not found" });
+      }
+      const currentState = mapStoredStatusToOrgState(existing.status, existing.isActive);
+      if (currentState !== ORG_STATE.PENDING_APPROVAL) {
+        return res.status(409).json({
+          success: false,
+          message: `Cannot reject a company in state ${currentState}. Only PENDING_APPROVAL companies can be rejected.`
+        });
+      }
       await db.update(organizations).set({
         status: "rejected",
         rejectedAt: /* @__PURE__ */ new Date(),
+        rejectedBy: req.user.id,
         rejectionReason: reason,
         isActive: false
-      }).where((0, import_drizzle_orm34.eq)(organizations.id, companyId));
+      }).where((0, import_drizzle_orm35.eq)(organizations.id, companyId));
       await AuditHelpers.logCompanyApproval(req.user.id, companyId, false, reason);
       logger.info("B2BRoutes", "Company rejected", {
         companyId,
@@ -350430,6 +350700,74 @@ function registerB2BRoutes(app2) {
     } catch (err) {
       logger.error("B2BRoutes", "Failed to reject company", err);
       res.status(500).json({ success: false, message: "Failed to reject company" });
+    }
+  });
+  app2.post("/api/admin/companies/:id/suspend", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A suspension reason is required" });
+      }
+      const result = await suspendOrganization(companyId, req.user.id, reason);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot suspend a company in state ${result.previousState}. Only ACTIVE companies can be suspended.`
+        });
+      }
+      logger.info("B2BRoutes", "Company suspended", { companyId, actorUserId: req.user.id, reason });
+      res.json({ success: true, message: "Company suspended", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to suspend company", err);
+      res.status(500).json({ success: false, message: "Failed to suspend company" });
+    }
+  });
+  app2.post("/api/admin/companies/:id/reactivate", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const result = await reactivateOrganization(companyId, req.user.id);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot reactivate a company in state ${result.previousState}. Only SUSPENDED companies can be reactivated.`
+        });
+      }
+      logger.info("B2BRoutes", "Company reactivated", { companyId, actorUserId: req.user.id });
+      res.json({ success: true, message: "Company reactivated", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to reactivate company", err);
+      res.status(500).json({ success: false, message: "Failed to reactivate company" });
+    }
+  });
+  app2.post("/api/admin/companies/:id/deactivate", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A deactivation reason is required" });
+      }
+      const result = await deactivateOrganization(companyId, req.user.id, reason);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot deactivate a company in state ${result.previousState}. Only ACTIVE companies can be deactivated.`
+        });
+      }
+      logger.info("B2BRoutes", "Company deactivated", { companyId, actorUserId: req.user.id, reason });
+      res.json({ success: true, message: "Company deactivated", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to deactivate company", err);
+      res.status(500).json({ success: false, message: "Failed to deactivate company" });
     }
   });
   app2.post("/api/admin/companies/:id/credits", requireAuth, requireSuperAdmin, async (req, res) => {
@@ -350483,9 +350821,9 @@ function registerB2BRoutes(app2) {
       const updates = req.body;
       for (const [key2, value] of Object.entries(updates)) {
         const stringValue = typeof value === "string" ? value : JSON.stringify(value);
-        const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm34.eq)(platformSettings.key, key2));
+        const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm35.eq)(platformSettings.key, key2));
         if (existing) {
-          await db.update(platformSettings).set({ value: stringValue, updatedBy: req.user.id, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm34.eq)(platformSettings.key, key2));
+          await db.update(platformSettings).set({ value: stringValue, updatedBy: req.user.id, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm35.eq)(platformSettings.key, key2));
         } else {
           await db.insert(platformSettings).values({ key: key2, value: stringValue, description: `Setting: ${key2}`, updatedBy: req.user.id });
         }
@@ -350502,10 +350840,10 @@ function registerB2BRoutes(app2) {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
       const company = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm34.eq)(organizations.id, req.user.organizationId)
+        where: (0, import_drizzle_orm35.eq)(organizations.id, req.user.organizationId)
       });
       const agents = await db.query.orgMembers.findMany({
-        where: (0, import_drizzle_orm34.eq)(orgMembers.organizationId, req.user.organizationId),
+        where: (0, import_drizzle_orm35.eq)(orgMembers.organizationId, req.user.organizationId),
         with: { user: true }
       });
       const billing = await getOrganizationBillingSnapshot(req.user.organizationId);
@@ -350562,7 +350900,7 @@ function registerB2BRoutes(app2) {
       const input = addAgentSchema.parse(req.body);
       if (input.email) {
         const existingUser = await db.query.users.findFirst({
-          where: (0, import_drizzle_orm34.eq)(users.email, input.email)
+          where: (0, import_drizzle_orm35.eq)(users.email, input.email)
         });
         if (existingUser) {
           return res.status(400).json({
@@ -350617,15 +350955,15 @@ function registerB2BRoutes(app2) {
       }
       const agentId = parseInt(req.params.agentId);
       const agent = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm34.eq)(users.id, agentId)
+        where: (0, import_drizzle_orm35.eq)(users.id, agentId)
       });
       if (!agent || agent.organizationId !== req.user.organizationId) {
         return res.status(404).json({ success: false, message: "Agent not found" });
       }
       await db.delete(orgMembers).where(
-        (0, import_drizzle_orm34.eq)(orgMembers.userId, agentId)
+        (0, import_drizzle_orm35.eq)(orgMembers.userId, agentId)
       );
-      await db.update(users).set({ isActive: false }).where((0, import_drizzle_orm34.eq)(users.id, agentId));
+      await db.update(users).set({ isActive: false }).where((0, import_drizzle_orm35.eq)(users.id, agentId));
       const { activeCallIds } = await endActiveCallsForUser(agentId, req.user.id, "USER_DEACTIVATED");
       await invalidateAllSessionsForUser(agentId);
       await AuditHelpers.logUpdate(
@@ -350659,7 +350997,7 @@ function registerB2BRoutes(app2) {
         return res.status(400).json({ success: false, message: parsed.error.errors[0]?.message || "Invalid status update" });
       }
       const agent = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm34.eq)(users.id, agentId)
+        where: (0, import_drizzle_orm35.eq)(users.id, agentId)
       });
       if (!agent || agent.organizationId !== req.user.organizationId) {
         return res.status(404).json({ success: false, message: "Team member not found" });
@@ -350667,7 +351005,7 @@ function registerB2BRoutes(app2) {
       if (agent.id === req.user.id && parsed.data.isActive === false) {
         return res.status(400).json({ success: false, message: "You cannot deactivate your own account" });
       }
-      await db.update(users).set({ isActive: parsed.data.isActive }).where((0, import_drizzle_orm34.eq)(users.id, agentId));
+      await db.update(users).set({ isActive: parsed.data.isActive }).where((0, import_drizzle_orm35.eq)(users.id, agentId));
       let activeCallIdsEnded = [];
       if (!parsed.data.isActive) {
         const cleanup = await endActiveCallsForUser(agentId, req.user.id, "USER_DEACTIVATED");
@@ -350714,7 +351052,7 @@ function registerB2BRoutes(app2) {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
       const org = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm34.eq)(organizations.id, req.user.organizationId)
+        where: (0, import_drizzle_orm35.eq)(organizations.id, req.user.organizationId)
       });
       const settings = org?.settings || {};
       res.json({
@@ -350738,12 +351076,12 @@ function registerB2BRoutes(app2) {
       ).join("");
       const newKey = prefix + randomPart;
       const org = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm34.eq)(organizations.id, req.user.organizationId)
+        where: (0, import_drizzle_orm35.eq)(organizations.id, req.user.organizationId)
       });
       const currentSettings = org?.settings || {};
       await db.update(organizations).set({
         settings: { ...currentSettings, apiKey: newKey, apiKeyCreatedAt: (/* @__PURE__ */ new Date()).toISOString() }
-      }).where((0, import_drizzle_orm34.eq)(organizations.id, req.user.organizationId));
+      }).where((0, import_drizzle_orm35.eq)(organizations.id, req.user.organizationId));
       if (req.user) {
         AuditHelpers.logCreate(req.user.id, "api_key", 0, { action: "generated" });
       }
@@ -350763,7 +351101,7 @@ function registerB2BRoutes(app2) {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
       const organizationId = req.user.organizationId;
-      const pendingCalls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm34.eq)(bridgedCalls.status, "pending"));
+      const pendingCalls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm35.eq)(bridgedCalls.status, "pending"));
       const participantIds = Array.from(new Set(
         pendingCalls.flatMap((call) => [call.callerUserId, call.receiverUserId]).filter(
           (value) => typeof value === "number" && Number.isFinite(value)
@@ -350772,7 +351110,7 @@ function registerB2BRoutes(app2) {
       const participants = participantIds.length > 0 ? await db.select({
         id: users.id,
         organizationId: users.organizationId
-      }).from(users).where((0, import_drizzle_orm34.inArray)(users.id, participantIds)) : [];
+      }).from(users).where((0, import_drizzle_orm35.inArray)(users.id, participantIds)) : [];
       const participantOrgMap = new Map(participants.map((participant) => [participant.id, participant.organizationId]));
       const relevantPendingCalls = pendingCalls.filter((call) => {
         const participantOrganizations = [call.callerUserId, call.receiverUserId].map((userId) => typeof userId === "number" ? participantOrgMap.get(userId) : void 0).filter((organizationId2) => typeof organizationId2 === "number");
@@ -350872,7 +351210,7 @@ function registerB2BRoutes(app2) {
       if (!Number.isFinite(queueId) || !Number.isFinite(agentUserId)) {
         return res.status(400).json({ success: false, message: "Queue item and agent are required" });
       }
-      const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm34.eq)(bridgedCalls.id, queueId));
+      const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm35.eq)(bridgedCalls.id, queueId));
       if (!call) {
         return res.status(404).json({ success: false, message: "Queue item not found" });
       }
@@ -350890,7 +351228,7 @@ function registerB2BRoutes(app2) {
           assignedByUserId: req.user.id,
           assignedAt: (/* @__PURE__ */ new Date()).toISOString()
         }
-      }).where((0, import_drizzle_orm34.eq)(bridgedCalls.id, queueId));
+      }).where((0, import_drizzle_orm35.eq)(bridgedCalls.id, queueId));
       res.json({ success: true, message: "Queue item assigned to agent" });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to assign queue item", err);
@@ -350906,7 +351244,7 @@ function registerB2BRoutes(app2) {
       if (!Number.isFinite(queueId)) {
         return res.status(400).json({ success: false, message: "Invalid queue item" });
       }
-      const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm34.eq)(bridgedCalls.id, queueId));
+      const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm35.eq)(bridgedCalls.id, queueId));
       if (!call) {
         return res.status(404).json({ success: false, message: "Queue item not found" });
       }
@@ -350929,7 +351267,7 @@ function registerB2BRoutes(app2) {
           autoRoutedAt: (/* @__PURE__ */ new Date()).toISOString(),
           autoRouteSkills: requiredSkills
         }
-      }).where((0, import_drizzle_orm34.eq)(bridgedCalls.id, queueId));
+      }).where((0, import_drizzle_orm35.eq)(bridgedCalls.id, queueId));
       res.json({ success: true, message: "Call auto-routed", agentUserId: agent.id });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to auto-route queue item", err);
@@ -350948,9 +351286,9 @@ function registerB2BRoutes(app2) {
     try {
       const userId = req.user?.id;
       if (!userId) return res.json({ success: true, customer: null });
-      const [user2] = await db.select().from(users).where((0, import_drizzle_orm34.eq)(users.id, userId));
+      const [user2] = await db.select().from(users).where((0, import_drizzle_orm35.eq)(users.id, userId));
       if (!user2) return res.json({ success: true, customer: null });
-      const callHistory2 = await db.select().from(bridgedCalls).where((0, import_drizzle_orm34.eq)(bridgedCalls.callerUserId, userId));
+      const callHistory2 = await db.select().from(bridgedCalls).where((0, import_drizzle_orm35.eq)(bridgedCalls.callerUserId, userId));
       res.json({
         success: true,
         customer: {
@@ -350973,13 +351311,13 @@ function registerB2BRoutes(app2) {
   });
   logger.info("B2BRoutes", "B2B routes registered");
 }
-var import_drizzle_orm34, import_zod5, companySignupSchema, addAgentSchema, updateAgentStatusSchema, createCompanySchema, b2bOutboundCallSchema;
+var import_drizzle_orm35, import_zod5, companySignupSchema, addAgentSchema, updateAgentStatusSchema, createCompanySchema, b2bOutboundCallSchema;
 var init_b2b_routes = __esm({
   "server/b2b-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm34 = require("drizzle-orm");
+    import_drizzle_orm35 = require("drizzle-orm");
     import_zod5 = require("zod");
     init_storage();
     init_role_middleware();
@@ -350991,6 +351329,7 @@ var init_b2b_routes = __esm({
     init_service2();
     init_session_view();
     init_smart_router();
+    init_org_lifecycle();
     companySignupSchema = import_zod5.z.object({
       name: import_zod5.z.string().min(2),
       email: import_zod5.z.string().email(),
@@ -351042,7 +351381,7 @@ var init_b2b_routes = __esm({
 function registerLocationRoutes(app2) {
   app2.get("/api/locations/countries", async (req, res) => {
     try {
-      const result = await db.select().from(countries).where((0, import_drizzle_orm35.eq)(countries.isEnabled, true)).orderBy((0, import_drizzle_orm35.asc)(countries.name));
+      const result = await db.select().from(countries).where((0, import_drizzle_orm36.eq)(countries.isEnabled, true)).orderBy((0, import_drizzle_orm36.asc)(countries.name));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch countries", err);
@@ -351055,10 +351394,10 @@ function registerLocationRoutes(app2) {
       if (isNaN(countryId)) {
         return res.status(400).json({ success: false, message: "Invalid country ID" });
       }
-      const result = await db.select().from(states).where((0, import_drizzle_orm35.and)(
-        (0, import_drizzle_orm35.eq)(states.countryId, countryId),
-        (0, import_drizzle_orm35.eq)(states.isEnabled, true)
-      )).orderBy((0, import_drizzle_orm35.asc)(states.name));
+      const result = await db.select().from(states).where((0, import_drizzle_orm36.and)(
+        (0, import_drizzle_orm36.eq)(states.countryId, countryId),
+        (0, import_drizzle_orm36.eq)(states.isEnabled, true)
+      )).orderBy((0, import_drizzle_orm36.asc)(states.name));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch states", err);
@@ -351071,10 +351410,10 @@ function registerLocationRoutes(app2) {
       if (isNaN(stateId)) {
         return res.status(400).json({ success: false, message: "Invalid state ID" });
       }
-      const result = await db.select().from(districts).where((0, import_drizzle_orm35.and)(
-        (0, import_drizzle_orm35.eq)(districts.stateId, stateId),
-        (0, import_drizzle_orm35.eq)(districts.isEnabled, true)
-      )).orderBy((0, import_drizzle_orm35.asc)(districts.name));
+      const result = await db.select().from(districts).where((0, import_drizzle_orm36.and)(
+        (0, import_drizzle_orm36.eq)(districts.stateId, stateId),
+        (0, import_drizzle_orm36.eq)(districts.isEnabled, true)
+      )).orderBy((0, import_drizzle_orm36.asc)(districts.name));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch districts", err);
@@ -351087,10 +351426,10 @@ function registerLocationRoutes(app2) {
       if (isNaN(districtId)) {
         return res.status(400).json({ success: false, message: "Invalid district ID" });
       }
-      const result = await db.select().from(cities).where((0, import_drizzle_orm35.and)(
-        (0, import_drizzle_orm35.eq)(cities.districtId, districtId),
-        (0, import_drizzle_orm35.eq)(cities.isEnabled, true)
-      )).orderBy((0, import_drizzle_orm35.asc)(cities.name));
+      const result = await db.select().from(cities).where((0, import_drizzle_orm36.and)(
+        (0, import_drizzle_orm36.eq)(cities.districtId, districtId),
+        (0, import_drizzle_orm36.eq)(cities.isEnabled, true)
+      )).orderBy((0, import_drizzle_orm36.asc)(cities.name));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch cities", err);
@@ -351103,10 +351442,10 @@ function registerLocationRoutes(app2) {
       if (isNaN(cityId)) {
         return res.status(400).json({ success: false, message: "Invalid city ID" });
       }
-      const result = await db.select().from(villages).where((0, import_drizzle_orm35.and)(
-        (0, import_drizzle_orm35.eq)(villages.cityId, cityId),
-        (0, import_drizzle_orm35.eq)(villages.isEnabled, true)
-      )).orderBy((0, import_drizzle_orm35.asc)(villages.name));
+      const result = await db.select().from(villages).where((0, import_drizzle_orm36.and)(
+        (0, import_drizzle_orm36.eq)(villages.cityId, cityId),
+        (0, import_drizzle_orm36.eq)(villages.isEnabled, true)
+      )).orderBy((0, import_drizzle_orm36.asc)(villages.name));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch villages", err);
@@ -351120,10 +351459,10 @@ function registerLocationRoutes(app2) {
       if (!cityId && !villageId) {
         return res.status(400).json({ success: false, message: "Provide cityId or villageId" });
       }
-      let conditions = [(0, import_drizzle_orm35.eq)(pincodes.isEnabled, true)];
-      if (cityId) conditions.push((0, import_drizzle_orm35.eq)(pincodes.cityId, cityId));
-      if (villageId) conditions.push((0, import_drizzle_orm35.eq)(pincodes.villageId, villageId));
-      const result = await db.select().from(pincodes).where((0, import_drizzle_orm35.and)(...conditions)).orderBy((0, import_drizzle_orm35.asc)(pincodes.code));
+      let conditions = [(0, import_drizzle_orm36.eq)(pincodes.isEnabled, true)];
+      if (cityId) conditions.push((0, import_drizzle_orm36.eq)(pincodes.cityId, cityId));
+      if (villageId) conditions.push((0, import_drizzle_orm36.eq)(pincodes.villageId, villageId));
+      const result = await db.select().from(pincodes).where((0, import_drizzle_orm36.and)(...conditions)).orderBy((0, import_drizzle_orm36.asc)(pincodes.code));
       res.json({ success: true, data: result });
     } catch (err) {
       logger.error("LocationRoutes", "Failed to fetch pincodes", err);
@@ -351136,7 +351475,7 @@ function registerLocationRoutes(app2) {
       if (!code || code.length < 2) {
         return res.status(400).json({ success: false, message: "Provide at least 2 characters" });
       }
-      const result = await db.select().from(pincodes).where((0, import_drizzle_orm35.eq)(pincodes.isEnabled, true)).orderBy((0, import_drizzle_orm35.asc)(pincodes.code)).limit(20);
+      const result = await db.select().from(pincodes).where((0, import_drizzle_orm36.eq)(pincodes.isEnabled, true)).orderBy((0, import_drizzle_orm36.asc)(pincodes.code)).limit(20);
       const filtered = result.filter((p3) => p3.code.startsWith(code));
       res.json({ success: true, data: filtered });
     } catch (err) {
@@ -351265,13 +351604,13 @@ function registerLocationRoutes(app2) {
   });
   logger.info("LocationRoutes", "Location routes registered");
 }
-var import_drizzle_orm35;
+var import_drizzle_orm36;
 var init_location_routes = __esm({
   "server/location-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm35 = require("drizzle-orm");
+    import_drizzle_orm36 = require("drizzle-orm");
     init_observability();
     init_role_middleware();
   }
@@ -351281,7 +351620,7 @@ var init_location_routes = __esm({
 function registerAdminSettingsRoutes(app2) {
   app2.get("/api/admin/languages", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const languages = await db.select().from(supportedLanguages).orderBy((0, import_drizzle_orm36.asc)(supportedLanguages.displayOrder));
+      const languages = await db.select().from(supportedLanguages).orderBy((0, import_drizzle_orm37.asc)(supportedLanguages.displayOrder));
       res.json({ success: true, data: languages });
     } catch (err) {
       logger.error("AdminSettings", "Failed to fetch languages", err);
@@ -351312,11 +351651,11 @@ function registerAdminSettingsRoutes(app2) {
       if (!parsed.success) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: parsed.error.errors });
       }
-      const [existing] = await db.select().from(supportedLanguages).where((0, import_drizzle_orm36.eq)(supportedLanguages.id, id));
+      const [existing] = await db.select().from(supportedLanguages).where((0, import_drizzle_orm37.eq)(supportedLanguages.id, id));
       if (!existing) {
         return res.status(404).json({ success: false, message: "Language not found" });
       }
-      const [updated] = await db.update(supportedLanguages).set(parsed.data).where((0, import_drizzle_orm36.eq)(supportedLanguages.id, id)).returning();
+      const [updated] = await db.update(supportedLanguages).set(parsed.data).where((0, import_drizzle_orm37.eq)(supportedLanguages.id, id)).returning();
       await AuditHelpers.logUpdate(req.user.id, "language", id, existing, updated);
       res.json({ success: true, data: updated });
     } catch (err) {
@@ -351326,7 +351665,7 @@ function registerAdminSettingsRoutes(app2) {
   });
   app2.get("/api/admin/payment-gateways", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const gateways = await db.select().from(paymentGateways).orderBy((0, import_drizzle_orm36.asc)(paymentGateways.name));
+      const gateways = await db.select().from(paymentGateways).orderBy((0, import_drizzle_orm37.asc)(paymentGateways.name));
       res.json({ success: true, data: gateways });
     } catch (err) {
       logger.error("AdminSettings", "Failed to fetch payment gateways", err);
@@ -351357,14 +351696,14 @@ function registerAdminSettingsRoutes(app2) {
       if (!parsed.success) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: parsed.error.errors });
       }
-      const [existing] = await db.select().from(paymentGateways).where((0, import_drizzle_orm36.eq)(paymentGateways.id, id));
+      const [existing] = await db.select().from(paymentGateways).where((0, import_drizzle_orm37.eq)(paymentGateways.id, id));
       if (!existing) {
         return res.status(404).json({ success: false, message: "Payment gateway not found" });
       }
       const [updated] = await db.update(paymentGateways).set({
         ...parsed.data,
         updatedAt: /* @__PURE__ */ new Date()
-      }).where((0, import_drizzle_orm36.eq)(paymentGateways.id, id)).returning();
+      }).where((0, import_drizzle_orm37.eq)(paymentGateways.id, id)).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "payment_gateway",
@@ -351380,7 +351719,7 @@ function registerAdminSettingsRoutes(app2) {
   });
   app2.get("/api/admin/legal-content", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const content = await db.select().from(legalContent).orderBy((0, import_drizzle_orm36.asc)(legalContent.key), (0, import_drizzle_orm36.asc)(legalContent.languageCode));
+      const content = await db.select().from(legalContent).orderBy((0, import_drizzle_orm37.asc)(legalContent.key), (0, import_drizzle_orm37.asc)(legalContent.languageCode));
       res.json({ success: true, data: content });
     } catch (err) {
       logger.error("AdminSettings", "Failed to fetch legal content", err);
@@ -351391,16 +351730,16 @@ function registerAdminSettingsRoutes(app2) {
     try {
       const { key: key2 } = req.params;
       const lang = req.query.lang || "en";
-      const [content] = await db.select().from(legalContent).where((0, import_drizzle_orm36.and)(
-        (0, import_drizzle_orm36.eq)(legalContent.key, key2),
-        (0, import_drizzle_orm36.eq)(legalContent.languageCode, lang),
-        (0, import_drizzle_orm36.eq)(legalContent.isActive, true)
+      const [content] = await db.select().from(legalContent).where((0, import_drizzle_orm37.and)(
+        (0, import_drizzle_orm37.eq)(legalContent.key, key2),
+        (0, import_drizzle_orm37.eq)(legalContent.languageCode, lang),
+        (0, import_drizzle_orm37.eq)(legalContent.isActive, true)
       ));
       if (!content) {
-        const [fallback3] = await db.select().from(legalContent).where((0, import_drizzle_orm36.and)(
-          (0, import_drizzle_orm36.eq)(legalContent.key, key2),
-          (0, import_drizzle_orm36.eq)(legalContent.languageCode, "en"),
-          (0, import_drizzle_orm36.eq)(legalContent.isActive, true)
+        const [fallback3] = await db.select().from(legalContent).where((0, import_drizzle_orm37.and)(
+          (0, import_drizzle_orm37.eq)(legalContent.key, key2),
+          (0, import_drizzle_orm37.eq)(legalContent.languageCode, "en"),
+          (0, import_drizzle_orm37.eq)(legalContent.isActive, true)
         ));
         if (!fallback3) {
           return res.status(404).json({ success: false, message: "Content not found" });
@@ -351419,9 +351758,9 @@ function registerAdminSettingsRoutes(app2) {
       if (!parsed.success) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: parsed.error.errors });
       }
-      const [existing] = await db.select().from(legalContent).where((0, import_drizzle_orm36.and)(
-        (0, import_drizzle_orm36.eq)(legalContent.key, parsed.data.key),
-        (0, import_drizzle_orm36.eq)(legalContent.languageCode, parsed.data.languageCode || "en")
+      const [existing] = await db.select().from(legalContent).where((0, import_drizzle_orm37.and)(
+        (0, import_drizzle_orm37.eq)(legalContent.key, parsed.data.key),
+        (0, import_drizzle_orm37.eq)(legalContent.languageCode, parsed.data.languageCode || "en")
       ));
       let result;
       if (existing) {
@@ -351430,7 +351769,7 @@ function registerAdminSettingsRoutes(app2) {
           version: (existing.version || 1) + 1,
           updatedBy: req.user.id,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm36.eq)(legalContent.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm37.eq)(legalContent.id, existing.id)).returning();
         await AuditHelpers.logUpdate(
           req.user.id,
           "legal_content",
@@ -351450,7 +351789,7 @@ function registerAdminSettingsRoutes(app2) {
   });
   app2.get("/api/admin/support-contacts", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-      const contacts = await db.select().from(supportContacts).orderBy((0, import_drizzle_orm36.asc)(supportContacts.displayOrder));
+      const contacts = await db.select().from(supportContacts).orderBy((0, import_drizzle_orm37.asc)(supportContacts.displayOrder));
       res.json({ success: true, data: contacts });
     } catch (err) {
       logger.error("AdminSettings", "Failed to fetch support contacts", err);
@@ -351460,10 +351799,10 @@ function registerAdminSettingsRoutes(app2) {
   app2.get("/api/support-contacts", async (req, res) => {
     try {
       const lang = req.query.lang || "en";
-      const contacts = await db.select().from(supportContacts).where((0, import_drizzle_orm36.and)(
-        (0, import_drizzle_orm36.eq)(supportContacts.isEnabled, true),
-        (0, import_drizzle_orm36.eq)(supportContacts.languageCode, lang)
-      )).orderBy((0, import_drizzle_orm36.asc)(supportContacts.displayOrder));
+      const contacts = await db.select().from(supportContacts).where((0, import_drizzle_orm37.and)(
+        (0, import_drizzle_orm37.eq)(supportContacts.isEnabled, true),
+        (0, import_drizzle_orm37.eq)(supportContacts.languageCode, lang)
+      )).orderBy((0, import_drizzle_orm37.asc)(supportContacts.displayOrder));
       res.json({ success: true, data: contacts });
     } catch (err) {
       logger.error("AdminSettings", "Failed to fetch support contacts", err);
@@ -351488,7 +351827,7 @@ function registerAdminSettingsRoutes(app2) {
     try {
       const id = parseInt(req.params.id);
       const { type, label, value, languageCode, isEnabled: isEnabled2, displayOrder } = req.body;
-      const [updated] = await db.update(supportContacts).set({ type, label, value, languageCode, isEnabled: isEnabled2, displayOrder }).where((0, import_drizzle_orm36.eq)(supportContacts.id, id)).returning();
+      const [updated] = await db.update(supportContacts).set({ type, label, value, languageCode, isEnabled: isEnabled2, displayOrder }).where((0, import_drizzle_orm37.eq)(supportContacts.id, id)).returning();
       res.json({ success: true, data: updated });
     } catch (err) {
       logger.error("AdminSettings", "Failed to update support contact", err);
@@ -351498,7 +351837,7 @@ function registerAdminSettingsRoutes(app2) {
   app2.delete("/api/admin/support-contacts/:id", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const [deleted] = await db.delete(supportContacts).where((0, import_drizzle_orm36.eq)(supportContacts.id, id)).returning();
+      const [deleted] = await db.delete(supportContacts).where((0, import_drizzle_orm37.eq)(supportContacts.id, id)).returning();
       await AuditHelpers.logDelete(req.user.id, "support_contact", id, deleted);
       res.json({ success: true, message: "Contact deleted" });
     } catch (err) {
@@ -351510,7 +351849,7 @@ function registerAdminSettingsRoutes(app2) {
     try {
       const id = parseInt(req.params.id);
       const { isEnabled: isEnabled2 } = req.body;
-      const [updated] = await db.update(countries).set({ isEnabled: isEnabled2 }).where((0, import_drizzle_orm36.eq)(countries.id, id)).returning();
+      const [updated] = await db.update(countries).set({ isEnabled: isEnabled2 }).where((0, import_drizzle_orm37.eq)(countries.id, id)).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "country",
@@ -351565,10 +351904,10 @@ function registerAdminSettingsRoutes(app2) {
     try {
       const { key: key2 } = req.params;
       const { value, description } = req.body;
-      const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm36.eq)(platformSettings.key, key2));
+      const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm37.eq)(platformSettings.key, key2));
       let result;
       if (existing) {
-        [result] = await db.update(platformSettings).set({ value, description, updatedBy: req.user.id, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm36.eq)(platformSettings.key, key2)).returning();
+        [result] = await db.update(platformSettings).set({ value, description, updatedBy: req.user.id, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm37.eq)(platformSettings.key, key2)).returning();
       } else {
         [result] = await db.insert(platformSettings).values({ key: key2, value, description, updatedBy: req.user.id }).returning();
       }
@@ -351629,14 +351968,14 @@ function registerAdminSettingsRoutes(app2) {
   });
   logger.info("AdminSettings", "Admin settings routes registered");
 }
-var import_zod6, import_drizzle_orm36, updateLanguageSchema, updatePaymentGatewaySchema, updateLegalContentSchema, updateSupportContactSchema, updateCountrySchema;
+var import_zod6, import_drizzle_orm37, updateLanguageSchema, updatePaymentGatewaySchema, updateLegalContentSchema, updateSupportContactSchema, updateCountrySchema;
 var init_admin_settings_routes = __esm({
   "server/admin-settings-routes.ts"() {
     "use strict";
     import_zod6 = require("zod");
     init_db();
     init_schema();
-    import_drizzle_orm36 = require("drizzle-orm");
+    import_drizzle_orm37 = require("drizzle-orm");
     init_observability();
     init_role_middleware();
     init_audit();
@@ -351922,11 +352261,11 @@ var init_payment_metrics = __esm({
 
 // server/invoice-service.ts
 async function getPlatformGstSettings() {
-  const [settings] = await db.select().from(gstSettings).where(import_drizzle_orm37.sql`${gstSettings.organizationId} IS NULL`);
+  const [settings] = await db.select().from(gstSettings).where(import_drizzle_orm38.sql`${gstSettings.organizationId} IS NULL`);
   return settings;
 }
 async function getOrgGstSettings(organizationId) {
-  const [settings] = await db.select().from(gstSettings).where((0, import_drizzle_orm37.eq)(gstSettings.organizationId, organizationId));
+  const [settings] = await db.select().from(gstSettings).where((0, import_drizzle_orm38.eq)(gstSettings.organizationId, organizationId));
   return settings;
 }
 async function getNextInvoiceNumber() {
@@ -351934,7 +352273,7 @@ async function getNextInvoiceNumber() {
   const prefix = platformSettings2?.invoicePrefix || "INV";
   const counter = (platformSettings2?.invoiceCounter || 0) + 1;
   if (platformSettings2) {
-    await db.update(gstSettings).set({ invoiceCounter: counter }).where((0, import_drizzle_orm37.eq)(gstSettings.id, platformSettings2.id));
+    await db.update(gstSettings).set({ invoiceCounter: counter }).where((0, import_drizzle_orm38.eq)(gstSettings.id, platformSettings2.id));
   }
   const year3 = (/* @__PURE__ */ new Date()).getFullYear();
   const month = String((/* @__PURE__ */ new Date()).getMonth() + 1).padStart(2, "0");
@@ -351979,7 +352318,7 @@ async function createInvoice(params) {
     let customerAddress = null;
     let customerStateCode = null;
     if (organizationId) {
-      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm37.eq)(organizations.id, organizationId));
+      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm38.eq)(organizations.id, organizationId));
       if (org) {
         customerName = org.name;
         customerEmail = org.email;
@@ -351992,7 +352331,7 @@ async function createInvoice(params) {
         }
       }
     } else if (userId) {
-      const [user2] = await db.select().from(users).where((0, import_drizzle_orm37.eq)(users.id, userId));
+      const [user2] = await db.select().from(users).where((0, import_drizzle_orm38.eq)(users.id, userId));
       if (user2) {
         customerName = user2.username;
         customerEmail = user2.email;
@@ -352070,7 +352409,7 @@ async function createSubscriptionInvoice(subscriptionId) {
     const [subscription] = await db.select({
       subscription: subscriptions,
       plan: billingPlans
-    }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm37.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm37.eq)(subscriptions.id, subscriptionId));
+    }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm38.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm38.eq)(subscriptions.id, subscriptionId));
     if (!subscription) {
       return { success: false, message: "Subscription not found" };
     }
@@ -352097,11 +352436,11 @@ async function createSubscriptionInvoice(subscriptionId) {
 }
 async function createUsageInvoice(organizationId, periodStart, periodEnd) {
   try {
-    const usageItems = await db.select().from(usageRecords).where((0, import_drizzle_orm37.and)(
-      (0, import_drizzle_orm37.eq)(usageRecords.organizationId, organizationId),
-      (0, import_drizzle_orm37.eq)(usageRecords.billed, false),
-      (0, import_drizzle_orm37.gte)(usageRecords.usageDate, periodStart),
-      (0, import_drizzle_orm37.lte)(usageRecords.usageDate, periodEnd)
+    const usageItems = await db.select().from(usageRecords).where((0, import_drizzle_orm38.and)(
+      (0, import_drizzle_orm38.eq)(usageRecords.organizationId, organizationId),
+      (0, import_drizzle_orm38.eq)(usageRecords.billed, false),
+      (0, import_drizzle_orm38.gte)(usageRecords.usageDate, periodStart),
+      (0, import_drizzle_orm38.lte)(usageRecords.usageDate, periodEnd)
     ));
     if (usageItems.length === 0) {
       return { success: false, message: "No unbilled usage found" };
@@ -352127,7 +352466,7 @@ async function createUsageInvoice(organizationId, periodStart, periodEnd) {
         await db.update(usageRecords).set({
           billed: true,
           invoiceId: result.invoice.id
-        }).where((0, import_drizzle_orm37.eq)(usageRecords.id, usage.id));
+        }).where((0, import_drizzle_orm38.eq)(usageRecords.id, usage.id));
       }
     }
     return result;
@@ -352143,7 +352482,7 @@ async function markInvoicePaid(invoiceId, paymentId) {
       paidAt: /* @__PURE__ */ new Date(),
       paymentId,
       updatedAt: /* @__PURE__ */ new Date()
-    }).where((0, import_drizzle_orm37.eq)(invoices.id, invoiceId)).returning();
+    }).where((0, import_drizzle_orm38.eq)(invoices.id, invoiceId)).returning();
     logger.info("Invoice", `Invoice marked paid: ${invoice.invoiceNumber}`);
     return { success: true, invoice };
   } catch (err) {
@@ -352153,9 +352492,9 @@ async function markInvoicePaid(invoiceId, paymentId) {
 }
 async function generateInvoiceHtml(invoiceId) {
   try {
-    const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm37.eq)(invoices.id, invoiceId));
+    const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm38.eq)(invoices.id, invoiceId));
     if (!invoice) return null;
-    const lineItems = await db.select().from(invoiceLineItems).where((0, import_drizzle_orm37.eq)(invoiceLineItems.invoiceId, invoiceId));
+    const lineItems = await db.select().from(invoiceLineItems).where((0, import_drizzle_orm38.eq)(invoiceLineItems.invoiceId, invoiceId));
     const platformGst = await getPlatformGstSettings();
     const html = `
 <!DOCTYPE html>
@@ -352349,13 +352688,13 @@ function numberToWords(num) {
   }
   return result;
 }
-var import_drizzle_orm37;
+var import_drizzle_orm38;
 var init_invoice_service = __esm({
   "server/invoice-service.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm37 = require("drizzle-orm");
+    import_drizzle_orm38 = require("drizzle-orm");
     init_observability();
   }
 });
@@ -352383,7 +352722,7 @@ async function createNotification(input) {
       data: { type: input.type, notificationId: String(row?.id ?? 0), ...input.data ? Object.fromEntries(Object.entries(input.data).map(([k5, v]) => [k5, String(v)])) : {} }
     }).then(({ sent }) => {
       if (sent > 0 && row?.id) {
-        db.update(userNotifications).set({ deliveredViaPush: true }).where((0, import_drizzle_orm38.eq)(userNotifications.id, row.id)).catch(() => {
+        db.update(userNotifications).set({ deliveredViaPush: true }).where((0, import_drizzle_orm39.eq)(userNotifications.id, row.id)).catch(() => {
         });
       }
     }).catch(() => {
@@ -352399,10 +352738,10 @@ function registerNotificationRoutes(app2) {
       const limit = Math.min(Number(req.query.limit) || 30, 100);
       const offset = Math.max(Number(req.query.offset) || 0, 0);
       const unreadOnly = req.query.unread === "true";
-      const conditions = unreadOnly ? [(0, import_drizzle_orm38.eq)(userNotifications.userId, userId), (0, import_drizzle_orm38.eq)(userNotifications.isRead, false)] : [(0, import_drizzle_orm38.eq)(userNotifications.userId, userId)];
-      const rows = await db.select().from(userNotifications).where((0, import_drizzle_orm38.and)(...conditions)).orderBy((0, import_drizzle_orm38.desc)(userNotifications.createdAt)).limit(limit).offset(offset);
-      const [{ total }] = await db.select({ total: import_drizzle_orm38.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm38.and)(...conditions));
-      const [{ unread }] = await db.select({ unread: import_drizzle_orm38.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(userNotifications.userId, userId), (0, import_drizzle_orm38.eq)(userNotifications.isRead, false)));
+      const conditions = unreadOnly ? [(0, import_drizzle_orm39.eq)(userNotifications.userId, userId), (0, import_drizzle_orm39.eq)(userNotifications.isRead, false)] : [(0, import_drizzle_orm39.eq)(userNotifications.userId, userId)];
+      const rows = await db.select().from(userNotifications).where((0, import_drizzle_orm39.and)(...conditions)).orderBy((0, import_drizzle_orm39.desc)(userNotifications.createdAt)).limit(limit).offset(offset);
+      const [{ total }] = await db.select({ total: import_drizzle_orm39.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm39.and)(...conditions));
+      const [{ unread }] = await db.select({ unread: import_drizzle_orm39.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(userNotifications.userId, userId), (0, import_drizzle_orm39.eq)(userNotifications.isRead, false)));
       return res.json({
         success: true,
         notifications: rows,
@@ -352417,7 +352756,7 @@ function registerNotificationRoutes(app2) {
   app2.get("/api/notifications/unread-count", loadUser, requireAuth, async (req, res) => {
     try {
       const userId = req.user.id;
-      const [{ count: count3 }] = await db.select({ count: import_drizzle_orm38.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(userNotifications.userId, userId), (0, import_drizzle_orm38.eq)(userNotifications.isRead, false)));
+      const [{ count: count3 }] = await db.select({ count: import_drizzle_orm39.sql`cast(count(*) as int)` }).from(userNotifications).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(userNotifications.userId, userId), (0, import_drizzle_orm39.eq)(userNotifications.isRead, false)));
       return res.json({ success: true, count: count3 });
     } catch (err) {
       logger.error("Notifications", "Failed to fetch unread count", err);
@@ -352431,7 +352770,7 @@ function registerNotificationRoutes(app2) {
       if (!id || isNaN(id)) {
         return res.status(400).json({ success: false, message: "Invalid notification id" });
       }
-      const [updated] = await db.update(userNotifications).set({ isRead: true, readAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(userNotifications.id, id), (0, import_drizzle_orm38.eq)(userNotifications.userId, userId))).returning({ id: userNotifications.id });
+      const [updated] = await db.update(userNotifications).set({ isRead: true, readAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(userNotifications.id, id), (0, import_drizzle_orm39.eq)(userNotifications.userId, userId))).returning({ id: userNotifications.id });
       if (!updated) {
         return res.status(404).json({ success: false, message: "Notification not found" });
       }
@@ -352444,7 +352783,7 @@ function registerNotificationRoutes(app2) {
   app2.post("/api/notifications/read-all", loadUser, requireAuth, async (req, res) => {
     try {
       const userId = req.user.id;
-      await db.update(userNotifications).set({ isRead: true, readAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(userNotifications.userId, userId), (0, import_drizzle_orm38.eq)(userNotifications.isRead, false)));
+      await db.update(userNotifications).set({ isRead: true, readAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(userNotifications.userId, userId), (0, import_drizzle_orm39.eq)(userNotifications.isRead, false)));
       return res.json({ success: true });
     } catch (err) {
       logger.error("Notifications", "Failed to mark all read", err);
@@ -352466,9 +352805,9 @@ function registerNotificationRoutes(app2) {
       const userId = req.user.id;
       const { token, platform: platform2, deviceId, deviceName } = parsed.data;
       const effectiveDeviceId = deviceId ?? `anon-${userId}-${Date.now()}`;
-      const [existing] = await db.select({ id: registeredDevices.id }).from(registeredDevices).where((0, import_drizzle_orm38.and)((0, import_drizzle_orm38.eq)(registeredDevices.userId, userId), (0, import_drizzle_orm38.eq)(registeredDevices.deviceId, effectiveDeviceId))).limit(1);
+      const [existing] = await db.select({ id: registeredDevices.id }).from(registeredDevices).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(registeredDevices.userId, userId), (0, import_drizzle_orm39.eq)(registeredDevices.deviceId, effectiveDeviceId))).limit(1);
       if (existing) {
-        await db.update(registeredDevices).set({ pushToken: token, platform: platform2, isActive: true, lastSeenAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm38.eq)(registeredDevices.id, existing.id));
+        await db.update(registeredDevices).set({ pushToken: token, platform: platform2, isActive: true, lastSeenAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm39.eq)(registeredDevices.id, existing.id));
       } else {
         await db.insert(registeredDevices).values({
           userId,
@@ -352487,12 +352826,12 @@ function registerNotificationRoutes(app2) {
   });
   logger.info("Notifications", "Notification routes registered");
 }
-var import_zod7, import_drizzle_orm38;
+var import_zod7, import_drizzle_orm39;
 var init_notification_routes = __esm({
   "server/notification-routes.ts"() {
     "use strict";
     import_zod7 = require("zod");
-    import_drizzle_orm38 = require("drizzle-orm");
+    import_drizzle_orm39 = require("drizzle-orm");
     init_db();
     init_schema();
     init_role_middleware();
@@ -352527,7 +352866,7 @@ function verifySignature(orderId, paymentId, signature, secret) {
   return safeCompare(expected, signature);
 }
 async function resolveGatewayConfig() {
-  const [gatewayRow] = await db.select().from(paymentGateways).where((0, import_drizzle_orm39.eq)(paymentGateways.name, "razorpay")).limit(1);
+  const [gatewayRow] = await db.select().from(paymentGateways).where((0, import_drizzle_orm40.eq)(paymentGateways.name, "razorpay")).limit(1);
   const keyIdEnvVar = gatewayRow?.keyIdEnvVar || "RAZORPAY_KEY_ID";
   const keySecretEnvVar = gatewayRow?.keySecretEnvVar || "RAZORPAY_KEY_SECRET";
   const keyId = process.env[keyIdEnvVar] || process.env.RAZORPAY_KEY_ID || null;
@@ -352580,12 +352919,12 @@ async function withGatewayRetry(fn, maxAttempts = 3, baseDelayMs = 200) {
   throw lastError;
 }
 async function getWalletTopupCatalog() {
-  const [row] = await db.select().from(platformSettings).where((0, import_drizzle_orm39.eq)(platformSettings.key, PAYMENT_TOPUP_CATALOG_KEY)).limit(1);
+  const [row] = await db.select().from(platformSettings).where((0, import_drizzle_orm40.eq)(platformSettings.key, PAYMENT_TOPUP_CATALOG_KEY)).limit(1);
   const result = import_zod8.z.array(walletTopupPackageSchema).catch([]).parse(row?.value ?? []);
   return result.filter((item) => item.enabled !== false);
 }
 async function getPlanById2(planId) {
-  const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(billingPlans.id, planId), (0, import_drizzle_orm39.eq)(billingPlans.isEnabled, true))).limit(1);
+  const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(billingPlans.id, planId), (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true))).limit(1);
   return plan ?? null;
 }
 async function resolvePurchase(input) {
@@ -352648,11 +352987,11 @@ async function resolvePurchase(input) {
   throw new Error("PAYMENT_TARGET_REQUIRED");
 }
 async function getViewerActiveSubscription(actor) {
-  const clauses = actor.organizationId ? (0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(subscriptions.organizationId, actor.organizationId), (0, import_drizzle_orm39.eq)(subscriptions.status, "active")) : (0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(subscriptions.userId, actor.id), (0, import_drizzle_orm39.eq)(subscriptions.status, "active"));
+  const clauses = actor.organizationId ? (0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.organizationId, actor.organizationId), (0, import_drizzle_orm40.eq)(subscriptions.status, "active")) : (0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.userId, actor.id), (0, import_drizzle_orm40.eq)(subscriptions.status, "active"));
   const [subscription] = await db.select({
     subscription: subscriptions,
     plan: billingPlans
-  }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm39.eq)(subscriptions.planId, billingPlans.id)).where(clauses).orderBy((0, import_drizzle_orm39.desc)(subscriptions.createdAt)).limit(1);
+  }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where(clauses).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
   return subscription ?? null;
 }
 async function provisionSubscriptionTransaction(transaction, metadata) {
@@ -352673,7 +353012,7 @@ async function provisionSubscriptionTransaction(transaction, metadata) {
     endDate: now,
     updatedAt: now
   }).where(
-    scope === "organization" ? (0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(subscriptions.organizationId, transaction.organizationId ?? -1), (0, import_drizzle_orm39.eq)(subscriptions.status, "active")) : (0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(subscriptions.userId, transaction.userId ?? -1), (0, import_drizzle_orm39.eq)(subscriptions.status, "active"))
+    scope === "organization" ? (0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.organizationId, transaction.organizationId ?? -1), (0, import_drizzle_orm40.eq)(subscriptions.status, "active")) : (0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.userId, transaction.userId ?? -1), (0, import_drizzle_orm40.eq)(subscriptions.status, "active"))
   );
   const [subscription] = await db.insert(subscriptions).values({
     userId: scope === "user" ? transaction.userId : null,
@@ -352712,7 +353051,7 @@ async function provisionSubscriptionTransaction(transaction, metadata) {
       subscriptionId: subscription.id,
       invoiceId
     })
-  }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id));
+  }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id));
   return {
     kind: "subscription",
     subscriptionId: subscription.id,
@@ -352729,9 +353068,9 @@ async function provisionWalletTopupTransaction(transaction, metadata) {
   const [claimed] = await db.update(paymentTransactions).set({
     metadata: mergeTransactionMetadata(transaction.metadata, { provisionedAt })
   }).where(
-    (0, import_drizzle_orm39.and)(
-      (0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id),
-      import_drizzle_orm39.sql`(metadata->>'provisionedAt') IS NULL`
+    (0, import_drizzle_orm40.and)(
+      (0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id),
+      import_drizzle_orm40.sql`(metadata->>'provisionedAt') IS NULL`
     )
   ).returning();
   if (!claimed) {
@@ -352784,7 +353123,7 @@ async function finalizeTransactionSuccess(transaction, paymentId, signature) {
     });
   }
   return withRedisLock(lockKey, async () => {
-    const [fresh] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id)).limit(1);
+    const [fresh] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id)).limit(1);
     const current = fresh ?? transaction;
     if (current.status === PAYMENT_STATUS.COMPLETED) {
       const existingProvision = await provisionCompletedTransaction(current);
@@ -352796,7 +353135,7 @@ async function finalizeTransactionSuccess(transaction, paymentId, signature) {
       gatewaySignature: signature || current.gatewaySignature,
       completedAt: /* @__PURE__ */ new Date(),
       metadata: mergeTransactionMetadata(current.metadata, { paymentId })
-    }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, current.id)).returning();
+    }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, current.id)).returning();
     const result = await provisionCompletedTransaction(updatedTransaction ?? current);
     recordPaymentCounter("payments_succeeded");
     await logAuditEvent({
@@ -352842,7 +353181,7 @@ async function getGatewayStatus2() {
   };
 }
 async function listPaymentPlans() {
-  const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm39.eq)(billingPlans.isEnabled, true)).orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
+  const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true)).orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
   return plans.map((plan) => ({
     ...plan,
     ...summarizeBillingPlan(plan)
@@ -352905,7 +353244,7 @@ async function createCheckoutOrder(input) {
       metadata: mergeTransactionMetadata(transaction.metadata, {
         totalPaise: purchase.amountPaise
       })
-    }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id));
+    }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id));
     recordPaymentCounter("orders_created");
     await logAuditEvent({
       action: "payment_order_created",
@@ -352956,9 +353295,9 @@ async function confirmCheckoutPayment(input) {
   }
   let transaction;
   if (input.transactionId) {
-    [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, input.transactionId)).limit(1);
+    [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, input.transactionId)).limit(1);
   } else if (input.orderId) {
-    [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.gatewayOrderId, input.orderId)).limit(1);
+    [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.gatewayOrderId, input.orderId)).limit(1);
   }
   if (!transaction) {
     recordPaymentCounter("verifications_failed");
@@ -353005,7 +353344,7 @@ async function confirmCheckoutPayment(input) {
     await db.update(paymentTransactions).set({
       status: PAYMENT_STATUS.FAILED,
       failureReason: "Invalid payment signature"
-    }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id));
+    }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id));
     recordPaymentCounter("signature_failures");
     await logAuditEvent({
       action: "payment_signature_verification_failed",
@@ -353039,7 +353378,7 @@ async function initiateRefund(input) {
   return runWithTrace("payments", `refund:${input.transactionId}`, () => initiateRefundTraced(input));
 }
 async function initiateRefundTraced(input) {
-  const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, input.transactionId)).limit(1);
+  const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, input.transactionId)).limit(1);
   if (!transaction) {
     throw new Error("TRANSACTION_NOT_FOUND");
   }
@@ -353061,7 +353400,7 @@ async function initiateRefundTraced(input) {
     throw new Error("PAYMENT_ID_MISSING");
   }
   if (input.idempotencyKey) {
-    const [existing] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm39.eq)(paymentRefunds.idempotencyKey, input.idempotencyKey)).limit(1);
+    const [existing] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm40.eq)(paymentRefunds.idempotencyKey, input.idempotencyKey)).limit(1);
     if (existing) {
       if (existing.transactionId !== transaction.id) {
         throw new Error("IDEMPOTENCY_KEY_REUSED_FOR_DIFFERENT_TRANSACTION");
@@ -353081,13 +353420,13 @@ async function initiateRefundTraced(input) {
       };
     }
   }
-  const [inProgress] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm39.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.PROCESSING))).limit(1);
+  const [inProgress] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm40.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.PROCESSING))).limit(1);
   if (inProgress) {
     throw new Error("REFUND_ALREADY_IN_PROGRESS");
   }
   const [{ alreadyRefunded }] = await db.select({
-    alreadyRefunded: import_drizzle_orm39.sql`coalesce(sum(${paymentRefunds.amountPaise}), 0)`
-  }).from(paymentRefunds).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm39.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.COMPLETED)));
+    alreadyRefunded: import_drizzle_orm40.sql`coalesce(sum(${paymentRefunds.amountPaise}), 0)`
+  }).from(paymentRefunds).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm40.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.COMPLETED)));
   const remainingRefundable = transaction.amount - Number(alreadyRefunded);
   if (remainingRefundable <= 0) {
     throw new Error("ALREADY_FULLY_REFUNDED");
@@ -353127,7 +353466,7 @@ async function initiateRefundTraced(input) {
   const config = await resolveGatewayConfig();
   const razorpay = await getRazorpayClient(config);
   if (!razorpay) {
-    await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.FAILED, failureReason: "Payment gateway not configured" }).where((0, import_drizzle_orm39.eq)(paymentRefunds.id, refundRow.id));
+    await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.FAILED, failureReason: "Payment gateway not configured" }).where((0, import_drizzle_orm40.eq)(paymentRefunds.id, refundRow.id));
     recordPaymentCounter("refunds_failed");
     await logAuditEvent({
       action: "billing_refund_failed",
@@ -353153,9 +353492,9 @@ async function initiateRefundTraced(input) {
         initiatedBy: String(input.actor.id)
       }
     }));
-    const [updatedRefund] = await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.COMPLETED, gatewayRefundId: gatewayRefund.id, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm39.eq)(paymentRefunds.id, refundRow.id)).returning();
+    const [updatedRefund] = await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.COMPLETED, gatewayRefundId: gatewayRefund.id, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(paymentRefunds.id, refundRow.id)).returning();
     const newTotalRefunded = Number(alreadyRefunded) + requestedAmount;
-    const [updatedTx] = await db.update(paymentTransactions).set({ status: newTotalRefunded >= transaction.amount ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIALLY_REFUNDED }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id)).returning();
+    const [updatedTx] = await db.update(paymentTransactions).set({ status: newTotalRefunded >= transaction.amount ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIALLY_REFUNDED }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id)).returning();
     recordPaymentCounter("refunds_completed");
     await logAuditEvent({
       action: "billing_refund",
@@ -353182,7 +353521,7 @@ async function initiateRefundTraced(input) {
     };
   } catch (error2) {
     const message2 = error2 instanceof Error ? error2.message : String(error2);
-    await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.FAILED, failureReason: message2 }).where((0, import_drizzle_orm39.eq)(paymentRefunds.id, refundRow.id));
+    await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.FAILED, failureReason: message2 }).where((0, import_drizzle_orm40.eq)(paymentRefunds.id, refundRow.id));
     recordPaymentCounter("refunds_failed");
     await logAuditEvent({
       action: "billing_refund_failed",
@@ -353199,8 +353538,8 @@ async function initiateRefundTraced(input) {
   }
 }
 async function getViewerPaymentHistory(actor) {
-  const whereClause = actor.organizationId ? (0, import_drizzle_orm39.or)((0, import_drizzle_orm39.eq)(paymentTransactions.userId, actor.id), (0, import_drizzle_orm39.eq)(paymentTransactions.organizationId, actor.organizationId)) : (0, import_drizzle_orm39.eq)(paymentTransactions.userId, actor.id);
-  const transactions = await db.select().from(paymentTransactions).where(whereClause).orderBy((0, import_drizzle_orm39.desc)(paymentTransactions.createdAt));
+  const whereClause = actor.organizationId ? (0, import_drizzle_orm40.or)((0, import_drizzle_orm40.eq)(paymentTransactions.userId, actor.id), (0, import_drizzle_orm40.eq)(paymentTransactions.organizationId, actor.organizationId)) : (0, import_drizzle_orm40.eq)(paymentTransactions.userId, actor.id);
+  const transactions = await db.select().from(paymentTransactions).where(whereClause).orderBy((0, import_drizzle_orm40.desc)(paymentTransactions.createdAt));
   return transactions;
 }
 async function cancelViewerSubscription(actor) {
@@ -353212,7 +353551,7 @@ async function cancelViewerSubscription(actor) {
     status: "cancelled",
     endDate: /* @__PURE__ */ new Date(),
     updatedAt: /* @__PURE__ */ new Date()
-  }).where((0, import_drizzle_orm39.eq)(subscriptions.id, activeSubscription.subscription.id)).returning();
+  }).where((0, import_drizzle_orm40.eq)(subscriptions.id, activeSubscription.subscription.id)).returning();
   return {
     success: true,
     subscription: updated
@@ -353250,7 +353589,7 @@ async function handleRazorpayWebhookTraced(rawBody, signature, event) {
       if (!orderId || !paymentId) {
         return;
       }
-      const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.gatewayOrderId, orderId)).limit(1);
+      const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.gatewayOrderId, orderId)).limit(1);
       if (!transaction) {
         return;
       }
@@ -353266,7 +353605,7 @@ async function handleRazorpayWebhookTraced(rawBody, signature, event) {
       const [failedTx] = await db.update(paymentTransactions).set({
         status: PAYMENT_STATUS.FAILED,
         failureReason
-      }).where((0, import_drizzle_orm39.eq)(paymentTransactions.gatewayOrderId, orderId)).returning();
+      }).where((0, import_drizzle_orm40.eq)(paymentTransactions.gatewayOrderId, orderId)).returning();
       recordPaymentCounter("payments_failed");
       await logAuditEvent({
         action: "payment_failed",
@@ -353289,22 +353628,22 @@ async function handleRazorpayWebhookTraced(rawBody, signature, event) {
       if (!paymentId) {
         return;
       }
-      const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm39.eq)(paymentTransactions.gatewayPaymentId, paymentId)).limit(1);
+      const [transaction] = await db.select().from(paymentTransactions).where((0, import_drizzle_orm40.eq)(paymentTransactions.gatewayPaymentId, paymentId)).limit(1);
       if (!transaction) {
         return;
       }
       let localRefund;
       if (gatewayRefundId) {
-        [localRefund] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm39.eq)(paymentRefunds.gatewayRefundId, gatewayRefundId)).limit(1);
+        [localRefund] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm40.eq)(paymentRefunds.gatewayRefundId, gatewayRefundId)).limit(1);
       }
       if (!localRefund) {
-        [localRefund] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm39.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.PROCESSING))).limit(1);
+        [localRefund] = await db.select().from(paymentRefunds).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm40.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.PROCESSING))).limit(1);
       }
       if (localRefund?.status === PAYMENT_REFUND_STATUS.COMPLETED) {
         return;
       }
       if (localRefund) {
-        await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.COMPLETED, gatewayRefundId: gatewayRefundId ?? localRefund.gatewayRefundId, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm39.eq)(paymentRefunds.id, localRefund.id));
+        await db.update(paymentRefunds).set({ status: PAYMENT_REFUND_STATUS.COMPLETED, gatewayRefundId: gatewayRefundId ?? localRefund.gatewayRefundId, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(paymentRefunds.id, localRefund.id));
       } else {
         await db.insert(paymentRefunds).values({
           transactionId: transaction.id,
@@ -353317,9 +353656,9 @@ async function handleRazorpayWebhookTraced(rawBody, signature, event) {
         });
       }
       const [{ totalRefunded }] = await db.select({
-        totalRefunded: import_drizzle_orm39.sql`coalesce(sum(${paymentRefunds.amountPaise}), 0)`
-      }).from(paymentRefunds).where((0, import_drizzle_orm39.and)((0, import_drizzle_orm39.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm39.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.COMPLETED)));
-      const [refundedTx] = await db.update(paymentTransactions).set({ status: Number(totalRefunded) >= transaction.amount ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIALLY_REFUNDED }).where((0, import_drizzle_orm39.eq)(paymentTransactions.id, transaction.id)).returning();
+        totalRefunded: import_drizzle_orm40.sql`coalesce(sum(${paymentRefunds.amountPaise}), 0)`
+      }).from(paymentRefunds).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(paymentRefunds.transactionId, transaction.id), (0, import_drizzle_orm40.eq)(paymentRefunds.status, PAYMENT_REFUND_STATUS.COMPLETED)));
+      const [refundedTx] = await db.update(paymentTransactions).set({ status: Number(totalRefunded) >= transaction.amount ? PAYMENT_STATUS.REFUNDED : PAYMENT_STATUS.PARTIALLY_REFUNDED }).where((0, import_drizzle_orm40.eq)(paymentTransactions.id, transaction.id)).returning();
       recordPaymentCounter("refunds_completed");
       await logAuditEvent({
         action: "billing_refund",
@@ -353341,13 +353680,13 @@ async function handleRazorpayWebhookTraced(rawBody, signature, event) {
       return;
   }
 }
-var import_crypto16, import_razorpay, import_drizzle_orm39, import_zod8, PAYMENT_TOPUP_CATALOG_KEY, walletTopupPackageSchema, razorpayInstance, razorpayCacheKey, testRazorpayClientOverride;
+var import_crypto16, import_razorpay, import_drizzle_orm40, import_zod8, PAYMENT_TOPUP_CATALOG_KEY, walletTopupPackageSchema, razorpayInstance, razorpayCacheKey, testRazorpayClientOverride;
 var init_payment_service = __esm({
   "server/payment-service.ts"() {
     "use strict";
     import_crypto16 = __toESM(require("crypto"));
     import_razorpay = __toESM(require("razorpay"));
-    import_drizzle_orm39 = require("drizzle-orm");
+    import_drizzle_orm40 = require("drizzle-orm");
     import_zod8 = require("zod");
     init_db();
     init_schema();
@@ -353629,22 +353968,22 @@ function formatPrice(paise) {
   return formatInrFromPaise(paise);
 }
 async function getGlobalBillingConfig() {
-  const [settings] = await db.select().from(platformSettings).where((0, import_drizzle_orm40.eq)(platformSettings.key, "billing_global_defaults")).limit(1);
+  const [settings] = await db.select().from(platformSettings).where((0, import_drizzle_orm41.eq)(platformSettings.key, "billing_global_defaults")).limit(1);
   return updateGlobalPricingSchema.catch({}).parse(settings?.value ?? {});
 }
 function registerBillingRoutes(app2) {
   app2.get("/api/billing/plans", async (req, res) => {
     try {
       const now = /* @__PURE__ */ new Date();
-      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveFrom} IS NULL`,
-          (0, import_drizzle_orm40.lte)(billingPlans.effectiveFrom, now)
+      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(billingPlans.isEnabled, true),
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveFrom} IS NULL`,
+          (0, import_drizzle_orm41.lte)(billingPlans.effectiveFrom, now)
         ),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveUntil} IS NULL`,
-          (0, import_drizzle_orm40.gte)(billingPlans.effectiveUntil, now)
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveUntil} IS NULL`,
+          (0, import_drizzle_orm41.gte)(billingPlans.effectiveUntil, now)
         )
       )).orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
       res.json(plans.map((p3) => {
@@ -353674,16 +354013,16 @@ function registerBillingRoutes(app2) {
   app2.get("/api/billing/plans/b2c", async (req, res) => {
     try {
       const now = /* @__PURE__ */ new Date();
-      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(billingPlans.planType, "b2c"),
-        (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveFrom} IS NULL`,
-          (0, import_drizzle_orm40.lte)(billingPlans.effectiveFrom, now)
+      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(billingPlans.planType, "b2c"),
+        (0, import_drizzle_orm41.eq)(billingPlans.isEnabled, true),
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveFrom} IS NULL`,
+          (0, import_drizzle_orm41.lte)(billingPlans.effectiveFrom, now)
         ),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveUntil} IS NULL`,
-          (0, import_drizzle_orm40.gte)(billingPlans.effectiveUntil, now)
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveUntil} IS NULL`,
+          (0, import_drizzle_orm41.gte)(billingPlans.effectiveUntil, now)
         )
       )).orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
       res.json({
@@ -353701,16 +354040,16 @@ function registerBillingRoutes(app2) {
   app2.get("/api/billing/plans/b2b", requireAuth, async (req, res) => {
     try {
       const now = /* @__PURE__ */ new Date();
-      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(billingPlans.planType, "b2b"),
-        (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveFrom} IS NULL`,
-          (0, import_drizzle_orm40.lte)(billingPlans.effectiveFrom, now)
+      const plans = await db.select().from(billingPlans).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(billingPlans.planType, "b2b"),
+        (0, import_drizzle_orm41.eq)(billingPlans.isEnabled, true),
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveFrom} IS NULL`,
+          (0, import_drizzle_orm41.lte)(billingPlans.effectiveFrom, now)
         ),
-        (0, import_drizzle_orm40.or)(
-          import_drizzle_orm40.sql`${billingPlans.effectiveUntil} IS NULL`,
-          (0, import_drizzle_orm40.gte)(billingPlans.effectiveUntil, now)
+        (0, import_drizzle_orm41.or)(
+          import_drizzle_orm41.sql`${billingPlans.effectiveUntil} IS NULL`,
+          (0, import_drizzle_orm41.gte)(billingPlans.effectiveUntil, now)
         )
       )).orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
       res.json({
@@ -353732,18 +354071,18 @@ function registerBillingRoutes(app2) {
       let [sub] = await db.select({
         subscription: subscriptions,
         plan: billingPlans
-      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.userId, userId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
-      )).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
+      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.userId, userId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
+      )).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(1);
       if (!sub && organizationId) {
         [sub] = await db.select({
           subscription: subscriptions,
           plan: billingPlans
-        }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)(
-          (0, import_drizzle_orm40.eq)(subscriptions.organizationId, organizationId),
-          (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
-        )).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
+        }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)(
+          (0, import_drizzle_orm41.eq)(subscriptions.organizationId, organizationId),
+          (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
+        )).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(1);
       }
       let warningMessage = null;
       let warningLevel = "none";
@@ -353839,12 +354178,12 @@ function registerBillingRoutes(app2) {
   app2.get("/api/admin/billing/overview", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const [revenueTrend] = await db.select({
-        todayRevenuePaise: import_drizzle_orm40.sql`COALESCE(SUM(CASE WHEN ${callBillingRecords.createdAt} >= CURRENT_DATE THEN ${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise} ELSE 0 END), 0)`
+        todayRevenuePaise: import_drizzle_orm41.sql`COALESCE(SUM(CASE WHEN ${callBillingRecords.createdAt} >= CURRENT_DATE THEN ${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise} ELSE 0 END), 0)`
       }).from(callBillingRecords);
       const overview = await BillingEngine.getAdminBillingOverview();
       const [walletSummary] = await db.select({
-        walletBalancePaise: import_drizzle_orm40.sql`COALESCE(SUM(${billingAccounts.walletBalancePaise}), 0)`,
-        lockedBalancePaise: import_drizzle_orm40.sql`COALESCE(SUM(${billingAccounts.lockedBalancePaise}), 0)`
+        walletBalancePaise: import_drizzle_orm41.sql`COALESCE(SUM(${billingAccounts.walletBalancePaise}), 0)`,
+        lockedBalancePaise: import_drizzle_orm41.sql`COALESCE(SUM(${billingAccounts.lockedBalancePaise}), 0)`
       }).from(billingAccounts);
       res.json({
         success: true,
@@ -353876,14 +354215,14 @@ function registerBillingRoutes(app2) {
         return res.status(400).json({ success: false, message: "Invalid billing defaults", errors: validation.error.errors });
       }
       const data = validation.data;
-      const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm40.eq)(platformSettings.key, "billing_global_defaults")).limit(1);
+      const [existing] = await db.select().from(platformSettings).where((0, import_drizzle_orm41.eq)(platformSettings.key, "billing_global_defaults")).limit(1);
       let updated;
       if (existing) {
         [updated] = await db.update(platformSettings).set({
           value: data,
           updatedBy: req.user.id,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm40.eq)(platformSettings.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm41.eq)(platformSettings.id, existing.id)).returning();
       } else {
         [updated] = await db.insert(platformSettings).values({
           key: "billing_global_defaults",
@@ -353921,7 +354260,7 @@ function registerBillingRoutes(app2) {
       }
       const data = validation.data;
       if (data.isDefault) {
-        await db.update(billingPlans).set({ isDefault: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(billingPlans.planType, data.planType));
+        await db.update(billingPlans).set({ isDefault: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm41.eq)(billingPlans.planType, data.planType));
       }
       const [plan] = await db.insert(billingPlans).values({
         name: data.name,
@@ -353969,7 +354308,7 @@ function registerBillingRoutes(app2) {
       if (!validation.success) {
         return res.status(400).json({ success: false, message: "Invalid plan data", errors: validation.error.errors });
       }
-      const [existingPlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm40.eq)(billingPlans.id, planId));
+      const [existingPlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm41.eq)(billingPlans.id, planId));
       if (!existingPlan) {
         return res.status(404).json({ success: false, message: "Plan not found" });
       }
@@ -353977,7 +354316,7 @@ function registerBillingRoutes(app2) {
       const updateData = { updatedAt: /* @__PURE__ */ new Date() };
       const nextPlanType = data.planType ?? existingPlan.planType;
       if (data.isDefault === true) {
-        await db.update(billingPlans).set({ isDefault: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(billingPlans.planType, nextPlanType));
+        await db.update(billingPlans).set({ isDefault: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm41.eq)(billingPlans.planType, nextPlanType));
       }
       if (data.name !== void 0) updateData.name = data.name;
       if (data.planCode !== void 0) updateData.planCode = data.planCode;
@@ -354002,7 +354341,7 @@ function registerBillingRoutes(app2) {
       if (data.displayOrder !== void 0) updateData.displayOrder = data.displayOrder;
       if (data.effectiveFrom !== void 0) updateData.effectiveFrom = new Date(data.effectiveFrom);
       if (data.effectiveUntil !== void 0) updateData.effectiveUntil = new Date(data.effectiveUntil);
-      const [updatedPlan] = await db.update(billingPlans).set(updateData).where((0, import_drizzle_orm40.eq)(billingPlans.id, planId)).returning();
+      const [updatedPlan] = await db.update(billingPlans).set(updateData).where((0, import_drizzle_orm41.eq)(billingPlans.id, planId)).returning();
       await AuditHelpers.logSettingsChange(
         req.user.id,
         "billing_plan_updated",
@@ -354019,20 +354358,20 @@ function registerBillingRoutes(app2) {
   app2.delete("/api/admin/billing/plans/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const planId = parseInt(req.params.id);
-      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm40.eq)(billingPlans.id, planId));
+      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm41.eq)(billingPlans.id, planId));
       if (!plan) {
         return res.status(404).json({ success: false, message: "Plan not found" });
       }
-      const activeSubscriptions = await db.select({ count: import_drizzle_orm40.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.planId, planId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
+      const activeSubscriptions = await db.select({ count: import_drizzle_orm41.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.planId, planId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
       ));
       if (activeSubscriptions[0]?.count > 0) {
-        await db.update(billingPlans).set({ isEnabled: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(billingPlans.id, planId));
+        await db.update(billingPlans).set({ isEnabled: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm41.eq)(billingPlans.id, planId));
         logger.info("Billing", `Plan disabled (has active subs): ${plan.name}`);
         return res.json({ success: true, message: "Plan disabled (has active subscriptions)" });
       }
-      await db.update(billingPlans).set({ isEnabled: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(billingPlans.id, planId));
+      await db.update(billingPlans).set({ isEnabled: false, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm41.eq)(billingPlans.id, planId));
       await AuditHelpers.logDelete(req.user.id, "billing_plan", planId, { name: plan.name });
       logger.info("Billing", `Plan disabled: ${plan.name} by user ${req.user.id}`);
       res.json({ success: true, message: "Plan disabled successfully" });
@@ -354043,7 +354382,7 @@ function registerBillingRoutes(app2) {
   });
   app2.get("/api/admin/billing/gst-settings", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const [settings] = await db.select().from(gstSettings).where(import_drizzle_orm40.sql`${gstSettings.organizationId} IS NULL`);
+      const [settings] = await db.select().from(gstSettings).where(import_drizzle_orm41.sql`${gstSettings.organizationId} IS NULL`);
       res.json({ success: true, data: settings || null });
     } catch (err) {
       logger.error("Billing", "Failed to fetch GST settings", err);
@@ -354057,13 +354396,13 @@ function registerBillingRoutes(app2) {
         return res.status(400).json({ success: false, message: "Invalid GST data", errors: validation.error.errors });
       }
       const data = validation.data;
-      const [existing] = await db.select().from(gstSettings).where(import_drizzle_orm40.sql`${gstSettings.organizationId} IS NULL`);
+      const [existing] = await db.select().from(gstSettings).where(import_drizzle_orm41.sql`${gstSettings.organizationId} IS NULL`);
       let settings;
       if (existing) {
         [settings] = await db.update(gstSettings).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm40.eq)(gstSettings.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm41.eq)(gstSettings.id, existing.id)).returning();
       } else {
         [settings] = await db.insert(gstSettings).values({
           ...data
@@ -354089,11 +354428,11 @@ function registerBillingRoutes(app2) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: validation.error.errors });
       }
       const { organizationId, creditLimitPaise } = validation.data;
-      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm40.eq)(organizations.id, organizationId));
+      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm41.eq)(organizations.id, organizationId));
       if (!org) {
         return res.status(404).json({ success: false, message: "Organization not found" });
       }
-      const [existing] = await db.select().from(billingSettings).where((0, import_drizzle_orm40.eq)(billingSettings.organizationId, organizationId));
+      const [existing] = await db.select().from(billingSettings).where((0, import_drizzle_orm41.eq)(billingSettings.organizationId, organizationId));
       let settings;
       if (existing) {
         [settings] = await db.update(billingSettings).set({
@@ -354104,7 +354443,7 @@ function registerBillingRoutes(app2) {
           creditLimitPaise,
           allowedBillingModels: ["prepaid", "postpaid", "hybrid"],
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm40.eq)(billingSettings.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm41.eq)(billingSettings.id, existing.id)).returning();
       } else {
         [settings] = await db.insert(billingSettings).values({
           organizationId,
@@ -354136,22 +354475,22 @@ function registerBillingRoutes(app2) {
   });
   app2.get("/api/admin/billing/companies", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const approvedCompanies = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm40.eq)(organizations.status, "approved"));
+      const approvedCompanies = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm41.eq)(organizations.status, "approved"));
       await Promise.all(approvedCompanies.map((company) => BillingEngine.ensureOrganizationBillingAccount(company.id)));
       const accounts = await BillingEngine.listOrganizationBillingAccounts();
       const companiesWithBilling = await Promise.all(
         accounts.map(async ({ account, organization, plan }) => {
-          const [settings] = await db.select().from(billingSettings).where((0, import_drizzle_orm40.eq)(billingSettings.organizationId, organization.id)).limit(1);
+          const [settings] = await db.select().from(billingSettings).where((0, import_drizzle_orm41.eq)(billingSettings.organizationId, organization.id)).limit(1);
           const [activeCalls2] = await db.select({
-            count: import_drizzle_orm40.sql`count(*)`
-          }).from(callBillingRecords).where((0, import_drizzle_orm40.and)(
-            (0, import_drizzle_orm40.eq)(callBillingRecords.organizationId, organization.id),
-            (0, import_drizzle_orm40.eq)(callBillingRecords.status, "active")
+            count: import_drizzle_orm41.sql`count(*)`
+          }).from(callBillingRecords).where((0, import_drizzle_orm41.and)(
+            (0, import_drizzle_orm41.eq)(callBillingRecords.organizationId, organization.id),
+            (0, import_drizzle_orm41.eq)(callBillingRecords.status, "active")
           ));
           const [usageSummary] = await db.select({
-            totalCostPaise: import_drizzle_orm40.sql`COALESCE(SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}), 0)`,
-            totalSeconds: import_drizzle_orm40.sql`COALESCE(SUM(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`
-          }).from(callBillingRecords).where((0, import_drizzle_orm40.eq)(callBillingRecords.organizationId, organization.id));
+            totalCostPaise: import_drizzle_orm41.sql`COALESCE(SUM(${callBillingRecords.prepaidDebitPaise} + ${callBillingRecords.postpaidAccrualPaise}), 0)`,
+            totalSeconds: import_drizzle_orm41.sql`COALESCE(SUM(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`
+          }).from(callBillingRecords).where((0, import_drizzle_orm41.eq)(callBillingRecords.organizationId, organization.id));
           return {
             id: organization.id,
             name: organization.name,
@@ -354259,7 +354598,7 @@ function registerBillingRoutes(app2) {
   });
   app2.get("/api/admin/billing/logs", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const logs = await db.select().from(billingLedgerEntries).orderBy((0, import_drizzle_orm40.desc)(billingLedgerEntries.createdAt)).limit(200);
+      const logs = await db.select().from(billingLedgerEntries).orderBy((0, import_drizzle_orm41.desc)(billingLedgerEntries.createdAt)).limit(200);
       res.json({ success: true, data: logs });
     } catch (err) {
       logger.error("Billing", "Failed to fetch billing logs", err);
@@ -354287,28 +354626,28 @@ function registerBillingRoutes(app2) {
       if (!organizationId) {
         return res.status(400).json({ success: false, message: "No organization associated" });
       }
-      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm40.eq)(organizations.id, organizationId));
+      const [org] = await db.select().from(organizations).where((0, import_drizzle_orm41.eq)(organizations.id, organizationId));
       const account = await BillingEngine.ensureOrganizationBillingAccount(organizationId);
-      const [settings] = await db.select().from(billingSettings).where((0, import_drizzle_orm40.eq)(billingSettings.organizationId, organizationId));
-      const [subscription] = await db.select().from(subscriptions).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.organizationId, organizationId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
+      const [settings] = await db.select().from(billingSettings).where((0, import_drizzle_orm41.eq)(billingSettings.organizationId, organizationId));
+      const [subscription] = await db.select().from(subscriptions).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.organizationId, organizationId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
       ));
-      const recentInvoices = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.organizationId, organizationId)).orderBy((0, import_drizzle_orm40.desc)(invoices.createdAt)).limit(5);
+      const recentInvoices = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.organizationId, organizationId)).orderBy((0, import_drizzle_orm41.desc)(invoices.createdAt)).limit(5);
       const thirtyDaysAgo = /* @__PURE__ */ new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const usageSummary = await db.select({
-        totalMinutes: import_drizzle_orm40.sql`COALESCE(SUM(${usageRecords.minutesConsumed}), 0)`,
-        totalCost: import_drizzle_orm40.sql`COALESCE(SUM(${usageRecords.totalCostPaise}), 0)`
-      }).from(usageRecords).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(usageRecords.organizationId, organizationId),
-        (0, import_drizzle_orm40.gte)(usageRecords.usageDate, thirtyDaysAgo)
+        totalMinutes: import_drizzle_orm41.sql`COALESCE(SUM(${usageRecords.minutesConsumed}), 0)`,
+        totalCost: import_drizzle_orm41.sql`COALESCE(SUM(${usageRecords.totalCostPaise}), 0)`
+      }).from(usageRecords).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(usageRecords.organizationId, organizationId),
+        (0, import_drizzle_orm41.gte)(usageRecords.usageDate, thirtyDaysAgo)
       ));
       const [activeCalls2] = await db.select({
-        count: import_drizzle_orm40.sql`count(*)`
-      }).from(callBillingRecords).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(callBillingRecords.organizationId, organizationId),
-        (0, import_drizzle_orm40.eq)(callBillingRecords.status, "active")
+        count: import_drizzle_orm41.sql`count(*)`
+      }).from(callBillingRecords).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(callBillingRecords.organizationId, organizationId),
+        (0, import_drizzle_orm41.eq)(callBillingRecords.status, "active")
       ));
       res.json({
         success: true,
@@ -354341,7 +354680,7 @@ function registerBillingRoutes(app2) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: validation.error.errors });
       }
       const data = validation.data;
-      const [existing] = await db.select().from(billingSettings).where((0, import_drizzle_orm40.eq)(billingSettings.organizationId, organizationId));
+      const [existing] = await db.select().from(billingSettings).where((0, import_drizzle_orm41.eq)(billingSettings.organizationId, organizationId));
       if ((data.currentBillingModel === "postpaid" || data.currentBillingModel === "hybrid") && (!existing || !existing.postpaidApproved)) {
         return res.status(403).json({ success: false, message: "Postpaid not approved for this organization" });
       }
@@ -354350,7 +354689,7 @@ function registerBillingRoutes(app2) {
         [settings] = await db.update(billingSettings).set({
           ...data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm40.eq)(billingSettings.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm41.eq)(billingSettings.id, existing.id)).returning();
       } else {
         [settings] = await db.insert(billingSettings).values({
           organizationId,
@@ -354370,7 +354709,7 @@ function registerBillingRoutes(app2) {
       if (!organizationId) {
         return res.status(400).json({ success: false, message: "No organization associated" });
       }
-      const companyInvoices = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.organizationId, organizationId)).orderBy((0, import_drizzle_orm40.desc)(invoices.createdAt));
+      const companyInvoices = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.organizationId, organizationId)).orderBy((0, import_drizzle_orm41.desc)(invoices.createdAt));
       res.json({
         success: true,
         data: companyInvoices.map((inv) => ({
@@ -354386,14 +354725,14 @@ function registerBillingRoutes(app2) {
   app2.get("/api/billing/invoices/:id", requireAuth, async (req, res) => {
     try {
       const invoiceId = parseInt(req.params.id);
-      const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.id, invoiceId));
+      const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.id, invoiceId));
       if (!invoice) {
         return res.status(404).json({ success: false, message: "Invoice not found" });
       }
       if (req.user.role !== "super_admin" && invoice.organizationId !== req.user.organizationId && invoice.userId !== req.user.id) {
         return res.status(403).json({ success: false, message: "Access denied" });
       }
-      const lineItems = await db.select().from(invoiceLineItems).where((0, import_drizzle_orm40.eq)(invoiceLineItems.invoiceId, invoiceId));
+      const lineItems = await db.select().from(invoiceLineItems).where((0, import_drizzle_orm41.eq)(invoiceLineItems.invoiceId, invoiceId));
       res.json({
         success: true,
         data: {
@@ -354410,7 +354749,7 @@ function registerBillingRoutes(app2) {
   app2.get("/api/billing/invoices/:id/html", requireAuth, async (req, res) => {
     try {
       const invoiceId = parseInt(req.params.id);
-      const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.id, invoiceId));
+      const [invoice] = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.id, invoiceId));
       if (!invoice) {
         return res.status(404).json({ success: false, message: "Invoice not found" });
       }
@@ -354455,18 +354794,18 @@ function registerBillingRoutes(app2) {
       const [subscription] = await db.select({
         subscription: subscriptions,
         plan: billingPlans
-      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.userId, userId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
+      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.userId, userId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
       ));
-      const recentInvoices = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.userId, userId)).orderBy((0, import_drizzle_orm40.desc)(invoices.createdAt)).limit(5);
+      const recentInvoices = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.userId, userId)).orderBy((0, import_drizzle_orm41.desc)(invoices.createdAt)).limit(5);
       const thirtyDaysAgo = /* @__PURE__ */ new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const usageSummary = await db.select({
-        totalMinutes: import_drizzle_orm40.sql`COALESCE(SUM(${usageRecords.minutesConsumed}), 0)`
-      }).from(usageRecords).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(usageRecords.userId, userId),
-        (0, import_drizzle_orm40.gte)(usageRecords.usageDate, thirtyDaysAgo)
+        totalMinutes: import_drizzle_orm41.sql`COALESCE(SUM(${usageRecords.minutesConsumed}), 0)`
+      }).from(usageRecords).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(usageRecords.userId, userId),
+        (0, import_drizzle_orm41.gte)(usageRecords.usageDate, thirtyDaysAgo)
       ));
       res.json({
         success: true,
@@ -354496,17 +354835,17 @@ function registerBillingRoutes(app2) {
       }
       const { planId, autoRenew } = validation.data;
       const userId = req.user.id;
-      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(billingPlans.id, planId),
-        (0, import_drizzle_orm40.eq)(billingPlans.planType, "b2c"),
-        (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true)
+      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(billingPlans.id, planId),
+        (0, import_drizzle_orm41.eq)(billingPlans.planType, "b2c"),
+        (0, import_drizzle_orm41.eq)(billingPlans.isEnabled, true)
       ));
       if (!plan) {
         return res.status(404).json({ success: false, message: "Plan not found or not available" });
       }
-      const [existing] = await db.select().from(subscriptions).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.userId, userId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
+      const [existing] = await db.select().from(subscriptions).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.userId, userId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
       ));
       if (existing) {
         return res.status(400).json({ success: false, message: "You already have an active subscription" });
@@ -354546,16 +354885,16 @@ function registerBillingRoutes(app2) {
       }
       const { planId, autoRenew } = validation.data;
       const userId = req.user.id;
-      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(billingPlans.id, planId),
-        (0, import_drizzle_orm40.eq)(billingPlans.isEnabled, true)
+      const [plan] = await db.select().from(billingPlans).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(billingPlans.id, planId),
+        (0, import_drizzle_orm41.eq)(billingPlans.isEnabled, true)
       ));
       if (!plan) {
         return res.status(404).json({ success: false, message: "Plan not found or not available" });
       }
-      const [existing] = await db.select().from(subscriptions).where((0, import_drizzle_orm40.and)(
-        (0, import_drizzle_orm40.eq)(subscriptions.userId, userId),
-        (0, import_drizzle_orm40.eq)(subscriptions.status, "active")
+      const [existing] = await db.select().from(subscriptions).where((0, import_drizzle_orm41.and)(
+        (0, import_drizzle_orm41.eq)(subscriptions.userId, userId),
+        (0, import_drizzle_orm41.eq)(subscriptions.status, "active")
       ));
       if (existing) {
         return res.status(400).json({ success: false, message: "You already have an active subscription. Please cancel it first." });
@@ -354581,7 +354920,7 @@ function registerBillingRoutes(app2) {
   app2.get("/api/billing/consumer/invoices", requireAuth, async (req, res) => {
     try {
       const userId = req.user.id;
-      const userInvoices = await db.select().from(invoices).where((0, import_drizzle_orm40.eq)(invoices.userId, userId)).orderBy((0, import_drizzle_orm40.desc)(invoices.createdAt));
+      const userInvoices = await db.select().from(invoices).where((0, import_drizzle_orm41.eq)(invoices.userId, userId)).orderBy((0, import_drizzle_orm41.desc)(invoices.createdAt));
       res.json({
         success: true,
         data: userInvoices.map((inv) => ({
@@ -354600,11 +354939,11 @@ function registerBillingRoutes(app2) {
       const organizationId = req.user.organizationId;
       let whereClause;
       if (organizationId && ["company_admin", "super_admin"].includes(req.user.role)) {
-        whereClause = (0, import_drizzle_orm40.eq)(usageRecords.organizationId, organizationId);
+        whereClause = (0, import_drizzle_orm41.eq)(usageRecords.organizationId, organizationId);
       } else {
-        whereClause = (0, import_drizzle_orm40.eq)(usageRecords.userId, userId);
+        whereClause = (0, import_drizzle_orm41.eq)(usageRecords.userId, userId);
       }
-      const usage = await db.select().from(usageRecords).where(whereClause).orderBy((0, import_drizzle_orm40.desc)(usageRecords.usageDate)).limit(100);
+      const usage = await db.select().from(usageRecords).where(whereClause).orderBy((0, import_drizzle_orm41.desc)(usageRecords.usageDate)).limit(100);
       res.json({ success: true, data: usage });
     } catch (err) {
       logger.error("Billing", "Failed to fetch usage", err);
@@ -354618,7 +354957,7 @@ function registerBillingRoutes(app2) {
         minutesRemaining: subscriptions.minutesRemaining,
         endDate: subscriptions.endDate,
         plan: billingPlans
-      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.userId, userId), (0, import_drizzle_orm40.eq)(subscriptions.status, "active"))).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
+      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)((0, import_drizzle_orm41.eq)(subscriptions.userId, userId), (0, import_drizzle_orm41.eq)(subscriptions.status, "active"))).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(1);
       if (!sub) {
         return res.json({ balanceInr: 0, minutesRemaining: 0, hasActiveSubscription: false });
       }
@@ -354643,8 +354982,8 @@ function registerBillingRoutes(app2) {
       const userId = user2.id;
       const orgId4 = user2.organizationId ?? null;
       if (orgId4) {
-        const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm40.eq)(billingAccounts.organizationId, orgId4)).limit(1);
-        const ledger2 = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm40.eq)(billingLedgerEntries.organizationId, orgId4)).orderBy((0, import_drizzle_orm40.desc)(billingLedgerEntries.createdAt)).limit(50);
+        const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm41.eq)(billingAccounts.organizationId, orgId4)).limit(1);
+        const ledger2 = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm41.eq)(billingLedgerEntries.organizationId, orgId4)).orderBy((0, import_drizzle_orm41.desc)(billingLedgerEntries.createdAt)).limit(50);
         return res.json({
           success: true,
           walletType: "organization",
@@ -354675,8 +355014,8 @@ function registerBillingRoutes(app2) {
         planName: billingPlans.name,
         priceInPaise: billingPlans.priceInPaise,
         includedMinutes: billingPlans.includedMinutes
-      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.userId, userId), (0, import_drizzle_orm40.eq)(subscriptions.status, "active"))).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
-      const ledger = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm40.eq)(billingLedgerEntries.userId, userId)).orderBy((0, import_drizzle_orm40.desc)(billingLedgerEntries.createdAt)).limit(50);
+      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)((0, import_drizzle_orm41.eq)(subscriptions.userId, userId), (0, import_drizzle_orm41.eq)(subscriptions.status, "active"))).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(1);
+      const ledger = await db.select().from(billingLedgerEntries).where((0, import_drizzle_orm41.eq)(billingLedgerEntries.userId, userId)).orderBy((0, import_drizzle_orm41.desc)(billingLedgerEntries.createdAt)).limit(50);
       const minutesRemaining = activeSub?.minutesRemaining ?? 0;
       return res.json({
         success: true,
@@ -354717,9 +355056,9 @@ function registerBillingRoutes(app2) {
       const limitRaw = Math.min(Number(req.query.limit) || 20, 100);
       const offsetRaw = Math.max(Number(req.query.offset) || 0, 0);
       const statusFilter = req.query.status || void 0;
-      const conditions = orgId4 ? [(0, import_drizzle_orm40.eq)(subscriptions.organizationId, orgId4)] : [(0, import_drizzle_orm40.eq)(subscriptions.userId, userId)];
+      const conditions = orgId4 ? [(0, import_drizzle_orm41.eq)(subscriptions.organizationId, orgId4)] : [(0, import_drizzle_orm41.eq)(subscriptions.userId, userId)];
       if (statusFilter) {
-        conditions.push((0, import_drizzle_orm40.eq)(subscriptions.status, statusFilter));
+        conditions.push((0, import_drizzle_orm41.eq)(subscriptions.status, statusFilter));
       }
       const rows = await db.select({
         id: subscriptions.id,
@@ -354741,8 +355080,8 @@ function registerBillingRoutes(app2) {
           includedMinutes: billingPlans.includedMinutes,
           duration: billingPlans.duration
         }
-      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm40.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm40.and)(...conditions)).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(limitRaw).offset(offsetRaw);
-      const [{ total }] = await db.select({ total: import_drizzle_orm40.sql`cast(count(*) as int)` }).from(subscriptions).where((0, import_drizzle_orm40.and)(...conditions));
+      }).from(subscriptions).innerJoin(billingPlans, (0, import_drizzle_orm41.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm41.and)(...conditions)).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(limitRaw).offset(offsetRaw);
+      const [{ total }] = await db.select({ total: import_drizzle_orm41.sql`cast(count(*) as int)` }).from(subscriptions).where((0, import_drizzle_orm41.and)(...conditions));
       const active = rows.find((r5) => r5.status === "active") ?? null;
       return res.json({
         success: true,
@@ -354799,7 +355138,7 @@ function registerBillingRoutes(app2) {
   app2.post("/api/admin/billing/companies/:organizationId/resume", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const organizationId = parseInt(req.params.organizationId);
-      const [sub] = await db.select().from(subscriptions).where((0, import_drizzle_orm40.and)((0, import_drizzle_orm40.eq)(subscriptions.organizationId, organizationId), (0, import_drizzle_orm40.eq)(subscriptions.status, "suspended"))).orderBy((0, import_drizzle_orm40.desc)(subscriptions.createdAt)).limit(1);
+      const [sub] = await db.select().from(subscriptions).where((0, import_drizzle_orm41.and)((0, import_drizzle_orm41.eq)(subscriptions.organizationId, organizationId), (0, import_drizzle_orm41.eq)(subscriptions.status, "suspended"))).orderBy((0, import_drizzle_orm41.desc)(subscriptions.createdAt)).limit(1);
       if (!sub) return res.status(404).json({ error: "No suspended subscription found" });
       const { autoResumeAfterPayment: autoResumeAfterPayment2 } = await Promise.resolve().then(() => (init_billing_scheduler(), billing_scheduler_exports));
       await autoResumeAfterPayment2(organizationId, sub.id);
@@ -354811,7 +355150,7 @@ function registerBillingRoutes(app2) {
   app2.get("/api/admin/billing/companies/:organizationId/contract", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const orgId4 = parseInt(req.params.organizationId);
-      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm40.eq)(billingAccounts.organizationId, orgId4));
+      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm41.eq)(billingAccounts.organizationId, orgId4));
       if (!account) return res.status(404).json({ error: "Billing account not found" });
       const override = account.customPricingOverride ?? {};
       const contract = {
@@ -354845,11 +355184,11 @@ function registerBillingRoutes(app2) {
       });
       const parsed = contractSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm40.eq)(billingAccounts.organizationId, orgId4));
+      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm41.eq)(billingAccounts.organizationId, orgId4));
       if (!account) return res.status(404).json({ error: "Billing account not found" });
       const existingOverride = account.customPricingOverride ?? {};
       const updatedOverride = { ...existingOverride, ...parsed.data };
-      await db.update(billingAccounts).set({ customPricingOverride: updatedOverride, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm40.eq)(billingAccounts.organizationId, orgId4));
+      await db.update(billingAccounts).set({ customPricingOverride: updatedOverride, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm41.eq)(billingAccounts.organizationId, orgId4));
       const actorUser = req.user;
       await AuditHelpers.logUpdate(actorUser.id, "enterprise_contract", orgId4, existingOverride, updatedOverride);
       res.json({ success: true, contract: parsed.data });
@@ -354862,7 +355201,7 @@ function registerBillingRoutes(app2) {
       const user2 = req.user;
       const orgId4 = user2.organizationId;
       if (!orgId4) return res.status(400).json({ error: "No organization" });
-      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm40.eq)(billingAccounts.organizationId, orgId4));
+      const [account] = await db.select().from(billingAccounts).where((0, import_drizzle_orm41.eq)(billingAccounts.organizationId, orgId4));
       if (!account) return res.json({ discountPercent: 0, volumeTiers: [], contractNotes: "" });
       const override = account.customPricingOverride ?? {};
       res.json({
@@ -354917,14 +355256,14 @@ function registerBillingRoutes(app2) {
   });
   logger.info("Billing", "Billing routes registered");
 }
-var import_zod10, import_drizzle_orm40, createPlanSchema, updatePlanSchema, updateGlobalPricingSchema, updateCompanyBillingAccountSchema, billingAdjustmentSchema, companyBlockSchema, purchaseSubscriptionSchema, updateBillingSettingsSchema, updateGstSettingsSchema, approvePostpaidSchema;
+var import_zod10, import_drizzle_orm41, createPlanSchema, updatePlanSchema, updateGlobalPricingSchema, updateCompanyBillingAccountSchema, billingAdjustmentSchema, companyBlockSchema, purchaseSubscriptionSchema, updateBillingSettingsSchema, updateGstSettingsSchema, approvePostpaidSchema;
 var init_billing_routes = __esm({
   "server/billing-routes.ts"() {
     "use strict";
     import_zod10 = require("zod");
     init_db();
     init_schema();
-    import_drizzle_orm40 = require("drizzle-orm");
+    import_drizzle_orm41 = require("drizzle-orm");
     init_role_middleware();
     init_observability();
     init_audit();
@@ -355009,7 +355348,7 @@ function getTranslations(lang = "en") {
   return translations[lang] || translations["en"];
 }
 async function getAvailableLanguages() {
-  return db.select().from(supportedLanguages).where((0, import_drizzle_orm41.eq)(supportedLanguages.isEnabled, true));
+  return db.select().from(supportedLanguages).where((0, import_drizzle_orm42.eq)(supportedLanguages.isEnabled, true));
 }
 function registerTranslationRoutes(app2) {
   app2.get("/api/translations/:lang", (req, res) => {
@@ -355026,13 +355365,13 @@ function registerTranslationRoutes(app2) {
     }
   });
 }
-var import_drizzle_orm41, en, te, ta, kn, hi, translations;
+var import_drizzle_orm42, en, te, ta, kn, hi, translations;
 var init_translations = __esm({
   "server/translations.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm41 = require("drizzle-orm");
+    import_drizzle_orm42 = require("drizzle-orm");
     en = {
       "common.loading": "Loading...",
       "common.error": "Something went wrong",
@@ -355245,7 +355584,7 @@ function registerInvestorRoutes(app2) {
     try {
       const input = investorSignupSchema.parse(req.body);
       const existingUser = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm42.eq)(users.email, input.email)
+        where: (0, import_drizzle_orm43.eq)(users.email, input.email)
       });
       if (existingUser) {
         return res.status(400).json({
@@ -355300,7 +355639,7 @@ function registerInvestorRoutes(app2) {
     try {
       const input = investorLoginSchema.parse(req.body);
       const user2 = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm42.eq)(users.email, input.email)
+        where: (0, import_drizzle_orm43.eq)(users.email, input.email)
       });
       if (!user2) {
         return res.status(401).json({
@@ -355326,7 +355665,7 @@ function registerInvestorRoutes(app2) {
           message: "Your account is inactive. Please contact support."
         });
       }
-      await db.update(users).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm42.eq)(users.id, user2.id));
+      await db.update(users).set({ lastLoginAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm43.eq)(users.id, user2.id));
       const token = await createSession(user2.id);
       logger.info("InvestorRoutes", "Investor logged in", {
         userId: user2.id,
@@ -355361,7 +355700,7 @@ function registerInvestorRoutes(app2) {
   app2.get("/api/investor/profile", loadUser, requireInvestor, async (req, res) => {
     try {
       const user2 = await db.query.users.findFirst({
-        where: (0, import_drizzle_orm42.eq)(users.id, req.user.id)
+        where: (0, import_drizzle_orm43.eq)(users.id, req.user.id)
       });
       if (!user2) {
         return res.status(404).json({
@@ -355462,13 +355801,13 @@ function registerInvestorRoutes(app2) {
     }
   });
 }
-var import_drizzle_orm42, import_zod11, investorSignupSchema, investorLoginSchema;
+var import_drizzle_orm43, import_zod11, investorSignupSchema, investorLoginSchema;
 var init_investor_routes = __esm({
   "server/investor-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm42 = require("drizzle-orm");
+    import_drizzle_orm43 = require("drizzle-orm");
     import_zod11 = require("zod");
     init_role_middleware();
     init_observability();
@@ -355529,10 +355868,10 @@ function registerProductionMetrics(app2) {
       const aggregated = metrics.getAggregatedMetrics();
       const pipeline = getPipelineMetrics();
       const [callAggregate] = await db.select({
-        total: import_drizzle_orm43.sql`count(*)`,
-        ended: import_drizzle_orm43.sql`count(*) filter (where ${callBillingRecords.status} in ('completed', 'ended'))`,
-        dropped: import_drizzle_orm43.sql`count(*) filter (where ${callBillingRecords.status} in ('dropped', 'failed'))`,
-        avgDurationSeconds: import_drizzle_orm43.sql`coalesce(avg(greatest(${callBillingRecords.voiceSeconds}, ${callBillingRecords.videoSeconds})), 0)`
+        total: import_drizzle_orm44.sql`count(*)`,
+        ended: import_drizzle_orm44.sql`count(*) filter (where ${callBillingRecords.status} in ('completed', 'ended'))`,
+        dropped: import_drizzle_orm44.sql`count(*) filter (where ${callBillingRecords.status} in ('dropped', 'failed'))`,
+        avgDurationSeconds: import_drizzle_orm44.sql`coalesce(avg(greatest(${callBillingRecords.voiceSeconds}, ${callBillingRecords.videoSeconds})), 0)`
       }).from(callBillingRecords);
       let pipelineSnapshot = {};
       let voiceSnapshot = {};
@@ -355692,7 +356031,7 @@ function registerProductionMetrics(app2) {
   });
   logger.info("ProductionMetrics", "/metrics registered (/healthz, /readyz handled by production-routes)");
 }
-var import_crypto17, import_drizzle_orm43, eventLoopLagMs, lastLagCheck, errorCounters, warnedMissingMetricsToken;
+var import_crypto17, import_drizzle_orm44, eventLoopLagMs, lastLagCheck, errorCounters, warnedMissingMetricsToken;
 var init_production_metrics = __esm({
   "server/production-metrics.ts"() {
     "use strict";
@@ -355701,7 +356040,7 @@ var init_production_metrics = __esm({
     init_metrics2();
     init_ultra_pipeline();
     init_db();
-    import_drizzle_orm43 = require("drizzle-orm");
+    import_drizzle_orm44 = require("drizzle-orm");
     init_schema();
     init_voice_resilience();
     init_reliability_monitor();
@@ -355769,27 +356108,27 @@ function registerEnterpriseRoutes(app2) {
       const user2 = req.user;
       const orgId4 = user2.organizationId;
       const isSuperAdmin4 = user2.role === "super_admin";
-      let userCountCondition = (0, import_drizzle_orm44.eq)(users.isActive, true);
+      let userCountCondition = (0, import_drizzle_orm45.eq)(users.isActive, true);
       if (!isSuperAdmin4 && orgId4) {
-        userCountCondition = (0, import_drizzle_orm44.and)((0, import_drizzle_orm44.eq)(users.isActive, true), (0, import_drizzle_orm44.eq)(users.organizationId, orgId4));
+        userCountCondition = (0, import_drizzle_orm45.and)((0, import_drizzle_orm45.eq)(users.isActive, true), (0, import_drizzle_orm45.eq)(users.organizationId, orgId4));
       }
       const [userStats] = await db.select({
-        activeUsers: (0, import_drizzle_orm44.count)(users.id)
+        activeUsers: (0, import_drizzle_orm45.count)(users.id)
       }).from(users).where(userCountCondition);
       const [translationStats] = await db.select({
-        translationMinutes: import_drizzle_orm44.sql`COALESCE(COUNT(*) * 2, 0)`
+        translationMinutes: import_drizzle_orm45.sql`COALESCE(COUNT(*) * 2, 0)`
       }).from(callTranslations);
       const [callStats] = await db.select({
-        totalCalls: (0, import_drizzle_orm44.count)(bridgedCalls.id),
-        totalMinutes: import_drizzle_orm44.sql`COALESCE(SUM(${bridgedCalls.duration}) / 60, 0)`,
-        avgDuration: import_drizzle_orm44.sql`COALESCE(AVG(${bridgedCalls.duration}) / 60, 0)`
+        totalCalls: (0, import_drizzle_orm45.count)(bridgedCalls.id),
+        totalMinutes: import_drizzle_orm45.sql`COALESCE(SUM(${bridgedCalls.duration}) / 60, 0)`,
+        avgDuration: import_drizzle_orm45.sql`COALESCE(AVG(${bridgedCalls.duration}) / 60, 0)`
       }).from(bridgedCalls);
       const [todayCalls] = await db.select({
-        count: (0, import_drizzle_orm44.count)(bridgedCalls.id)
+        count: (0, import_drizzle_orm45.count)(bridgedCalls.id)
       }).from(bridgedCalls).where(
-        import_drizzle_orm44.sql`${bridgedCalls.createdAt} >= CURRENT_DATE`
+        import_drizzle_orm45.sql`${bridgedCalls.createdAt} >= CURRENT_DATE`
       );
-      const languageRows = await db.execute(import_drizzle_orm44.sql`
+      const languageRows = await db.execute(import_drizzle_orm45.sql`
         SELECT lang, COUNT(*) as calls FROM (
           SELECT ${bridgedCalls.callerLanguage} as lang FROM ${bridgedCalls} WHERE ${bridgedCalls.callerLanguage} IS NOT NULL
           UNION ALL
@@ -355802,7 +356141,7 @@ function registerEnterpriseRoutes(app2) {
         calls: Number(r5.calls),
         percentage: Math.round(Number(r5.calls) / totalLangCalls * 100)
       })) : [{ language: "English", calls: 0, percentage: 100 }];
-      const dayRows = await db.execute(import_drizzle_orm44.sql`
+      const dayRows = await db.execute(import_drizzle_orm45.sql`
         SELECT TO_CHAR(${bridgedCalls.createdAt}, 'Dy') as day, COUNT(*) as calls
         FROM ${bridgedCalls}
         WHERE ${bridgedCalls.createdAt} >= NOW() - INTERVAL '7 days'
@@ -355822,7 +356161,7 @@ function registerEnterpriseRoutes(app2) {
         // Real emotion data from call_translations table
         emotionBreakdown: await (async () => {
           try {
-            const emotionRows = await db.execute(import_drizzle_orm44.sql`
+            const emotionRows = await db.execute(import_drizzle_orm45.sql`
               SELECT emotion_detected as emotion, COUNT(*) as cnt FROM call_translations 
               WHERE emotion_detected IS NOT NULL AND emotion_detected != ''
               GROUP BY emotion_detected ORDER BY cnt DESC LIMIT 5
@@ -355853,7 +356192,7 @@ function registerEnterpriseRoutes(app2) {
       const isSuperAdmin4 = user2.role === "super_admin";
       let queryCondition = void 0;
       if (!isSuperAdmin4 && orgId4) {
-        queryCondition = (0, import_drizzle_orm44.eq)(users.organizationId, orgId4);
+        queryCondition = (0, import_drizzle_orm45.eq)(users.organizationId, orgId4);
       }
       const teamMembers2 = await db.select({
         id: users.id,
@@ -355865,7 +356204,7 @@ function registerEnterpriseRoutes(app2) {
         createdAt: users.createdAt,
         organizationId: users.organizationId
       }).from(users).where(queryCondition).limit(50);
-      const callCountRows = await db.execute(import_drizzle_orm44.sql`
+      const callCountRows = await db.execute(import_drizzle_orm45.sql`
         SELECT caller_user_id as uid, COUNT(*) as calls FROM bridged_calls
         WHERE caller_user_id IS NOT NULL
         GROUP BY caller_user_id
@@ -355915,12 +356254,12 @@ function registerEnterpriseRoutes(app2) {
         createdAt: auditLogs.createdAt
       }).from(auditLogs);
       if (!isSuperAdmin4 && orgId4) {
-        logsQuery = logsQuery.where((0, import_drizzle_orm44.eq)(auditLogs.organizationId, orgId4));
+        logsQuery = logsQuery.where((0, import_drizzle_orm45.eq)(auditLogs.organizationId, orgId4));
       }
-      const logs = await logsQuery.orderBy((0, import_drizzle_orm44.desc)(auditLogs.createdAt)).limit(50);
+      const logs = await logsQuery.orderBy((0, import_drizzle_orm45.desc)(auditLogs.createdAt)).limit(50);
       let orgUserIds = [];
       if (!isSuperAdmin4 && orgId4) {
-        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm44.eq)(users.organizationId, orgId4));
+        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm45.eq)(users.organizationId, orgId4));
         orgUserIds = orgUsers.map((u) => u.id);
       }
       const usersMap = /* @__PURE__ */ new Map();
@@ -355952,7 +356291,7 @@ function registerEnterpriseRoutes(app2) {
       const isSuperAdmin4 = user2.role === "super_admin";
       let orgUserIds = [];
       if (!isSuperAdmin4 && orgId4) {
-        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm44.eq)(users.organizationId, orgId4));
+        const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm45.eq)(users.organizationId, orgId4));
         orgUserIds = orgUsers.map((u) => u.id);
       }
       const calls = await db.select({
@@ -355966,7 +356305,7 @@ function registerEnterpriseRoutes(app2) {
         receiverLanguage: bridgedCalls.receiverLanguage,
         duration: bridgedCalls.duration,
         createdAt: bridgedCalls.createdAt
-      }).from(bridgedCalls).orderBy((0, import_drizzle_orm44.desc)(bridgedCalls.createdAt)).limit(50);
+      }).from(bridgedCalls).orderBy((0, import_drizzle_orm45.desc)(bridgedCalls.createdAt)).limit(50);
       let filteredCalls = calls;
       if (!isSuperAdmin4 && orgId4) {
         filteredCalls = calls.filter(
@@ -356202,14 +356541,14 @@ function registerEnterpriseCallControlRoutes(app2) {
     try {
       const period = req.query.period || "current-month";
       const [callUsage] = await db.select({
-        totalMinutes: import_drizzle_orm44.sql`COALESCE(SUM(${bridgedCalls.duration}) / 60, 0)`,
-        totalCalls: (0, import_drizzle_orm44.count)(bridgedCalls.id)
+        totalMinutes: import_drizzle_orm45.sql`COALESCE(SUM(${bridgedCalls.duration}) / 60, 0)`,
+        totalCalls: (0, import_drizzle_orm45.count)(bridgedCalls.id)
       }).from(bridgedCalls);
       const [translationUsage] = await db.select({
-        translatedMinutes: import_drizzle_orm44.sql`COALESCE(COUNT(*) * 2, 0)`,
-        emotionMinutes: import_drizzle_orm44.sql`COALESCE(COUNT(CASE WHEN emotion_detected IS NOT NULL AND emotion_detected != '' THEN 1 END) * 2, 0)`
+        translatedMinutes: import_drizzle_orm45.sql`COALESCE(COUNT(*) * 2, 0)`,
+        emotionMinutes: import_drizzle_orm45.sql`COALESCE(COUNT(CASE WHEN emotion_detected IS NOT NULL AND emotion_detected != '' THEN 1 END) * 2, 0)`
       }).from(callTranslations);
-      const langRows = await db.execute(import_drizzle_orm44.sql`
+      const langRows = await db.execute(import_drizzle_orm45.sql`
         SELECT CONCAT(caller_language, '-', receiver_language) as pair, COUNT(*) as cnt
         FROM bridged_calls
         WHERE caller_language IS NOT NULL AND receiver_language IS NOT NULL
@@ -356237,7 +356576,7 @@ function registerEnterpriseCallControlRoutes(app2) {
   });
   app2.get("/api/enterprise/languages", async (req, res) => {
     try {
-      const langRows = await db.execute(import_drizzle_orm44.sql`SELECT code, name FROM supported_languages ORDER BY name`);
+      const langRows = await db.execute(import_drizzle_orm45.sql`SELECT code, name FROM supported_languages ORDER BY name`);
       const langs = langRows.rows;
       if (langs.length > 0) {
         const azureAvail = !!process.env.AZURE_SPEECH_KEY;
@@ -356263,13 +356602,13 @@ function registerEnterpriseCallControlRoutes(app2) {
     ]);
   });
 }
-var import_drizzle_orm44, activeEnterpriseCalls;
+var import_drizzle_orm45, activeEnterpriseCalls;
 var init_enterprise_routes = __esm({
   "server/enterprise-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm44 = require("drizzle-orm");
+    import_drizzle_orm45 = require("drizzle-orm");
     init_role_middleware();
     init_service2();
     init_session_view();
@@ -356280,9 +356619,9 @@ var init_enterprise_routes = __esm({
 // server/admin-config-routes.ts
 async function validateSession2(token) {
   const session = await db.query.userSessions.findFirst({
-    where: (0, import_drizzle_orm45.and)(
-      (0, import_drizzle_orm45.eq)(userSessions.token, token),
-      (0, import_drizzle_orm45.gt)(userSessions.expiresAt, /* @__PURE__ */ new Date())
+    where: (0, import_drizzle_orm46.and)(
+      (0, import_drizzle_orm46.eq)(userSessions.token, token),
+      (0, import_drizzle_orm46.gt)(userSessions.expiresAt, /* @__PURE__ */ new Date())
     )
   });
   return session?.userId ?? null;
@@ -356301,7 +356640,7 @@ async function requireSuperAdmin2(req, res, next) {
       return;
     }
     const user2 = await db.query.users.findFirst({
-      where: (0, import_drizzle_orm45.eq)(users.id, userId)
+      where: (0, import_drizzle_orm46.eq)(users.id, userId)
     });
     if (!user2) {
       res.status(401).json({ error: "User not found" });
@@ -356407,14 +356746,14 @@ function registerAdminConfigRoutes(app2) {
   });
   console.log("[AdminConfig] Routes registered");
 }
-var import_drizzle_orm45, import_zod12, setSecretSchema, deleteSecretSchema;
+var import_drizzle_orm46, import_zod12, setSecretSchema, deleteSecretSchema;
 var init_admin_config_routes = __esm({
   "server/admin-config-routes.ts"() {
     "use strict";
     init_config_service();
     init_db();
     init_schema();
-    import_drizzle_orm45 = require("drizzle-orm");
+    import_drizzle_orm46 = require("drizzle-orm");
     import_zod12 = require("zod");
     setSecretSchema = import_zod12.z.object({
       key: import_zod12.z.string(),
@@ -356446,22 +356785,22 @@ function registerAdminUserRoutes(app2) {
       }).from(users);
       const conditions = [];
       if (search2) {
-        conditions.push((0, import_drizzle_orm46.or)(
-          (0, import_drizzle_orm46.like)(users.email, `%${search2}%`),
-          (0, import_drizzle_orm46.like)(users.phone, `%${search2}%`),
-          (0, import_drizzle_orm46.like)(users.username, `%${search2}%`)
+        conditions.push((0, import_drizzle_orm47.or)(
+          (0, import_drizzle_orm47.like)(users.email, `%${search2}%`),
+          (0, import_drizzle_orm47.like)(users.phone, `%${search2}%`),
+          (0, import_drizzle_orm47.like)(users.username, `%${search2}%`)
         ));
       }
       if (role && USER_ROLES3.includes(role)) {
-        conditions.push((0, import_drizzle_orm46.eq)(users.role, role));
+        conditions.push((0, import_drizzle_orm47.eq)(users.role, role));
       }
       if (conditions.length > 0) {
-        query = query.where((0, import_drizzle_orm46.and)(...conditions));
+        query = query.where((0, import_drizzle_orm47.and)(...conditions));
       }
-      const allUsers = await query.orderBy((0, import_drizzle_orm46.desc)(users.createdAt)).limit(limit).offset(offset);
-      let countQuery = db.select({ total: (0, import_drizzle_orm46.count)() }).from(users);
+      const allUsers = await query.orderBy((0, import_drizzle_orm47.desc)(users.createdAt)).limit(limit).offset(offset);
+      let countQuery = db.select({ total: (0, import_drizzle_orm47.count)() }).from(users);
       if (conditions.length > 0) {
-        countQuery = countQuery.where((0, import_drizzle_orm46.and)(...conditions));
+        countQuery = countQuery.where((0, import_drizzle_orm47.and)(...conditions));
       }
       const [{ total }] = await countQuery;
       res.json({
@@ -356482,21 +356821,21 @@ function registerAdminUserRoutes(app2) {
   app2.get("/api/admin/users/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
-      const [user2] = await db.select().from(users).where((0, import_drizzle_orm46.eq)(users.id, userId));
+      const [user2] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
       if (!user2) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
       let organization = null;
       if (user2.organizationId) {
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm46.eq)(organizations.id, user2.organizationId));
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm47.eq)(organizations.id, user2.organizationId));
         organization = org;
       }
       const [subscription] = await db.select({
         subscription: subscriptions,
         plan: billingPlans
-      }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm46.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm46.and)(
-        (0, import_drizzle_orm46.eq)(subscriptions.userId, userId),
-        (0, import_drizzle_orm46.eq)(subscriptions.status, "active")
+      }).from(subscriptions).leftJoin(billingPlans, (0, import_drizzle_orm47.eq)(subscriptions.planId, billingPlans.id)).where((0, import_drizzle_orm47.and)(
+        (0, import_drizzle_orm47.eq)(subscriptions.userId, userId),
+        (0, import_drizzle_orm47.eq)(subscriptions.status, "active")
       )).limit(1);
       res.json({
         success: true,
@@ -356520,13 +356859,13 @@ function registerAdminUserRoutes(app2) {
       const data = validation.data;
       const normalizedPhone = data.phone ? normalizePhoneNumber(data.phone) : void 0;
       if (data.email) {
-        const [existing] = await db.select().from(users).where((0, import_drizzle_orm46.eq)(users.email, data.email));
+        const [existing] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.email, data.email));
         if (existing) {
           return res.status(400).json({ success: false, message: "Email already exists" });
         }
       }
       if (normalizedPhone) {
-        const [existing] = await db.select().from(users).where((0, import_drizzle_orm46.eq)(users.phone, normalizedPhone));
+        const [existing] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.phone, normalizedPhone));
         if (existing) {
           return res.status(400).json({ success: false, message: "Phone already exists" });
         }
@@ -356558,7 +356897,7 @@ function registerAdminUserRoutes(app2) {
       if (!validation.success) {
         return res.status(400).json({ success: false, message: "Invalid data", errors: validation.error.errors });
       }
-      const [existing] = await db.select().from(users).where((0, import_drizzle_orm46.eq)(users.id, userId));
+      const [existing] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
       if (!existing) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
@@ -356567,7 +356906,7 @@ function registerAdminUserRoutes(app2) {
       const normalizedPhone = data.phone !== void 0 ? normalizePhoneNumber(data.phone) : void 0;
       if (data.email !== void 0 && data.email !== existing.email) {
         const [emailExists] = await db.select().from(users).where(
-          (0, import_drizzle_orm46.and)((0, import_drizzle_orm46.eq)(users.email, data.email), import_drizzle_orm46.sql`${users.id} != ${userId}`)
+          (0, import_drizzle_orm47.and)((0, import_drizzle_orm47.eq)(users.email, data.email), import_drizzle_orm47.sql`${users.id} != ${userId}`)
         );
         if (emailExists) {
           return res.status(400).json({ success: false, message: "Email already exists" });
@@ -356579,7 +356918,7 @@ function registerAdminUserRoutes(app2) {
           return res.status(400).json({ success: false, message: "Invalid phone number" });
         }
         const [phoneExists] = await db.select().from(users).where(
-          (0, import_drizzle_orm46.and)((0, import_drizzle_orm46.eq)(users.phone, normalizedPhone), import_drizzle_orm46.sql`${users.id} != ${userId}`)
+          (0, import_drizzle_orm47.and)((0, import_drizzle_orm47.eq)(users.phone, normalizedPhone), import_drizzle_orm47.sql`${users.id} != ${userId}`)
         );
         if (phoneExists) {
           return res.status(400).json({ success: false, message: "Phone already exists" });
@@ -356589,7 +356928,7 @@ function registerAdminUserRoutes(app2) {
       if (data.role !== void 0) updateData.role = data.role;
       if (data.organizationId !== void 0) updateData.organizationId = data.organizationId;
       if (data.username !== void 0) updateData.username = data.username;
-      const [updated] = await db.update(users).set(updateData).where((0, import_drizzle_orm46.eq)(users.id, userId)).returning();
+      const [updated] = await db.update(users).set(updateData).where((0, import_drizzle_orm47.eq)(users.id, userId)).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "user",
@@ -356607,14 +356946,14 @@ function registerAdminUserRoutes(app2) {
   app2.delete("/api/admin/users/:id", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
-      const [existing] = await db.select().from(users).where((0, import_drizzle_orm46.eq)(users.id, userId));
+      const [existing] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
       if (!existing) {
         return res.status(404).json({ success: false, message: "User not found" });
       }
       if (existing.role === "super_admin") {
         return res.status(403).json({ success: false, message: "Cannot delete super admin accounts" });
       }
-      await db.delete(users).where((0, import_drizzle_orm46.eq)(users.id, userId));
+      await db.delete(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
       await AuditHelpers.logDelete(
         req.user.id,
         "user",
@@ -356630,15 +356969,15 @@ function registerAdminUserRoutes(app2) {
   });
   app2.get("/api/admin/stats", requireAuth, requireRole("super_admin"), async (req, res) => {
     try {
-      const [userCount] = await db.select({ count: (0, import_drizzle_orm46.count)() }).from(users);
-      const [orgCount] = await db.select({ count: (0, import_drizzle_orm46.count)() }).from(organizations);
-      const [activeSubCount] = await db.select({ count: (0, import_drizzle_orm46.count)() }).from(subscriptions).where((0, import_drizzle_orm46.eq)(subscriptions.status, "active"));
+      const [userCount] = await db.select({ count: (0, import_drizzle_orm47.count)() }).from(users);
+      const [orgCount] = await db.select({ count: (0, import_drizzle_orm47.count)() }).from(organizations);
+      const [activeSubCount] = await db.select({ count: (0, import_drizzle_orm47.count)() }).from(subscriptions).where((0, import_drizzle_orm47.eq)(subscriptions.status, "active"));
       const thirtyDaysAgo = /* @__PURE__ */ new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const [newUsersThisMonth] = await db.select({ count: (0, import_drizzle_orm46.count)() }).from(users).where(import_drizzle_orm46.sql`${users.createdAt} >= ${thirtyDaysAgo}`);
+      const [newUsersThisMonth] = await db.select({ count: (0, import_drizzle_orm47.count)() }).from(users).where(import_drizzle_orm47.sql`${users.createdAt} >= ${thirtyDaysAgo}`);
       const [callStats] = await db.select({
-        calls: (0, import_drizzle_orm46.count)(),
-        revenuePaise: import_drizzle_orm46.sql`COALESCE(SUM(${callBillingRecords.totalCostPaise}), 0)`
+        calls: (0, import_drizzle_orm47.count)(),
+        revenuePaise: import_drizzle_orm47.sql`COALESCE(SUM(${callBillingRecords.totalCostPaise}), 0)`
       }).from(callBillingRecords);
       res.json({
         success: true,
@@ -356659,21 +356998,21 @@ function registerAdminUserRoutes(app2) {
       const days = parseInt(req.query.days) || 30;
       const usersByRole = await db.select({
         role: users.role,
-        count: (0, import_drizzle_orm46.count)()
+        count: (0, import_drizzle_orm47.count)()
       }).from(users).groupBy(users.role);
       const orgsByStatus = await db.select({
         status: organizations.status,
-        count: (0, import_drizzle_orm46.count)()
+        count: (0, import_drizzle_orm47.count)()
       }).from(organizations).groupBy(organizations.status);
       const signupRows = await db.execute(
-        import_drizzle_orm46.sql`SELECT DATE(created_at) as date, COUNT(*) as signups FROM users WHERE created_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
+        import_drizzle_orm47.sql`SELECT DATE(created_at) as date, COUNT(*) as signups FROM users WHERE created_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
       );
       const signupMap = /* @__PURE__ */ new Map();
       signupRows.rows.forEach((r5) => {
         signupMap.set(new Date(r5.date).toISOString().split("T")[0], Number(r5.signups));
       });
       const callRows = await db.execute(
-        import_drizzle_orm46.sql`SELECT DATE(created_at) as date, COUNT(*) as calls FROM call_billing_records WHERE created_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
+        import_drizzle_orm47.sql`SELECT DATE(created_at) as date, COUNT(*) as calls FROM call_billing_records WHERE created_at >= NOW() - CAST(${String(days) + " days"} AS INTERVAL) GROUP BY DATE(created_at) ORDER BY date`
       );
       const callMap = /* @__PURE__ */ new Map();
       callRows.rows.forEach((r5) => {
@@ -356691,16 +357030,16 @@ function registerAdminUserRoutes(app2) {
         });
       }
       const revenueResult = await db.execute(
-        import_drizzle_orm46.sql`SELECT COALESCE(SUM(bp.price_in_paise), 0) as total FROM subscriptions s LEFT JOIN billing_plans bp ON s.plan_id = bp.id`
+        import_drizzle_orm47.sql`SELECT COALESCE(SUM(bp.price_in_paise), 0) as total FROM subscriptions s LEFT JOIN billing_plans bp ON s.plan_id = bp.id`
       );
       const totalRevenueRaw = Number(revenueResult.rows[0]?.total || 0);
       const windowStart = /* @__PURE__ */ new Date();
       windowStart.setDate(windowStart.getDate() - days);
       const [callSummary] = await db.select({
-        totalCalls: (0, import_drizzle_orm46.count)(),
-        failedCalls: import_drizzle_orm46.sql`COUNT(*) FILTER (WHERE ${callBillingRecords.status} = 'failed')`,
-        avgDurationSeconds: import_drizzle_orm46.sql`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`
-      }).from(callBillingRecords).where(import_drizzle_orm46.sql`${callBillingRecords.createdAt} >= ${windowStart}`);
+        totalCalls: (0, import_drizzle_orm47.count)(),
+        failedCalls: import_drizzle_orm47.sql`COUNT(*) FILTER (WHERE ${callBillingRecords.status} = 'failed')`,
+        avgDurationSeconds: import_drizzle_orm47.sql`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`
+      }).from(callBillingRecords).where(import_drizzle_orm47.sql`${callBillingRecords.createdAt} >= ${windowStart}`);
       const totalCalls = Number(callSummary?.totalCalls ?? 0);
       const failedCalls = Number(callSummary?.failedCalls ?? 0);
       const successRate = totalCalls > 0 ? Math.round((totalCalls - failedCalls) / totalCalls * 1e3) / 10 : 100;
@@ -356877,14 +357216,14 @@ function registerAdminUserRoutes(app2) {
   });
   logger.info("AdminUsers", "Admin user routes registered");
 }
-var import_zod13, import_drizzle_orm46, USER_ROLES3, createUserSchema, updateUserSchema;
+var import_zod13, import_drizzle_orm47, USER_ROLES3, createUserSchema, updateUserSchema;
 var init_admin_user_routes = __esm({
   "server/admin-user-routes.ts"() {
     "use strict";
     import_zod13 = require("zod");
     init_db();
     init_schema();
-    import_drizzle_orm46 = require("drizzle-orm");
+    import_drizzle_orm47 = require("drizzle-orm");
     init_role_middleware();
     init_observability();
     init_audit();
@@ -356931,14 +357270,14 @@ function generateRoomCode() {
   }
   return code;
 }
-var import_express5, import_drizzle_orm47, router5, advanced_features_routes_default;
+var import_express5, import_drizzle_orm48, router5, advanced_features_routes_default;
 var init_advanced_features_routes = __esm({
   "server/advanced-features-routes.ts"() {
     "use strict";
     import_express5 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm47 = require("drizzle-orm");
+    import_drizzle_orm48 = require("drizzle-orm");
     init_role_middleware();
     router5 = (0, import_express5.Router)();
     router5.get("/call-history", requireAuth, async (req, res) => {
@@ -356947,7 +357286,7 @@ var init_advanced_features_routes = __esm({
         if (!userId) {
           return res.status(401).json({ error: "Unauthorized" });
         }
-        const calls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm47.eq)(bridgedCalls.callerUserId, userId)).orderBy((0, import_drizzle_orm47.desc)(bridgedCalls.createdAt)).limit(50);
+        const calls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm48.eq)(bridgedCalls.callerUserId, userId)).orderBy((0, import_drizzle_orm48.desc)(bridgedCalls.createdAt)).limit(50);
         res.json(calls);
       } catch (error2) {
         console.error("Error fetching call history:", error2);
@@ -356958,14 +357297,14 @@ var init_advanced_features_routes = __esm({
       try {
         const userId = req.user?.id;
         const callId = parseInt(req.params.callId);
-        const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(bridgedCalls.id, callId),
-          (0, import_drizzle_orm47.eq)(bridgedCalls.callerUserId, userId)
+        const [call] = await db.select().from(bridgedCalls).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(bridgedCalls.id, callId),
+          (0, import_drizzle_orm48.eq)(bridgedCalls.callerUserId, userId)
         ));
         if (!call) {
           return res.status(404).json({ error: "Call not found" });
         }
-        const translations2 = await db.select().from(callTranslations).where((0, import_drizzle_orm47.eq)(callTranslations.callId, callId)).orderBy(callTranslations.timestamp);
+        const translations2 = await db.select().from(callTranslations).where((0, import_drizzle_orm48.eq)(callTranslations.callId, callId)).orderBy(callTranslations.timestamp);
         res.json({ call, translations: translations2 });
       } catch (error2) {
         console.error("Error fetching call details:", error2);
@@ -357007,7 +357346,7 @@ var init_advanced_features_routes = __esm({
     router5.get("/meetings", requireAuth, async (req, res) => {
       try {
         const userId = req.user?.id;
-        const meetings = await db.select().from(meetingRooms).where((0, import_drizzle_orm47.eq)(meetingRooms.hostUserId, userId)).orderBy((0, import_drizzle_orm47.desc)(meetingRooms.createdAt)).limit(20);
+        const meetings = await db.select().from(meetingRooms).where((0, import_drizzle_orm48.eq)(meetingRooms.hostUserId, userId)).orderBy((0, import_drizzle_orm48.desc)(meetingRooms.createdAt)).limit(20);
         res.json(meetings.map((meeting) => ({
           ...meeting,
           legacyTransportRequired: true,
@@ -357021,7 +357360,7 @@ var init_advanced_features_routes = __esm({
     router5.get("/meetings/:roomCode", async (req, res) => {
       try {
         const { roomCode } = req.params;
-        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm47.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
+        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm48.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
         if (!meeting) {
           return res.status(404).json({ error: "Meeting not found" });
         }
@@ -357039,9 +357378,9 @@ var init_advanced_features_routes = __esm({
           isVideoOn: meetingParticipants.isVideoOn,
           isAudioOn: meetingParticipants.isAudioOn,
           joinedAt: meetingParticipants.joinedAt
-        }).from(meetingParticipants).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(meetingParticipants.meetingId, meeting.id),
-          import_drizzle_orm47.sql`${meetingParticipants.leftAt} IS NULL`
+        }).from(meetingParticipants).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(meetingParticipants.meetingId, meeting.id),
+          import_drizzle_orm48.sql`${meetingParticipants.leftAt} IS NULL`
         ));
         res.json({
           meeting: {
@@ -357061,7 +357400,7 @@ var init_advanced_features_routes = __esm({
         const userId = req.user?.id;
         const { roomCode } = req.params;
         const { displayName, language } = req.body;
-        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm47.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
+        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm48.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
         if (!meeting) {
           return res.status(404).json({ error: "Meeting not found" });
         }
@@ -357074,7 +357413,7 @@ var init_advanced_features_routes = __esm({
             ...legacyMeetingTransportPayload(meeting.isVideoEnabled === false ? "audio" : "video")
           });
         }
-        const [user2] = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
+        const [user2] = await db.select().from(users).where((0, import_drizzle_orm48.eq)(users.id, userId));
         const [participant] = await db.insert(meetingParticipants).values({
           meetingId: meeting.id,
           userId,
@@ -357083,7 +357422,7 @@ var init_advanced_features_routes = __esm({
           role: meeting.hostUserId === userId ? "host" : "participant"
         }).returning();
         if (meeting.status === "scheduled") {
-          await db.update(meetingRooms).set({ status: "active", startedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm47.eq)(meetingRooms.id, meeting.id));
+          await db.update(meetingRooms).set({ status: "active", startedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm48.eq)(meetingRooms.id, meeting.id));
         }
         res.json({
           meeting: {
@@ -357102,13 +357441,13 @@ var init_advanced_features_routes = __esm({
       try {
         const userId = req.user?.id;
         const { roomCode } = req.params;
-        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm47.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
+        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm48.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
         if (!meeting) {
           return res.status(404).json({ error: "Meeting not found" });
         }
-        await db.update(meetingParticipants).set({ leftAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(meetingParticipants.meetingId, meeting.id),
-          (0, import_drizzle_orm47.eq)(meetingParticipants.userId, userId)
+        await db.update(meetingParticipants).set({ leftAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(meetingParticipants.meetingId, meeting.id),
+          (0, import_drizzle_orm48.eq)(meetingParticipants.userId, userId)
         ));
         res.json({ success: true });
       } catch (error2) {
@@ -357120,7 +357459,7 @@ var init_advanced_features_routes = __esm({
       try {
         const userId = req.user?.id;
         const { roomCode } = req.params;
-        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm47.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
+        const [meeting] = await db.select().from(meetingRooms).where((0, import_drizzle_orm48.eq)(meetingRooms.roomCode, roomCode.toUpperCase()));
         if (!meeting) {
           return res.status(404).json({ error: "Meeting not found" });
         }
@@ -357128,10 +357467,10 @@ var init_advanced_features_routes = __esm({
           return res.status(403).json({ error: "Only host can end meeting" });
         }
         const duration = meeting.startedAt ? Math.floor((Date.now() - meeting.startedAt.getTime()) / 1e3) : 0;
-        await db.update(meetingRooms).set({ status: "ended", endedAt: /* @__PURE__ */ new Date(), duration }).where((0, import_drizzle_orm47.eq)(meetingRooms.id, meeting.id));
-        await db.update(meetingParticipants).set({ leftAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(meetingParticipants.meetingId, meeting.id),
-          import_drizzle_orm47.sql`${meetingParticipants.leftAt} IS NULL`
+        await db.update(meetingRooms).set({ status: "ended", endedAt: /* @__PURE__ */ new Date(), duration }).where((0, import_drizzle_orm48.eq)(meetingRooms.id, meeting.id));
+        await db.update(meetingParticipants).set({ leftAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(meetingParticipants.meetingId, meeting.id),
+          import_drizzle_orm48.sql`${meetingParticipants.leftAt} IS NULL`
         ));
         res.json({ success: true });
       } catch (error2) {
@@ -357142,13 +357481,13 @@ var init_advanced_features_routes = __esm({
     router5.get("/personas", requireAuth, async (req, res) => {
       try {
         const userId = req.user?.id;
-        const publicPersonas = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(aiPersonas.isPublic, true),
-          (0, import_drizzle_orm47.eq)(aiPersonas.isActive, true)
-        )).orderBy((0, import_drizzle_orm47.desc)(aiPersonas.usageCount));
-        const userPersonas = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(aiPersonas.createdBy, userId),
-          (0, import_drizzle_orm47.eq)(aiPersonas.isActive, true)
+        const publicPersonas = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(aiPersonas.isPublic, true),
+          (0, import_drizzle_orm48.eq)(aiPersonas.isActive, true)
+        )).orderBy((0, import_drizzle_orm48.desc)(aiPersonas.usageCount));
+        const userPersonas = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(aiPersonas.createdBy, userId),
+          (0, import_drizzle_orm48.eq)(aiPersonas.isActive, true)
         ));
         res.json({
           public: publicPersonas,
@@ -357186,7 +357525,7 @@ var init_advanced_features_routes = __esm({
     router5.get("/personas/:id", async (req, res) => {
       try {
         const personaId = parseInt(req.params.id);
-        const [persona] = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId));
+        const [persona] = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId));
         if (!persona) {
           return res.status(404).json({ error: "Persona not found" });
         }
@@ -357201,14 +357540,14 @@ var init_advanced_features_routes = __esm({
         const userId = req.user?.id;
         const personaId = parseInt(req.params.id);
         const updates = req.body;
-        const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId));
+        const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId));
         if (!existing) {
           return res.status(404).json({ error: "Persona not found" });
         }
         if (existing.createdBy !== userId) {
           return res.status(403).json({ error: "Cannot edit persona you didn't create" });
         }
-        const [updated] = await db.update(aiPersonas).set(updates).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId)).returning();
+        const [updated] = await db.update(aiPersonas).set(updates).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId)).returning();
         res.json(updated);
       } catch (error2) {
         console.error("Error updating persona:", error2);
@@ -357219,14 +357558,14 @@ var init_advanced_features_routes = __esm({
       try {
         const userId = req.user?.id;
         const personaId = parseInt(req.params.id);
-        const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId));
+        const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId));
         if (!existing) {
           return res.status(404).json({ error: "Persona not found" });
         }
         if (existing.createdBy !== userId) {
           return res.status(403).json({ error: "Cannot delete persona you didn't create" });
         }
-        await db.update(aiPersonas).set({ isActive: false }).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId));
+        await db.update(aiPersonas).set({ isActive: false }).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId));
         res.json({ success: true });
       } catch (error2) {
         console.error("Error deleting persona:", error2);
@@ -357236,7 +357575,7 @@ var init_advanced_features_routes = __esm({
     router5.post("/personas/:id/use", requireAuth, async (req, res) => {
       try {
         const personaId = parseInt(req.params.id);
-        await db.update(aiPersonas).set({ usageCount: import_drizzle_orm47.sql`${aiPersonas.usageCount} + 1` }).where((0, import_drizzle_orm47.eq)(aiPersonas.id, personaId));
+        await db.update(aiPersonas).set({ usageCount: import_drizzle_orm48.sql`${aiPersonas.usageCount} + 1` }).where((0, import_drizzle_orm48.eq)(aiPersonas.id, personaId));
         res.json({ success: true });
       } catch (error2) {
         console.error("Error incrementing persona usage:", error2);
@@ -357246,7 +357585,7 @@ var init_advanced_features_routes = __esm({
     router5.get("/voice-profiles", requireAuth, async (req, res) => {
       try {
         const userId = req.user?.id;
-        const profiles = await db.select().from(voiceProfiles).where((0, import_drizzle_orm47.eq)(voiceProfiles.userId, userId));
+        const profiles = await db.select().from(voiceProfiles).where((0, import_drizzle_orm48.eq)(voiceProfiles.userId, userId));
         const defaultVoices = [
           { id: "alloy", name: "Alloy", description: "Neutral and balanced" },
           { id: "echo", name: "Echo", description: "Warm and engaging" },
@@ -357291,13 +357630,13 @@ var init_advanced_features_routes = __esm({
         const days = parseInt(req.query.days) || 30;
         const startDate = /* @__PURE__ */ new Date();
         startDate.setDate(startDate.getDate() - days);
-        const analytics = await db.select().from(userAnalytics).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(userAnalytics.userId, userId),
-          (0, import_drizzle_orm47.gte)(userAnalytics.date, startDate)
+        const analytics = await db.select().from(userAnalytics).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(userAnalytics.userId, userId),
+          (0, import_drizzle_orm48.gte)(userAnalytics.date, startDate)
         )).orderBy(userAnalytics.date);
-        const calls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm47.and)(
-          (0, import_drizzle_orm47.eq)(bridgedCalls.callerUserId, userId),
-          (0, import_drizzle_orm47.gte)(bridgedCalls.createdAt, startDate)
+        const calls = await db.select().from(bridgedCalls).where((0, import_drizzle_orm48.and)(
+          (0, import_drizzle_orm48.eq)(bridgedCalls.callerUserId, userId),
+          (0, import_drizzle_orm48.gte)(bridgedCalls.createdAt, startDate)
         ));
         const totalCalls = calls.length;
         const totalMinutes = calls.reduce((sum, c5) => sum + (c5.duration || 0) / 60, 0);
@@ -357320,7 +357659,7 @@ var init_advanced_features_routes = __esm({
     router5.post("/personas/seed-defaults", requireAuth, async (req, res) => {
       try {
         const userId = req.user?.id;
-        const user2 = await db.select().from(users).where((0, import_drizzle_orm47.eq)(users.id, userId));
+        const user2 = await db.select().from(users).where((0, import_drizzle_orm48.eq)(users.id, userId));
         if (user2[0]?.role !== "super_admin") {
           return res.status(403).json({ error: "Admin only" });
         }
@@ -357377,7 +357716,7 @@ var init_advanced_features_routes = __esm({
           }
         ];
         for (const persona of defaultPersonas) {
-          const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm47.eq)(aiPersonas.name, persona.name));
+          const [existing] = await db.select().from(aiPersonas).where((0, import_drizzle_orm48.eq)(aiPersonas.name, persona.name));
           if (!existing) {
             await db.insert(aiPersonas).values({
               ...persona,
@@ -357396,7 +357735,7 @@ var init_advanced_features_routes = __esm({
 });
 
 // server/gdpr-routes.ts
-var import_express6, import_drizzle_orm48, router6, gdpr_routes_default;
+var import_express6, import_drizzle_orm49, router6, gdpr_routes_default;
 var init_gdpr_routes = __esm({
   "server/gdpr-routes.ts"() {
     "use strict";
@@ -357404,12 +357743,12 @@ var init_gdpr_routes = __esm({
     init_role_middleware();
     init_db();
     init_schema();
-    import_drizzle_orm48 = require("drizzle-orm");
+    import_drizzle_orm49 = require("drizzle-orm");
     router6 = (0, import_express6.Router)();
     router6.get("/api/gdpr/export", requireAuth, async (req, res) => {
       try {
         const userId = req.user.id;
-        const [user2] = await db.select().from(users).where((0, import_drizzle_orm48.eq)(users.id, userId));
+        const [user2] = await db.select().from(users).where((0, import_drizzle_orm49.eq)(users.id, userId));
         if (!user2) {
           return res.status(404).json({ error: "User not found" });
         }
@@ -357417,18 +357756,18 @@ var init_gdpr_routes = __esm({
           id: conversations.id,
           title: conversations.title,
           createdAt: conversations.createdAt
-        }).from(conversations).where((0, import_drizzle_orm48.eq)(conversations.userId, userId));
+        }).from(conversations).where((0, import_drizzle_orm49.eq)(conversations.userId, userId));
         const userVoiceProfiles = await db.select({
           id: voiceProfiles.id,
           name: voiceProfiles.name,
           createdAt: voiceProfiles.createdAt
-        }).from(voiceProfiles).where((0, import_drizzle_orm48.eq)(voiceProfiles.userId, userId));
+        }).from(voiceProfiles).where((0, import_drizzle_orm49.eq)(voiceProfiles.userId, userId));
         const userSubscriptions = await db.select({
           id: subscriptions.id,
           status: subscriptions.status,
           startDate: subscriptions.startDate,
           endDate: subscriptions.endDate
-        }).from(subscriptions).where((0, import_drizzle_orm48.eq)(subscriptions.userId, userId));
+        }).from(subscriptions).where((0, import_drizzle_orm49.eq)(subscriptions.userId, userId));
         const userInvoices = await db.select({
           id: invoices.id,
           invoiceNumber: invoices.invoiceNumber,
@@ -357436,20 +357775,20 @@ var init_gdpr_routes = __esm({
           totalAmountPaise: invoices.totalAmountPaise,
           status: invoices.status,
           createdAt: invoices.createdAt
-        }).from(invoices).where((0, import_drizzle_orm48.eq)(invoices.userId, userId));
+        }).from(invoices).where((0, import_drizzle_orm49.eq)(invoices.userId, userId));
         const userDevices = await db.select({
           id: registeredDevices.id,
           platform: registeredDevices.platform,
           deviceName: registeredDevices.deviceName,
           createdAt: registeredDevices.createdAt
-        }).from(registeredDevices).where((0, import_drizzle_orm48.eq)(registeredDevices.userId, userId));
+        }).from(registeredDevices).where((0, import_drizzle_orm49.eq)(registeredDevices.userId, userId));
         let orgData = null;
         if (user2.organizationId) {
           const [org] = await db.select({
             id: organizations.id,
             name: organizations.name,
             plan: organizations.plan
-          }).from(organizations).where((0, import_drizzle_orm48.eq)(organizations.id, user2.organizationId));
+          }).from(organizations).where((0, import_drizzle_orm49.eq)(organizations.id, user2.organizationId));
           orgData = org;
         }
         const exportData = {
@@ -357511,17 +357850,17 @@ var init_gdpr_routes = __esm({
       try {
         const userId = req.user.id;
         const { reason, confirmEmail } = req.body;
-        const [user2] = await db.select().from(users).where((0, import_drizzle_orm48.eq)(users.id, userId));
+        const [user2] = await db.select().from(users).where((0, import_drizzle_orm49.eq)(users.id, userId));
         if (!user2) {
           return res.status(404).json({ error: "User not found" });
         }
         if (confirmEmail && confirmEmail.toLowerCase() !== user2.email?.toLowerCase()) {
           return res.status(400).json({ error: "Email confirmation does not match" });
         }
-        const [existingRequest] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm48.and)(
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.userId, userId),
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.requestType, DATA_REQUEST_TYPE.DELETION),
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.status, DATA_REQUEST_STATUS.PENDING)
+        const [existingRequest] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm49.and)(
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.userId, userId),
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.requestType, DATA_REQUEST_TYPE.DELETION),
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.status, DATA_REQUEST_STATUS.PENDING)
         ));
         if (existingRequest) {
           return res.status(400).json({
@@ -357550,10 +357889,10 @@ var init_gdpr_routes = __esm({
     router6.get("/api/gdpr/delete-request/status", requireAuth, async (req, res) => {
       try {
         const userId = req.user.id;
-        const [request] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm48.and)(
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.userId, userId),
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.requestType, DATA_REQUEST_TYPE.DELETION)
-        )).orderBy((0, import_drizzle_orm48.desc)(dataSubjectRequests.createdAt)).limit(1);
+        const [request] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm49.and)(
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.userId, userId),
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.requestType, DATA_REQUEST_TYPE.DELETION)
+        )).orderBy((0, import_drizzle_orm49.desc)(dataSubjectRequests.createdAt)).limit(1);
         if (!request) {
           return res.json({ hasPendingRequest: false });
         }
@@ -357575,15 +357914,15 @@ var init_gdpr_routes = __esm({
       try {
         const userId = req.user.id;
         const requestId = parseInt(req.params.id);
-        const [request] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm48.and)(
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.id, requestId),
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.userId, userId),
-          (0, import_drizzle_orm48.eq)(dataSubjectRequests.status, DATA_REQUEST_STATUS.PENDING)
+        const [request] = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm49.and)(
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.id, requestId),
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.userId, userId),
+          (0, import_drizzle_orm49.eq)(dataSubjectRequests.status, DATA_REQUEST_STATUS.PENDING)
         ));
         if (!request) {
           return res.status(404).json({ error: "Deletion request not found or already processed" });
         }
-        await db.update(dataSubjectRequests).set({ status: DATA_REQUEST_STATUS.CANCELLED, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm48.eq)(dataSubjectRequests.id, requestId));
+        await db.update(dataSubjectRequests).set({ status: DATA_REQUEST_STATUS.CANCELLED, completedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm49.eq)(dataSubjectRequests.id, requestId));
         res.json({ message: "Deletion request cancelled successfully" });
       } catch (error2) {
         console.error("Error cancelling deletion request:", error2);
@@ -357593,7 +357932,7 @@ var init_gdpr_routes = __esm({
     router6.get("/api/gdpr/consents", requireAuth, async (req, res) => {
       try {
         const userId = req.user.id;
-        const consents = await db.select().from(userConsents).where((0, import_drizzle_orm48.eq)(userConsents.userId, userId));
+        const consents = await db.select().from(userConsents).where((0, import_drizzle_orm49.eq)(userConsents.userId, userId));
         const consentMap = {};
         consents.forEach((consent) => {
           consentMap[consent.consentType] = {
@@ -357615,9 +357954,9 @@ var init_gdpr_routes = __esm({
         if (!validTypes.includes(consentType)) {
           return res.status(400).json({ error: "Invalid consent type" });
         }
-        const [existing] = await db.select().from(userConsents).where((0, import_drizzle_orm48.and)(
-          (0, import_drizzle_orm48.eq)(userConsents.userId, userId),
-          (0, import_drizzle_orm48.eq)(userConsents.consentType, consentType)
+        const [existing] = await db.select().from(userConsents).where((0, import_drizzle_orm49.and)(
+          (0, import_drizzle_orm49.eq)(userConsents.userId, userId),
+          (0, import_drizzle_orm49.eq)(userConsents.consentType, consentType)
         ));
         if (existing) {
           if (granted) {
@@ -357626,13 +357965,13 @@ var init_gdpr_routes = __esm({
               grantedAt: /* @__PURE__ */ new Date(),
               revokedAt: null,
               ipAddress: req.ip || null
-            }).where((0, import_drizzle_orm48.eq)(userConsents.id, existing.id));
+            }).where((0, import_drizzle_orm49.eq)(userConsents.id, existing.id));
           } else {
             await db.update(userConsents).set({
               granted,
               revokedAt: /* @__PURE__ */ new Date(),
               ipAddress: req.ip || null
-            }).where((0, import_drizzle_orm48.eq)(userConsents.id, existing.id));
+            }).where((0, import_drizzle_orm49.eq)(userConsents.id, existing.id));
           }
         } else {
           await db.insert(userConsents).values({
@@ -357657,7 +357996,7 @@ var init_gdpr_routes = __esm({
     router6.get("/api/gdpr/data-requests", requireAuth, async (req, res) => {
       try {
         const userId = req.user.id;
-        const requests = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm48.eq)(dataSubjectRequests.userId, userId)).orderBy((0, import_drizzle_orm48.desc)(dataSubjectRequests.createdAt));
+        const requests = await db.select().from(dataSubjectRequests).where((0, import_drizzle_orm49.eq)(dataSubjectRequests.userId, userId)).orderBy((0, import_drizzle_orm49.desc)(dataSubjectRequests.createdAt));
         res.json({ requests });
       } catch (error2) {
         console.error("Error fetching data requests:", error2);
@@ -357692,14 +358031,14 @@ function getClientIp2(req) {
   const remoteAddr = req.socket.remoteAddress || "0.0.0.0";
   return normalizeIpAddress(remoteAddr);
 }
-var import_express7, import_drizzle_orm49, import_zod14, router7, addIpSchema, ip_whitelist_default;
+var import_express7, import_drizzle_orm50, import_zod14, router7, addIpSchema, ip_whitelist_default;
 var init_ip_whitelist = __esm({
   "server/ip-whitelist.ts"() {
     "use strict";
     import_express7 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm49 = require("drizzle-orm");
+    import_drizzle_orm50 = require("drizzle-orm");
     init_role_middleware();
     import_zod14 = require("zod");
     router7 = (0, import_express7.Router)();
@@ -357713,7 +358052,7 @@ var init_ip_whitelist = __esm({
         if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
-        const whitelist = await db.select().from(ipWhitelists).where((0, import_drizzle_orm49.eq)(ipWhitelists.organizationId, orgId4));
+        const whitelist = await db.select().from(ipWhitelists).where((0, import_drizzle_orm50.eq)(ipWhitelists.organizationId, orgId4));
         res.json(whitelist);
       } catch (error2) {
         console.error("Error fetching IP whitelist:", error2);
@@ -357752,14 +358091,14 @@ var init_ip_whitelist = __esm({
       try {
         const id = parseInt(req.params.id);
         const organizationId = req.user.organizationId;
-        const [entry] = await db.select().from(ipWhitelists).where((0, import_drizzle_orm49.eq)(ipWhitelists.id, id));
+        const [entry] = await db.select().from(ipWhitelists).where((0, import_drizzle_orm50.eq)(ipWhitelists.id, id));
         if (!entry) {
           return res.status(404).json({ error: "IP entry not found" });
         }
         if (req.user.role !== "super_admin" && entry.organizationId !== organizationId) {
           return res.status(403).json({ error: "Not authorized to delete this entry" });
         }
-        await db.delete(ipWhitelists).where((0, import_drizzle_orm49.eq)(ipWhitelists.id, id));
+        await db.delete(ipWhitelists).where((0, import_drizzle_orm50.eq)(ipWhitelists.id, id));
         res.json({ success: true, message: "IP entry deleted" });
       } catch (error2) {
         console.error("Error deleting IP from whitelist:", error2);
@@ -357774,13 +358113,13 @@ var init_ip_whitelist = __esm({
         }
         const { enabled } = req.body;
         const orgId4 = organizationId || req.body.organizationId;
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm49.eq)(organizations.id, orgId4));
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm50.eq)(organizations.id, orgId4));
         if (!org) {
           return res.status(404).json({ error: "Organization not found" });
         }
         const currentSettings = org.settings || {};
         const newSettings = { ...currentSettings, ipWhitelistEnabled: Boolean(enabled) };
-        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm49.eq)(organizations.id, orgId4));
+        await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm50.eq)(organizations.id, orgId4));
         res.json({
           success: true,
           enabled: Boolean(enabled),
@@ -357798,7 +358137,7 @@ var init_ip_whitelist = __esm({
           return res.status(400).json({ error: "No organization associated with user" });
         }
         const orgId4 = organizationId || parseInt(req.query.organizationId);
-        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm49.eq)(organizations.id, orgId4));
+        const [org] = await db.select().from(organizations).where((0, import_drizzle_orm50.eq)(organizations.id, orgId4));
         if (!org) {
           return res.status(404).json({ error: "Organization not found" });
         }
@@ -357818,14 +358157,14 @@ var init_ip_whitelist = __esm({
 });
 
 // server/custom-roles.ts
-var import_express8, import_drizzle_orm50, import_zod15, router8, createRoleSchema, custom_roles_default;
+var import_express8, import_drizzle_orm51, import_zod15, router8, createRoleSchema, custom_roles_default;
 var init_custom_roles = __esm({
   "server/custom-roles.ts"() {
     "use strict";
     import_express8 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm50 = require("drizzle-orm");
+    import_drizzle_orm51 = require("drizzle-orm");
     init_role_middleware();
     import_zod15 = require("zod");
     router8 = (0, import_express8.Router)();
@@ -357840,7 +358179,7 @@ var init_custom_roles = __esm({
         if (!orgId4) {
           return res.status(400).json({ error: "Organization ID required" });
         }
-        const roles = await db.select().from(customRoles).where((0, import_drizzle_orm50.eq)(customRoles.organizationId, orgId4));
+        const roles = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.organizationId, orgId4));
         res.json({
           roles,
           availablePermissions: Object.values(PERMISSIONS)
@@ -357879,7 +358218,7 @@ var init_custom_roles = __esm({
           });
         }
         if (isDefault) {
-          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm50.eq)(customRoles.organizationId, orgId4));
+          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm51.eq)(customRoles.organizationId, orgId4));
         }
         const [role] = await db.insert(customRoles).values({
           organizationId: orgId4,
@@ -357903,7 +358242,7 @@ var init_custom_roles = __esm({
       try {
         const roleId = parseInt(req.params.id);
         const organizationId = req.user.organizationId;
-        const [existingRole] = await db.select().from(customRoles).where((0, import_drizzle_orm50.eq)(customRoles.id, roleId));
+        const [existingRole] = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId));
         if (!existingRole) {
           return res.status(404).json({ error: "Role not found" });
         }
@@ -357922,7 +358261,7 @@ var init_custom_roles = __esm({
           }
         }
         if (isDefault) {
-          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm50.eq)(customRoles.organizationId, existingRole.organizationId));
+          await db.update(customRoles).set({ isDefault: false }).where((0, import_drizzle_orm51.eq)(customRoles.organizationId, existingRole.organizationId));
         }
         const [updated] = await db.update(customRoles).set({
           name: name ?? existingRole.name,
@@ -357931,7 +358270,7 @@ var init_custom_roles = __esm({
           isDefault: isDefault ?? existingRole.isDefault,
           priority: priority ?? existingRole.priority,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm50.eq)(customRoles.id, roleId)).returning();
+        }).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId)).returning();
         res.json(updated);
       } catch (error2) {
         console.error("Error updating custom role:", error2);
@@ -357942,14 +358281,14 @@ var init_custom_roles = __esm({
       try {
         const roleId = parseInt(req.params.id);
         const organizationId = req.user.organizationId;
-        const [existingRole] = await db.select().from(customRoles).where((0, import_drizzle_orm50.eq)(customRoles.id, roleId));
+        const [existingRole] = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId));
         if (!existingRole) {
           return res.status(404).json({ error: "Role not found" });
         }
         if (req.user.role !== "super_admin" && existingRole.organizationId !== organizationId) {
           return res.status(403).json({ error: "Not authorized to delete this role" });
         }
-        await db.delete(customRoles).where((0, import_drizzle_orm50.eq)(customRoles.id, roleId));
+        await db.delete(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId));
         res.json({ success: true, message: "Role deleted" });
       } catch (error2) {
         console.error("Error deleting custom role:", error2);
@@ -357961,7 +358300,7 @@ var init_custom_roles = __esm({
         const targetUserId = parseInt(req.params.userId);
         const { roleId, permissions } = req.body;
         const organizationId = req.user.organizationId;
-        const [targetUser] = await db.select().from(users).where((0, import_drizzle_orm50.eq)(users.id, targetUserId));
+        const [targetUser] = await db.select().from(users).where((0, import_drizzle_orm51.eq)(users.id, targetUserId));
         if (!targetUser) {
           return res.status(404).json({ error: "User not found" });
         }
@@ -357972,18 +358311,18 @@ var init_custom_roles = __esm({
         }
         let finalPermissions = permissions || [];
         if (roleId) {
-          const [role] = await db.select().from(customRoles).where((0, import_drizzle_orm50.eq)(customRoles.id, roleId));
+          const [role] = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId));
           if (!role) {
             return res.status(404).json({ error: "Role not found" });
           }
           finalPermissions = [...role.permissions, ...permissions || []];
         }
-        const [existingMembership] = await db.select().from(orgMembers).where((0, import_drizzle_orm50.and)(
-          (0, import_drizzle_orm50.eq)(orgMembers.userId, targetUserId),
-          (0, import_drizzle_orm50.eq)(orgMembers.organizationId, targetUser.organizationId)
+        const [existingMembership] = await db.select().from(orgMembers).where((0, import_drizzle_orm51.and)(
+          (0, import_drizzle_orm51.eq)(orgMembers.userId, targetUserId),
+          (0, import_drizzle_orm51.eq)(orgMembers.organizationId, targetUser.organizationId)
         ));
         if (existingMembership) {
-          await db.update(orgMembers).set({ permissions: finalPermissions }).where((0, import_drizzle_orm50.eq)(orgMembers.id, existingMembership.id));
+          await db.update(orgMembers).set({ permissions: finalPermissions }).where((0, import_drizzle_orm51.eq)(orgMembers.id, existingMembership.id));
         } else {
           await db.insert(orgMembers).values({
             userId: targetUserId,
@@ -358050,14 +358389,14 @@ function parseCSV(content) {
     return result;
   });
 }
-var import_express9, import_drizzle_orm51, import_multer, router9, upload, bulk_import_default;
+var import_express9, import_drizzle_orm52, import_multer, router9, upload, bulk_import_default;
 var init_bulk_import = __esm({
   "server/bulk-import.ts"() {
     "use strict";
     import_express9 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm51 = require("drizzle-orm");
+    import_drizzle_orm52 = require("drizzle-orm");
     init_role_middleware();
     import_multer = __toESM(require("multer"));
     router9 = (0, import_express9.Router)();
@@ -358158,7 +358497,7 @@ bob.wilson,bob.wilson@company.com,,consumer,`;
         let customRolesMap = {};
         const roleNames = Array.from(new Set(usersToImport.map((u) => u.customRoleName).filter(Boolean)));
         if (roleNames.length > 0) {
-          const roles = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.organizationId, orgId4));
+          const roles = await db.select().from(customRoles).where((0, import_drizzle_orm52.eq)(customRoles.organizationId, orgId4));
           customRolesMap = roles.reduce((acc, role) => {
             acc[role.name.toLowerCase()] = role.id;
             return acc;
@@ -358167,7 +358506,7 @@ bob.wilson,bob.wilson@company.com,,consumer,`;
         for (let i5 = 0; i5 < usersToImport.length; i5++) {
           const userData = usersToImport[i5];
           try {
-            const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm51.eq)(users.username, userData.username));
+            const [existingUser] = await db.select().from(users).where((0, import_drizzle_orm52.eq)(users.username, userData.username));
             if (existingUser) {
               results.push({
                 success: false,
@@ -358194,9 +358533,9 @@ bob.wilson,bob.wilson@company.com,,consumer,`;
             if (userData.customRoleName) {
               const roleId = customRolesMap[userData.customRoleName.toLowerCase()];
               if (roleId) {
-                const [role] = await db.select().from(customRoles).where((0, import_drizzle_orm51.eq)(customRoles.id, roleId));
+                const [role] = await db.select().from(customRoles).where((0, import_drizzle_orm52.eq)(customRoles.id, roleId));
                 if (role) {
-                  await db.update(orgMembers).set({ permissions: role.permissions }).where((0, import_drizzle_orm51.eq)(orgMembers.userId, newUser.id));
+                  await db.update(orgMembers).set({ permissions: role.permissions }).where((0, import_drizzle_orm52.eq)(orgMembers.userId, newUser.id));
                 }
               }
             }
@@ -358295,14 +358634,14 @@ async function getSLAMetrics(_organizationId, _days = 30) {
     successRate: totalCalls > 0 ? (totalCalls - failedCalls) / totalCalls * 100 : 100
   };
 }
-var import_express10, import_drizzle_orm52, router10, SLA_TARGETS, sla_management_default;
+var import_express10, import_drizzle_orm53, router10, SLA_TARGETS, sla_management_default;
 var init_sla_management = __esm({
   "server/sla-management.ts"() {
     "use strict";
     import_express10 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm52 = require("drizzle-orm");
+    import_drizzle_orm53 = require("drizzle-orm");
     init_role_middleware();
     router10 = (0, import_express10.Router)();
     SLA_TARGETS = {
@@ -358380,7 +358719,7 @@ var init_sla_management = __esm({
       try {
         const organizationId = req.user.organizationId;
         const month = req.query.month || (/* @__PURE__ */ new Date()).toISOString().slice(0, 7);
-        const [org] = organizationId ? await db.select().from(organizations).where((0, import_drizzle_orm52.eq)(organizations.id, organizationId)) : [];
+        const [org] = organizationId ? await db.select().from(organizations).where((0, import_drizzle_orm53.eq)(organizations.id, organizationId)) : [];
         const metrics3 = await getSLAMetrics(organizationId || void 0, 30);
         const report = {
           organization: org?.name || "Platform",
@@ -358513,8 +358852,8 @@ async function detectEmotion2(text2) {
 }
 async function processVoiceMemo(memoId) {
   try {
-    await db.update(voiceMemos).set({ status: "transcribing" }).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
-    const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+    await db.update(voiceMemos).set({ status: "transcribing" }).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
+    const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
     if (memo.length === 0) return;
     const decryptedPath = decrypt3(memo[0].originalAudioPath);
     const file = await objectStorage2.getObjectEntityFile(decryptedPath);
@@ -358528,7 +358867,7 @@ async function processVoiceMemo(memoId) {
       originalLanguage: language,
       emotionTags: emotions,
       status: "translating"
-    }).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+    }).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
     const translations2 = {};
     const targetLanguages = SUPPORTED_LANGUAGES.filter((l3) => l3.code !== language).slice(0, 5);
     for (const targetLang of targetLanguages) {
@@ -358536,7 +358875,7 @@ async function processVoiceMemo(memoId) {
         const translatedText = await translateText2(transcript, language, targetLang.code);
         let voice = "alloy";
         if (memo[0].voiceProfileId) {
-          const profile = await db.select().from(voiceProfiles).where((0, import_drizzle_orm53.eq)(voiceProfiles.id, memo[0].voiceProfileId));
+          const profile = await db.select().from(voiceProfiles).where((0, import_drizzle_orm54.eq)(voiceProfiles.id, memo[0].voiceProfileId));
           if (profile.length > 0 && profile[0].voiceId) {
             const voiceId = profile[0].voiceId;
             if (OPENAI_VOICES.includes(voiceId)) {
@@ -358563,20 +358902,20 @@ async function processVoiceMemo(memoId) {
     await db.update(voiceMemos).set({
       translations: translations2,
       status: "ready"
-    }).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+    }).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
   } catch (error2) {
     console.error("Error processing voice memo:", error2);
-    await db.update(voiceMemos).set({ status: "failed" }).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+    await db.update(voiceMemos).set({ status: "failed" }).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
   }
 }
-var import_express11, import_drizzle_orm53, import_crypto18, objectStorage2, router11, ENCRYPTION_ALGORITHM2, SUPPORTED_LANGUAGES, OPENAI_VOICES, voice_memos_default;
+var import_express11, import_drizzle_orm54, import_crypto18, objectStorage2, router11, ENCRYPTION_ALGORITHM2, SUPPORTED_LANGUAGES, OPENAI_VOICES, voice_memos_default;
 var init_voice_memos = __esm({
   "server/voice-memos.ts"() {
     "use strict";
     import_express11 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm53 = require("drizzle-orm");
+    import_drizzle_orm54 = require("drizzle-orm");
     init_object_storage();
     init_client2();
     import_crypto18 = __toESM(require("crypto"));
@@ -358643,9 +358982,9 @@ var init_voice_memos = __esm({
           return res.status(400).json({ error: "Invalid audio path" });
         }
         if (groupChatId) {
-          const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm53.and)(
-            (0, import_drizzle_orm53.eq)(groupChatMembers.groupChatId, groupChatId),
-            (0, import_drizzle_orm53.eq)(groupChatMembers.userId, senderId)
+          const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)(
+            (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupChatId),
+            (0, import_drizzle_orm54.eq)(groupChatMembers.userId, senderId)
           ));
           if (membership.length === 0) {
             return res.status(403).json({ error: "Not a member of this group" });
@@ -358689,10 +359028,10 @@ var init_voice_memos = __esm({
           emotionTags: voiceMemos.emotionTags,
           isRead: voiceMemos.isRead,
           createdAt: voiceMemos.createdAt
-        }).from(voiceMemos).where((0, import_drizzle_orm53.or)(
-          (0, import_drizzle_orm53.eq)(voiceMemos.senderId, userId),
-          (0, import_drizzle_orm53.eq)(voiceMemos.recipientId, userId)
-        )).orderBy((0, import_drizzle_orm53.desc)(voiceMemos.createdAt)).limit(50);
+        }).from(voiceMemos).where((0, import_drizzle_orm54.or)(
+          (0, import_drizzle_orm54.eq)(voiceMemos.senderId, userId),
+          (0, import_drizzle_orm54.eq)(voiceMemos.recipientId, userId)
+        )).orderBy((0, import_drizzle_orm54.desc)(voiceMemos.createdAt)).limit(50);
         res.json(memos);
       } catch (error2) {
         console.error("Error fetching voice memos:", error2);
@@ -358704,7 +359043,7 @@ var init_voice_memos = __esm({
         const userId = req.user.id;
         const memoId = parseInt(req.params.memoId);
         const language = req.params.language;
-        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
         if (memo.length === 0) {
           return res.status(404).json({ error: "Voice memo not found" });
         }
@@ -358735,11 +359074,11 @@ var init_voice_memos = __esm({
       try {
         const userId = req.user.id;
         const memoId = parseInt(req.params.memoId);
-        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
         if (memo.length === 0 || memo[0].recipientId !== userId) {
           return res.status(403).json({ error: "Access denied" });
         }
-        await db.update(voiceMemos).set({ isRead: true }).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+        await db.update(voiceMemos).set({ isRead: true }).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
         res.json({ success: true });
       } catch (error2) {
         console.error("Error marking memo as read:", error2);
@@ -358750,7 +359089,7 @@ var init_voice_memos = __esm({
       try {
         const userId = req.user.id;
         const memoId = parseInt(req.params.memoId);
-        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm53.and)((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId), (0, import_drizzle_orm53.eq)(voiceMemos.senderId, userId)));
+        const memo = await db.select().from(voiceMemos).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId), (0, import_drizzle_orm54.eq)(voiceMemos.senderId, userId)));
         if (memo.length === 0) {
           return res.status(404).json({ error: "Voice memo not found or unauthorized" });
         }
@@ -358771,7 +359110,7 @@ var init_voice_memos = __esm({
             }
           }
         }
-        await db.delete(voiceMemos).where((0, import_drizzle_orm53.eq)(voiceMemos.id, memoId));
+        await db.delete(voiceMemos).where((0, import_drizzle_orm54.eq)(voiceMemos.id, memoId));
         res.json({ success: true, message: "Voice memo deleted" });
       } catch (error2) {
         console.error("Error deleting voice memo:", error2);
@@ -358878,7 +359217,7 @@ async function detectLanguage4(text2, senderLanguage) {
 }
 async function processVoiceMessage(messageId) {
   try {
-    const message2 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm54.eq)(groupChatMessages.id, messageId));
+    const message2 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm55.eq)(groupChatMessages.id, messageId));
     if (message2.length === 0 || !message2[0].audioPath) return;
     const decryptedPath = decrypt4(message2[0].audioPath);
     const file = await objectStorage3.getObjectEntityFile(decryptedPath);
@@ -358888,7 +359227,7 @@ async function processVoiceMessage(messageId) {
     const language = await detectLanguage4(transcript);
     const members = await db.select({
       preferredLanguage: groupChatMembers.preferredLanguage
-    }).from(groupChatMembers).where((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, message2[0].groupChatId));
+    }).from(groupChatMembers).where((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, message2[0].groupChatId));
     const targetLanguages = Array.from(new Set(members.map((m3) => m3.preferredLanguage)));
     const translations2 = {};
     const voiceTranslations = {};
@@ -358916,19 +359255,19 @@ async function processVoiceMessage(messageId) {
       originalLanguage: language,
       translations: translations2,
       voiceTranslations
-    }).where((0, import_drizzle_orm54.eq)(groupChatMessages.id, messageId));
+    }).where((0, import_drizzle_orm55.eq)(groupChatMessages.id, messageId));
   } catch (error2) {
     console.error("Error processing voice message:", error2);
   }
 }
-var import_express12, import_drizzle_orm54, import_crypto19, objectStorage3, router12, ENCRYPTION_ALGORITHM3, SUPPORTED_LANGUAGES2, group_chats_default;
+var import_express12, import_drizzle_orm55, import_crypto19, objectStorage3, router12, ENCRYPTION_ALGORITHM3, SUPPORTED_LANGUAGES2, group_chats_default;
 var init_group_chats = __esm({
   "server/group-chats.ts"() {
     "use strict";
     import_express12 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm54 = require("drizzle-orm");
+    import_drizzle_orm55 = require("drizzle-orm");
     init_object_storage();
     init_client2();
     import_crypto19 = __toESM(require("crypto"));
@@ -358996,22 +359335,22 @@ var init_group_chats = __esm({
         const userId = req.user.id;
         const memberships = await db.select({
           groupChatId: groupChatMembers.groupChatId
-        }).from(groupChatMembers).where((0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId));
+        }).from(groupChatMembers).where((0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId));
         if (memberships.length === 0) {
           return res.json([]);
         }
         const groupIds = memberships.map((m3) => m3.groupChatId);
-        const groups = await db.select().from(groupChats).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.inArray)(groupChats.id, groupIds),
-          (0, import_drizzle_orm54.eq)(groupChats.isActive, true)
-        )).orderBy((0, import_drizzle_orm54.desc)(groupChats.updatedAt));
+        const groups = await db.select().from(groupChats).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.inArray)(groupChats.id, groupIds),
+          (0, import_drizzle_orm55.eq)(groupChats.isActive, true)
+        )).orderBy((0, import_drizzle_orm55.desc)(groupChats.updatedAt));
         const groupsWithMembers = await Promise.all(groups.map(async (group4) => {
           const members = await db.select({
             userId: groupChatMembers.userId,
             preferredLanguage: groupChatMembers.preferredLanguage,
             role: groupChatMembers.role,
             nickname: groupChatMembers.nickname
-          }).from(groupChatMembers).where((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, group4.id));
+          }).from(groupChatMembers).where((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, group4.id));
           return { ...group4, members };
         }));
         res.json(groupsWithMembers);
@@ -359024,11 +359363,11 @@ var init_group_chats = __esm({
       try {
         const userId = req.user.id;
         const groupId = parseInt(req.params.groupId);
-        const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)));
+        const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)));
         if (membership.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
         }
-        const group4 = await db.select().from(groupChats).where((0, import_drizzle_orm54.eq)(groupChats.id, groupId));
+        const group4 = await db.select().from(groupChats).where((0, import_drizzle_orm55.eq)(groupChats.id, groupId));
         if (group4.length === 0) {
           return res.status(404).json({ error: "Group not found" });
         }
@@ -359040,13 +359379,13 @@ var init_group_chats = __esm({
           nickname: groupChatMembers.nickname,
           isMuted: groupChatMembers.isMuted,
           joinedAt: groupChatMembers.joinedAt
-        }).from(groupChatMembers).where((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId));
+        }).from(groupChatMembers).where((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId));
         const memberUserIds = members.map((m3) => m3.userId);
         const memberUsers = memberUserIds.length > 0 ? await db.select({
           id: users.id,
           username: users.username,
           email: users.email
-        }).from(users).where((0, import_drizzle_orm54.inArray)(users.id, memberUserIds)) : [];
+        }).from(users).where((0, import_drizzle_orm55.inArray)(users.id, memberUserIds)) : [];
         const membersWithInfo = members.map((m3) => ({
           ...m3,
           user: memberUsers.find((u) => u.id === m3.userId) || null
@@ -359062,9 +359401,9 @@ var init_group_chats = __esm({
         const requesterId = req.user.id;
         const groupId = parseInt(req.params.groupId);
         const { userId, preferredLanguage } = req.body;
-        const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, requesterId)
+        const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, requesterId)
         ));
         if (requesterMember.length === 0 || !["admin", "moderator"].includes(requesterMember[0].role || "")) {
           return res.status(403).json({ error: "Only admins can add members" });
@@ -359072,9 +359411,9 @@ var init_group_chats = __esm({
         if (!userId) {
           return res.status(400).json({ error: "User ID required" });
         }
-        const existing = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)
+        const existing = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)
         ));
         if (existing.length > 0) {
           return res.status(400).json({ error: "User already in group" });
@@ -359097,7 +359436,7 @@ var init_group_chats = __esm({
         const groupId = parseInt(req.params.groupId);
         const userId = parseInt(req.params.userId);
         const { preferredLanguage, nickname, isMuted, role } = req.body;
-        const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, requesterId)));
+        const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, requesterId)));
         const isAdmin = requesterMember.length > 0 && requesterMember[0].role === "admin";
         if (userId !== requesterId && !isAdmin) {
           return res.status(403).json({ error: "Only admins can modify other members" });
@@ -359112,9 +359451,9 @@ var init_group_chats = __esm({
           if (preferredLanguage) updateData.preferredLanguage = preferredLanguage;
           if (nickname !== void 0) updateData.nickname = nickname;
         }
-        await db.update(groupChatMembers).set(updateData).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)
+        await db.update(groupChatMembers).set(updateData).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)
         ));
         res.json({ success: true });
       } catch (error2) {
@@ -359128,14 +359467,14 @@ var init_group_chats = __esm({
         const groupId = parseInt(req.params.groupId);
         const userId = parseInt(req.params.userId);
         if (userId !== requesterId) {
-          const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, requesterId)));
+          const requesterMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, requesterId)));
           if (requesterMember.length === 0 || requesterMember[0].role !== "admin") {
             return res.status(403).json({ error: "Only admins can remove members" });
           }
         }
-        await db.delete(groupChatMembers).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)
+        await db.delete(groupChatMembers).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)
         ));
         res.json({ success: true });
       } catch (error2) {
@@ -359151,9 +359490,9 @@ var init_group_chats = __esm({
         if (!content) {
           return res.status(400).json({ error: "Content required" });
         }
-        const senderMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, senderId)
+        const senderMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, senderId)
         ));
         if (senderMember.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
@@ -359162,7 +359501,7 @@ var init_group_chats = __esm({
         const members = await db.select({
           userId: groupChatMembers.userId,
           preferredLanguage: groupChatMembers.preferredLanguage
-        }).from(groupChatMembers).where((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId));
+        }).from(groupChatMembers).where((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId));
         const targetLanguages = Array.from(new Set(members.map((m3) => m3.preferredLanguage)));
         const translations2 = {};
         for (const targetLang of targetLanguages) {
@@ -359179,8 +359518,8 @@ var init_group_chats = __esm({
           translations: translations2,
           replyToId: replyToId || null
         }).returning();
-        await db.update(groupChats).set({ updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(groupChats.id, groupId));
-        const [senderRow] = await db.select({ username: users.username }).from(users).where((0, import_drizzle_orm54.eq)(users.id, senderId));
+        await db.update(groupChats).set({ updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm55.eq)(groupChats.id, groupId));
+        const [senderRow] = await db.select({ username: users.username }).from(users).where((0, import_drizzle_orm55.eq)(users.id, senderId));
         const recipients = members.map((m3) => m3.userId).filter((id) => id !== senderId);
         for (const recipientId of recipients) {
           sendPushNotification(recipientId, {
@@ -359201,17 +359540,17 @@ var init_group_chats = __esm({
         const requesterId = req.user.id;
         const groupId = parseInt(req.params.groupId);
         const messageId = parseInt(req.params.messageId);
-        const [message2] = await db.select().from(groupChatMessages).where((0, import_drizzle_orm54.eq)(groupChatMessages.id, messageId));
+        const [message2] = await db.select().from(groupChatMessages).where((0, import_drizzle_orm55.eq)(groupChatMessages.id, messageId));
         if (!message2 || message2.groupChatId !== groupId) {
           return res.status(404).json({ error: "Message not found" });
         }
         if (message2.senderId !== requesterId) {
-          const [requesterMember] = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, requesterId)));
+          const [requesterMember] = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, requesterId)));
           if (!requesterMember || requesterMember.role !== "admin") {
             return res.status(403).json({ error: "Only the sender or a group admin can delete this message" });
           }
         }
-        await db.update(groupChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(groupChatMessages.id, messageId));
+        await db.update(groupChatMessages).set({ isDeleted: true, originalContent: "", translations: {}, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm55.eq)(groupChatMessages.id, messageId));
         res.json({ success: true });
       } catch (error2) {
         console.error("Error deleting message:", error2);
@@ -359231,7 +359570,7 @@ var init_group_chats = __esm({
         } catch {
           return res.status(400).json({ error: "Invalid audio path" });
         }
-        const senderMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, senderId)));
+        const senderMember = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, senderId)));
         if (senderMember.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
         }
@@ -359260,23 +359599,23 @@ var init_group_chats = __esm({
         const groupId = parseInt(req.params.groupId);
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
-        const memberInfo = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)
+        const memberInfo = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)
         ));
         if (memberInfo.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
         }
         const userLanguage = memberInfo.length > 0 ? memberInfo[0].preferredLanguage : "en";
-        const messages3 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm54.and)(
-          (0, import_drizzle_orm54.eq)(groupChatMessages.groupChatId, groupId),
-          (0, import_drizzle_orm54.eq)(groupChatMessages.isDeleted, false)
-        )).orderBy((0, import_drizzle_orm54.desc)(groupChatMessages.createdAt)).limit(limit).offset(offset);
+        const messages3 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm55.and)(
+          (0, import_drizzle_orm55.eq)(groupChatMessages.groupChatId, groupId),
+          (0, import_drizzle_orm55.eq)(groupChatMessages.isDeleted, false)
+        )).orderBy((0, import_drizzle_orm55.desc)(groupChatMessages.createdAt)).limit(limit).offset(offset);
         const senderIds = Array.from(new Set(messages3.map((m3) => m3.senderId)));
         const senders = senderIds.length > 0 ? await db.select({
           id: users.id,
           username: users.username
-        }).from(users).where((0, import_drizzle_orm54.inArray)(users.id, senderIds)) : [];
+        }).from(users).where((0, import_drizzle_orm55.inArray)(users.id, senderIds)) : [];
         const messagesForUser = messages3.map((msg) => {
           const translations2 = msg.translations || {};
           const voiceTranslations = msg.voiceTranslations || {};
@@ -359294,7 +359633,7 @@ var init_group_chats = __esm({
           };
         });
         if (memberInfo.length > 0) {
-          await db.update(groupChatMembers).set({ lastReadAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm54.eq)(groupChatMembers.id, memberInfo[0].id));
+          await db.update(groupChatMembers).set({ lastReadAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm55.eq)(groupChatMembers.id, memberInfo[0].id));
         }
         res.json(messagesForUser.reverse());
       } catch (error2) {
@@ -359308,11 +359647,11 @@ var init_group_chats = __esm({
         const groupId = parseInt(req.params.groupId);
         const messageId = parseInt(req.params.messageId);
         const language = req.params.language;
-        const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm54.and)((0, import_drizzle_orm54.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm54.eq)(groupChatMembers.userId, userId)));
+        const membership = await db.select().from(groupChatMembers).where((0, import_drizzle_orm55.and)((0, import_drizzle_orm55.eq)(groupChatMembers.groupChatId, groupId), (0, import_drizzle_orm55.eq)(groupChatMembers.userId, userId)));
         if (membership.length === 0) {
           return res.status(403).json({ error: "Not a member of this group" });
         }
-        const message2 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm54.eq)(groupChatMessages.id, messageId));
+        const message2 = await db.select().from(groupChatMessages).where((0, import_drizzle_orm55.eq)(groupChatMessages.id, messageId));
         if (message2.length === 0) {
           return res.status(404).json({ error: "Message not found" });
         }
@@ -361098,7 +361437,7 @@ function registerEnterpriseApiRoutes(app2) {
   app2.get("/api/admin/api-keys", loadUser, requireSuperAdmin, async (_req, res) => {
     try {
       const keys = await db.query.enterpriseApiKeys.findMany({
-        orderBy: [(0, import_drizzle_orm55.desc)(enterpriseApiKeys.createdAt)],
+        orderBy: [(0, import_drizzle_orm56.desc)(enterpriseApiKeys.createdAt)],
         with: { organization: true }
       });
       const result = keys.map((k5) => ({
@@ -361157,7 +361496,7 @@ function registerEnterpriseApiRoutes(app2) {
         return res.status(400).json({ success: false, error: "Expiry date must be in the future" });
       }
       const org = await db.query.organizations.findFirst({
-        where: (0, import_drizzle_orm55.eq)(organizations.id, normalizedOrganizationId)
+        where: (0, import_drizzle_orm56.eq)(organizations.id, normalizedOrganizationId)
       });
       if (!org) {
         return res.status(404).json({ success: false, error: "Organization not found" });
@@ -361206,7 +361545,7 @@ function registerEnterpriseApiRoutes(app2) {
         status: "active",
         activatedBy: req.user.id,
         activatedAt: /* @__PURE__ */ new Date()
-      }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
+      }).where((0, import_drizzle_orm56.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -361224,7 +361563,7 @@ function registerEnterpriseApiRoutes(app2) {
         status: "suspended",
         suspendedAt: /* @__PURE__ */ new Date(),
         suspendedReason: reason || "Suspended by admin"
-      }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
+      }).where((0, import_drizzle_orm56.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -361237,7 +361576,7 @@ function registerEnterpriseApiRoutes(app2) {
   app2.delete("/api/admin/api-keys/:id", loadUser, requireSuperAdmin, async (req, res) => {
     try {
       const keyId = parseInt(req.params.id);
-      const [updated] = await db.update(enterpriseApiKeys).set({ status: "revoked" }).where((0, import_drizzle_orm55.eq)(enterpriseApiKeys.id, keyId)).returning();
+      const [updated] = await db.update(enterpriseApiKeys).set({ status: "revoked" }).where((0, import_drizzle_orm56.eq)(enterpriseApiKeys.id, keyId)).returning();
       if (!updated) {
         return res.status(404).json({ success: false, error: "API key not found" });
       }
@@ -361252,8 +361591,42 @@ function registerEnterpriseApiRoutes(app2) {
       res.status(500).json({ success: false, error: "Failed to revoke API key" });
     }
   });
+  app2.post("/api/admin/api-keys/:id/rotate", loadUser, requireSuperAdmin, async (req, res) => {
+    try {
+      const keyId = parseInt(req.params.id);
+      const existing = await db.query.enterpriseApiKeys.findFirst({
+        where: (0, import_drizzle_orm56.eq)(enterpriseApiKeys.id, keyId)
+      });
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "API key not found" });
+      }
+      if (existing.status === "revoked") {
+        return res.status(409).json({ success: false, error: "Cannot rotate a revoked API key" });
+      }
+      const rawKey = "ntk_ent_" + import_crypto21.default.randomBytes(20).toString("hex");
+      const keyHash = import_crypto21.default.createHash("sha256").update(rawKey).digest("hex");
+      const keyPrefix = rawKey.substring(0, 16);
+      const [updated] = await db.update(enterpriseApiKeys).set({ keyHash, keyPrefix }).where((0, import_drizzle_orm56.eq)(enterpriseApiKeys.id, keyId)).returning();
+      await logAuditEvent({
+        action: "api_key_rotated",
+        userId: req.user?.id,
+        organizationId: existing.organizationId,
+        details: { keyId: updated.id, keyName: updated.name, previousPrefix: existing.keyPrefix, newPrefix: keyPrefix }
+      });
+      res.json({
+        success: true,
+        key: rawKey,
+        keyId: updated.id,
+        keyPrefix,
+        message: "API key rotated. Save the new key now - it will not be shown again. The previous key stopped working immediately."
+      });
+    } catch (error2) {
+      console.error("Failed to rotate API key:", error2);
+      res.status(500).json({ success: false, error: "Failed to rotate API key" });
+    }
+  });
 }
-var import_crypto21, import_openai10, import_drizzle_orm55, openai5, SUPPORTED_LANGUAGES3;
+var import_crypto21, import_openai10, import_drizzle_orm56, openai5, SUPPORTED_LANGUAGES3;
 var init_enterprise_api_routes = __esm({
   "server/enterprise-api-routes.ts"() {
     "use strict";
@@ -361262,7 +361635,7 @@ var init_enterprise_api_routes = __esm({
     init_db();
     init_openai_config();
     init_schema();
-    import_drizzle_orm55 = require("drizzle-orm");
+    import_drizzle_orm56 = require("drizzle-orm");
     init_role_middleware();
     init_audit_logging();
     init_api_key_auth();
@@ -362411,8 +362784,8 @@ function registerCommunicationApiRoutes(app2) {
   });
   app2.get("/api/admin/communication-api/overview", loadUser, requireSuperAdmin, async (_req, res) => {
     try {
-      const recentSessions = await db.select().from(communicationSessions).orderBy((0, import_drizzle_orm56.desc)(communicationSessions.createdAt)).limit(20);
-      const pricingConfigs = await db.select().from(communicationApiKeyPricing).orderBy((0, import_drizzle_orm56.desc)(communicationApiKeyPricing.updatedAt)).limit(50);
+      const recentSessions = await db.select().from(communicationSessions).orderBy((0, import_drizzle_orm57.desc)(communicationSessions.createdAt)).limit(20);
+      const pricingConfigs = await db.select().from(communicationApiKeyPricing).orderBy((0, import_drizzle_orm57.desc)(communicationApiKeyPricing.updatedAt)).limit(50);
       res.json({
         recentSessions,
         pricingConfigs
@@ -362425,7 +362798,7 @@ function registerCommunicationApiRoutes(app2) {
   app2.get("/api/admin/communication-api/pricing/:apiKeyId", loadUser, requireSuperAdmin, async (req, res) => {
     try {
       const apiKeyId = Number(req.params.apiKeyId);
-      const [pricing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
+      const [pricing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm57.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
       res.json({ pricing: pricing ?? null });
     } catch (error2) {
       console.error("[CommunicationAPI] Failed to fetch pricing config", error2);
@@ -362443,12 +362816,12 @@ function registerCommunicationApiRoutes(app2) {
       if (!apiKeyId || !organizationId) {
         return res.status(400).json({ error: "apiKeyId and organizationId are required" });
       }
-      const [existing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
+      const [existing] = await db.select().from(communicationApiKeyPricing).where((0, import_drizzle_orm57.eq)(communicationApiKeyPricing.apiKeyId, apiKeyId)).limit(1);
       if (existing) {
         const [updated] = await db.update(communicationApiKeyPricing).set({
           ...parsed.data,
           updatedAt: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm56.eq)(communicationApiKeyPricing.id, existing.id)).returning();
+        }).where((0, import_drizzle_orm57.eq)(communicationApiKeyPricing.id, existing.id)).returning();
         return res.json({ pricing: updated });
       }
       const [created] = await db.insert(communicationApiKeyPricing).values({
@@ -362474,11 +362847,11 @@ function registerCommunicationApiRoutes(app2) {
     }
   });
 }
-var import_drizzle_orm56, import_zod18, participantSchema, createCallSessionSchema, updateStatusSchema, pricingConfigSchema;
+var import_drizzle_orm57, import_zod18, participantSchema, createCallSessionSchema, updateStatusSchema, pricingConfigSchema;
 var init_communication_api_routes = __esm({
   "server/communication-api-routes.ts"() {
     "use strict";
-    import_drizzle_orm56 = require("drizzle-orm");
+    import_drizzle_orm57 = require("drizzle-orm");
     import_zod18 = require("zod");
     init_api_key_auth();
     init_db();
@@ -362872,7 +363245,7 @@ var init_secplus_integration_routes = __esm({
 
 // server/tenant-admin-routes.ts
 async function getOrganizationOr404(organizationId, res) {
-  const organization = (await db.select().from(organizations).where((0, import_drizzle_orm57.eq)(organizations.id, organizationId)).limit(1))[0];
+  const organization = (await db.select().from(organizations).where((0, import_drizzle_orm58.eq)(organizations.id, organizationId)).limit(1))[0];
   if (!organization) {
     res.status(404).json({
       success: false,
@@ -362931,13 +363304,13 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const [userCountResult, activeSessionCountResult, subscriptionCountResult, recentAuditCountResult] = await Promise.all([
-        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(users).where((0, import_drizzle_orm57.eq)(users.organizationId, organizationId)),
-        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(communicationSessions).where((0, import_drizzle_orm57.and)(
-          (0, import_drizzle_orm57.eq)(communicationSessions.organizationId, organizationId),
-          (0, import_drizzle_orm57.eq)(communicationSessions.status, "active")
+        db.select({ count: import_drizzle_orm58.sql`count(*)` }).from(users).where((0, import_drizzle_orm58.eq)(users.organizationId, organizationId)),
+        db.select({ count: import_drizzle_orm58.sql`count(*)` }).from(communicationSessions).where((0, import_drizzle_orm58.and)(
+          (0, import_drizzle_orm58.eq)(communicationSessions.organizationId, organizationId),
+          (0, import_drizzle_orm58.eq)(communicationSessions.status, "active")
         )),
-        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm57.eq)(subscriptions.organizationId, organizationId)),
-        db.select({ count: import_drizzle_orm57.sql`count(*)` }).from(auditLogs).where((0, import_drizzle_orm57.eq)(auditLogs.organizationId, organizationId))
+        db.select({ count: import_drizzle_orm58.sql`count(*)` }).from(subscriptions).where((0, import_drizzle_orm58.eq)(subscriptions.organizationId, organizationId)),
+        db.select({ count: import_drizzle_orm58.sql`count(*)` }).from(auditLogs).where((0, import_drizzle_orm58.eq)(auditLogs.organizationId, organizationId))
       ]);
       res.json({
         organizationId,
@@ -362957,17 +363330,17 @@ function registerTenantAdminRoutes(app2) {
     requireAuth,
     requireSuperAdmin,
     async (_req, res) => {
-      const organizationsList = await db.select().from(organizations).orderBy((0, import_drizzle_orm57.desc)(organizations.createdAt));
+      const organizationsList = await db.select().from(organizations).orderBy((0, import_drizzle_orm58.desc)(organizations.createdAt));
       const [databaseConfigs, securityPolicies, userCounts, sessionCounts] = await Promise.all([
         db.select().from(tenantDatabases),
         db.select().from(tenantSecurityPolicies),
         db.select({
           organizationId: users.organizationId,
-          count: import_drizzle_orm57.sql`count(*)`
-        }).from(users).where((0, import_drizzle_orm57.isNotNull)(users.organizationId)).groupBy(users.organizationId),
+          count: import_drizzle_orm58.sql`count(*)`
+        }).from(users).where((0, import_drizzle_orm58.isNotNull)(users.organizationId)).groupBy(users.organizationId),
         db.select({
           organizationId: communicationSessions.organizationId,
-          count: import_drizzle_orm57.sql`count(*)`
+          count: import_drizzle_orm58.sql`count(*)`
         }).from(communicationSessions).groupBy(communicationSessions.organizationId)
       ]);
       const databaseMap = new Map(databaseConfigs.map((row) => [row.organizationId, row]));
@@ -363036,7 +363409,7 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const data = parsed.data;
-      const existing = (await db.select().from(tenantDatabases).where((0, import_drizzle_orm57.eq)(tenantDatabases.organizationId, organizationId)).limit(1))[0];
+      const existing = (await db.select().from(tenantDatabases).where((0, import_drizzle_orm58.eq)(tenantDatabases.organizationId, organizationId)).limit(1))[0];
       const payload = {
         organizationId,
         mode: data.mode,
@@ -363050,7 +363423,7 @@ function registerTenantAdminRoutes(app2) {
         metadata: data.metadata || {},
         updatedAt: /* @__PURE__ */ new Date()
       };
-      const [saved] = existing ? await db.update(tenantDatabases).set(payload).where((0, import_drizzle_orm57.eq)(tenantDatabases.organizationId, organizationId)).returning() : await db.insert(tenantDatabases).values(payload).returning();
+      const [saved] = existing ? await db.update(tenantDatabases).set(payload).where((0, import_drizzle_orm58.eq)(tenantDatabases.organizationId, organizationId)).returning() : await db.insert(tenantDatabases).values(payload).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "tenant_database",
@@ -363094,7 +363467,7 @@ function registerTenantAdminRoutes(app2) {
         });
       }
       const data = parsed.data;
-      const existing = (await db.select().from(tenantSecurityPolicies).where((0, import_drizzle_orm57.eq)(tenantSecurityPolicies.organizationId, organizationId)).limit(1))[0];
+      const existing = (await db.select().from(tenantSecurityPolicies).where((0, import_drizzle_orm58.eq)(tenantSecurityPolicies.organizationId, organizationId)).limit(1))[0];
       const payload = {
         organizationId,
         requireTenantHeader: data.requireTenantHeader,
@@ -363110,7 +363483,7 @@ function registerTenantAdminRoutes(app2) {
         metadata: data.metadata || {},
         updatedAt: /* @__PURE__ */ new Date()
       };
-      const [saved] = existing ? await db.update(tenantSecurityPolicies).set(payload).where((0, import_drizzle_orm57.eq)(tenantSecurityPolicies.organizationId, organizationId)).returning() : await db.insert(tenantSecurityPolicies).values(payload).returning();
+      const [saved] = existing ? await db.update(tenantSecurityPolicies).set(payload).where((0, import_drizzle_orm58.eq)(tenantSecurityPolicies.organizationId, organizationId)).returning() : await db.insert(tenantSecurityPolicies).values(payload).returning();
       await AuditHelpers.logUpdate(
         req.user.id,
         "tenant_security_policy",
@@ -363151,11 +363524,11 @@ function registerTenantAdminRoutes(app2) {
     }
   );
 }
-var import_drizzle_orm57, import_zod21, databaseConfigSchema, securityPolicySchema;
+var import_drizzle_orm58, import_zod21, databaseConfigSchema, securityPolicySchema;
 var init_tenant_admin_routes = __esm({
   "server/tenant-admin-routes.ts"() {
     "use strict";
-    import_drizzle_orm57 = require("drizzle-orm");
+    import_drizzle_orm58 = require("drizzle-orm");
     import_zod21 = require("zod");
     init_db();
     init_schema();
@@ -363233,14 +363606,14 @@ var init_face_to_face_routes = __esm({
 });
 
 // server/compliance-routes.ts
-var import_express13, import_drizzle_orm58, router13, compliance_routes_default;
+var import_express13, import_drizzle_orm59, router13, compliance_routes_default;
 var init_compliance_routes = __esm({
   "server/compliance-routes.ts"() {
     "use strict";
     import_express13 = require("express");
     init_db();
     init_schema();
-    import_drizzle_orm58 = require("drizzle-orm");
+    import_drizzle_orm59 = require("drizzle-orm");
     init_observability();
     router13 = (0, import_express13.Router)();
     router13.post("/api/compliance/consent", async (req, res) => {
@@ -363254,7 +363627,7 @@ var init_compliance_routes = __esm({
           consentTranslation: translationConsent,
           consentRecording: recordingConsent,
           consentTimestamp: /* @__PURE__ */ new Date()
-        }).where((0, import_drizzle_orm58.eq)(users.id, userId));
+        }).where((0, import_drizzle_orm59.eq)(users.id, userId));
         logger.info("Compliance", `User ${userId} updated legal consents`, {
           terms: termsAccepted,
           translation: translationConsent,
@@ -363269,7 +363642,7 @@ var init_compliance_routes = __esm({
     router13.post("/api/compliance/routing", async (req, res) => {
       try {
         const { userId, preferredRegion } = req.body;
-        await db.update(users).set({ preferredRegion }).where((0, import_drizzle_orm58.eq)(users.id, userId));
+        await db.update(users).set({ preferredRegion }).where((0, import_drizzle_orm59.eq)(users.id, userId));
         logger.info("Routing", `User ${userId} switched primary execution region to ${preferredRegion}`);
         res.json({ success: true, region: preferredRegion });
       } catch (error2) {
@@ -363301,9 +363674,9 @@ async function requestOtp(identifier, channel) {
     const codeHash = hashOtp(code);
     const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1e3);
     await db.delete(otpChallenges).where(
-      (0, import_drizzle_orm59.and)(
-        (0, import_drizzle_orm59.eq)(otpChallenges.identifier, identifier),
-        (0, import_drizzle_orm59.eq)(otpChallenges.channel, channel)
+      (0, import_drizzle_orm60.and)(
+        (0, import_drizzle_orm60.eq)(otpChallenges.identifier, identifier),
+        (0, import_drizzle_orm60.eq)(otpChallenges.channel, channel)
       )
     );
     await db.insert(otpChallenges).values({
@@ -363336,10 +363709,10 @@ async function verifyOtp(identifier, channel, code) {
   }
   try {
     const challenge = await db.query.otpChallenges.findFirst({
-      where: (0, import_drizzle_orm59.and)(
-        (0, import_drizzle_orm59.eq)(otpChallenges.identifier, identifier),
-        (0, import_drizzle_orm59.eq)(otpChallenges.channel, channel),
-        (0, import_drizzle_orm59.gt)(otpChallenges.expiresAt, /* @__PURE__ */ new Date())
+      where: (0, import_drizzle_orm60.and)(
+        (0, import_drizzle_orm60.eq)(otpChallenges.identifier, identifier),
+        (0, import_drizzle_orm60.eq)(otpChallenges.channel, channel),
+        (0, import_drizzle_orm60.gt)(otpChallenges.expiresAt, /* @__PURE__ */ new Date())
       )
     });
     if (!challenge) {
@@ -363350,10 +363723,10 @@ async function verifyOtp(identifier, channel, code) {
     }
     const codeHash = hashOtp(code);
     if (codeHash !== challenge.codeHash) {
-      await db.update(otpChallenges).set({ attempts: (challenge.attempts || 0) + 1 }).where((0, import_drizzle_orm59.eq)(otpChallenges.id, challenge.id));
+      await db.update(otpChallenges).set({ attempts: (challenge.attempts || 0) + 1 }).where((0, import_drizzle_orm60.eq)(otpChallenges.id, challenge.id));
       return { success: false, message: "Invalid OTP. Please check and try again." };
     }
-    await db.update(otpChallenges).set({ verifiedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm59.eq)(otpChallenges.id, challenge.id));
+    await db.update(otpChallenges).set({ verifiedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm60.eq)(otpChallenges.id, challenge.id));
     const { userId, isNewUser } = await findOrCreateUser(identifier, channel);
     logger.info("OtpAuth", "Email OTP verified", {
       identifier: maskIdentifier2(identifier),
@@ -363372,13 +363745,13 @@ async function verifyOtp(identifier, channel, code) {
   }
 }
 async function findOrCreateUser(identifier, channel) {
-  const whereClause = channel === "email" ? (0, import_drizzle_orm59.eq)(users.email, identifier) : (0, import_drizzle_orm59.eq)(users.phone, identifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm60.eq)(users.email, identifier) : (0, import_drizzle_orm60.eq)(users.phone, identifier);
   const existingUser = await db.query.users.findFirst({ where: whereClause });
   if (existingUser) {
     await db.update(users).set({
       lastLoginAt: /* @__PURE__ */ new Date(),
       ...channel === "email" ? { emailVerified: true } : { phoneVerified: true }
-    }).where((0, import_drizzle_orm59.eq)(users.id, existingUser.id));
+    }).where((0, import_drizzle_orm60.eq)(users.id, existingUser.id));
     return { userId: existingUser.id, isNewUser: false };
   }
   const username = generateUsername(identifier);
@@ -363392,7 +363765,7 @@ async function findOrCreateUser(identifier, channel) {
     lastLoginAt: /* @__PURE__ */ new Date()
   }).returning();
   try {
-    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm59.eq)(billingPlans.priceInPaise, 0)).limit(1);
+    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm60.eq)(billingPlans.priceInPaise, 0)).limit(1);
     if (freePlan) {
       const now = /* @__PURE__ */ new Date();
       const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1e3);
@@ -363466,13 +363839,13 @@ function maskIdentifier2(identifier) {
   }
   return `***${identifier.slice(-4)}`;
 }
-var import_drizzle_orm59, import_crypto23, OTP_LENGTH, OTP_EXPIRY_MINUTES, MAX_ATTEMPTS, FIREBASE_MOBILE_ERROR;
+var import_drizzle_orm60, import_crypto23, OTP_LENGTH, OTP_EXPIRY_MINUTES, MAX_ATTEMPTS, FIREBASE_MOBILE_ERROR;
 var init_otp_auth = __esm({
   "server/otp-auth.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm59 = require("drizzle-orm");
+    import_drizzle_orm60 = require("drizzle-orm");
     import_crypto23 = require("crypto");
     init_observability();
     OTP_LENGTH = 6;
@@ -363502,7 +363875,7 @@ function generateSlug(name) {
 }
 async function grantFreeTrialB2C(userId, defaultMinutes = 30) {
   try {
-    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm60.eq)(billingPlans.priceInPaise, 0)).limit(1);
+    const [freePlan] = await db.select().from(billingPlans).where((0, import_drizzle_orm61.eq)(billingPlans.priceInPaise, 0)).limit(1);
     if (!freePlan) return;
     const now = /* @__PURE__ */ new Date();
     const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1e3);
@@ -363586,7 +363959,7 @@ async function loginUser(input, context) {
     return { error: "INVALID_CREDENTIALS" };
   }
   if (needsPasswordRehash(user2.password)) {
-    await db.update(users).set({ password: hashPassword(input.password) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
+    await db.update(users).set({ password: hashPassword(input.password) }).where((0, import_drizzle_orm61.eq)(users.id, user2.id));
   }
   const requestedTenantSlug = normalizeTenantSlug(
     context?.requestedTenantSlug ?? input.tenantSlug ?? input.organizationSlug
@@ -363623,7 +363996,7 @@ async function forgotPassword(identifier, channel) {
     return { error: "PHONE_RESET_USES_FIREBASE" };
   }
   const normalizedIdentifier = channel === "mobile" ? normalizePhoneNumber(identifier) : identifier;
-  const whereClause = channel === "email" ? (0, import_drizzle_orm60.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm60.eq)(users.phone, normalizedIdentifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm61.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm61.eq)(users.phone, normalizedIdentifier);
   const user2 = await db.query.users.findFirst({ where: whereClause });
   if (!user2) return { success: true };
   await requestOtp(normalizedIdentifier, channel);
@@ -363635,11 +364008,11 @@ async function resetPassword(identifier, channel, code, newPassword) {
   if (!otpResult.success) {
     return { error: "INVALID_OTP", message: otpResult.message };
   }
-  const whereClause = channel === "email" ? (0, import_drizzle_orm60.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm60.eq)(users.phone, normalizedIdentifier);
+  const whereClause = channel === "email" ? (0, import_drizzle_orm61.eq)(users.email, normalizedIdentifier) : (0, import_drizzle_orm61.eq)(users.phone, normalizedIdentifier);
   const user2 = await db.query.users.findFirst({ where: whereClause });
   if (!user2) return { error: "USER_NOT_FOUND" };
   await invalidateAllSessionsForUser(user2.id);
-  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
+  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm61.eq)(users.id, user2.id));
   const organization = user2.organizationId ? await storage2.getOrganization(user2.organizationId) : null;
   const token = await createSession(user2.id, void 0, void 0, buildSessionBinding(organization));
   const { password: _pw, ...safeUser } = user2;
@@ -363647,7 +364020,7 @@ async function resetPassword(identifier, channel, code, newPassword) {
 }
 async function changePassword(userId, currentPassword, newPassword) {
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm60.eq)(users.id, userId)
+    where: (0, import_drizzle_orm61.eq)(users.id, userId)
   });
   if (!user2) return { error: "USER_NOT_FOUND" };
   if (!user2.password) return { error: "PASSWORD_AUTH_NOT_AVAILABLE" };
@@ -363657,14 +364030,14 @@ async function changePassword(userId, currentPassword, newPassword) {
     return { error: "INVALID_CURRENT_PASSWORD" };
   }
   await invalidateAllSessionsForUser(user2.id);
-  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm60.eq)(users.id, user2.id));
+  await db.update(users).set({ password: hashPassword(newPassword) }).where((0, import_drizzle_orm61.eq)(users.id, user2.id));
   return { success: true };
 }
 async function firebaseVerify(idToken) {
   const firebaseUser = await verifyFirebaseToken(idToken);
   if (!firebaseUser) return { error: "INVALID_TOKEN" };
   let user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm60.eq)(users.phone, firebaseUser.phoneNumber)
+    where: (0, import_drizzle_orm61.eq)(users.phone, firebaseUser.phoneNumber)
   });
   const isNewUser = !user2;
   if (!user2) {
@@ -363676,10 +364049,10 @@ async function firebaseVerify(idToken) {
     user2 = newUser;
     try {
       const freePlan = await db.query.billingPlans.findFirst({
-        where: (0, import_drizzle_orm60.and)(
-          (0, import_drizzle_orm60.eq)(billingPlans.priceInPaise, 0),
-          (0, import_drizzle_orm60.eq)(billingPlans.planType, "b2c"),
-          (0, import_drizzle_orm60.eq)(billingPlans.isEnabled, true)
+        where: (0, import_drizzle_orm61.and)(
+          (0, import_drizzle_orm61.eq)(billingPlans.priceInPaise, 0),
+          (0, import_drizzle_orm61.eq)(billingPlans.planType, "b2c"),
+          (0, import_drizzle_orm61.eq)(billingPlans.isEnabled, true)
         )
       });
       if (freePlan) {
@@ -363739,7 +364112,7 @@ async function verifyAuthOtp(params) {
     }
     const verifiedPhone = verifiedToken.phoneNumber;
     let user3 = await db.query.users.findFirst({
-      where: (0, import_drizzle_orm60.or)((0, import_drizzle_orm60.eq)(users.phone, verifiedPhone), (0, import_drizzle_orm60.eq)(users.phone, verifiedPhone.replace(/^\+/, "")))
+      where: (0, import_drizzle_orm61.or)((0, import_drizzle_orm61.eq)(users.phone, verifiedPhone), (0, import_drizzle_orm61.eq)(users.phone, verifiedPhone.replace(/^\+/, "")))
     });
     if (!user3) {
       const username = `user_${Date.now().toString(36)}`;
@@ -363752,7 +364125,7 @@ async function verifyAuthOtp(params) {
       user3 = newUser;
       await grantFreeTrialB2C(newUser.id, 30);
     } else {
-      await db.update(users).set({ phoneVerified: true }).where((0, import_drizzle_orm60.eq)(users.id, user3.id));
+      await db.update(users).set({ phoneVerified: true }).where((0, import_drizzle_orm61.eq)(users.id, user3.id));
     }
     result = { success: true, userId: user3.id };
   } else {
@@ -363769,7 +364142,7 @@ async function verifyAuthOtp(params) {
     return { success: false, status: 400, message: result.message || "Verification failed" };
   }
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm60.eq)(users.id, result.userId),
+    where: (0, import_drizzle_orm61.eq)(users.id, result.userId),
     with: { organization: true }
   });
   if (!user2?.isActive) {
@@ -363820,7 +364193,7 @@ async function verifyAuthOtp(params) {
 }
 async function loginBySuperAdminEmail(email, context) {
   const user2 = await db.query.users.findFirst({
-    where: (0, import_drizzle_orm60.eq)(users.email, email),
+    where: (0, import_drizzle_orm61.eq)(users.email, email),
     with: { organization: true }
   });
   if (!user2 || user2.role !== "super_admin") {
@@ -363875,7 +364248,7 @@ async function updateProfile(userId, updates) {
   if (updates.preferredLanguage !== void 0) setValues.preferredLanguage = updates.preferredLanguage;
   if (updates.pushNotificationsEnabled !== void 0) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
   if (updates.translationEnabled !== void 0) setValues.translationEnabled = updates.translationEnabled;
-  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm60.eq)(users.id, userId)).returning({
+  const [updated] = await db.update(users).set(setValues).where((0, import_drizzle_orm61.eq)(users.id, userId)).returning({
     id: users.id,
     username: users.username,
     avatarUrl: users.avatarUrl,
@@ -363893,7 +364266,7 @@ function issueSignalingToken(userId, sessionId, sessionToken, phone) {
     phoneNumber: phone ?? void 0
   }, 300);
 }
-var import_drizzle_orm60;
+var import_drizzle_orm61;
 var init_service5 = __esm({
   "server/modules/auth/service.ts"() {
     "use strict";
@@ -363908,7 +364281,7 @@ var init_service5 = __esm({
     init_schema();
     init_phone();
     init_auth_runtime();
-    import_drizzle_orm60 = require("drizzle-orm");
+    import_drizzle_orm61 = require("drizzle-orm");
     init_objectStorage();
     init_objectAcl();
   }
@@ -364320,14 +364693,14 @@ async function getConsent(userId) {
   if (consentCache.has(userId)) {
     return consentCache.get(userId);
   }
-  const [record] = await db.select().from(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).limit(1);
+  const [record] = await db.select().from(callConsents).where((0, import_drizzle_orm62.eq)(callConsents.userId, userId)).limit(1);
   if (!record) return null;
   const consent = dbToConsent(record);
   consentCache.set(userId, consent);
   return consent;
 }
 async function grantConsent(userId, options) {
-  const existing = await db.select().from(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).limit(1);
+  const existing = await db.select().from(callConsents).where((0, import_drizzle_orm62.eq)(callConsents.userId, userId)).limit(1);
   const consentData = {
     userId,
     translationProcessing: options.translationProcessing,
@@ -364338,7 +364711,7 @@ async function grantConsent(userId, options) {
   };
   let record;
   if (existing.length > 0) {
-    const [updated] = await db.update(callConsents).set(consentData).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).returning();
+    const [updated] = await db.update(callConsents).set(consentData).where((0, import_drizzle_orm62.eq)(callConsents.userId, userId)).returning();
     record = updated;
   } else {
     const [inserted] = await db.insert(callConsents).values(consentData).returning();
@@ -364349,7 +364722,7 @@ async function grantConsent(userId, options) {
   return consent;
 }
 async function revokeConsent(userId) {
-  await db.delete(callConsents).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId));
+  await db.delete(callConsents).where((0, import_drizzle_orm62.eq)(callConsents.userId, userId));
   consentCache.delete(userId);
 }
 async function updateConsent(userId, updates) {
@@ -364358,7 +364731,7 @@ async function updateConsent(userId, updates) {
   const [updated] = await db.update(callConsents).set({
     ...updates,
     consentVersion: CONSENT_VERSION
-  }).where((0, import_drizzle_orm61.eq)(callConsents.userId, userId)).returning();
+  }).where((0, import_drizzle_orm62.eq)(callConsents.userId, userId)).returning();
   if (!updated) return null;
   const consent = dbToConsent(updated);
   consentCache.set(userId, consent);
@@ -364432,17 +364805,24 @@ function logConsentAction(userId, action, details) {
   if (auditLogs3.length > 1e3) {
     auditLogs3.shift();
   }
+  void Promise.resolve().then(() => (init_audit(), audit_exports)).then(({ createAuditLog: createAuditLog2 }) => createAuditLog2({
+    userId,
+    action: "consent_action",
+    entityType: "call_consent",
+    entityId: userId,
+    metadata: { consentAction: action, details }
+  }));
 }
 function getServiceDisclaimer() {
   return `${TELCO_SAFE_MESSAGING.serviceName}: ${TELCO_SAFE_MESSAGING.disclaimers.join(" ")}`;
 }
-var import_drizzle_orm61, CONSENT_VERSION, PRIVACY_DISCLOSURES, consentCache, auditLogs3, TELCO_SAFE_MESSAGING;
+var import_drizzle_orm62, CONSENT_VERSION, PRIVACY_DISCLOSURES, consentCache, auditLogs3, TELCO_SAFE_MESSAGING;
 var init_call_privacy = __esm({
   "server/call-privacy.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm61 = require("drizzle-orm");
+    import_drizzle_orm62 = require("drizzle-orm");
     CONSENT_VERSION = "1.0.0";
     PRIVACY_DISCLOSURES = {
       translationProcessing: {
@@ -364573,20 +364953,20 @@ async function startRecording(input) {
     await db.update(callRecordings).set({
       egressId: egressInfo.egressId,
       status: RECORDING_STATUS.ACTIVE
-    }).where((0, import_drizzle_orm62.eq)(callRecordings.id, recordingRow.id));
+    }).where((0, import_drizzle_orm63.eq)(callRecordings.id, recordingRow.id));
     logger.info("Recording", `Started recording for call ${input.callId}, egressId=${egressInfo.egressId}`);
     return { success: true, recordingId: recordingRow.id, egressId: egressInfo.egressId };
   } catch (error2) {
     await db.update(callRecordings).set({
       status: RECORDING_STATUS.FAILED,
       failureReason: String(error2 instanceof Error ? error2.message : error2).slice(0, 500)
-    }).where((0, import_drizzle_orm62.eq)(callRecordings.id, recordingRow.id));
+    }).where((0, import_drizzle_orm63.eq)(callRecordings.id, recordingRow.id));
     logger.error("Recording", `Egress start failed for call ${input.callId}`, error2);
     return { success: false, reason: "EGRESS_START_FAILED" };
   }
 }
 async function stopRecording(callId) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.callId, callId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm63.eq)(callRecordings.callId, callId));
   if (!row || !row.egressId || row.status !== RECORDING_STATUS.ACTIVE) return false;
   try {
     const egressClient = getEgressClient();
@@ -364598,7 +364978,7 @@ async function stopRecording(callId) {
   }
 }
 async function handleEgressEndedWebhook(event) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.egressId, event.egressId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm63.eq)(callRecordings.egressId, event.egressId));
   if (!row) return null;
   const failed = event.status === EgressStatus.EGRESS_FAILED || event.status === EgressStatus.EGRESS_ABORTED;
   const file = event.fileResults?.[0];
@@ -364609,12 +364989,12 @@ async function handleEgressEndedWebhook(event) {
     durationSeconds,
     failureReason: failed ? (event.error || "Egress reported failure").slice(0, 500) : null,
     completedAt: /* @__PURE__ */ new Date()
-  }).where((0, import_drizzle_orm62.eq)(callRecordings.id, row.id)).returning();
+  }).where((0, import_drizzle_orm63.eq)(callRecordings.id, row.id)).returning();
   logger.info("Recording", `Egress ${event.egressId} for call ${row.callId} finished: status=${EgressStatus[event.status]}, durationSeconds=${durationSeconds}`);
   return updated ?? null;
 }
 async function getRecordingForCall(callId) {
-  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm62.eq)(callRecordings.callId, callId));
+  const [row] = await db.select().from(callRecordings).where((0, import_drizzle_orm63.eq)(callRecordings.callId, callId));
   return row ?? null;
 }
 async function getRecordingDownloadUrl(recording, expiresInSeconds = 300) {
@@ -364627,14 +365007,14 @@ async function getRecordingDownloadUrl(recording, expiresInSeconds = 300) {
   });
   return (0, import_s3_request_presigner2.getSignedUrl)(client, command5, { expiresIn: expiresInSeconds });
 }
-var import_client_s32, import_s3_request_presigner2, import_drizzle_orm62;
+var import_client_s32, import_s3_request_presigner2, import_drizzle_orm63;
 var init_recording_service = __esm({
   "server/recording-service.ts"() {
     "use strict";
     init_dist3();
     import_client_s32 = __toESM(require_dist_cjs16());
     import_s3_request_presigner2 = __toESM(require_dist_cjs17());
-    import_drizzle_orm62 = require("drizzle-orm");
+    import_drizzle_orm63 = require("drizzle-orm");
     init_db();
     init_schema();
     init_call_privacy();
@@ -365336,7 +365716,7 @@ async function isUserInRequesterOrganization(requester, targetUserId) {
       id: true,
       organizationId: true
     },
-    where: (0, import_drizzle_orm63.eq)(users.id, targetUserId)
+    where: (0, import_drizzle_orm64.eq)(users.id, targetUserId)
   });
   return !!targetUser && targetUser.organizationId === requester.organizationId;
 }
@@ -365361,7 +365741,7 @@ async function legacyCallMatchesRequesterOrganization(requester, call) {
   }
   const participantUsers = await db.select({
     organizationId: users.organizationId
-  }).from(users).where((0, import_drizzle_orm63.inArray)(users.id, participantIds));
+  }).from(users).where((0, import_drizzle_orm64.inArray)(users.id, participantIds));
   return participantUsers.some((participant) => participant.organizationId === requester.organizationId);
 }
 async function canAccessLegacyCall(requester, call) {
@@ -365457,10 +365837,10 @@ async function initiate(req, res) {
     const user2 = req.user;
     const calleeIdentifier = parsed.data.calleeIdentifier;
     const normalizedPhone = normalizePhoneNumber(calleeIdentifier);
-    const [calleeUser] = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm63.or)(
-      (0, import_drizzle_orm63.eq)(users.username, calleeIdentifier),
-      (0, import_drizzle_orm63.eq)(users.email, calleeIdentifier),
-      (0, import_drizzle_orm63.eq)(users.phone, normalizedPhone)
+    const [calleeUser] = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm64.or)(
+      (0, import_drizzle_orm64.eq)(users.username, calleeIdentifier),
+      (0, import_drizzle_orm64.eq)(users.email, calleeIdentifier),
+      (0, import_drizzle_orm64.eq)(users.phone, normalizedPhone)
     ));
     if (calleeUser && await isBlocked(user2.id, calleeUser.id)) {
       return res.status(403).json({ message: "This call can't be completed.", code: "BLOCKED" });
@@ -365566,7 +365946,9 @@ async function end(req, res) {
       const call2 = await getSmartCall2(rawCallId);
       if (!call2) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user2, call2)) return sendAccessDenied(res);
-      const result = await endCallById(rawCallId);
+      const rawReason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 64) : void 0;
+      const reason = rawReason && /^[a-zA-Z0-9_.:-]+$/.test(rawReason) ? rawReason : void 0;
+      const result = await endCallById(rawCallId, reason);
       return res.json({
         callId: rawCallId,
         status: SMART_CALL_STATE.ENDED,
@@ -365678,20 +366060,27 @@ async function getCallRecording(req, res) {
   }
 }
 async function connect(req, res) {
+  const connectReceivedNs = process.hrtime.bigint();
   try {
     const rawCallId = req.params.callId;
     if (isSmartCallId2(rawCallId)) {
+      const lookupStartNs = process.hrtime.bigint();
       const call2 = await getSmartCall2(rawCallId);
+      logSetupLatency(rawCallId, call2?.joinMethod ?? "pending", "connect_call_lookup", elapsedMs(lookupStartNs));
       if (!call2) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(req.user, call2)) return sendAccessDenied(res);
       let updated;
+      const transitionStartNs = process.hrtime.bigint();
       try {
         updated = await updateSmartCallStatus2(rawCallId, SMART_CALL_STATE.ANSWERED, {
           receiverNumber: req.body?.receiverNumber
         });
       } catch (error2) {
+        logSetupLatency(rawCallId, call2.joinMethod, "connect_state_transition", elapsedMs(transitionStartNs), { success: false });
         return res.status(409).json({ error: error2?.message ?? "Invalid call transition" });
       }
+      logSetupLatency(rawCallId, call2.joinMethod, "connect_state_transition_and_persistence", elapsedMs(transitionStartNs));
+      logSetupLatency(rawCallId, call2.joinMethod, "connect_total_response", elapsedMs(connectReceivedNs));
       return res.json(updated ? serializeSmartCall(updated) : { callId: rawCallId, status: SMART_CALL_STATE.ANSWERED });
     }
     const callId = parseNumericCallId(rawCallId);
@@ -367128,12 +367517,12 @@ async function transferCall(req, res) {
     res.status(500).json({ error: "Transfer failed" });
   }
 }
-var import_node_crypto21, import_drizzle_orm63, import_zod23, TRANSLATOR_BOT_IDENTITY, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
+var import_node_crypto21, import_drizzle_orm64, import_zod23, TRANSLATOR_BOT_IDENTITY, initiateSchema, connectCallSchema, updateStatusSchema2, addParticipantSchema, deviceRegistrationSchema, deviceTokenUpdateSchema, VALID_VOICE_IDS, EMOTION_SPEED_MAP, EMOTION_VOICE_MAP, MALE_VOICES, FEMALE_VOICES, transferSchema;
 var init_controller2 = __esm({
   "server/modules/calls/controller.ts"() {
     "use strict";
     import_node_crypto21 = require("node:crypto");
-    import_drizzle_orm63 = require("drizzle-orm");
+    import_drizzle_orm64 = require("drizzle-orm");
     import_zod23 = require("zod");
     init_observability();
     init_db();
@@ -367146,6 +367535,7 @@ var init_controller2 = __esm({
     init_phone();
     init_blocking();
     init_service2();
+    init_smart_router();
     init_metrics2();
     init_lifecycle();
     init_session_view();
@@ -367435,7 +367825,7 @@ async function joinQueue(req, res) {
     if (!parsed.success) {
       return res.status(400).json({ success: false, error: parsed.error.message });
     }
-    const [queue2] = await db.select().from(callQueues).where((0, import_drizzle_orm64.eq)(callQueues.id, queueId));
+    const [queue2] = await db.select().from(callQueues).where((0, import_drizzle_orm65.eq)(callQueues.id, queueId));
     if (!queue2 || !queue2.isActive) {
       return res.status(404).json({ success: false, error: "Queue not found or inactive" });
     }
@@ -367497,12 +367887,12 @@ async function abandon(req, res) {
   });
   return res.json({ success: true });
 }
-var import_zod24, import_drizzle_orm64, joinQueueSchema;
+var import_zod24, import_drizzle_orm65, joinQueueSchema;
 var init_queue_controller = __esm({
   "server/modules/calls/queue-controller.ts"() {
     "use strict";
     import_zod24 = require("zod");
-    import_drizzle_orm64 = require("drizzle-orm");
+    import_drizzle_orm65 = require("drizzle-orm");
     init_db();
     init_schema();
     init_observability();
@@ -367572,7 +367962,7 @@ function buildSipUri(callId) {
 async function findUserByDID(calledNumber) {
   if (!calledNumber) return null;
   try {
-    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm65.eq)(orgDIDNumbers.phoneNumber, calledNumber)).limit(1);
+    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm66.eq)(orgDIDNumbers.phoneNumber, calledNumber)).limit(1);
     if (did && did.isActive && (did.type === "inbound" || did.type === "both")) {
       const agentUserId = await routeToSkillAgent(did.organizationId, []).catch((err) => {
         logger.warn("PSTNInbound", `skill routing failed for DID ${calledNumber}: ${String(err)}`);
@@ -367756,12 +368146,12 @@ async function getInboundCallJoinInfo(callId) {
     callerNumber: record.callerNumber
   };
 }
-var import_node_crypto23, import_drizzle_orm65, LIVEKIT_SIP_DOMAIN;
+var import_node_crypto23, import_drizzle_orm66, LIVEKIT_SIP_DOMAIN;
 var init_inbound = __esm({
   "server/pstn/inbound.ts"() {
     "use strict";
     import_node_crypto23 = require("node:crypto");
-    import_drizzle_orm65 = require("drizzle-orm");
+    import_drizzle_orm66 = require("drizzle-orm");
     init_registry();
     init_livekit_service();
     init_billing_engine();
@@ -368158,7 +368548,7 @@ async function inboundCallWebhook(req, res) {
     return res.status(400).json({ status: "error", error: "Missing caller number" });
   }
   if (toDID) {
-    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm66.eq)(orgDIDNumbers.phoneNumber, toDID)).limit(1).catch(() => []);
+    const [did] = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm67.eq)(orgDIDNumbers.phoneNumber, toDID)).limit(1).catch(() => []);
     if (did && did.isActive && (did.type === "inbound" || did.type === "both")) {
       const orgId4 = did.organizationId;
       const ivrCfg = did.ivrConfig ?? {};
@@ -368227,11 +368617,11 @@ async function inboundCallWebhook(req, res) {
     res.json({ status: "error", error: e5.message });
   }
 }
-var import_drizzle_orm66, pendingVerifications;
+var import_drizzle_orm67, pendingVerifications;
 var init_controller3 = __esm({
   "server/modules/caller-id/controller.ts"() {
     "use strict";
-    import_drizzle_orm66 = require("drizzle-orm");
+    import_drizzle_orm67 = require("drizzle-orm");
     init_storage();
     init_observability();
     init_db();
@@ -368268,7 +368658,7 @@ async function canAccessCall(req, callIdentifier) {
   if (owners.includes(user2.id)) return true;
   const orgId4 = user2.organizationId;
   if (user2.role === "company_admin" && orgId4 && owners.length > 0) {
-    const owningUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
+    const owningUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm68.eq)(users.organizationId, orgId4));
     const orgUserIds = new Set(owningUsers.map((u) => u.id));
     return owners.some((id) => orgUserIds.has(id));
   }
@@ -368403,10 +368793,10 @@ async function getRetentionSettings(req, res) {
   try {
     const orgId4 = requireOrgAdmin(req, res);
     if (!orgId4) return;
-    const orgUsers = await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
+    const orgUsers = await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where((0, import_drizzle_orm68.eq)(users.organizationId, orgId4));
     const consents = await db.select().from(callConsents);
     const consentByUser = new Map(consents.map((c5) => [c5.userId, c5.dataRetention]));
-    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
     const orgDefault = org?.settings?.transcriptRetentionDefault ?? "none (platform default: 30 days)";
     res.json({
       orgDefault,
@@ -368430,9 +368820,9 @@ async function setOrgRetentionDefault(req, res) {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
     }
-    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+    const [org] = await db.select({ settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
     const newSettings = { ...org?.settings ?? {}, transcriptRetentionDefault: parsed.data.dataRetention };
-    await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm67.eq)(organizations.id, orgId4));
+    await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
     await AuditHelpers.logSettingsChange(req.user.id, "org_transcript_retention_default", org?.settings, newSettings);
     res.json({ success: true, transcriptRetentionDefault: parsed.data.dataRetention });
   } catch (error2) {
@@ -368444,7 +368834,7 @@ async function getTranscriptAuditLog(req, res) {
   try {
     const orgId4 = requireOrgAdmin(req, res);
     if (!orgId4) return;
-    const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm67.eq)(users.organizationId, orgId4));
+    const orgUsers = await db.select({ id: users.id }).from(users).where((0, import_drizzle_orm68.eq)(users.organizationId, orgId4));
     const orgUserIds = new Set(orgUsers.map((u) => u.id));
     const perType = await Promise.all(
       TRANSCRIPT_AUDIT_ENTITY_TYPES.map((entityType) => getAuditLogs({ entityType, limit: 200 }))
@@ -368463,7 +368853,7 @@ async function getMetrics(req, res) {
   }
   res.json(getTranscriptMetricsSnapshot());
 }
-var import_zod25, import_drizzle_orm67, searchSchema, EXPORT_FORMATS, adminSearchSchema, setOrgRetentionSchema, TRANSCRIPT_AUDIT_ENTITY_TYPES;
+var import_zod25, import_drizzle_orm68, searchSchema, EXPORT_FORMATS, adminSearchSchema, setOrgRetentionSchema, TRANSCRIPT_AUDIT_ENTITY_TYPES;
 var init_controller4 = __esm({
   "server/modules/transcripts/controller.ts"() {
     "use strict";
@@ -368472,7 +368862,7 @@ var init_controller4 = __esm({
     init_audit();
     init_db();
     init_schema();
-    import_drizzle_orm67 = require("drizzle-orm");
+    import_drizzle_orm68 = require("drizzle-orm");
     init_service();
     init_metrics();
     searchSchema = import_zod25.z.object({
@@ -368576,7 +368966,7 @@ async function updateVirtualNumberStatus(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [updated] = await db.update(communicationVirtualNumbers).set({ status: parsed.data.status, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.eq)(communicationVirtualNumbers.id, id)).returning();
+  const [updated] = await db.update(communicationVirtualNumbers).set({ status: parsed.data.status, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(communicationVirtualNumbers.id, id)).returning();
   if (!updated) return res.status(404).json({ success: false, error: "Not found" });
   return res.json({ success: true, data: updated });
 }
@@ -368585,7 +368975,7 @@ async function listOrgDIDs(req, res) {
   const orgId4 = Number(req.params.orgId);
   if (!Number.isFinite(orgId4)) return badRequest(res, "Invalid orgId");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4)).orderBy(orgDIDNumbers.createdAt);
+  const dids = await db.select().from(orgDIDNumbers).where((0, import_drizzle_orm69.eq)(orgDIDNumbers.organizationId, orgId4)).orderBy(orgDIDNumbers.createdAt);
   return res.json({ success: true, data: dids });
 }
 async function addOrgDID(req, res) {
@@ -368603,7 +368993,7 @@ async function addOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
+  const [org] = await db.select({ id: organizations.id }).from(organizations).where((0, import_drizzle_orm69.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const [inserted] = await db.insert(orgDIDNumbers).values({
     organizationId: orgId4,
@@ -368633,7 +369023,7 @@ async function updateOrgDID(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4))).returning();
+  const [updated] = await db.update(orgDIDNumbers).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm69.eq)(orgDIDNumbers.organizationId, orgId4))).returning();
   if (!updated) return res.status(404).json({ success: false, error: "DID not found" });
   return res.json({ success: true, data: updated });
 }
@@ -368643,7 +369033,7 @@ async function deleteOrgDID(req, res) {
   const didId = Number(req.params.didId);
   if (!Number.isFinite(orgId4) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm68.eq)(orgDIDNumbers.organizationId, orgId4)));
+  await db.delete(orgDIDNumbers).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(orgDIDNumbers.id, didId), (0, import_drizzle_orm69.eq)(orgDIDNumbers.organizationId, orgId4)));
   return res.json({ success: true });
 }
 async function setOrgOutboundCallerId(req, res) {
@@ -368657,11 +369047,11 @@ async function setOrgOutboundCallerId(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
+  const [org] = await db.select({ id: organizations.id, settings: organizations.settings }).from(organizations).where((0, import_drizzle_orm69.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const existingSettings = org.settings ?? {};
   const newSettings = { ...existingSettings, outboundCallerId: parsed.data.callerId };
-  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
+  await db.update(organizations).set({ settings: newSettings }).where((0, import_drizzle_orm69.eq)(organizations.id, orgId4));
   logger.info("B2BAdmin", "Org outbound caller ID set", { orgId: orgId4, callerId: parsed.data.callerId });
   return res.json({ success: true, callerId: parsed.data.callerId });
 }
@@ -368676,7 +369066,7 @@ async function getOrgSettings(req, res) {
     settings: organizations.settings,
     plan: organizations.plan,
     status: organizations.status
-  }).from(organizations).where((0, import_drizzle_orm68.eq)(organizations.id, orgId4));
+  }).from(organizations).where((0, import_drizzle_orm69.eq)(organizations.id, orgId4));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
   const settings = org.settings ?? {};
   return res.json({
@@ -368702,7 +369092,7 @@ async function listAgentSkills(req, res) {
     updatedAt: agentSkills.updatedAt,
     userName: users.username,
     userEmail: users.email
-  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm68.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4));
+  }).from(agentSkills).innerJoin(users, (0, import_drizzle_orm69.eq)(agentSkills.userId, users.id)).where((0, import_drizzle_orm69.eq)(agentSkills.organizationId, orgId4));
   return res.json({ success: true, data: rows });
 }
 async function upsertAgentSkill(req, res) {
@@ -368719,10 +369109,10 @@ async function upsertAgentSkill(req, res) {
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
-  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4)));
+  const existing = await db.select({ id: agentSkills.id }).from(agentSkills).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm69.eq)(agentSkills.organizationId, orgId4)));
   let row;
   if (existing.length > 0) {
-    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4))).returning();
+    [row] = await db.update(agentSkills).set({ ...parsed.data, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm69.eq)(agentSkills.organizationId, orgId4))).returning();
   } else {
     [row] = await db.insert(agentSkills).values({
       userId: agentUserId,
@@ -368738,7 +369128,7 @@ async function deleteAgentSkill(req, res) {
   const agentUserId = Number(req.params.userId);
   if (!Number.isFinite(orgId4) || !Number.isFinite(agentUserId)) return badRequest(res, "Invalid id");
   if (!isOrgAdmin(user2, orgId4)) return forbidden(res);
-  await db.delete(agentSkills).where((0, import_drizzle_orm68.and)((0, import_drizzle_orm68.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm68.eq)(agentSkills.organizationId, orgId4)));
+  await db.delete(agentSkills).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(agentSkills.userId, agentUserId), (0, import_drizzle_orm69.eq)(agentSkills.organizationId, orgId4)));
   return res.json({ success: true });
 }
 function registerB2BAdminRoutes(app2) {
@@ -368755,11 +369145,11 @@ function registerB2BAdminRoutes(app2) {
   app2.put("/api/admin/orgs/:orgId/agent-skills/:userId", requireAuth, upsertAgentSkill);
   app2.delete("/api/admin/orgs/:orgId/agent-skills/:userId", requireAuth, deleteAgentSkill);
 }
-var import_drizzle_orm68, import_zod26;
+var import_drizzle_orm69, import_zod26;
 var init_routes11 = __esm({
   "server/modules/b2b-admin/routes.ts"() {
     "use strict";
-    import_drizzle_orm68 = require("drizzle-orm");
+    import_drizzle_orm69 = require("drizzle-orm");
     import_zod26 = require("zod");
     init_db();
     init_role_middleware();
@@ -368832,6 +369222,38 @@ async function deleteWebhook(req, res) {
   await AuditHelpers.logDelete(user2.id, "webhook_endpoint", webhookId, { orgId: orgId4 });
   return res.json({ success: true });
 }
+async function updateWebhook(req, res) {
+  const user2 = getUser2(req);
+  const orgId4 = Number(req.params.orgId);
+  const webhookId = Number(req.params.webhookId);
+  if (!Number.isFinite(orgId4) || !Number.isFinite(webhookId)) return badRequest2(res, "Invalid id");
+  if (!isOrgAdmin2(user2, orgId4)) return forbidden2(res);
+  const parsed = updateWebhookSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest2(res, parsed.error.message);
+  try {
+    const updated = await updateWebhookEndpoint(orgId4, webhookId, parsed.data);
+    if (!updated) return res.status(404).json({ success: false, error: "Webhook not found" });
+    await AuditHelpers.logSettingsChange(user2.id, "webhook_endpoint_update", null, { orgId: orgId4, webhookId, ...parsed.data });
+    return res.json({ success: true });
+  } catch (error2) {
+    const message2 = error2 instanceof Error ? error2.message : String(error2);
+    if (message2 === "WEBHOOK_URL_MUST_BE_HTTPS") return badRequest2(res, "Webhook URL must use HTTPS");
+    if (message2.startsWith("UNKNOWN_EVENT_TYPES:")) return badRequest2(res, message2);
+    logger.error("Webhooks", "Failed to update webhook endpoint", error2);
+    return res.status(500).json({ success: false, error: "Failed to update webhook" });
+  }
+}
+async function rotateWebhook(req, res) {
+  const user2 = getUser2(req);
+  const orgId4 = Number(req.params.orgId);
+  const webhookId = Number(req.params.webhookId);
+  if (!Number.isFinite(orgId4) || !Number.isFinite(webhookId)) return badRequest2(res, "Invalid id");
+  if (!isOrgAdmin2(user2, orgId4)) return forbidden2(res);
+  const secret = await rotateWebhookSecret(orgId4, webhookId);
+  if (!secret) return res.status(404).json({ success: false, error: "Webhook not found" });
+  await AuditHelpers.logSettingsChange(user2.id, "webhook_endpoint_secret_rotated", null, { orgId: orgId4, webhookId });
+  return res.json({ success: true, secret, message: "Secret rotated. Save it now - it will not be shown again." });
+}
 async function toggleWebhook(req, res) {
   const user2 = getUser2(req);
   const orgId4 = Number(req.params.orgId);
@@ -368845,7 +369267,7 @@ async function toggleWebhook(req, res) {
   await AuditHelpers.logSettingsChange(user2.id, "webhook_endpoint_toggle", null, { orgId: orgId4, webhookId, isActive: parsed.data.isActive });
   return res.json({ success: true });
 }
-var import_zod27, createWebhookSchema, toggleWebhookSchema;
+var import_zod27, createWebhookSchema, updateWebhookSchema, toggleWebhookSchema;
 var init_controller5 = __esm({
   "server/modules/webhooks/controller.ts"() {
     "use strict";
@@ -368857,6 +369279,10 @@ var init_controller5 = __esm({
       url: import_zod27.z.string().url(),
       subscribedEvents: import_zod27.z.array(import_zod27.z.string()).min(1)
     });
+    updateWebhookSchema = import_zod27.z.object({
+      url: import_zod27.z.string().url().optional(),
+      subscribedEvents: import_zod27.z.array(import_zod27.z.string()).min(1).optional()
+    }).refine((v) => v.url || v.subscribedEvents, { message: "Provide url and/or subscribedEvents" });
     toggleWebhookSchema = import_zod27.z.object({ isActive: import_zod27.z.boolean() });
   }
 });
@@ -368867,12 +369293,101 @@ function registerWebhookRoutes(app2) {
   app2.get("/api/admin/orgs/:orgId/webhooks", requireAuth, listWebhooks);
   app2.delete("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, deleteWebhook);
   app2.patch("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, toggleWebhook);
+  app2.put("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, updateWebhook);
+  app2.post("/api/admin/orgs/:orgId/webhooks/:webhookId/rotate", requireAuth, rotateWebhook);
 }
 var init_routes12 = __esm({
   "server/modules/webhooks/routes.ts"() {
     "use strict";
     init_role_middleware();
     init_controller5();
+  }
+});
+
+// server/modules/rate-limits/routes.ts
+function badRequest3(res, msg) {
+  return res.status(400).json({ success: false, error: msg });
+}
+function registerRateLimitAdminRoutes(app2) {
+  app2.get("/api/admin/rate-limit-rules", requireAuth, requireSuperAdmin, async (_req, res) => {
+    try {
+      const rules = await db.select().from(rateLimitRules).orderBy(rateLimitRules.id);
+      res.json({ success: true, rules });
+    } catch (error2) {
+      logger.error("RateLimitAdmin", "Failed to list rules", error2);
+      res.status(500).json({ success: false, error: "Failed to list rate-limit rules" });
+    }
+  });
+  app2.post("/api/admin/rate-limit-rules", requireAuth, requireSuperAdmin, async (req, res) => {
+    const parsed = insertRateLimitRuleSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest3(res, parsed.error.message);
+    try {
+      const [rule] = await db.insert(rateLimitRules).values(parsed.data).returning();
+      await createAuditLog({
+        userId: req.user.id,
+        action: AUDIT_ACTION.CREATE,
+        entityType: "rate_limit_rule",
+        entityId: rule.id,
+        newValue: parsed.data
+      });
+      res.status(201).json({ success: true, rule });
+    } catch (error2) {
+      logger.error("RateLimitAdmin", "Failed to create rule", error2);
+      res.status(500).json({ success: false, error: "Failed to create rate-limit rule" });
+    }
+  });
+  app2.patch("/api/admin/rate-limit-rules/:id", requireAuth, requireSuperAdmin, async (req, res) => {
+    const ruleId = parseInt(req.params.id);
+    if (!Number.isFinite(ruleId)) return badRequest3(res, "Invalid rule id");
+    const parsed = insertRateLimitRuleSchema.partial().safeParse(req.body);
+    if (!parsed.success) return badRequest3(res, parsed.error.message);
+    if (Object.keys(parsed.data).length === 0) return badRequest3(res, "No fields to update");
+    try {
+      const [existing] = await db.select().from(rateLimitRules).where((0, import_drizzle_orm70.eq)(rateLimitRules.id, ruleId));
+      if (!existing) return res.status(404).json({ success: false, error: "Rule not found" });
+      const [updated] = await db.update(rateLimitRules).set(parsed.data).where((0, import_drizzle_orm70.eq)(rateLimitRules.id, ruleId)).returning();
+      await createAuditLog({
+        userId: req.user.id,
+        action: AUDIT_ACTION.UPDATE,
+        entityType: "rate_limit_rule",
+        entityId: ruleId,
+        oldValue: existing,
+        newValue: parsed.data
+      });
+      res.json({ success: true, rule: updated });
+    } catch (error2) {
+      logger.error("RateLimitAdmin", "Failed to update rule", error2);
+      res.status(500).json({ success: false, error: "Failed to update rate-limit rule" });
+    }
+  });
+  app2.patch("/api/admin/rate-limit-rules/:id/enabled", requireAuth, requireSuperAdmin, async (req, res) => {
+    const ruleId = parseInt(req.params.id);
+    const { isEnabled: isEnabled2 } = req.body;
+    if (!Number.isFinite(ruleId)) return badRequest3(res, "Invalid rule id");
+    if (typeof isEnabled2 !== "boolean") return badRequest3(res, "isEnabled must be a boolean");
+    try {
+      const [existing] = await db.select().from(rateLimitRules).where((0, import_drizzle_orm70.eq)(rateLimitRules.id, ruleId));
+      if (!existing) return res.status(404).json({ success: false, error: "Rule not found" });
+      const [updated] = await db.update(rateLimitRules).set({ isEnabled: isEnabled2 }).where((0, import_drizzle_orm70.eq)(rateLimitRules.id, ruleId)).returning();
+      await AuditHelpers.logSettingsChange(req.user.id, "rate_limit_rule_enabled", existing.isEnabled, isEnabled2);
+      res.json({ success: true, rule: updated });
+    } catch (error2) {
+      logger.error("RateLimitAdmin", "Failed to toggle rule", error2);
+      res.status(500).json({ success: false, error: "Failed to toggle rate-limit rule" });
+    }
+  });
+}
+var import_drizzle_orm70;
+var init_routes13 = __esm({
+  "server/modules/rate-limits/routes.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    import_drizzle_orm70 = require("drizzle-orm");
+    init_role_middleware();
+    init_audit();
+    init_schema();
+    init_observability();
   }
 });
 
@@ -369213,7 +369728,7 @@ function registerEnterpriseHubRoutes(app2) {
   app2.get("/api/enterprise-hub/audit-logs", ...guard, getAuditLogs2);
 }
 var guard;
-var init_routes13 = __esm({
+var init_routes14 = __esm({
   "server/modules/enterprise-hub/routes.ts"() {
     "use strict";
     init_role_middleware();
@@ -369922,7 +370437,7 @@ function registerEnterpriseAIOverlayRoutes(app2) {
     }
   );
 }
-var init_routes14 = __esm({
+var init_routes15 = __esm({
   "server/enterprise/routes.ts"() {
     "use strict";
     init_role_middleware();
@@ -369948,7 +370463,7 @@ function actorId2(req) {
   return req.user.id;
 }
 async function listDepartments(req, res) {
-  const rows = await db.select().from(departments).where((0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(departments.name));
+  const rows = await db.select().from(departments).where((0, import_drizzle_orm71.eq)(departments.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(departments.name));
   res.json(rows);
 }
 async function createDepartment(req, res) {
@@ -369960,20 +370475,20 @@ async function createDepartment(req, res) {
 }
 async function updateDepartment(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(departments.id, id), (0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(departments.id, id), (0, import_drizzle_orm71.eq)(departments.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(departments).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(departments.id, id)).returning();
+  const [row] = await db.update(departments).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(departments.id, id)).returning();
   res.json(row);
 }
 async function deleteDepartment(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(departments.id, id), (0, import_drizzle_orm69.eq)(departments.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(departments).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(departments.id, id), (0, import_drizzle_orm71.eq)(departments.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(departments).where((0, import_drizzle_orm69.eq)(departments.id, id));
+  await db.delete(departments).where((0, import_drizzle_orm71.eq)(departments.id, id));
   res.json({ success: true });
 }
 async function listBranches(req, res) {
-  const rows = await db.select().from(branches).where((0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(branches.name));
+  const rows = await db.select().from(branches).where((0, import_drizzle_orm71.eq)(branches.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(branches.name));
   res.json(rows);
 }
 async function createBranch(req, res) {
@@ -369985,20 +370500,20 @@ async function createBranch(req, res) {
 }
 async function updateBranch(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(branches.id, id), (0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(branches.id, id), (0, import_drizzle_orm71.eq)(branches.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(branches).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(branches.id, id)).returning();
+  const [row] = await db.update(branches).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(branches.id, id)).returning();
   res.json(row);
 }
 async function deleteBranch(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(branches.id, id), (0, import_drizzle_orm69.eq)(branches.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(branches).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(branches.id, id), (0, import_drizzle_orm71.eq)(branches.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(branches).where((0, import_drizzle_orm69.eq)(branches.id, id));
+  await db.delete(branches).where((0, import_drizzle_orm71.eq)(branches.id, id));
   res.json({ success: true });
 }
 async function listTeams(req, res) {
-  const rows = await db.select().from(teams).where((0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(teams.name));
+  const rows = await db.select().from(teams).where((0, import_drizzle_orm71.eq)(teams.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(teams.name));
   res.json(rows);
 }
 async function createTeam(req, res) {
@@ -370010,16 +370525,16 @@ async function createTeam(req, res) {
 }
 async function updateTeam(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teams.id, id), (0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(teams.id, id), (0, import_drizzle_orm71.eq)(teams.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(teams).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(teams.id, id)).returning();
+  const [row] = await db.update(teams).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(teams.id, id)).returning();
   res.json(row);
 }
 async function deleteTeam(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teams.id, id), (0, import_drizzle_orm69.eq)(teams.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(teams).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(teams.id, id), (0, import_drizzle_orm71.eq)(teams.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(teams).where((0, import_drizzle_orm69.eq)(teams.id, id));
+  await db.delete(teams).where((0, import_drizzle_orm71.eq)(teams.id, id));
   res.json({ success: true });
 }
 async function listTeamMembers(req, res) {
@@ -370032,7 +370547,7 @@ async function listTeamMembers(req, res) {
     joinedAt: teamMembers.joinedAt,
     userName: users.username,
     userEmail: users.email
-  }).from(teamMembers).innerJoin(users, (0, import_drizzle_orm69.eq)(teamMembers.userId, users.id)).where((0, import_drizzle_orm69.eq)(teamMembers.teamId, teamId));
+  }).from(teamMembers).innerJoin(users, (0, import_drizzle_orm71.eq)(teamMembers.userId, users.id)).where((0, import_drizzle_orm71.eq)(teamMembers.teamId, teamId));
   res.json(rows);
 }
 async function addTeamMember(req, res) {
@@ -370045,11 +370560,11 @@ async function addTeamMember(req, res) {
 async function removeTeamMember(req, res) {
   const teamId = parseInt(req.params.teamId);
   const userId = parseInt(req.params.userId);
-  await db.delete(teamMembers).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(teamMembers.teamId, teamId), (0, import_drizzle_orm69.eq)(teamMembers.userId, userId)));
+  await db.delete(teamMembers).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(teamMembers.teamId, teamId), (0, import_drizzle_orm71.eq)(teamMembers.userId, userId)));
   res.json({ success: true });
 }
 async function listBusinessHours(req, res) {
-  const rows = await db.select().from(businessHours).where((0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(businessHours.name));
+  const rows = await db.select().from(businessHours).where((0, import_drizzle_orm71.eq)(businessHours.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(businessHours.name));
   res.json(rows);
 }
 async function createBusinessHours(req, res) {
@@ -370060,20 +370575,20 @@ async function createBusinessHours(req, res) {
 }
 async function updateBusinessHours(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(businessHours.id, id), (0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(businessHours.id, id), (0, import_drizzle_orm71.eq)(businessHours.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(businessHours.id, id)).returning();
+  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(businessHours.id, id)).returning();
   res.json(row);
 }
 async function deleteBusinessHours(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(businessHours.id, id), (0, import_drizzle_orm69.eq)(businessHours.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(businessHours).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(businessHours.id, id), (0, import_drizzle_orm71.eq)(businessHours.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(businessHours).where((0, import_drizzle_orm69.eq)(businessHours.id, id));
+  await db.delete(businessHours).where((0, import_drizzle_orm71.eq)(businessHours.id, id));
   res.json({ success: true });
 }
 async function listHolidays(req, res) {
-  const rows = await db.select().from(holidayCalendar).where((0, import_drizzle_orm69.eq)(holidayCalendar.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(holidayCalendar.date));
+  const rows = await db.select().from(holidayCalendar).where((0, import_drizzle_orm71.eq)(holidayCalendar.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(holidayCalendar.date));
   res.json(rows);
 }
 async function createHoliday(req, res) {
@@ -370084,13 +370599,13 @@ async function createHoliday(req, res) {
 }
 async function deleteHoliday(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(holidayCalendar).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(holidayCalendar.id, id), (0, import_drizzle_orm69.eq)(holidayCalendar.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(holidayCalendar).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(holidayCalendar.id, id), (0, import_drizzle_orm71.eq)(holidayCalendar.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(holidayCalendar).where((0, import_drizzle_orm69.eq)(holidayCalendar.id, id));
+  await db.delete(holidayCalendar).where((0, import_drizzle_orm71.eq)(holidayCalendar.id, id));
   res.json({ success: true });
 }
 async function listIvrMenus(req, res) {
-  const rows = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(ivrMenus.name));
+  const rows = await db.select().from(ivrMenus).where((0, import_drizzle_orm71.eq)(ivrMenus.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(ivrMenus.name));
   res.json(rows);
 }
 async function createIvrMenu(req, res) {
@@ -370101,21 +370616,21 @@ async function createIvrMenu(req, res) {
 }
 async function updateIvrMenu(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(ivrMenus.id, id), (0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(ivrMenus.id, id), (0, import_drizzle_orm71.eq)(ivrMenus.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(ivrMenus.id, id)).returning();
+  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(ivrMenus.id, id)).returning();
   res.json(row);
 }
 async function deleteIvrMenu(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(ivrMenus.id, id), (0, import_drizzle_orm69.eq)(ivrMenus.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(ivrMenus).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(ivrMenus.id, id), (0, import_drizzle_orm71.eq)(ivrMenus.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(ivrMenus).where((0, import_drizzle_orm69.eq)(ivrMenus.id, id));
+  await db.delete(ivrMenus).where((0, import_drizzle_orm71.eq)(ivrMenus.id, id));
   res.json({ success: true });
 }
 async function listIvrOptions(req, res) {
   const menuId = parseInt(req.params.menuId);
-  const rows = await db.select().from(ivrOptions).where((0, import_drizzle_orm69.eq)(ivrOptions.menuId, menuId)).orderBy((0, import_drizzle_orm69.asc)(ivrOptions.displayOrder));
+  const rows = await db.select().from(ivrOptions).where((0, import_drizzle_orm71.eq)(ivrOptions.menuId, menuId)).orderBy((0, import_drizzle_orm71.asc)(ivrOptions.displayOrder));
   res.json(rows);
 }
 async function createIvrOption(req, res) {
@@ -370127,11 +370642,11 @@ async function createIvrOption(req, res) {
 }
 async function deleteIvrOption(req, res) {
   const id = parseInt(req.params.optionId);
-  await db.delete(ivrOptions).where((0, import_drizzle_orm69.eq)(ivrOptions.id, id));
+  await db.delete(ivrOptions).where((0, import_drizzle_orm71.eq)(ivrOptions.id, id));
   res.json({ success: true });
 }
 async function listCallQueues(req, res) {
-  const rows = await db.select().from(callQueues).where((0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(callQueues.name));
+  const rows = await db.select().from(callQueues).where((0, import_drizzle_orm71.eq)(callQueues.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(callQueues.name));
   res.json(rows);
 }
 async function createCallQueue(req, res) {
@@ -370142,16 +370657,16 @@ async function createCallQueue(req, res) {
 }
 async function updateCallQueue(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(callQueues.id, id), (0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(callQueues.id, id), (0, import_drizzle_orm71.eq)(callQueues.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(callQueues.id, id)).returning();
+  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(callQueues.id, id)).returning();
   res.json(row);
 }
 async function deleteCallQueue(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(callQueues.id, id), (0, import_drizzle_orm69.eq)(callQueues.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(callQueues).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(callQueues.id, id), (0, import_drizzle_orm71.eq)(callQueues.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(callQueues).where((0, import_drizzle_orm69.eq)(callQueues.id, id));
+  await db.delete(callQueues).where((0, import_drizzle_orm71.eq)(callQueues.id, id));
   res.json({ success: true });
 }
 async function getOrgPresence(req, res) {
@@ -370168,7 +370683,7 @@ async function getOrgPresence(req, res) {
     userName: users.username,
     userEmail: users.email,
     avatarUrl: users.avatarUrl
-  }).from(agentPresence).innerJoin(users, (0, import_drizzle_orm69.eq)(agentPresence.userId, users.id)).where((0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)));
+  }).from(agentPresence).innerJoin(users, (0, import_drizzle_orm71.eq)(agentPresence.userId, users.id)).where((0, import_drizzle_orm71.eq)(agentPresence.organizationId, orgId3(req)));
   res.json(rows);
 }
 async function updateMyPresence(req, res) {
@@ -370190,11 +370705,11 @@ async function updateMyPresence(req, res) {
   res.json(row);
 }
 async function heartbeat(req, res) {
-  await db.update(agentPresence).set({ lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(agentPresence.userId, actorId2(req)));
+  await db.update(agentPresence).set({ lastHeartbeatAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(agentPresence.userId, actorId2(req)));
   res.json({ ok: true });
 }
 async function listPbxIntegrations(req, res) {
-  const rows = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(pbxIntegrations.name));
+  const rows = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm71.eq)(pbxIntegrations.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(pbxIntegrations.name));
   res.json(rows.map((r5) => ({ ...r5, password: r5.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: r5.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null })));
 }
 async function createPbxIntegration(req, res) {
@@ -370206,26 +370721,26 @@ async function createPbxIntegration(req, res) {
 }
 async function updatePbxIntegration(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm71.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
   const update = { ...req.body, updatedAt: /* @__PURE__ */ new Date() };
   if (update.password === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.password;
   if (update.apiKey === "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022") delete update.apiKey;
-  const [row] = await db.update(pbxIntegrations).set(update).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id)).returning();
+  const [row] = await db.update(pbxIntegrations).set(update).where((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id)).returning();
   res.json({ ...row, password: row.password ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null, apiKey: row.apiKey ? "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" : null });
 }
 async function deletePbxIntegration(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm71.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(pbxIntegrations).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
+  await db.delete(pbxIntegrations).where((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id));
   res.json({ success: true });
 }
 async function testPbxConnection(req, res) {
   const id = parseInt(req.params.id);
-  const [pbx] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm69.eq)(pbxIntegrations.organizationId, orgId3(req))));
+  const [pbx] = await db.select().from(pbxIntegrations).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id), (0, import_drizzle_orm71.eq)(pbxIntegrations.organizationId, orgId3(req))));
   if (!pbx) return res.status(404).json({ error: "Not found" });
-  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id));
   const net2 = await import("net");
   const socket = new net2.Socket();
   const host = pbx.host;
@@ -370247,11 +370762,11 @@ async function testPbxConnection(req, res) {
     });
   });
   const status = result.success ? "connected" : "disconnected";
-  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(pbxIntegrations.id, id));
   res.json(result);
 }
 async function listCostCenters(req, res) {
-  const rows = await db.select().from(costCenters).where((0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.asc)(costCenters.name));
+  const rows = await db.select().from(costCenters).where((0, import_drizzle_orm71.eq)(costCenters.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.asc)(costCenters.name));
   res.json(rows);
 }
 async function createCostCenter(req, res) {
@@ -370262,16 +370777,16 @@ async function createCostCenter(req, res) {
 }
 async function updateCostCenter(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(costCenters.id, id), (0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(costCenters.id, id), (0, import_drizzle_orm71.eq)(costCenters.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(costCenters.id, id)).returning();
+  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(costCenters.id, id)).returning();
   res.json(row);
 }
 async function deleteCostCenter(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(costCenters.id, id), (0, import_drizzle_orm69.eq)(costCenters.organizationId, orgId3(req))));
+  const [existing] = await db.select().from(costCenters).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(costCenters.id, id), (0, import_drizzle_orm71.eq)(costCenters.organizationId, orgId3(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(costCenters).where((0, import_drizzle_orm69.eq)(costCenters.id, id));
+  await db.delete(costCenters).where((0, import_drizzle_orm71.eq)(costCenters.id, id));
   res.json({ success: true });
 }
 function requireSupervisorOrAdmin(req, res, next) {
@@ -370287,16 +370802,16 @@ async function getActiveCalls2(req, res) {
     callId: agentPresence.currentCallId,
     status: agentPresence.status,
     lastHeartbeatAt: agentPresence.lastHeartbeatAt
-  }).from(agentPresence).leftJoin(users, (0, import_drizzle_orm69.eq)(agentPresence.userId, users.id)).where(
-    (0, import_drizzle_orm69.and)(
-      (0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)),
-      (0, import_drizzle_orm69.isNotNull)(agentPresence.currentCallId)
+  }).from(agentPresence).leftJoin(users, (0, import_drizzle_orm71.eq)(agentPresence.userId, users.id)).where(
+    (0, import_drizzle_orm71.and)(
+      (0, import_drizzle_orm71.eq)(agentPresence.organizationId, orgId3(req)),
+      (0, import_drizzle_orm71.isNotNull)(agentPresence.currentCallId)
     )
   );
   res.json(rows);
 }
 async function listSupervisorSessions(req, res) {
-  const rows = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.eq)(supervisorSessions.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm69.desc)(supervisorSessions.startedAt)).limit(100);
+  const rows = await db.select().from(supervisorSessions).where((0, import_drizzle_orm71.eq)(supervisorSessions.organizationId, orgId3(req))).orderBy((0, import_drizzle_orm71.desc)(supervisorSessions.startedAt)).limit(100);
   res.json(rows);
 }
 async function startSupervisorSession(req, res) {
@@ -370305,10 +370820,10 @@ async function startSupervisorSession(req, res) {
     return res.status(400).json({ error: "callId, agentId, and mode (listen|whisper|barge) are required" });
   }
   const [agent] = await db.select().from(agentPresence).where(
-    (0, import_drizzle_orm69.and)(
-      (0, import_drizzle_orm69.eq)(agentPresence.organizationId, orgId3(req)),
-      (0, import_drizzle_orm69.eq)(agentPresence.userId, parseInt(agentId)),
-      (0, import_drizzle_orm69.eq)(agentPresence.currentCallId, callId)
+    (0, import_drizzle_orm71.and)(
+      (0, import_drizzle_orm71.eq)(agentPresence.organizationId, orgId3(req)),
+      (0, import_drizzle_orm71.eq)(agentPresence.userId, parseInt(agentId)),
+      (0, import_drizzle_orm71.eq)(agentPresence.currentCallId, callId)
     )
   );
   if (!agent) {
@@ -370351,17 +370866,17 @@ async function changeSupervisorMode(req, res) {
   if (!["listen", "whisper", "barge"].includes(mode)) {
     return res.status(400).json({ error: "mode must be listen|whisper|barge" });
   }
-  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(supervisorSessions.id, id), (0, import_drizzle_orm69.eq)(supervisorSessions.supervisorId, actorId2(req))));
+  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(supervisorSessions.id, id), (0, import_drizzle_orm71.eq)(supervisorSessions.supervisorId, actorId2(req))));
   if (!existing) return res.status(404).json({ error: "Session not found" });
   if (existing.endedAt) return res.status(409).json({ error: "Session already ended" });
-  const [updated] = await db.update(supervisorSessions).set({ mode }).where((0, import_drizzle_orm69.eq)(supervisorSessions.id, id)).returning();
+  const [updated] = await db.update(supervisorSessions).set({ mode }).where((0, import_drizzle_orm71.eq)(supervisorSessions.id, id)).returning();
   res.json(updated);
 }
 async function endSupervisorSession(req, res) {
   const id = parseInt(req.params.id);
-  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm69.and)((0, import_drizzle_orm69.eq)(supervisorSessions.id, id), (0, import_drizzle_orm69.eq)(supervisorSessions.supervisorId, actorId2(req))));
+  const [existing] = await db.select().from(supervisorSessions).where((0, import_drizzle_orm71.and)((0, import_drizzle_orm71.eq)(supervisorSessions.id, id), (0, import_drizzle_orm71.eq)(supervisorSessions.supervisorId, actorId2(req))));
   if (!existing) return res.status(404).json({ error: "Session not found" });
-  const [ended] = await db.update(supervisorSessions).set({ endedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm69.eq)(supervisorSessions.id, id)).returning();
+  const [ended] = await db.update(supervisorSessions).set({ endedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm71.eq)(supervisorSessions.id, id)).returning();
   res.json(ended);
 }
 function registerEnterpriseAdminRoutes(app2) {
@@ -370416,11 +370931,11 @@ function registerEnterpriseAdminRoutes(app2) {
   app2.patch("/api/enterprise/supervisor/sessions/:id/mode", ...supervisorGuard, changeSupervisorMode);
   app2.delete("/api/enterprise/supervisor/sessions/:id", ...supervisorGuard, endSupervisorSession);
 }
-var import_drizzle_orm69, guard2, supervisorGuard;
-var init_routes15 = __esm({
+var import_drizzle_orm71, guard2, supervisorGuard;
+var init_routes16 = __esm({
   "server/modules/enterprise-admin/routes.ts"() {
     "use strict";
-    import_drizzle_orm69 = require("drizzle-orm");
+    import_drizzle_orm71 = require("drizzle-orm");
     init_db();
     init_role_middleware();
     init_schema();
@@ -370449,10 +370964,10 @@ async function resolveAppLinkedContact(identifier) {
     email: users.email,
     phone: users.phone,
     preferredLanguage: users.preferredRegion
-  }).from(users).where((0, import_drizzle_orm70.or)(
-    (0, import_drizzle_orm70.eq)(users.username, trimmed),
-    (0, import_drizzle_orm70.eq)(users.email, trimmed),
-    (0, import_drizzle_orm70.eq)(users.phone, normalizedPhone)
+  }).from(users).where((0, import_drizzle_orm72.or)(
+    (0, import_drizzle_orm72.eq)(users.username, trimmed),
+    (0, import_drizzle_orm72.eq)(users.email, trimmed),
+    (0, import_drizzle_orm72.eq)(users.phone, normalizedPhone)
   ));
   if (!matchedUser) return null;
   return {
@@ -370484,7 +370999,7 @@ function registerContactRoutes(app2) {
         username: users.username,
         avatarUrl: users.avatarUrl,
         phone: users.phone
-      }).from(users).where((0, import_drizzle_orm70.inArray)(users.phone, normalized));
+      }).from(users).where((0, import_drizzle_orm72.inArray)(users.phone, normalized));
       res.json({
         matches: matched.filter((u) => u.id !== userId).map((u) => ({ id: u.id, username: u.username, avatarUrl: u.avatarUrl, phone: u.phone }))
       });
@@ -370497,7 +371012,7 @@ function registerContactRoutes(app2) {
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
-      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm70.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm70.desc)(userContacts.isFavorite), (0, import_drizzle_orm70.desc)(userContacts.lastCalledAt));
+      const contacts = await db.select().from(userContacts).where((0, import_drizzle_orm72.eq)(userContacts.userId, userId)).orderBy((0, import_drizzle_orm72.desc)(userContacts.isFavorite), (0, import_drizzle_orm72.desc)(userContacts.lastCalledAt));
       const hydratedContacts = await Promise.all(
         contacts.map(async (contact) => ({
           ...contact,
@@ -370549,7 +371064,7 @@ function registerContactRoutes(app2) {
       if (isFavorite !== void 0) updates.isFavorite = Boolean(isFavorite);
       if (notes !== void 0) updates.notes = notes ? String(notes).slice(0, 500) : null;
       if (avatarUrl !== void 0) updates.avatarUrl = avatarUrl;
-      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set(updates).where((0, import_drizzle_orm72.and)((0, import_drizzle_orm72.eq)(userContacts.id, contactId), (0, import_drizzle_orm72.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -370567,7 +371082,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
+      const [deleted] = await db.delete(userContacts).where((0, import_drizzle_orm72.and)((0, import_drizzle_orm72.eq)(userContacts.id, contactId), (0, import_drizzle_orm72.eq)(userContacts.userId, userId))).returning();
       if (!deleted) return res.status(404).json({ error: "Contact not found" });
       res.json({ message: "Contact deleted" });
     } catch (error2) {
@@ -370580,9 +371095,9 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId)));
+      const [existing] = await db.select().from(userContacts).where((0, import_drizzle_orm72.and)((0, import_drizzle_orm72.eq)(userContacts.id, contactId), (0, import_drizzle_orm72.eq)(userContacts.userId, userId)));
       if (!existing) return res.status(404).json({ error: "Contact not found" });
-      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm70.eq)(userContacts.id, contactId)).returning();
+      const [updated] = await db.update(userContacts).set({ isFavorite: !existing.isFavorite, updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm72.eq)(userContacts.id, contactId)).returning();
       res.json({
         contact: {
           ...updated,
@@ -370599,7 +371114,7 @@ function registerContactRoutes(app2) {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
       const contactId = parseInt(req.params.id);
-      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm70.and)((0, import_drizzle_orm70.eq)(userContacts.id, contactId), (0, import_drizzle_orm70.eq)(userContacts.userId, userId))).returning();
+      const [updated] = await db.update(userContacts).set({ lastCalledAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where((0, import_drizzle_orm72.and)((0, import_drizzle_orm72.eq)(userContacts.id, contactId), (0, import_drizzle_orm72.eq)(userContacts.userId, userId))).returning();
       if (!updated) return res.status(404).json({ error: "Contact not found" });
       res.json({
         contact: {
@@ -370614,13 +371129,13 @@ function registerContactRoutes(app2) {
   });
   console.log("[Routes] \u2714 Contact routes");
 }
-var import_drizzle_orm70;
+var import_drizzle_orm72;
 var init_contact_routes = __esm({
   "server/contact-routes.ts"() {
     "use strict";
     init_db();
     init_schema();
-    import_drizzle_orm70 = require("drizzle-orm");
+    import_drizzle_orm72 = require("drizzle-orm");
     init_phone();
   }
 });
@@ -370716,6 +371231,8 @@ async function registerRoutes(httpServer2, app2) {
   console.log("[Routes] \u2713 B2B admin routes (virtual numbers, DID, agent skills)");
   registerWebhookRoutes(app2);
   console.log("[Routes] \u2713 Outbound webhook routes (org event subscriptions)");
+  registerRateLimitAdminRoutes(app2);
+  console.log("[Routes] \u2713 Rate-limit rule admin routes");
   registerEnterpriseHubRoutes(app2);
   console.log("[Routes] \u2713 Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app2);
@@ -371085,7 +371602,7 @@ Your personality:
   return httpServer2;
 }
 var import_openai12;
-var init_routes16 = __esm({
+var init_routes17 = __esm({
   "server/routes.ts"() {
     "use strict";
     init_storage();
@@ -371150,6 +371667,7 @@ var init_routes16 = __esm({
     init_routes13();
     init_routes14();
     init_routes15();
+    init_routes16();
     init_role_middleware();
     init_tenant_context();
     init_rate_limit();
@@ -372174,7 +372692,7 @@ ${headers}\r
   } catch (error2) {
     logger.error("Server", "Failed to attach WebSocket servers", error2 instanceof Error ? error2 : new Error(String(error2)));
   }
-  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes16(), routes_exports)), {
+  const routesModule = await runStartupPhase("routes module import", async () => Promise.resolve().then(() => (init_routes17(), routes_exports)), {
     timeoutMs: 2e4,
     skip: isStartupSubsystemDisabled("routes")
   });
