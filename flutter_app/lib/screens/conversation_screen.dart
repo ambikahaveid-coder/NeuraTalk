@@ -761,12 +761,23 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           ],
         ),
         actions: [
+          // Real UX gap found from physical-device testing: tapping either
+          // call button only disabled it (a barely-visible opacity change)
+          // while the ~1-4s call-creation round trip ran -- nothing told the
+          // user their tap had actually registered, so a slow network made
+          // it look like the button simply didn't work. A real spinner in
+          // place of the icon is immediate, unambiguous feedback that
+          // doesn't require the server response to appear.
           IconButton(
-            icon: const Icon(Icons.call_outlined),
+            icon: _calling
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : const Icon(Icons.call_outlined),
             onPressed: _calling ? null : () => _startCall(video: false),
           ),
           IconButton(
-            icon: const Icon(Icons.videocam_outlined),
+            icon: _calling
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : const Icon(Icons.videocam_outlined),
             onPressed: _calling ? null : () => _startCall(video: true),
           ),
           PopupMenuButton<String>(

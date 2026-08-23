@@ -86,11 +86,17 @@ let watchdogStarted = false;
 export const smartCallEvents = new EventEmitter();
 smartCallEvents.setMaxListeners(64);
 
-function elapsedMs(startNs: bigint): number {
+export function elapsedMs(startNs: bigint): number {
   return Number((Number(process.hrtime.bigint() - startNs) / 1_000_000).toFixed(3));
 }
 
-function logSetupLatency(callId: string, joinMethod: JoinMethod, stage: string, latencyMs: number): void {
+export function logSetupLatency(
+  callId: string,
+  joinMethod: JoinMethod | "pending",
+  stage: string,
+  latencyMs: number,
+  opts: { success?: boolean; provider?: string } = {},
+): void {
   try {
     console.log(JSON.stringify({
       type: "call_setup_latency",
@@ -98,6 +104,8 @@ function logSetupLatency(callId: string, joinMethod: JoinMethod, stage: string, 
       joinMethod,
       stage,
       latencyMs,
+      success: opts.success ?? true,
+      provider: opts.provider ?? null,
       ts: Date.now(),
     }));
   } catch {
@@ -1035,7 +1043,7 @@ async function spawnTranslatorBot(callId: string, botToken: string): Promise<voi
     logger.info("SmartCallRouter", `[translator-diag] TranslatorBot ACTIVE (retry)`, { callId, elapsedMs: elapsed() });
     smartCallEvents.emit("translation_started", { callId });
   } catch (error) {
-    logger.error("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (retry) -- giving up`, {
+    logger.error("SmartCallRouter", `[translator-diag] TranslatorBot START FAILED (retry) -- giving up`, undefined, {
       callId,
       elapsedMs: elapsed(),
       error: String(error),
@@ -1063,6 +1071,11 @@ async function markTranslationUnavailable(callId: string, reason: string): Promi
 }
 
 export async function initiateCall(req: CallInitiateRequest): Promise<CallInitiateResponse> {
+  // T0 -- entry to call-creation logic. Does not include the auth/
+  // subscription-check middleware chain in front of the HTTP route
+  // (loadUser/requireAuth/requireCallAccess/requireActiveSubscription/
+  // warnLowBalance) -- instrumenting that is a separate, unapproved change.
+  const requestReceivedNs = process.hrtime.bigint();
   const callId = req.sessionIdOverride?.trim() || `call_${randomUUID()}`;
   const callerLanguage = (req.callerLanguage || "auto").trim().toLowerCase() || "auto";
   const activeCallKey = `user:active_call:${req.callerId}`;
@@ -1073,13 +1086,15 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   // (double-tap, client retry) could both pass the "already in a call" check
   // and both end up as fully created, fully billed calls. Acquiring the lock
   // up front closes that window; it's released on any failure below.
+  const lockStartNs = process.hrtime.bigint();
   const acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+  logSetupLatency(callId, "pending", "redis_lock_acquire", elapsedMs(lockStartNs));
   if (!acquiredLock) {
     throw new Error("CONCURRENT_CALL_RESTRICTED");
   }
 
   try {
-    return await initiateCallLocked(req, callId, callerLanguage);
+    return await initiateCallLocked(req, callId, callerLanguage, requestReceivedNs);
   } catch (error) {
     await redisClient().del(activeCallKey).catch(() => undefined);
     throw error;
@@ -1090,14 +1105,17 @@ async function initiateCallLocked(
   req: CallInitiateRequest,
   callId: string,
   callerLanguage: string,
+  requestReceivedNs?: bigint,
 ): Promise<CallInitiateResponse> {
   const callerUserId = Number.isFinite(Number(req.callerId)) ? Number(req.callerId) : null;
 
   // Parallelize: callee resolution + caller user lookup are independent DB reads
+  const resolveStartNs = process.hrtime.bigint();
   const [callee, callerUser] = await Promise.all([
     resolveCallee(req.calleeIdentifier),
     callerUserId ? storage.getUser(callerUserId) : Promise.resolve(undefined),
   ]);
+  logSetupLatency(callId, "pending", "resolve_caller_callee", elapsedMs(resolveStartNs));
 
   const calleeUserId = callee.userId && Number.isFinite(Number(callee.userId)) ? Number(callee.userId) : null;
   // Fetch callee user in background — only needed for org routing, non-blocking
@@ -1173,6 +1191,7 @@ async function initiateCallLocked(
     };
   }
 
+  const billingAuthStartNs = process.hrtime.bigint();
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: callerUserId,
@@ -1184,6 +1203,7 @@ async function initiateCallLocked(
     activateOnAnswer: true,
     pricingOverride: billingOverride,
   });
+  logSetupLatency(callId, requestedJoinMethod, "billing_authorization", elapsedMs(billingAuthStartNs), { success: auth.allowed });
   if (!auth.allowed) {
     throw new Error(auth.reason || "PAYMENT_REQUIRED");
   }
@@ -1231,7 +1251,12 @@ async function initiateCallLocked(
 
   await redisClient().set(`call_metadata:${callId}:caller`, req.callerId, "EX", 7200);
 
-  await storeSmartCall({
+  // Captured directly rather than re-read from Redis after the write below --
+  // storeSmartCall() persists this exact object verbatim (JSON.stringify(record),
+  // see storeSmartCall()'s implementation), so a getSmartCall(callId) read-back
+  // immediately afterward returned byte-for-byte the same data at the cost of
+  // an extra unmeasured Redis round trip on every single call creation.
+  const smartCallRecord: SmartCallRecord = {
     callId,
     joinMethod: requestedJoinMethod,
     status: SMART_CALL_STATE.CREATED,
@@ -1262,29 +1287,49 @@ async function initiateCallLocked(
       requestedCallType: req.callType,
       pstnVideoDowngraded: requestedJoinMethod === "app_to_pstn" && req.callType === "video",
     },
+  };
+  const persistStartNs = process.hrtime.bigint();
+  await storeSmartCall(smartCallRecord);
+  logSetupLatency(callId, requestedJoinMethod, "smart_call_persistence", elapsedMs(persistStartNs));
+  emitStructuredCallEvent("call_created", smartCallRecord, {
+    requestedJoinMethod,
+    translationEnabled,
   });
-  const createdRecord = await getSmartCall(callId);
-  if (createdRecord) {
-    emitStructuredCallEvent("call_created", createdRecord, {
-      requestedJoinMethod,
-      translationEnabled,
-    });
-  }
 
   try {
     if (requestedJoinMethod === "app_to_app") {
+      // Fix (approved): the caller's response previously waited for this FCM
+      // delivery to Google's servers to fully complete before returning --
+      // the caller doesn't need the callee's push to be delivered before
+      // seeing their own "Calling..." UI. sendIncomingCallPush() already has
+      // its own internal try/catch with logger.warn on failure (this file,
+      // ~line 917), so firing it without awaiting doesn't lose error
+      // visibility -- it just stops blocking the caller on it.
       if (callee.hasApp && callee.userId) {
-        await sendIncomingCallPush(callee.userId, {
+        // sendIncomingCallPush() already catches and logs its own failures
+        // internally (this file, sendIncomingCallPush) and never rejects --
+        // its returned promise resolving is not itself proof of delivery
+        // success, only that the attempt (successful or not) finished. Real
+        // success/failure for this dispatch is in that function's own log
+        // line; this timing entry is purely "how long did the attempt take".
+        const pushStartNs = process.hrtime.bigint();
+        void sendIncomingCallPush(callee.userId, {
           callId,
           callerId: req.callerId,
           callType: req.callType,
           callerName: req.callerDisplayName || req.callerId,
+        }).then(() => {
+          logSetupLatency(callId, requestedJoinMethod, "fcm_dispatch", elapsedMs(pushStartNs), { provider: "fcm" });
         });
       }
 
       await updateSmartCallStatus(callId, SMART_CALL_STATE.RINGING, {
         calleeIdentifier: req.calleeIdentifier,
       });
+
+      if (requestReceivedNs) {
+        logSetupLatency(callId, requestedJoinMethod, "total_call_response", elapsedMs(requestReceivedNs));
+      }
 
       return {
         callId,

@@ -52,6 +52,7 @@ import { CALL_STATUS, PERMISSIONS, users } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { isBlocked } from "../../blocking";
 import * as svc from "./service";
+import { logSetupLatency as logConnectStageLatency, elapsedMs as connectElapsedMs } from "./smart-router";
 import { getMetricsSnapshot, getVoiceMetricsSnapshot } from "./metrics";
 import {
   isTerminalSmartCallState,
@@ -699,20 +700,38 @@ const updateStatusSchema = z.object({
 });
 
 export async function connect(req: Request, res: Response) {
+  // Measure-only instrumentation (approved P1 audit) -- /connect showed a
+  // consistent ~3s response time across every real-device call test this
+  // session. Not optimizing here, only breaking the ~3s down into its real
+  // stages so the actual bottleneck is known before anything is changed.
+  const connectReceivedNs = process.hrtime.bigint();
   try {
     const rawCallId = req.params.callId;
     if (svc.isSmartCallId(rawCallId)) {
+      const lookupStartNs = process.hrtime.bigint();
       const call = await svc.getSmartCall(rawCallId);
+      logConnectStageLatency(rawCallId, call?.joinMethod ?? "pending", "connect_call_lookup", connectElapsedMs(lookupStartNs));
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(req.user!, call)) return sendAccessDenied(res);
       let updated;
+      const transitionStartNs = process.hrtime.bigint();
       try {
         updated = await svc.updateSmartCallStatus(rawCallId, SMART_CALL_STATE.ANSWERED, {
           receiverNumber: req.body?.receiverNumber,
         });
       } catch (error: any) {
+        logConnectStageLatency(rawCallId, call.joinMethod, "connect_state_transition", connectElapsedMs(transitionStartNs), { success: false });
         return res.status(409).json({ error: error?.message ?? "Invalid call transition" });
       }
+      // updateSmartCallStatus() covers persistence (mutateSmartCall) and, for
+      // an ANSWERED transition specifically, billing activation
+      // (activateBillingForCall) as one sequential unit internally -- not
+      // split further here, since that function is shared by every other
+      // call-state transition too and splitting it apart is a real code
+      // change, not measurement, and is explicitly out of scope for this
+      // measure-only pass.
+      logConnectStageLatency(rawCallId, call.joinMethod, "connect_state_transition_and_persistence", connectElapsedMs(transitionStartNs));
+      logConnectStageLatency(rawCallId, call.joinMethod, "connect_total_response", connectElapsedMs(connectReceivedNs));
       return res.json(updated ? serializeSmartCall(updated) : { callId: rawCallId, status: SMART_CALL_STATE.ANSWERED });
     }
 

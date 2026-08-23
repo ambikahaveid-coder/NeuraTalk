@@ -28,6 +28,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<Map<String, dynamic>> _neuraTalkContacts = [];
   List<Contact> _otherContacts = [];
 
+  // Real gap found from physical-device testing: this screen's call buttons
+  // had no double-tap guard and no visual feedback at all while the ~1-4s
+  // call-creation round trip ran -- a slow network made a tap here look
+  // like it silently did nothing. Tracked per-contact (not a single bool)
+  // since this is a list of many contacts, not one dial pad.
+  int? _callingContactId;
+
   @override
   void initState() {
     super.initState();
@@ -115,6 +122,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> _call(Map<String, dynamic> match, {required bool video}) async {
+    if (_callingContactId != null) return;
+    final contactId = match['id'] as int;
+    setState(() => _callingContactId = contactId);
     final callService = context.read<CallService>();
     try {
       final session = await callService.startCall(
@@ -123,8 +133,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
       );
       if (!mounted) return;
       Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start the call.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendlyCallError(e))));
+    } finally {
+      if (mounted) setState(() => _callingContactId = null);
     }
   }
 
@@ -193,6 +205,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget _neuraTalkTile(Map<String, dynamic> match) {
     final avatarUrl = match['avatarUrl'] as String?;
     final name = match['localName']?.toString() ?? match['username']?.toString() ?? 'NeuraTalk user';
+    final isCallingThis = _callingContactId == match['id'];
+    final anyCallInFlight = _callingContactId != null;
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: AppColors.cyan.withOpacity(0.15),
@@ -202,13 +216,24 @@ class _ContactsScreenState extends State<ContactsScreen> {
       title: Text(name, style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
       subtitle: Text('@${match['username']}', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
       onTap: () => _openChat(match),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(icon: const Icon(Icons.call_outlined, color: AppColors.cyan), onPressed: () => _call(match, video: false)),
-          IconButton(icon: const Icon(Icons.videocam_outlined, color: AppColors.cyan), onPressed: () => _call(match, video: true)),
-        ],
-      ),
+      trailing: isCallingThis
+          ? const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
+              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)),
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.call_outlined, color: AppColors.cyan),
+                  onPressed: anyCallInFlight ? null : () => _call(match, video: false),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.videocam_outlined, color: AppColors.cyan),
+                  onPressed: anyCallInFlight ? null : () => _call(match, video: true),
+                ),
+              ],
+            ),
     );
   }
 
