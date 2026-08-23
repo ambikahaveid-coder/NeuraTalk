@@ -60,6 +60,7 @@ import { registerCallerIdRoutes } from "./modules/caller-id/routes";
 import { registerTranscriptRoutes } from "./modules/transcripts/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { registerWebhookRoutes } from "./modules/webhooks/routes";
+import { registerRateLimitAdminRoutes } from "./modules/rate-limits/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
 import { registerEnterpriseAdminRoutes } from "./modules/enterprise-admin/routes";
@@ -164,6 +165,7 @@ export async function registerRoutes(
   registerTranscriptRoutes(app); console.log("[Routes] ✓ Transcript system routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");
   registerWebhookRoutes(app); console.log("[Routes] ✓ Outbound webhook routes (org event subscriptions)");
+  registerRateLimitAdminRoutes(app); console.log("[Routes] ✓ Rate-limit rule admin routes");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
   registerEnterpriseAdminRoutes(app); console.log("[Routes] ✓ Enterprise Admin routes (departments/branches/teams/IVR/queues/PBX/presence)");

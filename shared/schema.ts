@@ -58,7 +58,22 @@ export const organizations = pgTable("organizations", {
   approvedAt: timestamp("approved_at"),
   approvedBy: integer("approved_by"), // Super Admin user ID
   rejectedAt: timestamp("rejected_at"),
+  rejectedBy: integer("rejected_by"), // Super Admin user ID
   rejectionReason: text("rejection_reason"),
+  // Lifecycle governance (P1 foundation hardening, 2026-08-23): suspend/reactivate/deactivate.
+  // status remains free-text for backward compatibility with existing `=== "approved"` gates
+  // across the codebase (auth, billing, API-key middleware) -- "approved" continues to mean
+  // operationally ACTIVE. "suspended" and "deactivated" are the two non-operational values
+  // these new columns support. See server/modules/b2b-admin/org-lifecycle.ts for the
+  // canonical 7-state model and legal transition table built on top of this storage.
+  suspendedAt: timestamp("suspended_at"),
+  suspendedBy: integer("suspended_by"),
+  suspensionReason: text("suspension_reason"),
+  reactivatedAt: timestamp("reactivated_at"),
+  reactivatedBy: integer("reactivated_by"),
+  deactivatedAt: timestamp("deactivated_at"),
+  deactivatedBy: integer("deactivated_by"),
+  deactivationReason: text("deactivation_reason"),
   // Language configuration
   primaryLanguage: text("primary_language").default("en"),
   supportedLanguages: jsonb("supported_languages").default(["en"]),
@@ -999,6 +1014,9 @@ export const AUDIT_ACTION = {
   APPROVE: "approve",
   REJECT: "reject",
   SUSPEND: "suspend",
+  REACTIVATE: "reactivate",
+  DEACTIVATE: "deactivate",
+  CONSENT_ACTION: "consent_action",
   LOGIN: "login",
   LOGOUT: "logout",
   SETTINGS_CHANGE: "settings_change",

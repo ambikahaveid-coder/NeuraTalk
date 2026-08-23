@@ -486,4 +486,56 @@ export function registerEnterpriseApiRoutes(app: Express): void {
       res.status(500).json({ success: false, error: "Failed to revoke API key" });
     }
   });
+
+  /**
+   * Rotate an API key's secret in place (P1 foundation hardening, 2026-08-23).
+   * Preserves the row id, organization link, permissions, and quotas -- only
+   * the hash/prefix change. This means integrations keep their same key ID for
+   * reference/audit purposes; only the secret value itself needs to be swapped
+   * by the client, avoiding a delete+recreate that would orphan configuration.
+   * The old key stops authenticating immediately (hash is overwritten) -- there
+   * is no overlap/grace window in this pass.
+   */
+  app.post("/api/admin/api-keys/:id/rotate", loadUser, requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      const keyId = parseInt(req.params.id);
+
+      const existing = await db.query.enterpriseApiKeys.findFirst({
+        where: eq(enterpriseApiKeys.id, keyId),
+      });
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "API key not found" });
+      }
+      if (existing.status === "revoked") {
+        return res.status(409).json({ success: false, error: "Cannot rotate a revoked API key" });
+      }
+
+      const rawKey = "ntk_ent_" + crypto.randomBytes(20).toString("hex");
+      const keyHash = crypto.createHash("sha256").update(rawKey).digest("hex");
+      const keyPrefix = rawKey.substring(0, 16);
+
+      const [updated] = await db.update(enterpriseApiKeys)
+        .set({ keyHash, keyPrefix })
+        .where(eq(enterpriseApiKeys.id, keyId))
+        .returning();
+
+      await logAuditEvent({
+        action: "api_key_rotated",
+        userId: req.user?.id,
+        organizationId: existing.organizationId,
+        details: { keyId: updated.id, keyName: updated.name, previousPrefix: existing.keyPrefix, newPrefix: keyPrefix },
+      });
+
+      res.json({
+        success: true,
+        key: rawKey,
+        keyId: updated.id,
+        keyPrefix,
+        message: "API key rotated. Save the new key now - it will not be shown again. The previous key stopped working immediately.",
+      });
+    } catch (error) {
+      console.error("Failed to rotate API key:", error);
+      res.status(500).json({ success: false, error: "Failed to rotate API key" });
+    }
+  });
 }

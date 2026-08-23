@@ -147,6 +147,47 @@ export async function setWebhookEndpointActive(organizationId: number, id: numbe
   return result.length > 0;
 }
 
+export async function updateWebhookEndpoint(
+  organizationId: number,
+  id: number,
+  input: { url?: string; subscribedEvents?: string[] },
+): Promise<boolean> {
+  if (input.url) {
+    await assertWebhookUrlIsSafe(input.url);
+  }
+  if (input.subscribedEvents) {
+    const unknownEvents = input.subscribedEvents.filter((e) => !isValidWebhookEventType(e));
+    if (unknownEvents.length > 0) {
+      throw new Error(`UNKNOWN_EVENT_TYPES:${unknownEvents.join(",")}`);
+    }
+  }
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.url) patch.url = input.url;
+  if (input.subscribedEvents) patch.subscribedEvents = input.subscribedEvents;
+
+  const result = await db.update(webhookEndpoints)
+    .set(patch)
+    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.organizationId, organizationId)))
+    .returning({ id: webhookEndpoints.id });
+  return result.length > 0;
+}
+
+/**
+ * Rotate a webhook endpoint's signing secret in place (P1 foundation hardening,
+ * 2026-08-23). Same "no delete+recreate" rationale as API key rotation --
+ * preserves the endpoint id, URL, subscribed events, and delivery history.
+ * The new secret is returned once, same one-time-display contract as
+ * registerWebhookEndpoint already uses.
+ */
+export async function rotateWebhookSecret(organizationId: number, id: number): Promise<string | null> {
+  const secret = randomBytes(32).toString("hex");
+  const result = await db.update(webhookEndpoints)
+    .set({ secret, updatedAt: new Date() })
+    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.organizationId, organizationId)))
+    .returning({ id: webhookEndpoints.id });
+  return result.length > 0 ? secret : null;
+}
+
 /** HMAC-SHA256 signature over the raw JSON body — same primitive used to verify MSG91/Razorpay webhooks, just for outbound. */
 export function signWebhookPayload(secret: string, rawBody: string): string {
   return createHmac("sha256", secret).update(rawBody).digest("hex");

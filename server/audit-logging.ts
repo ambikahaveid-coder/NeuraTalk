@@ -14,7 +14,7 @@ export type AuditAction =
   | "data_export" | "data_deletion_requested"
   | "consent_updated" | "settings_updated"
   | "payment_processed" | "subscription_changed"
-  | "api_key_created" | "api_key_revoked"
+  | "api_key_created" | "api_key_revoked" | "api_key_rotated"
   | "admin_action"
   | "billing_wallet_credit" | "billing_wallet_debit"
   | "billing_recharge" | "billing_refund"
@@ -238,6 +238,7 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
       subscription_changed: "info",
       api_key_created: "info",
       api_key_revoked: "warning",
+      api_key_rotated: "warning",
       admin_action: "info",
       billing_wallet_credit: "info",
       billing_wallet_debit: "info",

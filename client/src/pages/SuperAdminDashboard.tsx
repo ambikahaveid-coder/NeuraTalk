@@ -407,9 +407,13 @@ function CompaniesSection() {
   const queryClient = useQueryClient();
   const [rejectReason, setRejectReason] = useState("");
   const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [suspendReason, setSuspendReason] = useState("");
+  const [suspendingId, setSuspendingId] = useState<number | null>(null);
+  const [deactivateReason, setDeactivateReason] = useState("");
+  const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
   const [walletAmountRupees, setWalletAmountRupees] = useState("");
-  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected" | "suspended" | "deactivated">("all");
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [newCompany, setNewCompany] = useState({
     companyName: "",
@@ -472,6 +476,69 @@ function CompaniesSection() {
       setRejectingId(null);
       setRejectReason("");
       toast({ title: "Company Rejected" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const suspendMutation = useMutation({
+    mutationFn: async ({ companyId, reason }: { companyId: number; reason: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/companies/${companyId}/suspend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Failed to suspend");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      setSuspendingId(null);
+      setSuspendReason("");
+      toast({ title: "Company Suspended" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const reactivateMutation = useMutation({
+    mutationFn: async (companyId: number) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/companies/${companyId}/reactivate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Failed to reactivate");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      toast({ title: "Company Reactivated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async ({ companyId, reason }: { companyId: number; reason: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/companies/${companyId}/deactivate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Failed to deactivate");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      setDeactivatingId(null);
+      setDeactivateReason("");
+      toast({ title: "Company Deactivated" });
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -606,7 +673,7 @@ function CompaniesSection() {
 
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div className="flex gap-2">
-          {(["all", "pending", "approved", "rejected"] as const).map((f) => (
+          {(["all", "pending", "approved", "rejected", "suspended", "deactivated"] as const).map((f) => (
             <Button
               key={f}
               variant={filter === f ? "default" : "outline"}
@@ -906,7 +973,83 @@ function CompaniesSection() {
                               Adjust Wallet
                             </Button>
                           )}
+
+                          {suspendingId === company.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                placeholder="Suspension reason"
+                                value={suspendReason}
+                                onChange={(e) => setSuspendReason(e.target.value)}
+                                className="w-40"
+                                data-testid={`input-suspend-reason-${company.id}`}
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => suspendMutation.mutate({ companyId: company.id, reason: suspendReason })}
+                                disabled={!suspendReason || suspendMutation.isPending}
+                              >
+                                Confirm
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setSuspendingId(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSuspendingId(company.id)}
+                              data-testid={`button-suspend-${company.id}`}
+                            >
+                              Suspend
+                            </Button>
+                          )}
+
+                          {deactivatingId === company.id ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                placeholder="Deactivation reason"
+                                value={deactivateReason}
+                                onChange={(e) => setDeactivateReason(e.target.value)}
+                                className="w-40"
+                                data-testid={`input-deactivate-reason-${company.id}`}
+                              />
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => deactivateMutation.mutate({ companyId: company.id, reason: deactivateReason })}
+                                disabled={!deactivateReason || deactivateMutation.isPending}
+                              >
+                                Confirm
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setDeactivatingId(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setDeactivatingId(company.id)}
+                              data-testid={`button-deactivate-${company.id}`}
+                            >
+                              Deactivate
+                            </Button>
+                          )}
                         </>
+                      )}
+
+                      {company.status === "suspended" && (
+                        <Button
+                          size="sm"
+                          onClick={() => reactivateMutation.mutate(company.id)}
+                          disabled={reactivateMutation.isPending}
+                          data-testid={`button-reactivate-${company.id}`}
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          Reactivate
+                        </Button>
                       )}
                     </div>
                   </div>

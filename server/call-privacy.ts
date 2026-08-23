@@ -280,6 +280,24 @@ interface ConsentAuditLog {
 
 const auditLogs: ConsentAuditLog[] = [];
 
+/**
+ * Persistence note (P1 foundation hardening investigation, 2026-08-23):
+ * This in-memory array was the ONLY record of consent grant/revoke/update/check
+ * actions -- non-persistent (lost on every process restart/deploy) and capped
+ * at 1000 entries with silent oldest-first eviction. It was also write-only:
+ * getAuditLogs() below has zero callers anywhere in the codebase, so nothing
+ * ever read this data even while a process was alive. Consent records carry
+ * compliance weight (proving what a user agreed to and when), so this is a
+ * real gap, not a cosmetic one.
+ *
+ * Fix applied here is additive, not a replacement: every consent action is
+ * now ALSO written to the existing, already-durable `audit_logs` table (via
+ * createAuditLog, the same persistent store used for organization approvals,
+ * credit adjustments, etc. -- see server/audit.ts) tagged
+ * entityType: "call_consent". The in-memory array and its 1000-entry cap are
+ * left in place unchanged, so no existing behavior is removed -- this is a
+ * durability layer added alongside it, not a silent swap.
+ */
 export function logConsentAction(
   userId: number,
   action: "grant" | "revoke" | "update" | "check",
@@ -291,11 +309,21 @@ export function logConsentAction(
     action,
     details,
   });
-  
+
   // Keep only last 1000 entries in memory
   if (auditLogs.length > 1000) {
     auditLogs.shift();
   }
+
+  // Fire-and-forget persistent write -- never block or throw into the caller,
+  // consistent with createAuditLog's own internal try/catch.
+  void import("./audit").then(({ createAuditLog }) => createAuditLog({
+    userId,
+    action: "consent_action",
+    entityType: "call_consent",
+    entityId: userId,
+    metadata: { consentAction: action, details },
+  }));
 }
 
 export function getAuditLogs(userId?: number): ConsentAuditLog[] {

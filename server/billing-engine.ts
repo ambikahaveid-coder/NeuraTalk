@@ -861,7 +861,7 @@ export class BillingEngine {
 
       if (
         context.organization
-        && (!context.organization.isActive || ["rejected", "suspended"].includes(context.organization.status || ""))
+        && (!context.organization.isActive || ["rejected", "suspended", "deactivated"].includes(context.organization.status || ""))
       ) {
         return this.denied("ORGANIZATION_BLOCKED");
       }

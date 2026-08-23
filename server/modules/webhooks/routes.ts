@@ -12,4 +12,6 @@ export function registerWebhookRoutes(app: Express): void {
   app.get("/api/admin/orgs/:orgId/webhooks", requireAuth, ctrl.listWebhooks);
   app.delete("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, ctrl.deleteWebhook);
   app.patch("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, ctrl.toggleWebhook);
+  app.put("/api/admin/orgs/:orgId/webhooks/:webhookId", requireAuth, ctrl.updateWebhook);
+  app.post("/api/admin/orgs/:orgId/webhooks/:webhookId/rotate", requireAuth, ctrl.rotateWebhook);
 }

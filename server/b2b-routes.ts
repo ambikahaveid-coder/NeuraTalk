@@ -41,6 +41,13 @@ import { requireActiveSubscription, warnLowBalance } from "./usage-enforcement";
 import * as callService from "./modules/calls/service";
 import { buildUnifiedSessionFromInitiateResponse } from "./modules/calls/session-view";
 import { routeToSkillAgent } from "./modules/calls/smart-router";
+import {
+  mapStoredStatusToOrgState,
+  ORG_STATE,
+  suspendOrganization,
+  reactivateOrganization,
+  deactivateOrganization,
+} from "./modules/b2b-admin/org-lifecycle";
 
 // ============================================================================
 // SCHEMAS
@@ -684,7 +691,19 @@ export function registerB2BRoutes(app: Express): void {
   app.post("/api/admin/companies/:id/approve", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
-      
+
+      const [existing] = await db.select().from(organizations).where(eq(organizations.id, companyId));
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "Company not found" });
+      }
+      const currentState = mapStoredStatusToOrgState(existing.status, existing.isActive);
+      if (currentState !== ORG_STATE.PENDING_APPROVAL) {
+        return res.status(409).json({
+          success: false,
+          message: `Cannot approve a company in state ${currentState}. Only PENDING_APPROVAL companies can be approved.`,
+        });
+      }
+
       // Update status
       await db.update(organizations)
         .set({
@@ -719,11 +738,27 @@ export function registerB2BRoutes(app: Express): void {
     try {
       const companyId = parseInt(req.params.id);
       const { reason } = req.body;
-      
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A rejection reason is required" });
+      }
+
+      const [existing] = await db.select().from(organizations).where(eq(organizations.id, companyId));
+      if (!existing) {
+        return res.status(404).json({ success: false, message: "Company not found" });
+      }
+      const currentState = mapStoredStatusToOrgState(existing.status, existing.isActive);
+      if (currentState !== ORG_STATE.PENDING_APPROVAL) {
+        return res.status(409).json({
+          success: false,
+          message: `Cannot reject a company in state ${currentState}. Only PENDING_APPROVAL companies can be rejected.`,
+        });
+      }
+
       await db.update(organizations)
         .set({
           status: "rejected",
           rejectedAt: new Date(),
+          rejectedBy: req.user!.id,
           rejectionReason: reason,
           isActive: false,
         })
@@ -741,6 +776,94 @@ export function registerB2BRoutes(app: Express): void {
     } catch (err) {
       logger.error("B2BRoutes", "Failed to reject company", err as Error);
       res.status(500).json({ success: false, message: "Failed to reject company" });
+    }
+  });
+
+  /**
+   * Suspend company (Super Admin) -- ACTIVE -> SUSPENDED. Reversible via /reactivate.
+   */
+  app.post("/api/admin/companies/:id/suspend", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A suspension reason is required" });
+      }
+
+      const result = await suspendOrganization(companyId, req.user!.id, reason);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot suspend a company in state ${result.previousState}. Only ACTIVE companies can be suspended.`,
+        });
+      }
+
+      logger.info("B2BRoutes", "Company suspended", { companyId, actorUserId: req.user!.id, reason });
+      res.json({ success: true, message: "Company suspended", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to suspend company", err as Error);
+      res.status(500).json({ success: false, message: "Failed to suspend company" });
+    }
+  });
+
+  /**
+   * Reactivate company (Super Admin) -- SUSPENDED -> ACTIVE.
+   */
+  app.post("/api/admin/companies/:id/reactivate", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+
+      const result = await reactivateOrganization(companyId, req.user!.id);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot reactivate a company in state ${result.previousState}. Only SUSPENDED companies can be reactivated.`,
+        });
+      }
+
+      logger.info("B2BRoutes", "Company reactivated", { companyId, actorUserId: req.user!.id });
+      res.json({ success: true, message: "Company reactivated", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to reactivate company", err as Error);
+      res.status(500).json({ success: false, message: "Failed to reactivate company" });
+    }
+  });
+
+  /**
+   * Deactivate company (Super Admin) -- ACTIVE -> DEACTIVATED. Terminal in this
+   * phase: no route moves a company out of DEACTIVATED. Preserves the row and
+   * all financial/audit history -- this is not a delete.
+   */
+  app.post("/api/admin/companies/:id/deactivate", requireAuth, requireSuperAdmin, async (req, res) => {
+    try {
+      const companyId = parseInt(req.params.id);
+      const { reason } = req.body;
+      if (!reason || typeof reason !== "string" || !reason.trim()) {
+        return res.status(400).json({ success: false, message: "A deactivation reason is required" });
+      }
+
+      const result = await deactivateOrganization(companyId, req.user!.id, reason);
+      if (!result.ok) {
+        if (result.reason === "NOT_FOUND") {
+          return res.status(404).json({ success: false, message: "Company not found" });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Cannot deactivate a company in state ${result.previousState}. Only ACTIVE companies can be deactivated.`,
+        });
+      }
+
+      logger.info("B2BRoutes", "Company deactivated", { companyId, actorUserId: req.user!.id, reason });
+      res.json({ success: true, message: "Company deactivated", previousState: result.previousState, newState: result.newState });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to deactivate company", err as Error);
+      res.status(500).json({ success: false, message: "Failed to deactivate company" });
     }
   });
 

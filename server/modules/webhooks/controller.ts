@@ -8,6 +8,8 @@ import {
   listWebhookEndpoints,
   deleteWebhookEndpoint,
   setWebhookEndpointActive,
+  updateWebhookEndpoint,
+  rotateWebhookSecret,
   isValidWebhookEventType,
 } from "./service";
 
@@ -93,6 +95,53 @@ export async function deleteWebhook(req: Request, res: Response) {
   if (!deleted) return res.status(404).json({ success: false, error: "Webhook not found" });
   await AuditHelpers.logDelete(user.id, "webhook_endpoint", webhookId, { orgId });
   return res.json({ success: true });
+}
+
+const updateWebhookSchema = z.object({
+  url: z.string().url().optional(),
+  subscribedEvents: z.array(z.string()).min(1).optional(),
+}).refine((v) => v.url || v.subscribedEvents, { message: "Provide url and/or subscribedEvents" });
+
+export async function updateWebhook(req: Request, res: Response) {
+  const user = getUser(req);
+  const orgId = Number(req.params.orgId);
+  const webhookId = Number(req.params.webhookId);
+  if (!Number.isFinite(orgId) || !Number.isFinite(webhookId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user, orgId)) return forbidden(res);
+
+  const parsed = updateWebhookSchema.safeParse(req.body);
+  if (!parsed.success) return badRequest(res, parsed.error.message);
+
+  try {
+    const updated = await updateWebhookEndpoint(orgId, webhookId, parsed.data);
+    if (!updated) return res.status(404).json({ success: false, error: "Webhook not found" });
+    await AuditHelpers.logSettingsChange(user.id, "webhook_endpoint_update", null, { orgId, webhookId, ...parsed.data });
+    return res.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "WEBHOOK_URL_MUST_BE_HTTPS") return badRequest(res, "Webhook URL must use HTTPS");
+    if (message.startsWith("UNKNOWN_EVENT_TYPES:")) return badRequest(res, message);
+    logger.error("Webhooks", "Failed to update webhook endpoint", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to update webhook" });
+  }
+}
+
+/**
+ * Rotate a webhook's signing secret (P1 foundation hardening, 2026-08-23).
+ * Same one-time-display contract as creation -- returned once in this response,
+ * never retrievable again via GET.
+ */
+export async function rotateWebhook(req: Request, res: Response) {
+  const user = getUser(req);
+  const orgId = Number(req.params.orgId);
+  const webhookId = Number(req.params.webhookId);
+  if (!Number.isFinite(orgId) || !Number.isFinite(webhookId)) return badRequest(res, "Invalid id");
+  if (!isOrgAdmin(user, orgId)) return forbidden(res);
+
+  const secret = await rotateWebhookSecret(orgId, webhookId);
+  if (!secret) return res.status(404).json({ success: false, error: "Webhook not found" });
+  await AuditHelpers.logSettingsChange(user.id, "webhook_endpoint_secret_rotated", null, { orgId, webhookId });
+  return res.json({ success: true, secret, message: "Secret rotated. Save it now - it will not be shown again." });
 }
 
 const toggleWebhookSchema = z.object({ isActive: z.boolean() });
