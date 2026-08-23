@@ -28,6 +28,8 @@ This folder is scoped narrowly to the current ecosystem-transformation initiativ
 | 12 | `12_PRODUCTION_RISK_REGISTER.md` | Top risks, P0–P3, with owner-facing tracking columns |
 | 13 | `13_BUSINESS_PLATFORM_MASTER_AUDIT.md` | Multi-channel (WhatsApp/SMS-DLT/Email) adapters, white-label tenancy, template/campaign/automation engines, event catalog — extends 01-12, doesn't replace them |
 | 14 | `14_NEURA_BUSINESS_SAAS_SPECIFICATION.md` | Standalone B2B SaaS spec (clone the *product category*, not Meta's tech) — corrects 13's external-approval mirroring since there's no Meta dependency at all; full domain model, API map, screen inventory, phased plan |
+| 18 | `18_ADMIN_AND_BUSINESS_SAAS_IMPLEMENTATION_AUDIT.md` | Admin auth, super-admin, business admin, tenant architecture, RBAC, security/billing audit, Meta-model mapping, P0-P3 findings |
+| 19 | `19_ADMIN_FORMS_CRUD_GOVERNANCE_MASTER_AUDIT.md` | Full lifecycle (create→approve→suspend→delete→audit) audit of every admin form/entity; corrects/sharpens 18's tenant finding (a real `organizations`-based business CRUD exists, just unnamed as "tenant"); master entity matrix + P0-P3 implementation plan |
 
 **Visual artifact (current-state + target-state, published earlier this session):** https://claude.ai/code/artifact/444207ba-36c1-4739-8b30-ae16f208719d
 
