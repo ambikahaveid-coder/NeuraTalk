@@ -189,11 +189,20 @@ const OTP_FAIL_MAX = 5;
 const OTP_FAIL_WINDOW_SEC = 900;   // 15-minute failure window
 const OTP_LOCKOUT_SEC = 1800;      // 30-minute lockout after OTP_FAIL_MAX failures
 
-export function otpVerifyLockoutCheck() {
+/**
+ * `namespace` defaults to "" (the platform's own login-OTP key space,
+ * unchanged from Phase-6-prior behavior) so every existing caller keeps
+ * working identically. Phase 6's business OTP module passes a distinct
+ * namespace (e.g. "biz") so a failed business-customer OTP attempt can
+ * never trigger a lockout on that same person's PLATFORM login OTP, and
+ * vice versa -- same mechanism, separate key spaces, not a second limiter.
+ */
+export function otpVerifyLockoutCheck(namespace = "") {
+  const prefix = namespace ? `${namespace}-otp-lockout` : "otp-lockout";
   return async (req: Request, res: Response, next: NextFunction) => {
     const identifier = (req.body?.identifier as string | undefined) ?? "";
     if (!identifier) return next();
-    const lockKey = `otp-lockout:${hashIdentifier(identifier)}`;
+    const lockKey = `${prefix}:${hashIdentifier(identifier)}`;
     try {
       const client = getRedisClient();
       const locked = await client.get(lockKey);
@@ -212,9 +221,25 @@ export function otpVerifyLockoutCheck() {
   };
 }
 
-export async function recordOtpVerifyFailure(identifier: string): Promise<void> {
-  const failKey = `otp-fail:${hashIdentifier(identifier)}`;
-  const lockKey = `otp-lockout:${hashIdentifier(identifier)}`;
+export async function isOtpVerifyLockedOut(identifier: string, namespace = ""): Promise<{ locked: boolean; ttlSec?: number }> {
+  const prefix = namespace ? `${namespace}-otp-lockout` : "otp-lockout";
+  const lockKey = `${prefix}:${hashIdentifier(identifier)}`;
+  try {
+    const client = getRedisClient();
+    const locked = await client.get(lockKey);
+    if (!locked) return { locked: false };
+    const ttlMs = Math.max(await client.pttl(lockKey), 0);
+    return { locked: true, ttlSec: Math.ceil(ttlMs / 1000) };
+  } catch {
+    return { locked: false }; // fail-open, consistent with otpVerifyLockoutCheck
+  }
+}
+
+export async function recordOtpVerifyFailure(identifier: string, namespace = ""): Promise<void> {
+  const failPrefix = namespace ? `${namespace}-otp-fail` : "otp-fail";
+  const lockPrefix = namespace ? `${namespace}-otp-lockout` : "otp-lockout";
+  const failKey = `${failPrefix}:${hashIdentifier(identifier)}`;
+  const lockKey = `${lockPrefix}:${hashIdentifier(identifier)}`;
   try {
     const client = getRedisClient();
     const count = await client.incr(failKey);
@@ -222,10 +247,10 @@ export async function recordOtpVerifyFailure(identifier: string): Promise<void> 
     if (count >= OTP_FAIL_MAX) {
       await client.set(lockKey, "1", "EX", OTP_LOCKOUT_SEC);
       await client.del(failKey);
-      logger.warn("RateLimit", `OTP lockout activated`, { masked: maskIdentifier(identifier), failures: count });
+      logger.warn("RateLimit", `OTP lockout activated`, { masked: maskIdentifier(identifier), failures: count, namespace: namespace || "platform" });
       void logAuditEvent({
         action: "otp_abuse_lockout",
-        details: { masked: maskIdentifier(identifier), failures: count, lockoutSeconds: OTP_LOCKOUT_SEC },
+        details: { masked: maskIdentifier(identifier), failures: count, lockoutSeconds: OTP_LOCKOUT_SEC, namespace: namespace || "platform" },
         severity: "critical",
       });
     }
@@ -234,11 +259,41 @@ export async function recordOtpVerifyFailure(identifier: string): Promise<void> 
   }
 }
 
-export async function clearOtpVerifyFailures(identifier: string): Promise<void> {
+export async function clearOtpVerifyFailures(identifier: string, namespace = ""): Promise<void> {
+  const failPrefix = namespace ? `${namespace}-otp-fail` : "otp-fail";
   try {
     const client = getRedisClient();
-    await client.del(`otp-fail:${hashIdentifier(identifier)}`);
+    await client.del(`${failPrefix}:${hashIdentifier(identifier)}`);
   } catch {
     // Redis unavailable
   }
 }
+
+// --- Business OTP (Phase 6) -- layered on the SAME rateLimit() factory,
+// not a second limiter implementation. Per-business and per-IP are the two
+// layers this module adds; per-destination/per-customer abuse is covered
+// by isOtpVerifyLockedOut/recordOtpVerifyFailure above with the "biz"
+// namespace, and per-challenge attempts live in the DB row itself
+// (server/modules/otp/service.ts) -- see doc 31 section 13 for the full
+// layered picture.
+
+export const businessOtpChallengeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  keyFn: (req) => `biz-otp-challenge:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "Too many OTP challenge requests. Please wait before retrying.",
+});
+
+export const businessOtpBusinessDailyLimiter = rateLimit({
+  windowMs: 24 * 60 * 60_000,
+  max: 500, // documented, adjustable placeholder -- not a per-business-configurable policy in this phase, see doc 31 section 13
+  keyFn: (req) => `biz-otp-daily:${req.params?.businessId ?? "unknown"}`,
+  message: "This business has reached its daily OTP limit.",
+});
+
+export const businessOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  keyFn: (req) => `biz-otp-verify:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "Too many verification attempts. Please wait before retrying.",
+});

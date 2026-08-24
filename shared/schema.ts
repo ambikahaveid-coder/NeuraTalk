@@ -330,6 +330,19 @@ export const PERMISSIONS = {
   CAMPAIGNS_VIEW: "campaigns:view",
   CAMPAIGNS_MANAGE: "campaigns:manage",
   CAMPAIGNS_EXECUTE: "campaigns:execute",
+
+  // Business OTP / authentication messaging (Phase 6). Deliberately 2
+  // permissions, not 3 -- OTP_EXECUTE was evaluated and not added because,
+  // unlike a marketing campaign (which needs separation between "can
+  // draft" and "can pull the trigger on thousands of recipients"), a
+  // single OTP challenge is a routine, low-blast-radius, per-customer
+  // action with no separate later "go live" step to gate -- OTP_MANAGE's
+  // "execute" IS the creation, and every send it can produce is already
+  // template-locked, category-locked to AUTHENTICATION, and rate-limited,
+  // so the permission can never be used for arbitrary message sending
+  // (doc 31 section 19).
+  OTP_MANAGE: "otp:manage",
+  OTP_VIEW: "otp:view",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -1099,6 +1112,8 @@ export const AUDIT_ACTION = {
   COMPLETE: "complete",
   CANCEL: "cancel",
   FAIL: "fail",
+  VERIFY: "verify",
+  RESEND: "resend",
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTION[keyof typeof AUDIT_ACTION];
@@ -3994,3 +4009,110 @@ export const campaignRecipients = pgTable("campaign_recipients", {
   uniqueIndex("campaign_recipients_campaign_customer_idx").on(t.campaignId, t.customerId),
 ]);
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS OTP / AUTHENTICATION MESSAGING (Phase 6, 2026-08-24)
+//
+// See docs/neura-ecosystem/31_BUSINESS_OTP_AUTHENTICATION_IMPLEMENTATION.md.
+// Deliberately NOT built on the platform's own login-OTP table
+// (`otpChallenges`, above) -- that table has no businessId/customerId
+// scoping and a delete-on-new-request model incompatible with multi-
+// tenant use. This is a parallel, tenant-scoped OTP primitive for a
+// BUSINESS to challenge/verify ITS OWN customer, following the same
+// crypto-secure-generation + hashed-storage pattern as the existing
+// implementation (server/otp-auth.ts), never copying its table.
+//
+// Three-layer model, matching the approved architecture's diagram
+// (OTP -> Authentication Message -> Delivery Job/Intent -> future Channel
+// Adapter): `businessOtpChallenges` is the security object (hash,
+// attempts, expiry -- NEVER a plaintext code, NEVER rendered content);
+// `messagingMessages` (reused from Phase 0, category=AUTHENTICATION) is
+// the customer-facing conversational record, with its content REDACTED
+// (the {{code}} placeholder is never substituted with the real code in
+// anything that gets persisted); `businessOtpDeliveries` is the OTP-
+// specific delivery-intent record (channel/destination/status), separate
+// from `messagingDeliveries` because that table has no channel/
+// destination concept and OTP delivery isn't a conversational participant
+// delivery. No external provider is called anywhere in this phase.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const OTP_PURPOSE = {
+  LOGIN: "login",
+  VERIFY_PHONE: "verify_phone",
+  VERIFY_EMAIL: "verify_email",
+  TRANSACTION: "transaction",
+  ACCOUNT_ACTION: "account_action",
+} as const;
+export type OtpPurpose = typeof OTP_PURPOSE[keyof typeof OTP_PURPOSE];
+
+// Deliberately a SEPARATE const from the platform's own OTP_CHANNEL (login
+// OTP, values "email"/"mobile") -- that one is a fixed 2-value vocabulary
+// tied to the platform's own delivery choices; this one uses "sms" (via
+// the existing msg91-service.ts) rather than the vaguer "mobile", and is
+// scoped to business-initiated customer challenges, never mixed with the
+// platform's own login flow.
+export const BUSINESS_OTP_CHANNEL = {
+  SMS: "sms",
+  EMAIL: "email",
+} as const;
+export type BusinessOtpChannel = typeof BUSINESS_OTP_CHANNEL[keyof typeof BUSINESS_OTP_CHANNEL];
+
+export const OTP_CHALLENGE_STATUS = {
+  PENDING: "pending",
+  VERIFIED: "verified",
+  EXPIRED: "expired",
+  FAILED: "failed", // exceeded max attempts
+  SUPERSEDED: "superseded", // replaced by a resend
+} as const;
+export type OtpChallengeStatus = typeof OTP_CHALLENGE_STATUS[keyof typeof OTP_CHALLENGE_STATUS];
+
+export const businessOtpChallenges = pgTable("business_otp_challenges", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  destination: text("destination").notNull(), // snapshotted phone/email actually used -- resolved server-side from the customer record, never client-supplied
+  channel: text("channel").notNull(), // BUSINESS_OTP_CHANNEL
+  purpose: text("purpose").notNull(), // OTP_PURPOSE -- server-validated, never an arbitrary client string
+  codeHash: text("code_hash").notNull(), // SHA-256 -- the raw code is NEVER stored, NEVER logged, NEVER returned
+  status: text("status").notNull().default(OTP_CHALLENGE_STATUS.PENDING),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(3), // same default as the existing platform OTP (server/otp-auth.ts)
+  resendCount: integer("resend_count").notNull().default(0), // carried forward across a supersede chain, capped at MAX_RESENDS in service.ts
+  templateVersionId: integer("template_version_id").references(() => templateVersions.id), // optional business-branded content; must be an APPROVED, category=AUTHENTICATION version
+  messageId: integer("message_id").references(() => messagingMessages.id), // set once the (redacted) conversational record is created
+  supersedesChallengeId: integer("supersedes_challenge_id"), // self-referential, set on a resend -- no .references() to avoid a circular table definition; validated at the application layer only
+  metadata: jsonb("metadata").default({}),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  verifiedAt: timestamp("verified_at"),
+  failedAt: timestamp("failed_at"),
+  supersededAt: timestamp("superseded_at"),
+}, (t) => [
+  index("business_otp_challenges_business_idx").on(t.businessId),
+  index("business_otp_challenges_customer_idx").on(t.customerId),
+  index("business_otp_challenges_expires_idx").on(t.expiresAt),
+  // Idempotency P0 (doc 31 section 21): at most one live (PENDING) challenge
+  // per (business, customer, purpose) -- a duplicate/double-click create
+  // request gets a deterministic 409, never a silently-created second live
+  // challenge. Resending explicitly supersedes the prior row instead of
+  // just inserting a second PENDING one.
+  uniqueIndex("business_otp_challenges_one_pending_idx")
+    .on(t.businessId, t.customerId, t.purpose)
+    .where(sql`status = 'pending'`),
+]);
+export type BusinessOtpChallenge = typeof businessOtpChallenges.$inferSelect;
+
+export const businessOtpDeliveries = pgTable("business_otp_deliveries", {
+  id: serial("id").primaryKey(),
+  challengeId: integer("challenge_id").notNull().references(() => businessOtpChallenges.id, { onDelete: "cascade" }).unique(),
+  channel: text("channel").notNull(), // BUSINESS_OTP_CHANNEL
+  destination: text("destination").notNull(), // snapshotted, same value as the challenge's -- duplicated deliberately so this table alone is enough to answer "where would this have gone" without joining back
+  status: text("status").notNull().default(MESSAGE_DELIVERY_STATUS.QUEUED), // reuses the existing MESSAGE_DELIVERY_STATUS vocabulary rather than inventing a parallel one; only QUEUED/FAILED are ever set in this phase (no real provider to progress it to SENT/DELIVERED)
+  providerRef: text("provider_ref"), // forward-reference only, unused until a real channel adapter exists (doc 31 section 25)
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("business_otp_deliveries_challenge_idx").on(t.challengeId),
+]);
+export type BusinessOtpDelivery = typeof businessOtpDeliveries.$inferSelect;
