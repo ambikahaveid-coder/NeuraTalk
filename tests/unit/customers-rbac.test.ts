@@ -117,6 +117,24 @@ describe("Controller: mass assignment, duplicate mapping, validation", () => {
     expect(res.body.existingCustomerId).toBe(7);
   });
 
+  it("postCustomer rejects a linkedUserId in the body -- no route exposes linking to a NEURA user, .strict() rejects the attempt (Phase 4 hardening review, doc 29)", async () => {
+    const ctrl = await import("../../server/modules/customers/controller");
+    const { req, res } = makeReqRes({ id: 42 });
+    req.params.businessId = "1";
+    req.body = { name: "A", linkedUserId: 999 }; // attempted cross-identity link
+    await ctrl.postCustomer(req, res);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("putCustomer rejects a linkedUserId in the body -- same protection on update", async () => {
+    const ctrl = await import("../../server/modules/customers/controller");
+    const { req, res } = makeReqRes({ id: 42 });
+    req.params.businessId = "1"; req.params.customerId = "1";
+    req.body = { linkedUserId: 999 };
+    await ctrl.putCustomer(req, res);
+    expect(res.statusCode).toBe(400);
+  });
+
   it("putCustomer rejects status=archived (not in the update enum -- archiving is a separate action)", async () => {
     const ctrl = await import("../../server/modules/customers/controller");
     const { req, res } = makeReqRes({ id: 42 });
