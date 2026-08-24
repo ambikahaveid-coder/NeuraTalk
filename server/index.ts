@@ -430,6 +430,11 @@ app.use((req, res, next) => {
     startWebhookRetryScheduler();
   }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
 
+  await runStartupPhase("campaign scheduler", async () => {
+    const { startCampaignScheduler } = await import("./modules/campaigns/scheduler");
+    startCampaignScheduler();
+  }, { optional: true, skip: isStartupSubsystemDisabled("cleanup_scheduler") });
+
   await runStartupPhase("ACD queue timeout scheduler", async () => {
     const { startAcdQueueTimeoutScheduler } = await import("./modules/calls/queue-service");
     startAcdQueueTimeoutScheduler();

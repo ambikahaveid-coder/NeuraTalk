@@ -318,6 +318,18 @@ export const PERMISSIONS = {
   CUSTOMERS_MANAGE: "customers:manage",
   AUDIENCES_VIEW: "audiences:view",
   AUDIENCES_MANAGE: "audiences:manage",
+
+  // Business campaign engine (Phase 5). EXECUTE is separate from MANAGE so
+  // editing a draft campaign never implies the authority to actually run
+  // it -- the same separation-of-duties reasoning as Phase 2's
+  // TEMPLATES_MANAGE/TEMPLATES_APPROVE split. EXECUTE also doubles as the
+  // Approval Center's decidePermission for the "campaign" resource type
+  // (see doc 30 section 13) -- no separate CAMPAIGNS_APPROVE permission
+  // was added, since the authority to run a campaign and the authority to
+  // approve it going live are the same authority in this model.
+  CAMPAIGNS_VIEW: "campaigns:view",
+  CAMPAIGNS_MANAGE: "campaigns:manage",
+  CAMPAIGNS_EXECUTE: "campaigns:execute",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -1082,6 +1094,11 @@ export const AUDIT_ACTION = {
   RETURN_TO_DRAFT: "return_to_draft",
   MEMBER_ADDED: "member_added",
   MEMBER_REMOVED: "member_removed",
+  SCHEDULE: "schedule",
+  START: "start",
+  COMPLETE: "complete",
+  CANCEL: "cancel",
+  FAIL: "fail",
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTION[keyof typeof AUDIT_ACTION];
@@ -3868,3 +3885,112 @@ export const audienceMembers = pgTable("audience_members", {
   uniqueIndex("audience_members_pair_idx").on(t.audienceId, t.customerId),
 ]);
 export type AudienceMember = typeof audienceMembers.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS CAMPAIGN ENGINE (Phase 5, 2026-08-24)
+//
+// See docs/neura-ecosystem/30_CAMPAIGN_ENGINE_IMPLEMENTATION.md.
+// A campaign is an ORCHESTRATION object, not a message: it fixes WHO (an
+// immutable recipient snapshot in `campaignRecipients`, resolved from an
+// audience at schedule/execute time, never live-re-queried mid-run), WHAT
+// (a specific, already-APPROVED `templateVersions.id` -- never "latest"),
+// WHEN (explicit scheduling), and UNDER WHICH AUTHORITY (the generic
+// Approval Center, reused from Phase 3 -- see campaigns/approval-policy.ts
+// -- not a duplicate approval table). Execution itself is internal-only in
+// this phase: no external channel adapter exists, no SMS/email/WhatsApp
+// provider is called. See doc 30 section 21 for the external-channel
+// extension point this was deliberately designed to leave open.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const CAMPAIGN_STATUS = {
+  DRAFT: "draft",
+  SCHEDULED: "scheduled",
+  RUNNING: "running",
+  COMPLETED: "completed",
+  CANCELLED: "cancelled",
+  FAILED: "failed",
+} as const;
+export type CampaignStatus = typeof CAMPAIGN_STATUS[keyof typeof CAMPAIGN_STATUS];
+
+// Campaigns only ever use these two MESSAGE_CATEGORY values -- validated at
+// the service layer (MESSAGE_CATEGORY itself is not narrowed here, since
+// CONVERSATIONAL/AI/SYSTEM/AUTHENTICATION messages are never campaign-
+// initiated; AUTHENTICATION explicitly stays out of the campaign engine
+// per doc 30 section 2, it belongs to a future dedicated OTP path).
+export const CAMPAIGN_ALLOWED_CATEGORIES = [MESSAGE_CATEGORY.MARKETING, MESSAGE_CATEGORY.UTILITY] as const;
+
+export const CAMPAIGN_RECIPIENT_STATUS = {
+  PENDING: "pending",
+  SENT: "sent",
+  SKIPPED: "skipped",
+  FAILED: "failed",
+} as const;
+export type CampaignRecipientStatus = typeof CAMPAIGN_RECIPIENT_STATUS[keyof typeof CAMPAIGN_RECIPIENT_STATUS];
+
+// Governed vocabulary for why a targeted recipient did NOT receive a
+// message -- stored as text (same convention as template rejection
+// reasons), not a DB enum, but the values are fixed and code-checked, not
+// arbitrary free text from anywhere in the request path.
+export const CAMPAIGN_SKIP_REASON = {
+  CUSTOMER_ARCHIVED: "customer_archived",
+  CUSTOMER_BLOCKED: "customer_blocked",
+  CONSENT_MISSING: "consent_missing",
+  TEMPLATE_NOT_APPROVED: "template_not_approved",
+  INSUFFICIENT_CREDIT: "insufficient_credit",
+  BILLING_NOT_CONFIGURED: "billing_not_configured",
+  RENDER_FAILED: "render_failed",
+  SYSTEM_ERROR: "system_error",
+} as const;
+export type CampaignSkipReason = typeof CAMPAIGN_SKIP_REASON[keyof typeof CAMPAIGN_SKIP_REASON];
+
+export const campaigns = pgTable("campaigns", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(), // one of CAMPAIGN_ALLOWED_CATEGORIES
+  status: text("status").notNull().default(CAMPAIGN_STATUS.DRAFT),
+  templateVersionId: integer("template_version_id").references(() => templateVersions.id), // must be APPROVED at schedule/execute time, re-checked live, never cached
+  audienceId: integer("audience_id").references(() => audiences.id),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  approvedBy: integer("approved_by").references(() => users.id), // set only by campaigns/approval-policy.ts's onApproved callback -- the Approval Center is the source of truth, this is a denormalized fast-read of that fact, not a second approval mechanism
+  approvedAt: timestamp("approved_at"),
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: integer("cancelled_by").references(() => users.id),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("campaigns_business_idx").on(t.businessId),
+  index("campaigns_business_status_idx").on(t.businessId, t.status),
+]);
+export type Campaign = typeof campaigns.$inferSelect;
+
+// Immutable execution snapshot -- established once (at the DRAFT->SCHEDULED
+// or DRAFT->RUNNING transition, whichever happens first) from live audience
+// membership resolved SERVER-SIDE (never client-supplied customer ids), then
+// frozen. This table is also the deterministic per-recipient execution
+// identity that makes execution idempotent: the unique (campaignId,
+// customerId) index means a retry/duplicate execute call can never target
+// the same customer twice, and each row's own PENDING->SENT transition is
+// itself an atomic compare-and-swap (see campaigns/service.ts), so a
+// concurrent double-execute can't double-send either.
+export const campaignRecipients = pgTable("campaign_recipients", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").notNull().references(() => campaigns.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default(CAMPAIGN_RECIPIENT_STATUS.PENDING),
+  skipReason: text("skip_reason"), // CAMPAIGN_SKIP_REASON, set only when status=SKIPPED
+  messageId: integer("message_id").references(() => messagingMessages.id), // set once status=SENT
+  chargedPaise: integer("charged_paise"), // actual amount debited for this send, null until charged
+  processedAt: timestamp("processed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("campaign_recipients_campaign_status_idx").on(t.campaignId, t.status),
+  index("campaign_recipients_customer_idx").on(t.customerId),
+  uniqueIndex("campaign_recipients_campaign_customer_idx").on(t.campaignId, t.customerId),
+]);
+export type CampaignRecipient = typeof campaignRecipients.$inferSelect;

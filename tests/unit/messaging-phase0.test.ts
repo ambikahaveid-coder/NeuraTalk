@@ -28,7 +28,7 @@ function resetFakeDb() {
   tables.clear();
   idCounters.clear();
   for (const t of [
-    "organizations", "users", "messagingConversations", "businessConversations",
+    "organizations", "users", "customers", "messagingConversations", "businessConversations",
     "messagingParticipants", "messagingMessages", "messagingDeliveries", "messagingEvents",
   ]) {
     tables.set(t, []);
@@ -146,6 +146,7 @@ vi.mock("@shared/schema", async (importOriginal) => {
     ...actual,
     organizations: mkTable("organizations", ["id"]),
     users: mkTable("users", ["id"]),
+    customers: mkTable("customers", ["id", "businessId"]),
     messagingConversations: mkTable("messagingConversations", ["id", "type", "organizationId", "metadata", "isArchived", "createdAt", "updatedAt"]),
     businessConversations: mkTable("businessConversations", ["id", "conversationId", "businessId", "customerId", "status", "assignedToUserId", "createdAt"]),
     messagingParticipants: mkTable("messagingParticipants", ["id", "conversationId", "participantType", "participantId", "role", "joinedAt", "leftAt"]),
@@ -166,6 +167,10 @@ function seedOrg(id: number) {
 function seedUser(id: number) {
   tables.get("users")!.push({ id });
   idCounters.set("users", Math.max(idCounters.get("users") ?? 0, id));
+}
+function seedCustomer(id: number, businessId: number) {
+  tables.get("customers")!.push({ id, businessId });
+  idCounters.set("customers", Math.max(idCounters.get("customers") ?? 0, id));
 }
 
 /** Creates a business conversation with a real seeded user (userId) already
@@ -295,12 +300,42 @@ describe("Participant validation", () => {
     })).rejects.toThrow(InvalidParticipantError);
   });
 
-  it("rejects an unsupported participant type (customer -- no backing table until Phase 4)", async () => {
+  it("rejects an unsupported participant type (ai_agent -- still no backing table)", async () => {
     seedOrg(1);
     const { createBusinessConversation, InvalidParticipantError } = await import("../../server/modules/messaging/service");
     await expect(createBusinessConversation({
       businessId: 1,
-      additionalParticipants: [{ participantType: "customer" as any, participantId: 1 }],
+      additionalParticipants: [{ participantType: "ai_agent" as any, participantId: 1 }],
+    })).rejects.toThrow(InvalidParticipantError);
+  });
+
+  it("customer participant type is now validated against the real customers table (Phase 4/5) -- rejects a non-existent customer id", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, InvalidParticipantError } = await import("../../server/modules/messaging/service");
+    await expect(createBusinessConversation({
+      businessId: 1,
+      additionalParticipants: [{ participantType: "customer" as any, participantId: 999 }],
+    })).rejects.toThrow(InvalidParticipantError);
+  });
+
+  it("accepts a customer participant that exists AND belongs to the same business", async () => {
+    seedOrg(1);
+    seedCustomer(5, 1);
+    const { createBusinessConversation } = await import("../../server/modules/messaging/service");
+    const conv = await createBusinessConversation({
+      businessId: 1,
+      additionalParticipants: [{ participantType: "customer" as any, participantId: 5 }],
+    });
+    expect(conv.participants.some((p: any) => p.participantType === "customer" && p.participantId === 5)).toBe(true);
+  });
+
+  it("rejects a customer that exists but belongs to a DIFFERENT business (tenant isolation on participant validation)", async () => {
+    seedOrg(1); seedOrg(2);
+    seedCustomer(5, 2); // belongs to business 2
+    const { createBusinessConversation, InvalidParticipantError } = await import("../../server/modules/messaging/service");
+    await expect(createBusinessConversation({
+      businessId: 1,
+      additionalParticipants: [{ participantType: "customer" as any, participantId: 5 }],
     })).rejects.toThrow(InvalidParticipantError);
   });
 

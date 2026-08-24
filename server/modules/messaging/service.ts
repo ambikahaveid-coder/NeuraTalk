@@ -17,6 +17,7 @@ import {
   messagingEvents,
   users,
   organizations,
+  customers,
   MESSAGING_CONVERSATION_TYPE,
   MESSAGING_PARTICIPANT_TYPE,
   MESSAGE_CATEGORY,
@@ -61,17 +62,22 @@ export class SenderIdentityMismatchError extends Error {
 }
 
 /**
- * Phase 0 only supports participant types with a real backing table to
+ * Phase 0 only supported participant types with a real backing table to
  * validate against ("strict application-layer validation before accepting
  * the participant" -- participantId is polymorphic and carries no DB FK,
- * see doc 24 section 13). `customer` and `ai_agent` have no backing table
- * until later phases and are deliberately rejected here, not silently
- * accepted with an unvalidated reference.
+ * see doc 24 section 13). `ai_agent` still has no backing table and is
+ * deliberately rejected here, not silently accepted with an unvalidated
+ * reference. `customer` gained a real backing table in Phase 4 -- its
+ * validation additionally requires `businessId` (passed by the caller, the
+ * only participant type that needs it here since USER/BUSINESS ownership
+ * isn't scoped the same way) to confirm the customer belongs to the SAME
+ * business as this conversation, not just that the row exists somewhere.
  */
 async function assertValidParticipant(
   tx: Pick<typeof db, "select">,
   participantType: string,
   participantId: number,
+  businessId?: number,
 ): Promise<void> {
   if (participantType === MESSAGING_PARTICIPANT_TYPE.USER) {
     const [row] = await tx.select({ id: users.id }).from(users).where(eq(users.id, participantId));
@@ -83,11 +89,19 @@ async function assertValidParticipant(
     if (!row) throw new InvalidParticipantError(participantType);
     return;
   }
+  if (participantType === MESSAGING_PARTICIPANT_TYPE.CUSTOMER) {
+    const conditions = [eq(customers.id, participantId)];
+    if (businessId !== undefined) conditions.push(eq(customers.businessId, businessId));
+    const [row] = await tx.select({ id: customers.id }).from(customers).where(and(...conditions));
+    if (!row) throw new InvalidParticipantError(participantType);
+    return;
+  }
   throw new InvalidParticipantError(participantType);
 }
 
 export interface CreateBusinessConversationInput {
   businessId: number;
+  customerId?: number; // Phase 4/5: when set, wires businessConversations.customerId and is also validated/added as a CUSTOMER-type participant
   additionalParticipants?: Array<{ participantType: MessagingParticipantType; participantId: number; role?: string }>;
 }
 
@@ -95,6 +109,73 @@ export interface CreateBusinessConversationResult {
   businessConversation: typeof businessConversations.$inferSelect;
   conversation: typeof messagingConversations.$inferSelect;
   participants: (typeof messagingParticipants.$inferSelect)[];
+}
+
+// Same DbLike convention as templates/approvals -- lets this run either
+// standalone (own transaction) or composed inside a caller's own
+// transaction (Phase 5's campaign send path).
+type DbLike = Pick<typeof db, "select" | "update" | "insert">;
+
+async function createBusinessConversationTx(
+  tx: DbLike,
+  input: CreateBusinessConversationInput,
+): Promise<CreateBusinessConversationResult> {
+  const [business] = await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.businessId));
+  if (!business) throw new NotFoundError("Business not found");
+
+  if (input.customerId !== undefined) {
+    await assertValidParticipant(tx, MESSAGING_PARTICIPANT_TYPE.CUSTOMER, input.customerId, input.businessId);
+  }
+
+  const [conversation] = await tx.insert(messagingConversations).values({
+    type: MESSAGING_CONVERSATION_TYPE.BUSINESS,
+    organizationId: input.businessId,
+  }).returning();
+
+  const [bizConversation] = await tx.insert(businessConversations).values({
+    conversationId: conversation.id,
+    businessId: input.businessId,
+    customerId: input.customerId ?? null,
+  }).returning();
+
+  const participants: (typeof messagingParticipants.$inferSelect)[] = [];
+
+  const [businessParticipant] = await tx.insert(messagingParticipants).values({
+    conversationId: conversation.id,
+    participantType: MESSAGING_PARTICIPANT_TYPE.BUSINESS,
+    participantId: input.businessId,
+    role: "business",
+  }).returning();
+  participants.push(businessParticipant);
+
+  if (input.customerId !== undefined) {
+    const [customerParticipant] = await tx.insert(messagingParticipants).values({
+      conversationId: conversation.id,
+      participantType: MESSAGING_PARTICIPANT_TYPE.CUSTOMER,
+      participantId: input.customerId,
+      role: "customer",
+    }).returning();
+    participants.push(customerParticipant);
+  }
+
+  for (const p of input.additionalParticipants ?? []) {
+    await assertValidParticipant(tx, p.participantType, p.participantId, input.businessId);
+    const [row] = await tx.insert(messagingParticipants).values({
+      conversationId: conversation.id,
+      participantType: p.participantType,
+      participantId: p.participantId,
+      role: p.role,
+    }).returning();
+    participants.push(row);
+  }
+
+  await tx.insert(messagingEvents).values({
+    conversationId: conversation.id,
+    eventType: MESSAGE_EVENT_TYPE.CONVERSATION_CREATED,
+    payload: { businessId: input.businessId },
+  });
+
+  return { businessConversation: bizConversation, conversation, participants };
 }
 
 /**
@@ -106,49 +187,33 @@ export interface CreateBusinessConversationResult {
 export async function createBusinessConversation(
   input: CreateBusinessConversationInput,
 ): Promise<CreateBusinessConversationResult> {
-  return db.transaction(async (tx) => {
-    const [business] = await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.businessId));
-    if (!business) throw new NotFoundError("Business not found");
+  return db.transaction((tx) => createBusinessConversationTx(tx, input));
+}
 
-    const [conversation] = await tx.insert(messagingConversations).values({
-      type: MESSAGING_CONVERSATION_TYPE.BUSINESS,
-      organizationId: input.businessId,
-    }).returning();
+/**
+ * Returns the existing businessConversation between this business and this
+ * customer if one exists, otherwise creates one -- used by the campaign
+ * send path (Phase 5) so a customer accumulates ONE ongoing conversation
+ * with a business across multiple campaigns/messages, not a new one per
+ * send. `tx` is required (not defaulted) so callers compose this inside
+ * their own transaction, keeping "find-or-create conversation" + "create
+ * message" + "charge" atomic together.
+ */
+export async function findOrCreateCustomerConversation(
+  tx: DbLike,
+  businessId: number,
+  customerId: number,
+): Promise<CreateBusinessConversationResult> {
+  const [existing] = await tx.select().from(businessConversations)
+    .where(and(eq(businessConversations.businessId, businessId), eq(businessConversations.customerId, customerId)));
 
-    const [bizConversation] = await tx.insert(businessConversations).values({
-      conversationId: conversation.id,
-      businessId: input.businessId,
-    }).returning();
+  if (existing) {
+    const [conversation] = await tx.select().from(messagingConversations).where(eq(messagingConversations.id, existing.conversationId));
+    const participants = await tx.select().from(messagingParticipants).where(eq(messagingParticipants.conversationId, existing.conversationId));
+    return { businessConversation: existing, conversation, participants };
+  }
 
-    const participants: (typeof messagingParticipants.$inferSelect)[] = [];
-
-    const [businessParticipant] = await tx.insert(messagingParticipants).values({
-      conversationId: conversation.id,
-      participantType: MESSAGING_PARTICIPANT_TYPE.BUSINESS,
-      participantId: input.businessId,
-      role: "business",
-    }).returning();
-    participants.push(businessParticipant);
-
-    for (const p of input.additionalParticipants ?? []) {
-      await assertValidParticipant(tx, p.participantType, p.participantId);
-      const [row] = await tx.insert(messagingParticipants).values({
-        conversationId: conversation.id,
-        participantType: p.participantType,
-        participantId: p.participantId,
-        role: p.role,
-      }).returning();
-      participants.push(row);
-    }
-
-    await tx.insert(messagingEvents).values({
-      conversationId: conversation.id,
-      eventType: MESSAGE_EVENT_TYPE.CONVERSATION_CREATED,
-      payload: { businessId: input.businessId },
-    });
-
-    return { businessConversation: bizConversation, conversation, participants };
-  });
+  return createBusinessConversationTx(tx, { businessId, customerId });
 }
 
 /**
