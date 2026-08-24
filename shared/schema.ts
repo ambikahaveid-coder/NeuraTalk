@@ -3656,3 +3656,54 @@ export const templateVersions = pgTable("template_versions", {
 
 export type Template = typeof templates.$inferSelect;
 export type TemplateVersion = typeof templateVersions.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// GENERIC APPROVAL CENTER (Phase 3, 2026-08-24)
+//
+// See docs/neura-ecosystem/28_GENERIC_APPROVAL_CENTER_IMPLEMENTATION.md.
+// One table only -- "smallest model that fits," per the approved scope.
+// No ApprovalPolicy/ApprovalStep/ApprovalActor tables: policy is a small,
+// typed, code-level registry (server/modules/approvals/policy.ts) keyed by
+// resourceType, since exactly one domain (templates) registers a policy in
+// this phase and a DB-backed policy table would be pure speculation for
+// domains that don't exist yet (refunds/white-label/etc, explicitly out of
+// scope). Multi-step approval is NOT implemented -- single decision per
+// request, matching what Template approval actually needs; the resourceType
+// registry itself is what makes future domains (and, if one of them truly
+// needs multi-step, a second table added additively then) possible without
+// rewriting this core.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const APPROVAL_REQUEST_STATUS = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  CANCELLED: "cancelled",
+} as const;
+export type ApprovalRequestStatus = typeof APPROVAL_REQUEST_STATUS[keyof typeof APPROVAL_REQUEST_STATUS];
+
+export const approvalRequests = pgTable("approval_requests", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  resourceType: text("resource_type").notNull(), // registry key, e.g. "template_version" -- server-governed, see policy.ts
+  resourceId: integer("resource_id").notNull(), // polymorphic, same documented tradeoff as messagingParticipants.participantId (Phase 0)
+  requestedBy: integer("requested_by").notNull().references(() => users.id),
+  status: text("status").notNull().default(APPROVAL_REQUEST_STATUS.PENDING),
+  decidedBy: integer("decided_by").references(() => users.id),
+  decidedAt: timestamp("decided_at"),
+  reason: text("reason"), // rejection reason / decision comment
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("approval_requests_business_idx").on(t.businessId),
+  index("approval_requests_resource_idx").on(t.resourceType, t.resourceId),
+  index("approval_requests_status_idx").on(t.status),
+  // Defense-in-depth against a duplicate PENDING request for the same
+  // resource (structurally already prevented by the Template domain's own
+  // DRAFT->SUBMITTED guard, since a version can't be re-submitted while
+  // already SUBMITTED -- this index is a second, DB-level guarantee).
+  uniqueIndex("approval_requests_one_pending_per_resource_idx")
+    .on(t.resourceType, t.resourceId)
+    .where(sql`status = 'pending'`),
+]);
+
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;

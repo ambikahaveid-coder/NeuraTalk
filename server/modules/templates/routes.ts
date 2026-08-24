@@ -1,6 +1,16 @@
 /**
- * Business Message Template Engine -- Phase 2 API surface.
- * See docs/neura-ecosystem/27_BUSINESS_TEMPLATE_ENGINE_IMPLEMENTATION.md.
+ * Business Message Template Engine -- Phase 2 API surface, updated Phase 3
+ * (2026-08-24) to remove submit/approve/reject as directly-reachable routes.
+ * See docs/neura-ecosystem/27_BUSINESS_TEMPLATE_ENGINE_IMPLEMENTATION.md and
+ * docs/neura-ecosystem/28_GENERIC_APPROVAL_CENTER_IMPLEMENTATION.md.
+ *
+ * Submitting a draft for review and deciding it (approve/reject) now happen
+ * exclusively through the Approval Center's generic routes
+ * (server/modules/approvals/routes.ts) -- POST .../approvals with
+ * resourceType "template_version" to submit, POST .../approvals/:id/approve
+ * or /reject to decide. This module intentionally has no route for either
+ * action anymore, so there is only one HTTP path into approval-state logic,
+ * not two.
  *
  * No send/campaign routes exist here (out of scope, Phase 5). No route
  * accepts a sender identity of any kind, per doc 25.
@@ -12,7 +22,6 @@ import * as ctrl from "./controller";
 
 export function registerTemplateRoutes(app: Express): void {
   const manage = [requireAuth, requireCompanyAccess("businessId"), requirePermission(PERMISSIONS.TEMPLATES_MANAGE)];
-  const approve = [requireAuth, requireCompanyAccess("businessId"), requirePermission(PERMISSIONS.TEMPLATES_APPROVE)];
   // Viewing/previewing is available to either role -- an approver must be
   // able to read what they're deciding on, an author must be able to see
   // their own drafts.
@@ -25,9 +34,6 @@ export function registerTemplateRoutes(app: Express): void {
   app.put("/api/business/:businessId/templates/:templateId/draft", ...manage, ctrl.putDraftVersion);
   app.get("/api/business/:businessId/templates/:templateId/versions", ...view, ctrl.getVersions);
 
-  app.post("/api/business/:businessId/templates/:templateId/versions/:versionId/submit", ...manage, ctrl.postSubmitVersion);
-  app.post("/api/business/:businessId/templates/:templateId/versions/:versionId/approve", ...approve, ctrl.postApproveVersion);
-  app.post("/api/business/:businessId/templates/:templateId/versions/:versionId/reject", ...approve, ctrl.postRejectVersion);
   app.post("/api/business/:businessId/templates/:templateId/versions/:versionId/return-to-draft", ...manage, ctrl.postReturnToDraft);
   app.post("/api/business/:businessId/templates/:templateId/versions/:versionId/archive", ...manage, ctrl.postArchiveVersion);
 

@@ -4,9 +4,9 @@ import { logger } from "../../observability";
 import {
   createTemplate, listTemplates, getTemplate,
   createOrEditDraftVersion, listVersions,
-  submitVersion, approveVersion, rejectVersion, returnToDraft, archiveVersion,
+  returnToDraft, archiveVersion,
   previewVersion,
-  NotFoundError, ValidationError, SelfApprovalError, IllegalTemplateTransitionError,
+  NotFoundError, ValidationError, IllegalTemplateTransitionError,
 } from "./service";
 import { TemplateContentError, TemplateRenderError } from "./render";
 import { MESSAGE_CATEGORY } from "@shared/schema";
@@ -25,7 +25,6 @@ function handleServiceError(res: Response, error: unknown, fallbackMessage: stri
   if (error instanceof TemplateContentError) return badRequest(res, error.message);
   if (error instanceof TemplateRenderError) return badRequest(res, error.message);
   if (error instanceof IllegalTemplateTransitionError) return res.status(409).json({ success: false, error: error.message });
-  if (error instanceof SelfApprovalError) return res.status(403).json({ success: false, error: error.message });
   logger.error("Templates", fallbackMessage, error as Error);
   return res.status(500).json({ success: false, error: fallbackMessage });
 }
@@ -125,42 +124,14 @@ function versionAction(fn: (businessId: number, actorUserId: number, templateId:
   };
 }
 
-export const postSubmitVersion = versionAction(submitVersion);
+// Submit/approve/reject are NOT exposed here as routes (Phase 3, doc 28
+// section 8) -- they are now reached exclusively through the Approval
+// Center's generic routes (server/modules/approvals/routes.ts), which call
+// back into service.ts's submitVersion/approveVersion/rejectVersion inside
+// its own transaction. This avoids the same approval action being callable
+// through two independent HTTP paths.
 export const postReturnToDraft = versionAction(returnToDraft);
 export const postArchiveVersion = versionAction(archiveVersion);
-
-export async function postApproveVersion(req: Request, res: Response) {
-  const businessId = parseId(req.params.businessId);
-  const templateId = parseId(req.params.templateId);
-  const versionId = parseId(req.params.versionId);
-  if (businessId === null || templateId === null || versionId === null) return badRequest(res, "Invalid id");
-
-  try {
-    const isSuperAdmin = req.user?.role === "super_admin";
-    const version = await approveVersion(businessId, req.user!.id, templateId, versionId, isSuperAdmin);
-    return res.json({ success: true, version });
-  } catch (error) {
-    return handleServiceError(res, error, "Failed to approve version");
-  }
-}
-
-const rejectSchema = z.object({ reason: z.string().trim().min(1).max(1000) }).strict();
-
-export async function postRejectVersion(req: Request, res: Response) {
-  const businessId = parseId(req.params.businessId);
-  const templateId = parseId(req.params.templateId);
-  const versionId = parseId(req.params.versionId);
-  if (businessId === null || templateId === null || versionId === null) return badRequest(res, "Invalid id");
-  const parsed = rejectSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
-
-  try {
-    const version = await rejectVersion(businessId, req.user!.id, templateId, versionId, parsed.data.reason);
-    return res.json({ success: true, version });
-  } catch (error) {
-    return handleServiceError(res, error, "Failed to reject version");
-  }
-}
 
 const previewSchema = z.object({ values: z.record(z.string(), z.unknown()).default({}) }).strict();
 

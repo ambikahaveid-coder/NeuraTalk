@@ -64,6 +64,8 @@ import { registerRateLimitAdminRoutes } from "./modules/rate-limits/routes";
 import { registerMessagingRoutes } from "./modules/messaging/routes";
 import { registerBusinessProfileRoutes } from "./modules/business-profile/routes";
 import { registerTemplateRoutes } from "./modules/templates/routes";
+import "./modules/templates/approval-policy"; // side-effect: registers "template_version" with the Approval Center
+import { registerApprovalRoutes } from "./modules/approvals/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
 import { registerEnterpriseAdminRoutes } from "./modules/enterprise-admin/routes";
@@ -185,6 +187,7 @@ export async function registerRoutes(
   registerMessagingRoutes(app); console.log("[Routes] ✓ Canonical business messaging routes (Phase 0)");
   registerBusinessProfileRoutes(app); console.log("[Routes] ✓ Business profile + branding routes (Phase 1)");
   registerTemplateRoutes(app); console.log("[Routes] ✓ Business message template engine routes (Phase 2)");
+  registerApprovalRoutes(app); console.log("[Routes] ✓ Generic approval center routes (Phase 3)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
   registerEnterpriseAdminRoutes(app); console.log("[Routes] ✓ Enterprise Admin routes (departments/branches/teams/IVR/queues/PBX/presence)");

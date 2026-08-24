@@ -218,7 +218,7 @@ describe("4-5. Draft editing and version creation", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v1 = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v1.id);
-    await approveVersion(1, 99, t.id, v1.id, false); // different approver, not self
+    await approveVersion(1, 99, t.id, v1.id); // different approver, not self
 
     const v2 = await createOrEditDraftVersion(1, 42, t.id, { content: "Updated {{customer_name}}", variables: VARS });
     expect(v2.id).not.toBe(v1.id);
@@ -236,7 +236,7 @@ describe("4-5. Draft editing and version creation", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "authentication" });
     const v1 = await createOrEditDraftVersion(1, 42, t.id, { content: "OTP: {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v1.id);
-    await approveVersion(1, 99, t.id, v1.id, false);
+    await approveVersion(1, 99, t.id, v1.id);
 
     const before = { ...tables.get("templateVersions")!.find((r) => r.id === v1.id)! };
     await createOrEditDraftVersion(1, 42, t.id, { content: "totally different", variables: [] });
@@ -262,7 +262,7 @@ describe("4-5. Draft editing and version creation", () => {
     const en = await createOrEditDraftVersion(1, 42, t.id, { language: "en", content: "Hi {{customer_name}}", variables: VARS });
     await createOrEditDraftVersion(1, 42, t.id, { language: "hi", content: "Namaste {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, en.id);
-    await approveVersion(1, 99, t.id, en.id, false);
+    await approveVersion(1, 99, t.id, en.id);
 
     const fetched = await getTemplate(1, t.id);
     const hiVersion = fetched!.versions.find((v: any) => v.language === "hi")!;
@@ -285,7 +285,7 @@ describe("6-9. Submit / Approve / Reject / Archive lifecycle", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v.id);
-    const approved = await approveVersion(1, 99, t.id, v.id, false);
+    const approved = await approveVersion(1, 99, t.id, v.id);
     expect(approved.status).toBe("approved");
     expect(approved.decidedBy).toBe(99);
   });
@@ -306,7 +306,7 @@ describe("6-9. Submit / Approve / Reject / Archive lifecycle", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v.id);
-    await approveVersion(1, 99, t.id, v.id, false);
+    await approveVersion(1, 99, t.id, v.id);
     const archived = await archiveVersion(1, 99, t.id, v.id);
     expect(archived.status).toBe("archived");
     expect(archived.archivedBy).toBe(99);
@@ -333,7 +333,7 @@ describe("10. Illegal state transitions", () => {
     const { createTemplate, createOrEditDraftVersion, approveVersion, IllegalTemplateTransitionError } = await import("../../server/modules/templates/service");
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
-    await expect(approveVersion(1, 99, t.id, v.id, false)).rejects.toThrow(IllegalTemplateTransitionError);
+    await expect(approveVersion(1, 99, t.id, v.id)).rejects.toThrow(IllegalTemplateTransitionError);
   });
 
   it("cannot archive a SUBMITTED version (must be decided first)", async () => {
@@ -349,7 +349,7 @@ describe("10. Illegal state transitions", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v.id);
-    await approveVersion(1, 99, t.id, v.id, false);
+    await approveVersion(1, 99, t.id, v.id);
     await archiveVersion(1, 99, t.id, v.id);
     await expect(archiveVersion(1, 99, t.id, v.id)).rejects.toThrow(IllegalTemplateTransitionError);
   });
@@ -386,30 +386,18 @@ describe("11. Tenant isolation", () => {
   });
 });
 
-describe("12-13. RBAC and separation of duties (self-approval)", () => {
-  it("13. the same user who submitted a version cannot approve it (self-approval blocked)", async () => {
-    const { createTemplate, createOrEditDraftVersion, submitVersion, approveVersion, SelfApprovalError } = await import("../../server/modules/templates/service");
-    const t = await createTemplate(1, 42, { name: "a", category: "utility" });
-    const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
-    await submitVersion(1, 42, t.id, v.id);
-    await expect(approveVersion(1, 42, t.id, v.id, false)).rejects.toThrow(SelfApprovalError);
-  });
-
-  it("a different user (or super_admin) CAN approve someone else's submission", async () => {
+describe("RBAC: approveVersion/rejectVersion no longer self-check (moved to the Approval Center, Phase 3)", () => {
+  // Self-approval enforcement moved ENTIRELY to server/modules/approvals/service.ts
+  // as of Phase 3 -- see tests/unit/approvals.test.ts for that coverage.
+  // templates/service.ts's approveVersion is now a pure state-transition
+  // function, callable by anyone who can reach it (the Approval Center is
+  // the only caller in production, via its own policy-checked decide()).
+  it("approveVersion performs the transition regardless of who submitted (no self-check here anymore -- verifies the refactor, not a security gap)", async () => {
     const { createTemplate, createOrEditDraftVersion, submitVersion, approveVersion } = await import("../../server/modules/templates/service");
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v.id);
-    const approved = await approveVersion(1, 99, t.id, v.id, false);
-    expect(approved.status).toBe("approved");
-  });
-
-  it("super_admin bypasses the self-approval guard (matches the existing project-wide super_admin convention)", async () => {
-    const { createTemplate, createOrEditDraftVersion, submitVersion, approveVersion } = await import("../../server/modules/templates/service");
-    const t = await createTemplate(1, 42, { name: "a", category: "utility" });
-    const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
-    await submitVersion(1, 42, t.id, v.id);
-    const approved = await approveVersion(1, 42, t.id, v.id, true); // same user, but isSuperAdmin=true
+    const approved = await approveVersion(1, 42, t.id, v.id); // same user who submitted -- allowed at THIS layer
     expect(approved.status).toBe("approved");
   });
 });
@@ -482,7 +470,7 @@ describe("19. Audit logging", () => {
     const t = await createTemplate(1, 42, { name: "a", category: "utility" });
     const v = await createOrEditDraftVersion(1, 42, t.id, { content: "Hi {{customer_name}}", variables: VARS });
     await submitVersion(1, 42, t.id, v.id);
-    await approveVersion(1, 99, t.id, v.id, false);
+    await approveVersion(1, 99, t.id, v.id);
     await archiveVersion(1, 99, t.id, v.id);
 
     const actions = auditCalls.map((c) => c.action);

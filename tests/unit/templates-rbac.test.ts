@@ -138,50 +138,11 @@ describe("Controller: mass assignment, sender-identity absence, illegal-transiti
     expect(res.statusCode).toBe(400);
   });
 
-  it("postApproveVersion maps IllegalTemplateTransitionError to 409 (not 500)", async () => {
-    const service = await import("../../server/modules/templates/service");
-    const { IllegalTemplateTransitionError } = service as any;
-    (service.approveVersion as any).mockRejectedValue(new IllegalTemplateTransitionError());
-
-    const ctrl = await import("../../server/modules/templates/controller");
-    const { req, res } = makeReqRes({ id: 42, role: "company_admin" });
-    req.params.businessId = "1"; req.params.templateId = "1"; req.params.versionId = "1";
-    await ctrl.postApproveVersion(req, res);
-    expect(res.statusCode).toBe(409);
-  });
-
-  it("postApproveVersion maps SelfApprovalError to 403", async () => {
-    const service = await import("../../server/modules/templates/service");
-    const { SelfApprovalError } = service as any;
-    (service.approveVersion as any).mockRejectedValue(new SelfApprovalError());
-
-    const ctrl = await import("../../server/modules/templates/controller");
-    const { req, res } = makeReqRes({ id: 42, role: "company_admin" });
-    req.params.businessId = "1"; req.params.templateId = "1"; req.params.versionId = "1";
-    await ctrl.postApproveVersion(req, res);
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("postApproveVersion passes isSuperAdmin correctly from req.user.role, never from the request body", async () => {
-    const service = await import("../../server/modules/templates/service");
-    (service.approveVersion as any).mockResolvedValue({ status: "approved" });
-
-    const ctrl = await import("../../server/modules/templates/controller");
-    const { req, res } = makeReqRes({ id: 42, role: "company_admin" }); // NOT super_admin
-    req.params.businessId = "1"; req.params.templateId = "1"; req.params.versionId = "1";
-    req.body = { isSuperAdmin: true }; // attempted smuggle via body -- controller doesn't even read this
-    await ctrl.postApproveVersion(req, res);
-
-    const callArgs = (service.approveVersion as any).mock.calls[0];
-    expect(callArgs[4]).toBe(false); // isSuperAdmin resolved from req.user.role, not body
-  });
-
-  it("postRejectVersion requires a non-empty reason", async () => {
-    const ctrl = await import("../../server/modules/templates/controller");
-    const { req, res } = makeReqRes({ id: 42 });
-    req.params.businessId = "1"; req.params.templateId = "1"; req.params.versionId = "1";
-    req.body = { reason: "" };
-    await ctrl.postRejectVersion(req, res);
-    expect(res.statusCode).toBe(400);
-  });
+  // postApproveVersion/postRejectVersion no longer exist as controller
+  // functions (Phase 3, doc 28 section 8) -- submit/approve/reject moved
+  // entirely to the Approval Center's generic routes. See
+  // tests/unit/approvals-rbac.test.ts for the equivalent coverage there
+  // (IllegalTemplateTransitionError/SelfApprovalError mapping,
+  // isSuperAdmin resolved from req.user.role not the body, reason
+  // validation on reject).
 });

@@ -30,13 +30,13 @@ export class ValidationError extends Error {
     this.name = "ValidationError";
   }
 }
-export class SelfApprovalError extends Error {
-  constructor() {
-    super("You cannot approve a template version you submitted yourself");
-    this.name = "SelfApprovalError";
-  }
-}
 export { IllegalTemplateTransitionError };
+
+// A transaction-capable subset of `db` -- lets these functions run either
+// standalone (default, own transaction) or composed inside the Approval
+// Center's own transaction (Phase 3), matching the existing
+// Pick<typeof db, ...> convention already used in billing-engine.ts.
+type DbLike = Pick<typeof db, "select" | "update" | "insert">;
 
 function assertValidCategory(category: string): asserts category is MessageCategory {
   if (!Object.values(MESSAGE_CATEGORY).includes(category as MessageCategory)) {
@@ -89,8 +89,8 @@ export async function getTemplate(businessId: number, templateId: number) {
   return { ...t, versions };
 }
 
-async function getOwnedTemplate(businessId: number, templateId: number) {
-  const [t] = await db.select().from(templates).where(and(eq(templates.id, templateId), eq(templates.businessId, businessId)));
+async function getOwnedTemplate(businessId: number, templateId: number, dbClient: DbLike = db) {
+  const [t] = await dbClient.select().from(templates).where(and(eq(templates.id, templateId), eq(templates.businessId, businessId)));
   if (!t) throw new NotFoundError("Template not found");
   return t;
 }
@@ -168,18 +168,34 @@ export async function listVersions(businessId: number, templateId: number, langu
   return db.select().from(templateVersions).where(and(...conditions)).orderBy(desc(templateVersions.versionNumber));
 }
 
-async function getOwnedVersion(businessId: number, templateId: number, versionId: number) {
-  await getOwnedTemplate(businessId, templateId);
-  const [v] = await db.select().from(templateVersions).where(and(eq(templateVersions.id, versionId), eq(templateVersions.templateId, templateId)));
+async function getOwnedVersion(businessId: number, templateId: number, versionId: number, dbClient: DbLike = db) {
+  await getOwnedTemplate(businessId, templateId, dbClient);
+  const [v] = await dbClient.select().from(templateVersions).where(and(eq(templateVersions.id, versionId), eq(templateVersions.templateId, templateId)));
   if (!v) throw new NotFoundError("Template version not found");
   return v;
 }
 
-export async function submitVersion(businessId: number, actorUserId: number, templateId: number, versionId: number) {
-  const version = await getOwnedVersion(businessId, templateId, versionId);
+/**
+ * Submit/approve/reject are no longer independently reachable as their own
+ * HTTP routes (Phase 3, 2026-08-24) -- they are now called ONLY from
+ * server/modules/approvals/service.ts's policy callbacks for resourceType
+ * "template_version", inside the Approval Center's own transaction (`tx`
+ * param). This is the single place approval-state logic exists; see doc 28
+ * section 8 for why the self-approval check moved entirely to the Approval
+ * Center (it used to also live here in Phase 2 -- keeping it in both places
+ * would have been exactly the "two independent systems" duplication Phase 3
+ * was explicitly told not to create).
+ *
+ * These functions remain exported (not folded into the approvals module)
+ * because the Template domain still owns its own resource state transition
+ * per the approved design -- the Approval Center calls them, it doesn't
+ * reimplement them.
+ */
+export async function submitVersion(businessId: number, actorUserId: number, templateId: number, versionId: number, tx: DbLike = db) {
+  const version = await getOwnedVersion(businessId, templateId, versionId, tx);
   assertLegalTemplateTransition(version.status as any, TEMPLATE_VERSION_STATUS.SUBMITTED);
 
-  const [updated] = await db.update(templateVersions).set({
+  const [updated] = await tx.update(templateVersions).set({
     status: TEMPLATE_VERSION_STATUS.SUBMITTED,
     submittedBy: actorUserId,
     submittedAt: new Date(),
@@ -189,23 +205,11 @@ export async function submitVersion(businessId: number, actorUserId: number, tem
   return updated;
 }
 
-/**
- * Separation of duties (documented decision, doc 27 section 8): the same
- * user who submitted a version cannot approve it, even if they hold
- * TEMPLATES_APPROVE -- enforced here, at the resource level, since
- * permissions are role-based and can't express "not your own submission."
- * super_admin is exempted, matching the existing project-wide convention
- * (hasRequestedPermission already grants super_admin "*" everywhere else).
- */
-export async function approveVersion(businessId: number, actorUserId: number, templateId: number, versionId: number, isSuperAdmin: boolean) {
-  const version = await getOwnedVersion(businessId, templateId, versionId);
+export async function approveVersion(businessId: number, actorUserId: number, templateId: number, versionId: number, tx: DbLike = db) {
+  const version = await getOwnedVersion(businessId, templateId, versionId, tx);
   assertLegalTemplateTransition(version.status as any, TEMPLATE_VERSION_STATUS.APPROVED);
 
-  if (!isSuperAdmin && version.submittedBy === actorUserId) {
-    throw new SelfApprovalError();
-  }
-
-  const [updated] = await db.update(templateVersions).set({
+  const [updated] = await tx.update(templateVersions).set({
     status: TEMPLATE_VERSION_STATUS.APPROVED,
     decidedBy: actorUserId,
     decidedAt: new Date(),
@@ -215,13 +219,13 @@ export async function approveVersion(businessId: number, actorUserId: number, te
   return updated;
 }
 
-export async function rejectVersion(businessId: number, actorUserId: number, templateId: number, versionId: number, reason: string) {
+export async function rejectVersion(businessId: number, actorUserId: number, templateId: number, versionId: number, reason: string, tx: DbLike = db) {
   if (!reason || !reason.trim()) throw new ValidationError("A rejection reason is required");
 
-  const version = await getOwnedVersion(businessId, templateId, versionId);
+  const version = await getOwnedVersion(businessId, templateId, versionId, tx);
   assertLegalTemplateTransition(version.status as any, TEMPLATE_VERSION_STATUS.REJECTED);
 
-  const [updated] = await db.update(templateVersions).set({
+  const [updated] = await tx.update(templateVersions).set({
     status: TEMPLATE_VERSION_STATUS.REJECTED,
     decidedBy: actorUserId,
     decidedAt: new Date(),
@@ -230,6 +234,15 @@ export async function rejectVersion(businessId: number, actorUserId: number, tem
 
   await createAuditLog(actorUserId, businessId, AUDIT_ACTION_TEMPLATE.REJECTED, templateId, versionId, { language: version.language, versionNumber: version.versionNumber, reason });
   return updated;
+}
+
+/** Resolves the owning businessId for a template version, given only its id -- used by the Approval Center's policy to verify resource/business ownership without needing the templateId the caller may not have. */
+export async function getVersionBusinessId(versionId: number, dbClient: DbLike = db): Promise<{ businessId: number; templateId: number } | null> {
+  const [v] = await dbClient.select().from(templateVersions).where(eq(templateVersions.id, versionId));
+  if (!v) return null;
+  const [t] = await dbClient.select().from(templates).where(eq(templates.id, v.templateId));
+  if (!t) return null;
+  return { businessId: t.businessId, templateId: t.id };
 }
 
 /** REJECTED -> DRAFT. Same version row (not a new one) -- see lifecycle.ts's doc comment for why. */
