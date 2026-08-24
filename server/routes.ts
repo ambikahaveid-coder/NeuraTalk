@@ -71,6 +71,7 @@ import { registerAudienceRoutes } from "./modules/audiences/routes";
 import "./modules/campaigns/approval-policy"; // side-effect: registers "campaign" with the Approval Center
 import { registerCampaignRoutes } from "./modules/campaigns/routes";
 import { registerOtpRoutes } from "./modules/otp/routes";
+import { registerUtilityRoutes } from "./modules/utility/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
 import { registerEnterpriseAdminRoutes } from "./modules/enterprise-admin/routes";
@@ -197,6 +198,7 @@ export async function registerRoutes(
   registerAudienceRoutes(app); console.log("[Routes] ✓ Business audiences routes (Phase 4)");
   registerCampaignRoutes(app); console.log("[Routes] ✓ Business campaign engine routes (Phase 5)");
   registerOtpRoutes(app); console.log("[Routes] ✓ Business OTP/authentication routes (Phase 6)");
+  registerUtilityRoutes(app); console.log("[Routes] ✓ Business utility messaging routes (Phase 7)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
   registerEnterpriseAdminRoutes(app); console.log("[Routes] ✓ Enterprise Admin routes (departments/branches/teams/IVR/queues/PBX/presence)");

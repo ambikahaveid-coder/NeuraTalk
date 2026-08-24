@@ -343,6 +343,14 @@ export const PERMISSIONS = {
   // (doc 31 section 19).
   OTP_MANAGE: "otp:manage",
   OTP_VIEW: "otp:view",
+
+  // Business utility messaging (Phase 7). Deliberately ONLY a view
+  // permission -- utility messages are never manually triggered by a
+  // human via any permission-gated action (doc 32 section 18 explicitly
+  // prohibits a permission that means "can send any utility message");
+  // template authoring/approval for category=UTILITY templates already
+  // reuses TEMPLATES_MANAGE/TEMPLATES_APPROVE unchanged.
+  UTILITY_VIEW: "utility:view",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -4116,3 +4124,96 @@ export const businessOtpDeliveries = pgTable("business_otp_deliveries", {
   index("business_otp_deliveries_challenge_idx").on(t.challengeId),
 ]);
 export type BusinessOtpDelivery = typeof businessOtpDeliveries.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS UTILITY MESSAGING (Phase 7, 2026-08-24)
+//
+// See docs/neura-ecosystem/32_BUSINESS_UTILITY_MESSAGING_IMPLEMENTATION.md.
+// Utility = legitimate operational/service communication triggered by a
+// REAL business event (booking, order, payment, service/account event) --
+// never a marketing broadcast, never an auth code. The pre-implementation
+// audit (doc 32 section 1) found NO existing booking/order/payment event
+// in this codebase that already resolves an end-customer (a Phase 4
+// `customers` row) -- call-lifecycle events exist and are real, but
+// resolve only an organizationId, not a specific customer, without new
+// phone-matching logic this phase deliberately does not build (documented
+// extension point, not a fabricated integration). `businessUtilityEvents`
+// is therefore built as the RECEIVING abstraction a real future event
+// producer calls into (an internal server-side function, `triggerUtility
+// Message`, never a public HTTP trigger route -- see section 4), not as a
+// demonstration wired to an invented producer.
+//
+// This table doubles as BOTH the idempotency ledger (unique on
+// businessId+eventType+eventReference) AND the audit/reporting substrate
+// -- there is no separate "utility policy" table, since the policy IS the
+// template's own category+approval state, already governed by Phase 2/3.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const UTILITY_EVENT_TYPE = {
+  BOOKING_CONFIRMATION: "booking_confirmation",
+  BOOKING_UPDATE: "booking_update",
+  ORDER_STATUS_UPDATE: "order_status_update",
+  PAYMENT_RECEIPT: "payment_receipt",
+  SERVICE_REMINDER: "service_reminder",
+  APPOINTMENT_REMINDER: "appointment_reminder",
+  ACCOUNT_NOTIFICATION: "account_notification",
+  DELIVERY_STATUS_UPDATE: "delivery_status_update",
+} as const;
+export type UtilityEventType = typeof UTILITY_EVENT_TYPE[keyof typeof UTILITY_EVENT_TYPE];
+
+// Deliberately only 2 terminal states -- triggerUtilityMessage resolves
+// synchronously within one transaction (no long-running worker, no
+// PROCESSING window to persist), so "do not create unnecessary workflow
+// states" (doc 32 section 16) rules out a PENDING/PROCESSING value. The
+// row is inserted with status=FAILED as its safe provisional default (the
+// insert itself is what atomically claims the idempotency key -- see
+// section 11) and is only ever promoted to CREATED after the canonical
+// message is actually, successfully created in the same transaction --
+// meaning a crash mid-processing is correctly indistinguishable from a
+// real failure from the outside, never silently reported as success.
+export const UTILITY_MESSAGE_STATUS = {
+  CREATED: "created",
+  FAILED: "failed",
+} as const;
+export type UtilityMessageStatus = typeof UTILITY_MESSAGE_STATUS[keyof typeof UTILITY_MESSAGE_STATUS];
+
+// Governed vocabulary for why a triggered event did NOT produce a
+// message -- same convention as CAMPAIGN_SKIP_REASON.
+export const UTILITY_FAILURE_REASON = {
+  CUSTOMER_BLOCKED: "customer_blocked",
+  CUSTOMER_ARCHIVED: "customer_archived",
+  TEMPLATE_NOT_APPROVED: "template_not_approved",
+  TEMPLATE_NOT_UTILITY_CATEGORY: "template_not_utility_category",
+  UNSUPPORTED_VARIABLE: "unsupported_variable",
+  RENDER_FAILED: "render_failed",
+  INSUFFICIENT_CREDIT: "insufficient_credit",
+  BILLING_NOT_CONFIGURED: "billing_not_configured",
+  SYSTEM_ERROR: "system_error",
+} as const;
+export type UtilityFailureReason = typeof UTILITY_FAILURE_REASON[keyof typeof UTILITY_FAILURE_REASON];
+
+export const businessUtilityEvents = pgTable("business_utility_events", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(), // UTILITY_EVENT_TYPE -- server-governed, never a free-form client string
+  eventReference: text("event_reference").notNull(), // the calling system's own deterministic reference (e.g. a booking/order id) -- part of the idempotency key, opaque to this table
+  templateVersionId: integer("template_version_id").notNull().references(() => templateVersions.id), // required -- unlike OTP, utility content is too varied by event type for a single built-in default
+  status: text("status").notNull().default(UTILITY_MESSAGE_STATUS.FAILED),
+  failureReason: text("failure_reason"), // UTILITY_FAILURE_REASON, set only when status=FAILED
+  messageId: integer("message_id").references(() => messagingMessages.id), // set once status=CREATED
+  chargedPaise: integer("charged_paise"),
+  createdBy: integer("created_by").references(() => users.id), // nullable -- most triggers are system/internal-service-initiated, not a human action
+  createdAt: timestamp("created_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (t) => [
+  index("business_utility_events_business_idx").on(t.businessId),
+  index("business_utility_events_customer_idx").on(t.customerId),
+  index("business_utility_events_business_status_idx").on(t.businessId, t.status),
+  // Idempotency P0 (doc 32 section 11): the SAME (business, eventType,
+  // eventReference) can never produce two messages, proven under genuine
+  // concurrent triggering -- a duplicate/replayed event returns the
+  // EXISTING row (wasDuplicate: true), never a second insert.
+  uniqueIndex("business_utility_events_idempotency_idx").on(t.businessId, t.eventType, t.eventReference),
+]);
+export type BusinessUtilityEvent = typeof businessUtilityEvents.$inferSelect;
