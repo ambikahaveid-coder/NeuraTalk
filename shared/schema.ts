@@ -309,6 +309,15 @@ export const PERMISSIONS = {
   // separate specifically to support separation of duties (see doc 27 section 8).
   TEMPLATES_MANAGE: "templates:manage",
   TEMPLATES_APPROVE: "templates:approve",
+
+  // Business customers/audiences (Phase 4). VIEW/MANAGE split per business
+  // customer vs. audience since an agent may need read access to customers
+  // without being able to create/rename audiences, and vice versa -- see
+  // doc 29 section 12.
+  CUSTOMERS_VIEW: "customers:view",
+  CUSTOMERS_MANAGE: "customers:manage",
+  AUDIENCES_VIEW: "audiences:view",
+  AUDIENCES_MANAGE: "audiences:manage",
 } as const;
 
 export type Permission = typeof PERMISSIONS[keyof typeof PERMISSIONS];
@@ -1071,6 +1080,8 @@ export const AUDIT_ACTION = {
   SUBMIT: "submit",
   ARCHIVE: "archive",
   RETURN_TO_DRAFT: "return_to_draft",
+  MEMBER_ADDED: "member_added",
+  MEMBER_REMOVED: "member_removed",
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTION[keyof typeof AUDIT_ACTION];
@@ -3459,7 +3470,7 @@ export const businessConversations = pgTable("business_conversations", {
   id: serial("id").primaryKey(),
   conversationId: integer("conversation_id").notNull().references(() => messagingConversations.id, { onDelete: "cascade" }).unique(),
   businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
-  customerId: integer("customer_id"), // forward reference -- no FK yet, `customers` table doesn't exist until Phase 4
+  customerId: integer("customer_id").references(() => customers.id), // Phase 4: wired to the real `customers` table below (Drizzle's `.references()` is a lazy closure, so a table defined later in this file is a valid target) -- see doc 29 section 3
   status: text("status").notNull().default(BUSINESS_CONVERSATION_STATUS.OPEN),
   assignedToUserId: integer("assigned_to_user_id").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -3707,3 +3718,153 @@ export const approvalRequests = pgTable("approval_requests", {
 ]);
 
 export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// BUSINESS CUSTOMERS + AUDIENCES (Phase 4, 2026-08-24)
+//
+// See docs/neura-ecosystem/29_BUSINESS_CUSTOMERS_AUDIENCES_IMPLEMENTATION.md.
+// This is a recipient FOUNDATION for future Campaigns/OTP/Utility/Marketing,
+// not a CRM. Deliberately separates three distinct concepts that are easy to
+// conflate: GLOBAL NEURA IDENTITY (`users`, a login), BUSINESS CUSTOMER
+// RELATIONSHIP (`customers`, this business's record of a contact -- who may
+// or may not ever be a `users` row, via the nullable `linkedUserId`), and
+// COMMUNICATION ELIGIBILITY (`customerConsents`, per-channel, absence of a
+// row means "not eligible," never inferred from the customer merely
+// existing). No campaign/sending logic here at all.
+// ═══════════════════════════════════════════════════════════════════════
+
+export const CUSTOMER_STATUS = {
+  ACTIVE: "active",
+  BLOCKED: "blocked", // business-initiated block -- NOT a consent/marketing-eligibility signal, see CUSTOMER_CONSENT_CHANNEL
+  ARCHIVED: "archived",
+} as const;
+export type CustomerStatus = typeof CUSTOMER_STATUS[keyof typeof CUSTOMER_STATUS];
+
+export const CUSTOMER_SOURCE = {
+  MANUAL: "manual",
+  IMPORT: "import",
+} as const;
+export type CustomerSource = typeof CUSTOMER_SOURCE[keyof typeof CUSTOMER_SOURCE];
+
+export const customers = pgTable("customers", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  linkedUserId: integer("linked_user_id").references(() => users.id), // optional -- set only when this contact is also a NEURA user; never mutates the users row itself
+  name: text("name"),
+  phone: text("phone"), // as entered
+  normalizedPhone: text("normalized_phone"), // E.164 via shared/phone.ts -- dedup key
+  email: text("email"), // as entered
+  normalizedEmail: text("normalized_email"), // lowercased/trimmed via shared/email.ts -- dedup key
+  externalRef: text("external_ref"), // business's own customer/CRM reference id
+  notes: text("notes"),
+  status: text("status").notNull().default(CUSTOMER_STATUS.ACTIVE),
+  source: text("source").notNull().default(CUSTOMER_SOURCE.MANUAL),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  archivedBy: integer("archived_by").references(() => users.id),
+  archivedAt: timestamp("archived_at"),
+}, (t) => [
+  index("customers_business_idx").on(t.businessId),
+  index("customers_business_status_idx").on(t.businessId, t.status),
+  index("customers_business_name_idx").on(t.businessId, t.name),
+  // Deduplication -- P0 per doc 29 section 4: same business + same normalized
+  // phone/email/externalRef is a deterministic conflict, never a silent
+  // merge. Two DIFFERENT businesses may share the same customer phone/email
+  // freely (index is scoped by businessId, not global).
+  uniqueIndex("customers_business_phone_idx").on(t.businessId, t.normalizedPhone).where(sql`normalized_phone IS NOT NULL AND normalized_phone != ''`),
+  uniqueIndex("customers_business_email_idx").on(t.businessId, t.normalizedEmail).where(sql`normalized_email IS NOT NULL AND normalized_email != ''`),
+  uniqueIndex("customers_business_external_ref_idx").on(t.businessId, t.externalRef).where(sql`external_ref IS NOT NULL AND external_ref != ''`),
+]);
+export type Customer = typeof customers.$inferSelect;
+
+// --- Communication eligibility (NOT a full Marketing Consent Engine) ---
+// Absence of a row for a (customer, channel) pair means "not eligible" --
+// eligibility is never derived from the customer record merely existing.
+// AUTHENTICATION (OTP) is intentionally still listed as a channel here even
+// though most jurisdictions treat OTP as consent-exempt -- keeping it in the
+// same model now means a future jurisdiction-specific rule is a policy
+// change, not a schema change.
+
+export const CUSTOMER_CONSENT_CHANNEL = {
+  MARKETING: "marketing",
+  UTILITY: "utility",
+  AUTHENTICATION: "authentication",
+} as const;
+export type CustomerConsentChannel = typeof CUSTOMER_CONSENT_CHANNEL[keyof typeof CUSTOMER_CONSENT_CHANNEL];
+
+export const CUSTOMER_CONSENT_STATUS = {
+  GRANTED: "granted",
+  REVOKED: "revoked",
+} as const;
+export type CustomerConsentStatus = typeof CUSTOMER_CONSENT_STATUS[keyof typeof CUSTOMER_CONSENT_STATUS];
+
+export const customerConsents = pgTable("customer_consents", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  channel: text("channel").notNull(), // CUSTOMER_CONSENT_CHANNEL
+  status: text("status").notNull(), // CUSTOMER_CONSENT_STATUS
+  source: text("source"), // free text, e.g. "customer_reply_stop", "business_admin", "import"
+  updatedBy: integer("updated_by").references(() => users.id), // null when set by an automated/inbound event, not yet implemented in Phase 4
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("customer_consents_business_idx").on(t.businessId),
+  uniqueIndex("customer_consents_customer_channel_idx").on(t.customerId, t.channel),
+]);
+export type CustomerConsent = typeof customerConsents.$inferSelect;
+
+// --- Audiences ---
+
+export const AUDIENCE_TYPE = {
+  STATIC: "static",
+  // DYNAMIC is a deliberate, documented extension point -- NOT implemented
+  // in Phase 4 (no rules/query engine). Creating an audience with this type
+  // is rejected at the service layer rather than silently treated as
+  // static. See doc 29 section 9.
+  DYNAMIC: "dynamic",
+} as const;
+export type AudienceType = typeof AUDIENCE_TYPE[keyof typeof AUDIENCE_TYPE];
+
+export const AUDIENCE_STATUS = {
+  ACTIVE: "active",
+  ARCHIVED: "archived",
+} as const;
+export type AudienceStatus = typeof AUDIENCE_STATUS[keyof typeof AUDIENCE_STATUS];
+
+export const audiences = pgTable("audiences", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  type: text("type").notNull().default(AUDIENCE_TYPE.STATIC),
+  status: text("status").notNull().default(AUDIENCE_STATUS.ACTIVE),
+  createdBy: integer("created_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  archivedBy: integer("archived_by").references(() => users.id),
+  archivedAt: timestamp("archived_at"),
+}, (t) => [
+  index("audiences_business_idx").on(t.businessId),
+  uniqueIndex("audiences_business_name_idx").on(t.businessId, t.name),
+]);
+export type Audience = typeof audiences.$inferSelect;
+
+// Explicit membership relationship -- deliberately NOT a JSON array of
+// customer ids on `audiences` (brief's explicit instruction), so membership
+// has its own uniqueness constraint, its own audit trail, and query
+// patterns (count members, list a customer's audiences) stay indexed
+// lookups instead of JSON scans.
+export const audienceMembers = pgTable("audience_members", {
+  id: serial("id").primaryKey(),
+  audienceId: integer("audience_id").notNull().references(() => audiences.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  addedBy: integer("added_by").notNull().references(() => users.id),
+  addedAt: timestamp("added_at").defaultNow(),
+}, (t) => [
+  index("audience_members_audience_idx").on(t.audienceId),
+  index("audience_members_customer_idx").on(t.customerId),
+  uniqueIndex("audience_members_pair_idx").on(t.audienceId, t.customerId),
+]);
+export type AudienceMember = typeof audienceMembers.$inferSelect;
