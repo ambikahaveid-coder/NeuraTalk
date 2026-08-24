@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { useUpload } from "@/hooks/use-upload";
+import MarketingControlCenter from "@/pages/marketing/MarketingControlCenter";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -25,7 +26,7 @@ import {
   Radio, PiggyBank
 } from "lucide-react";
 
-type Tab = "overview" | "agents" | "reports" | "api" | "settings";
+type Tab = "overview" | "marketing" | "agents" | "reports" | "api" | "settings";
 
 interface CompanyCreditResponse {
   success: boolean;
@@ -205,6 +206,7 @@ export default function CompanyDashboard() {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <BarChart3 className="w-4 h-4" /> },
+    { id: "marketing", label: "Marketing", icon: <Sparkles className="w-4 h-4" /> },
     { id: "agents", label: "Team", icon: <Users className="w-4 h-4" /> },
     { id: "reports", label: "Reports", icon: <FileText className="w-4 h-4" /> },
     { id: "api", label: "API & SDK", icon: <Key className="w-4 h-4" /> },
@@ -285,6 +287,10 @@ export default function CompanyDashboard() {
 
           {activeTab === "overview" && (
             <OverviewTab dashboard={dashboard} billingData={billingData} creditsData={creditsData} auditData={auditData} isLoading={dashboardLoading} isError={dashboardIsError} error={dashboardError} onRetry={refetchDashboard} canManageCompany={canManageCompany} />
+          )}
+
+          {activeTab === "marketing" && (
+            <MarketingControlCenter businessId={user?.organization?.id ?? 0} />
           )}
 
           {activeTab === "agents" && (

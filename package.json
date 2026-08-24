@@ -13,6 +13,7 @@
     "env:audit": "node scripts/env-audit.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:client": "vitest run --config vitest.config.client.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -126,6 +127,8 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.1.18",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "4.17.21",
     "@types/express-session": "^1.18.0",
@@ -141,6 +144,7 @@
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.8",
     "ioredis-mock": "^8.13.1",
+    "jsdom": "^25.0.1",
     "localtunnel": "^2.0.2",
     "ngrok": "^5.0.0-beta.2",
     "postcss": "^8.4.47",
