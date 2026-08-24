@@ -30,7 +30,7 @@ const ALL_TABLES = [
   "templates", "templateVersions", "approvalRequests", "campaigns", "campaignRecipients",
   "messagingConversations", "businessConversations", "messagingParticipants",
   "messagingMessages", "messagingDeliveries", "messagingEvents",
-  "customerMarketingFrequency", "businessMarketingThroughput",
+  "customerMarketingFrequency", "businessMarketingThroughput", "billingAccounts",
 ];
 
 // The two Phase 8 frequency-cap tables have a REAL unique constraint this
@@ -239,6 +239,7 @@ vi.mock("@shared/schema", async (importOriginal) => {
     messagingEvents: mkTable("messagingEvents", ["id", "conversationId", "messageId", "eventType", "payload", "createdAt"]),
     customerMarketingFrequency: mkTable("customerMarketingFrequency", ["id", "businessId", "customerId", "windowStart", "sentCount", "updatedAt"]),
     businessMarketingThroughput: mkTable("businessMarketingThroughput", ["id", "businessId", "windowStart", "sentCount", "updatedAt"]),
+    billingAccounts: mkTable("billingAccounts", ["id", "organizationId", "walletBalancePaise", "lockedBalancePaise", "isBlocked", "updatedAt"]),
   };
 });
 
@@ -866,5 +867,254 @@ describe("Phase 8: marketing frequency cap gates execution (integration, real fr
     const freqRowsAfter = tables.get("customerMarketingFrequency")!.filter((r: any) => r.customerId === customer.id);
     expect(freqRowsAfter.length).toBe(1); // still one row -- campaign2 incremented the SAME counter, proving overlap protection is campaign-agnostic
     expect(freqRowsAfter[0].sentCount).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8B-R0: campaign pre-flight + enriched report.
+// See docs/neura-ecosystem/36_PHASE8B_R0_REPORTING_PREFLIGHT_IMPLEMENTATION.md.
+// getCampaignPreflight is a READ-ONLY preview -- must never mutate
+// campaignRecipients/frequency counters/billing, and must reuse
+// assertReadyToGoLive (the exact function execution calls) for the
+// structural readiness verdict.
+// ---------------------------------------------------------------------------
+
+function seedBillingAccount(businessId: number, walletBalancePaise: number, isBlocked = false) {
+  tables.get("billingAccounts")!.push({ id: businessId, organizationId: businessId, walletBalancePaise, lockedBalancePaise: 0, isBlocked, updatedAt: new Date() });
+}
+
+describe("Phase 8B-R0: campaign pre-flight", () => {
+  it("READY: approved template, active audience, granted consent, sufficient credit", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.readiness.ready).toBe(true);
+    expect(preflight.readiness.reasons).toEqual([]);
+    expect(preflight.eligibility.eligibleCount).toBe(1);
+    expect(preflight.audience.size).toBe(1);
+  });
+
+  it("NOT_READY: campaign has no template/audience bound yet (fresh DRAFT)", async () => {
+    const { createCampaign, getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const c = await createCampaign(BIZ, AUTHOR, { name: "fresh", category: "marketing" });
+    const preflight = await getCampaignPreflight(BIZ, c.id);
+    expect(preflight.readiness.ready).toBe(false);
+    expect(preflight.readiness.reasons.length).toBeGreaterThan(0);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+  });
+
+  it("NOT_READY: campaign has not been approved (no approval request decided yet)", async () => {
+    const { createCampaign, updateCampaign, getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { version } = await makeApprovedTemplateVersion();
+    const { audience } = await makeActiveAudienceWithCustomer();
+    const c = await createCampaign(BIZ, AUTHOR, { name: "unapproved", category: "marketing" });
+    await updateCampaign(BIZ, AUTHOR, c.id, { templateVersionId: version.id, audienceId: audience.id });
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, c.id);
+    expect(preflight.readiness.ready).toBe(false);
+    expect(preflight.readiness.reasons.some((r: string) => r.toLowerCase().includes("approved"))).toBe(true);
+  });
+
+  it("zero eligible recipients: audience has members, but none pass any gate", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign({ grantConsent: false }); // no consent granted
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+    expect(preflight.readiness.ready).toBe(false);
+    expect(preflight.suppressionBreakdown["consent_missing"]).toBe(1);
+  });
+
+  it("blocked customer is excluded from eligible count and reflected in suppressionBreakdown", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { updateCustomer } = await import("../../server/modules/customers/service");
+    const { campaign, customer } = await makeReadyCampaign();
+    await updateCustomer(BIZ, AUTHOR, customer.id, { status: "blocked" });
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.blocked).toBe(1);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+    expect(preflight.suppressionBreakdown["customer_blocked"]).toBe(1);
+  });
+
+  it("archived customer is excluded and reflected in suppressionBreakdown", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { archiveCustomer } = await import("../../server/modules/customers/service");
+    const { campaign, customer } = await makeReadyCampaign();
+    await archiveCustomer(BIZ, AUTHOR, customer.id);
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.archived).toBe(1);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+    expect(preflight.suppressionBreakdown["customer_archived"]).toBe(1);
+  });
+
+  it("missing consent (never granted) is distinguished from revoked consent in eligibility, but both fold into consent_missing in suppressionBreakdown (parity with execution's actual skip reason)", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { setChannelConsent } = await import("../../server/modules/customers/service");
+    const { campaign: campaignMissing } = await makeReadyCampaign({ grantConsent: false });
+    seedBillingAccount(BIZ, 1_000_000);
+    const preflightMissing = await getCampaignPreflight(BIZ, campaignMissing.id);
+    expect(preflightMissing.eligibility.consentMissing).toBe(1);
+    expect(preflightMissing.eligibility.consentRevoked).toBe(0);
+
+    const { campaign: campaignRevoked, customer } = await makeReadyCampaign({ customerOverrides: { phone: "9000000002" } });
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "marketing" as any, false);
+    const preflightRevoked = await getCampaignPreflight(BIZ, campaignRevoked.id);
+    expect(preflightRevoked.eligibility.consentRevoked).toBe(1);
+    expect(preflightRevoked.suppressionBreakdown["consent_missing"]).toBe(1); // same execution-facing reason as "missing"
+  });
+
+  it("frequency-capped customer is excluded and reflected distinctly", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { startOfUtcDay, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY } = await import("../../server/modules/campaigns/frequency");
+    const { campaign, customer } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, 1_000_000);
+    tables.get("customerMarketingFrequency")!.push({
+      id: 1, businessId: BIZ, customerId: customer.id, windowStart: startOfUtcDay(),
+      sentCount: DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, updatedAt: new Date(),
+    });
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.frequencyCapped).toBe(1);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+    expect(preflight.suppressionBreakdown["customer_frequency_cap_exceeded"]).toBe(1);
+  });
+
+  it("frequency is not applicable to UTILITY campaigns", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { setChannelConsent } = await import("../../server/modules/customers/service");
+    const { campaign, customer } = await makeReadyCampaign({ category: "utility" });
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "utility" as any, true);
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.frequency.applicable).toBe(false);
+    expect(preflight.frequency.business).toBeNull();
+    expect(preflight.eligibility.eligibleCount).toBe(1);
+  });
+
+  it("insufficient credit: billing configured but balance below estimated cost", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { PLACEHOLDER_COST_PER_MESSAGE_PAISE } = await import("../../server/modules/campaigns/billing");
+    const { campaign } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, PLACEHOLDER_COST_PER_MESSAGE_PAISE - 1); // one paisa short
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.billing.sufficientCreditForAllEligible).toBe(false);
+    expect(preflight.readiness.ready).toBe(false);
+    expect(preflight.readiness.reasons.some((r: string) => r.includes("afforded"))).toBe(true);
+  });
+
+  it("billing not configured at all -- NOT_READY with a clear reason, never silently treated as free", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    // no seedBillingAccount call -- business has no billing account
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.billing.billingConfigured).toBe(false);
+    expect(preflight.readiness.ready).toBe(false);
+  });
+
+  it("invalid/archived template version -- NOT_READY, zero eligible regardless of consent", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { campaign, version } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, 1_000_000);
+    const row = tables.get("templateVersions")!.find((r: any) => r.id === version.id)!;
+    row.status = "archived";
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+    expect(preflight.readiness.ready).toBe(false);
+  });
+
+  it("cross-business campaign access -- NotFoundError, never confirms existence", async () => {
+    const { getCampaignPreflight, NotFoundError } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign({ businessId: OTHER_BIZ });
+    await expect(getCampaignPreflight(BIZ, campaign.id)).rejects.toThrow(NotFoundError);
+  });
+
+  it("pre-flight NEVER mutates -- no campaignRecipients row, no frequency reservation, no charge, no message, even after being called repeatedly", async () => {
+    const { getCampaignPreflight } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, 1_000_000);
+
+    await getCampaignPreflight(BIZ, campaign.id);
+    await getCampaignPreflight(BIZ, campaign.id);
+    await getCampaignPreflight(BIZ, campaign.id);
+
+    expect(tables.get("campaignRecipients")!.length).toBe(0);
+    expect(tables.get("customerMarketingFrequency")!.length).toBe(0);
+    expect(tables.get("businessMarketingThroughput")!.length).toBe(0);
+    expect(tables.get("messagingMessages")!.length).toBe(0);
+    const account = tables.get("billingAccounts")!.find((a: any) => a.organizationId === BIZ)!;
+    expect(account.walletBalancePaise).toBe(1_000_000); // untouched
+  });
+
+  it("PARITY: preflight's predicted eligible count matches actual sent count when nothing changes between preview and execution", async () => {
+    const { getCampaignPreflight, executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    const predictedEligible = preflight.eligibility.eligibleCount;
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+
+    expect(report.sent).toBe(predictedEligible);
+  });
+
+  it("PARITY: preflight correctly predicts zero-eligible for a blocked customer, and execution agrees", async () => {
+    const { getCampaignPreflight, executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { updateCustomer } = await import("../../server/modules/customers/service");
+    const { campaign, customer } = await makeReadyCampaign();
+    await updateCustomer(BIZ, AUTHOR, customer.id, { status: "blocked" });
+    seedBillingAccount(BIZ, 1_000_000);
+
+    const preflight = await getCampaignPreflight(BIZ, campaign.id);
+    expect(preflight.eligibility.eligibleCount).toBe(0);
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.sent).toBe(0);
+    expect(report.skippedByReason["customer_blocked"]).toBe(1);
+  });
+});
+
+describe("Phase 8B-R0: enriched getCampaignReport (cost + delivery availability)", () => {
+  it("cost.totalChargedPaise sums real per-recipient charges, never a placeholder-times-count estimate", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.cost.availability).toBe("AVAILABLE");
+    expect(report.cost.totalChargedPaise).toBe(10); // chargeMock returns costPaise:10, one recipient sent
+  });
+
+  it("cost is zero (not missing) when nothing was ever sent -- 0 means measured, not NOT_AVAILABLE", async () => {
+    const { getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    const report = await getCampaignReport(BIZ, campaign.id); // never scheduled/executed
+    expect(report.cost.totalChargedPaise).toBe(0);
+    expect(report.cost.availability).toBe("AVAILABLE"); // the system genuinely measured zero
+  });
+
+  it("delivery.sent is AVAILABLE; accepted/delivered/read are explicitly NOT_AVAILABLE, never fabricated as 0 or omitted", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign();
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.delivery.sent).toEqual({ availability: "AVAILABLE", count: 1 });
+    expect(report.delivery.accepted.availability).toBe("NOT_AVAILABLE");
+    expect(report.delivery.delivered.availability).toBe("NOT_AVAILABLE");
+    expect(report.delivery.read.availability).toBe("NOT_AVAILABLE");
+    expect(typeof report.delivery.accepted.reason).toBe("string");
+    expect(report.delivery.accepted.reason.length).toBeGreaterThan(0);
   });
 });

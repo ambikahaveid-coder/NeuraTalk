@@ -24,6 +24,9 @@ export function registerCampaignRoutes(app: Express): void {
   app.get("/api/v1/business/:businessId/campaigns", ...view, ctrl.getCampaigns);
   app.get("/api/v1/business/:businessId/campaigns/:campaignId", ...view, ctrl.getCampaignById);
   app.patch("/api/v1/business/:businessId/campaigns/:campaignId", ...manage, ctrl.patchCampaign);
+  // Read-only preview (Phase 8B-R0) -- reuses the `view` gate, same as
+  // every other read on this resource; never mutates.
+  app.get("/api/v1/business/:businessId/campaigns/:campaignId/preflight", ...view, ctrl.getPreflight);
 
   app.post("/api/v1/business/:businessId/campaigns/:campaignId/schedule", ...manage, ctrl.postSchedule);
   app.post("/api/v1/business/:businessId/campaigns/:campaignId/cancel", ...manage, ctrl.postCancel);

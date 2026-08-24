@@ -3,7 +3,7 @@ import { z } from "zod";
 import { logger } from "../../observability";
 import {
   createCampaign, listCampaigns, getCampaign, updateCampaign,
-  scheduleCampaign, cancelCampaign, executeCampaign,
+  scheduleCampaign, cancelCampaign, executeCampaign, getCampaignPreflight,
   NotFoundError, ValidationError, IllegalCampaignTransitionError,
 } from "./service";
 import { CAMPAIGN_STATUS, CAMPAIGN_ALLOWED_CATEGORIES } from "@shared/schema";
@@ -117,6 +117,24 @@ export async function postCancel(req: Request, res: Response) {
     return res.json({ success: true, campaign });
   } catch (error) {
     return handleServiceError(res, error, "Failed to cancel campaign");
+  }
+}
+
+/**
+ * Read-only preview -- never mutates, never charges, never reserves a
+ * frequency slot (doc 36 section "R0-G"). Same RBAC/tenant scoping as
+ * every other read on this resource.
+ */
+export async function getPreflight(req: Request, res: Response) {
+  const businessId = parseId(req.params.businessId);
+  const campaignId = parseId(req.params.campaignId);
+  if (businessId === null || campaignId === null) return badRequest(res, "Invalid id");
+
+  try {
+    const preflight = await getCampaignPreflight(businessId, campaignId);
+    return res.json({ success: true, preflight });
+  } catch (error) {
+    return handleServiceError(res, error, "Failed to compute campaign pre-flight");
   }
 }
 

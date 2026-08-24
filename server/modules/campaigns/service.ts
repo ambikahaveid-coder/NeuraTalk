@@ -19,6 +19,8 @@ import {
   audiences,
   audienceMembers,
   customers,
+  customerConsents,
+  billingAccounts,
   organizations,
   messagingMessages,
   messagingDeliveries,
@@ -30,6 +32,7 @@ import {
   TEMPLATE_VERSION_STATUS,
   AUDIENCE_STATUS,
   CUSTOMER_STATUS,
+  CUSTOMER_CONSENT_STATUS,
   MESSAGE_TYPE,
   MESSAGE_DELIVERY_STATUS,
   MESSAGE_EVENT_TYPE,
@@ -43,7 +46,7 @@ import { renderTemplateContent, TemplateRenderError } from "../templates/render"
 import { isEligibleForChannel } from "../customers/service";
 import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeCampaignMessage, PLACEHOLDER_COST_PER_MESSAGE_PAISE } from "./billing";
-import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot } from "./frequency";
+import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot, findCustomersAtFrequencyCap, peekBusinessThroughputStatus, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR } from "./frequency";
 import { createAuditLog, AUDIT_ACTION_CAMPAIGN } from "./audit";
 
 export class NotFoundError extends Error {
@@ -218,7 +221,13 @@ export async function markCampaignRejected(_businessId: number, _campaignId: num
 // Scheduling / execution
 // ---------------------------------------------------------------------------
 
-async function assertReadyToGoLive(businessId: number, campaign: typeof campaigns.$inferSelect, dbClient: DbLike): Promise<{ version: typeof templateVersions.$inferSelect }> {
+/**
+ * Exported for reuse by getCampaignPreflight (Phase 8B-R0, doc 36 section
+ * "R0-G") -- pre-flight readiness MUST call the exact same function
+ * execution itself calls, not a parallel "preview" implementation with
+ * its own copy of these rules. See doc 36 for the parity discussion.
+ */
+export async function assertReadyToGoLive(businessId: number, campaign: typeof campaigns.$inferSelect, dbClient: DbLike): Promise<{ version: typeof templateVersions.$inferSelect }> {
   if (!campaign.templateVersionId) throw new ValidationError("Campaign has no template bound");
   if (!campaign.audienceId) throw new ValidationError("Campaign has no audience bound");
   if (!campaign.approvedAt) throw new ValidationError("Campaign has not been approved -- submit it to the Approval Center first");
@@ -527,27 +536,240 @@ async function processOneRecipient(
 // because a campaign was created or scheduled.
 // ---------------------------------------------------------------------------
 
+/** A metric this codebase genuinely cannot prove yet -- no channel adapter exists anywhere (doc 30/31/32's shared, repeated finding). Never fabricated as 0 or omitted silently; always explicit. */
+export interface UnavailableMetric {
+  availability: "NOT_AVAILABLE";
+  reason: string;
+}
+export interface AvailableCount {
+  availability: "AVAILABLE";
+  count: number;
+}
+
 export interface CampaignReport {
   targeted: number;
   pending: number;
   sent: number;
   skipped: number;
   skippedByReason: Record<string, number>;
+  /** Real, provable financial data -- summed directly from campaignRecipients.chargedPaise, the actual per-recipient atomic charges (doc 30 section 9), never a placeholder-times-count estimate. */
+  cost: {
+    totalChargedPaise: number;
+    availability: "AVAILABLE";
+  };
+  /** Doc 36 section "R0-C" -- the honest delivery ceiling is SENT. Every stage past it is explicitly NOT_AVAILABLE, never fabricated, never silently omitted. */
+  delivery: {
+    sent: AvailableCount;
+    accepted: UnavailableMetric;
+    delivered: UnavailableMetric;
+    read: UnavailableMetric;
+  };
 }
+
+const NO_CHANNEL_ADAPTER_REASON = "No channel adapter is connected -- messagingDeliveries never progresses past QUEUED in this codebase (see docs 30 section 21, 31 section 25, 32 section 23)";
 
 export async function getCampaignReport(businessId: number, campaignId: number): Promise<CampaignReport> {
   await getOwnedCampaign(businessId, campaignId);
   const rows = await db.select().from(campaignRecipients).where(eq(campaignRecipients.campaignId, campaignId));
 
-  const report: CampaignReport = { targeted: rows.length, pending: 0, sent: 0, skipped: 0, skippedByReason: {} };
+  let totalChargedPaise = 0;
+  const report: Omit<CampaignReport, "cost" | "delivery"> = { targeted: rows.length, pending: 0, sent: 0, skipped: 0, skippedByReason: {} };
   for (const row of rows) {
     if (row.status === CAMPAIGN_RECIPIENT_STATUS.PENDING) report.pending++;
-    else if (row.status === CAMPAIGN_RECIPIENT_STATUS.SENT) report.sent++;
-    else if (row.status === CAMPAIGN_RECIPIENT_STATUS.SKIPPED) {
+    else if (row.status === CAMPAIGN_RECIPIENT_STATUS.SENT) {
+      report.sent++;
+      if (typeof row.chargedPaise === "number") totalChargedPaise += row.chargedPaise;
+    } else if (row.status === CAMPAIGN_RECIPIENT_STATUS.SKIPPED) {
       report.skipped++;
       const reason = row.skipReason ?? "unknown";
       report.skippedByReason[reason] = (report.skippedByReason[reason] ?? 0) + 1;
     }
   }
-  return report;
+
+  return {
+    ...report,
+    cost: { totalChargedPaise, availability: "AVAILABLE" },
+    delivery: {
+      sent: { availability: "AVAILABLE", count: report.sent },
+      accepted: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
+      delivered: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
+      read: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign pre-flight -- Phase 8B-R0 (2026-08-24). See
+// docs/neura-ecosystem/36_PHASE8B_R0_REPORTING_PREFLIGHT_IMPLEMENTATION.md.
+//
+// A READ-ONLY preview of "if this campaign were executed right now": it
+// never mutates campaignRecipients, never reserves a frequency slot, never
+// charges. Readiness reuses assertReadyToGoLive -- the EXACT function
+// scheduleCampaign/executeCampaign call -- so the "is this campaign
+// structurally ready" verdict can never silently diverge between preview
+// and execution (doc 36 section "R0-G"). Per-recipient eligibility
+// (status/consent/frequency) is computed via aggregate SQL, not a
+// per-row loop reusing processOneRecipient's imperative gate chain --
+// documented as a deliberate performance choice (doc 36 section "R0-M"),
+// with the SAME rule set applied (never a "subtly different" rule), and
+// proven empirically via a preview-then-execute parity test rather than
+// shared code alone.
+// ---------------------------------------------------------------------------
+
+export interface CampaignPreflightResult {
+  campaign: { id: number; businessId: number; status: CampaignStatus; category: string };
+  audience: { audienceId: number | null; size: number; resolvable: boolean };
+  eligibility: {
+    active: number;
+    blocked: number;
+    archived: number;
+    consentGranted: number;
+    consentRevoked: number;
+    consentMissing: number;
+    frequencyCapped: number;
+    eligibleCount: number;
+  };
+  suppressionBreakdown: Record<string, number>;
+  frequency: {
+    applicable: boolean; // false for non-MARKETING campaigns -- frequency capping is marketing-only (doc 34)
+    customer: { cap: number; windowGranularity: "day"; note: string };
+    business: { cap: number; used: number; remaining: number; windowGranularity: "hour" } | null;
+  };
+  billing: {
+    costLabel: "ESTIMATE_NOT_FINAL_PRICING";
+    estimatedCostPaise: number;
+    billingConfigured: boolean;
+    availableBalancePaise: number;
+    affordableRecipientCount: number;
+    sufficientCreditForAllEligible: boolean;
+  };
+  readiness: {
+    ready: boolean;
+    reasons: string[];
+  };
+}
+
+export async function getCampaignPreflight(businessId: number, campaignId: number): Promise<CampaignPreflightResult> {
+  const campaign = await getOwnedCampaign(businessId, campaignId);
+  const reasons: string[] = [];
+
+  let version: typeof templateVersions.$inferSelect | undefined;
+  try {
+    const result = await assertReadyToGoLive(businessId, campaign, db);
+    version = result.version;
+  } catch (err) {
+    if (err instanceof ValidationError) reasons.push(err.message);
+    else throw err;
+  }
+
+  if (![CAMPAIGN_STATUS.DRAFT, CAMPAIGN_STATUS.SCHEDULED].includes(campaign.status as any)) {
+    reasons.push(`Campaign status "${campaign.status}" does not permit execution`);
+  }
+
+  const audienceId = campaign.audienceId ?? null;
+  let members: (typeof audienceMembers.$inferSelect)[] = [];
+  if (audienceId) {
+    members = await db.select().from(audienceMembers).where(eq(audienceMembers.audienceId, audienceId));
+  }
+  const memberIds = members.map((m) => m.customerId);
+  const audienceResolvable = audienceId !== null;
+  if (!audienceResolvable) reasons.push("Campaign has no audience bound");
+  else if (memberIds.length === 0) reasons.push("Audience has no members");
+
+  const ownedCustomers = memberIds.length
+    ? await db.select({ id: customers.id, status: customers.status }).from(customers)
+        .where(and(eq(customers.businessId, businessId), inArray(customers.id, memberIds)))
+    : [];
+
+  let active = 0, blocked = 0, archived = 0;
+  const activeIds: number[] = [];
+  for (const c of ownedCustomers) {
+    if (c.status === CUSTOMER_STATUS.BLOCKED) blocked++;
+    else if (c.status === CUSTOMER_STATUS.ARCHIVED) archived++;
+    else { active++; activeIds.push(c.id); }
+  }
+
+  let consentGranted = 0, consentRevoked = 0, consentMissing = 0;
+  const consentedIds: number[] = [];
+  if (activeIds.length) {
+    const consentRows = await db.select().from(customerConsents).where(and(
+      eq(customerConsents.businessId, businessId),
+      eq(customerConsents.channel, campaign.category as any),
+      inArray(customerConsents.customerId, activeIds),
+    ));
+    const grantedSet = new Set(consentRows.filter((r) => r.status === CUSTOMER_CONSENT_STATUS.GRANTED).map((r) => r.customerId));
+    const revokedSet = new Set(consentRows.filter((r) => r.status === CUSTOMER_CONSENT_STATUS.REVOKED).map((r) => r.customerId));
+    for (const id of activeIds) {
+      if (grantedSet.has(id)) { consentGranted++; consentedIds.push(id); }
+      else if (revokedSet.has(id)) consentRevoked++;
+      else consentMissing++;
+    }
+  }
+
+  const frequencyApplicable = campaign.category === MESSAGE_CATEGORY.MARKETING;
+  let frequencyCapped = 0;
+  let businessThroughput: { cap: number; used: number; remaining: number } | null = null;
+  if (frequencyApplicable && consentedIds.length) {
+    const cappedSet = await findCustomersAtFrequencyCap(db, businessId, consentedIds);
+    frequencyCapped = cappedSet.size;
+  }
+  if (frequencyApplicable) {
+    const status = await peekBusinessThroughputStatus(db, businessId);
+    businessThroughput = { cap: status.cap, used: status.used, remaining: status.remaining };
+  }
+
+  const templateReady = !!version && version.status === TEMPLATE_VERSION_STATUS.APPROVED;
+  const eligibleCount = templateReady ? Math.max(0, consentedIds.length - frequencyCapped) : 0;
+  if (!templateReady && audienceResolvable && memberIds.length > 0) {
+    reasons.push("Bound template version is not APPROVED -- no recipient can be eligible until it is");
+  }
+
+  const suppressionBreakdown: Record<string, number> = {};
+  if (blocked > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CUSTOMER_BLOCKED] = blocked;
+  if (archived > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CUSTOMER_ARCHIVED] = archived;
+  const consentMissingTotal = consentRevoked + consentMissing;
+  if (consentMissingTotal > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CONSENT_MISSING] = consentMissingTotal;
+  if (frequencyCapped > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CUSTOMER_FREQUENCY_CAP_EXCEEDED] = frequencyCapped;
+  if (!templateReady && (consentedIds.length - frequencyCapped) > 0) {
+    suppressionBreakdown[CAMPAIGN_SKIP_REASON.TEMPLATE_NOT_APPROVED] = consentedIds.length - frequencyCapped;
+  }
+
+  const [billingAccount] = await db.select().from(billingAccounts).where(eq(billingAccounts.organizationId, businessId));
+  const billingConfigured = !!billingAccount && !billingAccount.isBlocked;
+  const availableBalancePaise = billingAccount?.walletBalancePaise ?? 0;
+  const estimatedCostPaise = eligibleCount * PLACEHOLDER_COST_PER_MESSAGE_PAISE;
+  const affordableRecipientCount = billingConfigured ? Math.floor(availableBalancePaise / PLACEHOLDER_COST_PER_MESSAGE_PAISE) : 0;
+  const sufficientCreditForAllEligible = billingConfigured && availableBalancePaise >= estimatedCostPaise;
+
+  if (!billingConfigured) reasons.push("Billing is not configured or the account is blocked");
+  else if (!sufficientCreditForAllEligible) {
+    reasons.push(`Only ${Math.min(affordableRecipientCount, eligibleCount)} of ${eligibleCount} eligible recipients can be afforded at the current balance`);
+  }
+
+  if (frequencyApplicable && businessThroughput && businessThroughput.remaining < eligibleCount) {
+    reasons.push(`Business throughput cap allows only ${businessThroughput.remaining} more marketing sends in the current hour -- some eligible recipients may not be sent to at execution time`);
+  }
+
+  const ready = reasons.length === 0 && eligibleCount > 0;
+
+  return {
+    campaign: { id: campaign.id, businessId: campaign.businessId, status: campaign.status as CampaignStatus, category: campaign.category },
+    audience: { audienceId, size: memberIds.length, resolvable: audienceResolvable },
+    eligibility: { active, blocked, archived, consentGranted, consentRevoked, consentMissing, frequencyCapped, eligibleCount },
+    suppressionBreakdown,
+    frequency: {
+      applicable: frequencyApplicable,
+      customer: { cap: DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, windowGranularity: "day", note: "CONFIGURABLE / PRODUCT DECISION -- not a legal requirement" },
+      business: frequencyApplicable ? { ...(businessThroughput ?? { cap: DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR, used: 0, remaining: DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR }), windowGranularity: "hour" } : null,
+    },
+    billing: {
+      costLabel: "ESTIMATE_NOT_FINAL_PRICING",
+      estimatedCostPaise,
+      billingConfigured,
+      availableBalancePaise,
+      affordableRecipientCount,
+      sufficientCreditForAllEligible,
+    },
+    readiness: { ready, reasons },
+  };
 }
