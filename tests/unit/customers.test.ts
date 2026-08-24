@@ -435,3 +435,53 @@ describe("30. Communication eligibility -- separate from customer existence/stat
     await expect(s.setChannelConsent(1, 10, c.id, "spam" as any, true)).rejects.toThrow(s.ValidationError);
   });
 });
+
+describe("Phase 8: consent write path -- getCustomerConsents (inspect current state)", () => {
+  it("a customer with no consent action at all has an empty consent list -- never a fabricated row", async () => {
+    const s = await svc();
+    const c = await s.createCustomer(1, 10, { name: "A" });
+    const consents = await s.getCustomerConsents(1, c.id);
+    expect(consents).toEqual([]);
+  });
+
+  it("grant reflects GRANTED with actor and timestamp; a later revoke updates the SAME row to REVOKED with a new actor/timestamp", async () => {
+    const s = await svc();
+    const c = await s.createCustomer(1, 10, { name: "A" });
+    await s.setChannelConsent(1, 10, c.id, "marketing", true, "business_admin");
+    const [granted] = await s.getCustomerConsents(1, c.id);
+    expect(granted.status).toBe("granted");
+    expect(granted.updatedBy).toBe(10);
+    expect(granted.source).toBe("business_admin");
+    expect(granted.createdAt).toBeTruthy();
+
+    await s.setChannelConsent(1, 20, c.id, "marketing", false, "customer_reply_stop");
+    const consentsAfter = await s.getCustomerConsents(1, c.id);
+    expect(consentsAfter.length).toBe(1); // same row updated in place, not a second history row
+    expect(consentsAfter[0].status).toBe("revoked");
+    expect(consentsAfter[0].updatedBy).toBe(20); // the revoking actor, not the original granter
+    expect(consentsAfter[0].source).toBe("customer_reply_stop");
+  });
+
+  it("Business A cannot read or modify Business B's customer consent (tenant isolation, cross-business consent)", async () => {
+    const s = await svc();
+    const customerB = await s.createCustomer(2, 10, { name: "B-customer" });
+    await expect(s.getCustomerConsents(1, customerB.id)).rejects.toThrow(s.NotFoundError);
+    await expect(s.setChannelConsent(1, 10, customerB.id, "marketing", true)).rejects.toThrow(s.NotFoundError);
+  });
+
+  it("consent for a customer in Business A never affects the SAME customerId value in a different business record (distinct customer rows entirely)", async () => {
+    const s = await svc();
+    const customerA = await s.createCustomer(1, 10, { name: "A" });
+    const customerB = await s.createCustomer(2, 10, { name: "B" });
+    await s.setChannelConsent(1, 10, customerA.id, "marketing", true);
+    expect(await s.isEligibleForChannel(1, customerA.id, "marketing")).toBe(true);
+    expect(await s.isEligibleForChannel(2, customerB.id, "marketing")).toBe(false);
+  });
+
+  it("customer existence alone is never treated as consent -- eligibility is false immediately after creation, before any consent action", async () => {
+    const s = await svc();
+    const c = await s.createCustomer(1, 10, { name: "Brand New" });
+    expect(await s.isEligibleForChannel(1, c.id, "marketing")).toBe(false);
+    expect(await s.getCustomerConsents(1, c.id)).toEqual([]);
+  });
+});

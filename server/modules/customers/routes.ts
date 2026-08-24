@@ -1,8 +1,10 @@
 /**
- * Business Customers -- Phase 4 API surface.
- * See docs/neura-ecosystem/29_BUSINESS_CUSTOMERS_AUDIENCES_IMPLEMENTATION.md.
- * No campaign/OTP/marketing send route exists here or anywhere in this
- * module -- out of scope, future phase.
+ * Business Customers -- Phase 4 API surface, extended in Phase 8 (doc 34)
+ * with the marketing-consent write path. See
+ * docs/neura-ecosystem/29_BUSINESS_CUSTOMERS_AUDIENCES_IMPLEMENTATION.md
+ * and docs/neura-ecosystem/34_PHASE8_MARKETING_HARDENING_IMPLEMENTATION.md.
+ * No campaign/OTP/marketing SEND route exists here or anywhere in this
+ * module -- consent is a customer-relationship fact, not a send action.
  */
 import type { Express } from "express";
 import { requireAuth, requireCompanyAccess, requirePermission, requireAnyPermission } from "../../role-middleware";
@@ -18,4 +20,9 @@ export function registerCustomerRoutes(app: Express): void {
   app.get("/api/business/:businessId/customers/:customerId", ...view, ctrl.getCustomerById);
   app.put("/api/business/:businessId/customers/:customerId", ...manage, ctrl.putCustomer);
   app.post("/api/business/:businessId/customers/:customerId/archive", ...manage, ctrl.postArchiveCustomer);
+
+  // Consent write path -- grant/revoke reuses CUSTOMERS_MANAGE (no new
+  // permission, doc 34 section 9); view reuses the existing view gate.
+  app.post("/api/business/:businessId/customers/:customerId/consent", ...manage, ctrl.postConsent);
+  app.get("/api/business/:businessId/customers/:customerId/consent", ...view, ctrl.getConsents);
 }

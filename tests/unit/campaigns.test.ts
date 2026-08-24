@@ -30,7 +30,16 @@ const ALL_TABLES = [
   "templates", "templateVersions", "approvalRequests", "campaigns", "campaignRecipients",
   "messagingConversations", "businessConversations", "messagingParticipants",
   "messagingMessages", "messagingDeliveries", "messagingEvents",
+  "customerMarketingFrequency", "businessMarketingThroughput",
 ];
+
+// The two Phase 8 frequency-cap tables have a REAL unique constraint this
+// suite must respect to prove genuine concurrency safety -- mirrors the
+// pattern established in utility.test.ts for businessUtilityEvents.
+const UNIQUE_KEYS: Record<string, string[]> = {
+  customerMarketingFrequency: ["businessId", "customerId", "windowStart"],
+  businessMarketingThroughput: ["businessId", "windowStart"],
+};
 
 function resetFakeDb() {
   tables.clear();
@@ -46,11 +55,16 @@ function tableNameOf(tableDescriptor: Row): string {
 function fieldNameOf(colDescriptor: string): string {
   return colDescriptor.split(".").pop()!;
 }
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (a instanceof Date || b instanceof Date) return (a as any)?.getTime?.() === (b as any)?.getTime?.();
+  return a === b;
+}
 function evalCond(row: Row, cond: any): boolean {
   if (!cond) return true;
   if (cond.__and) return cond.conds.every((c: any) => evalCond(row, c));
   if (cond.__or) return cond.conds.some((c: any) => evalCond(row, c));
-  if (cond.__eq) return row[cond.field] === cond.value;
+  if (cond.__eq) return valuesEqual(row[cond.field], cond.value);
+  if (cond.__lt) return row[cond.field] < cond.value;
   if (cond.__in) return cond.values.includes(row[cond.field]);
   if (cond.__ilike) {
     const val = String(row[cond.field] ?? "").toLowerCase();
@@ -58,6 +72,11 @@ function evalCond(row: Row, cond: any): boolean {
     return val.includes(pattern);
   }
   throw new Error("Unknown condition: " + JSON.stringify(cond));
+}
+function findUniqueConflict(tableName: string, data: Row): Row | undefined {
+  const keyFields = UNIQUE_KEYS[tableName];
+  if (!keyFields) return undefined;
+  return (tables.get(tableName) ?? []).find((r) => keyFields.every((f) => valuesEqual(r[f], data[f])));
 }
 
 class SelectChain implements PromiseLike<Row[]> {
@@ -94,6 +113,11 @@ class InsertChain implements PromiseLike<Row[]> {
   private row: Row | null = null;
   constructor(private tableName: string) {}
   values(data: Row) {
+    if (findUniqueConflict(this.tableName, data)) {
+      const err: any = new Error("duplicate key value violates unique constraint");
+      err.code = "23505";
+      throw err;
+    }
     const id = (idCounters.get(this.tableName) ?? 0) + 1;
     idCounters.set(this.tableName, id);
     this.row = { id, createdAt: new Date(), ...data };
@@ -102,6 +126,13 @@ class InsertChain implements PromiseLike<Row[]> {
   }
   returning() { return Promise.resolve([this.row]); }
   then<T1, T2>(res?: any, rej?: any) { return Promise.resolve([this.row]).then(res, rej); }
+}
+
+function applySqlExpr(row: Row, field: string, expr: any) {
+  const [colDesc, amount] = expr.values;
+  const op = String(expr.strings[1]).trim(); // "+" or "-"
+  const base = row[fieldNameOf(colDesc)];
+  row[field] = op === "+" ? base + amount : base - amount;
 }
 
 class UpdateChain {
@@ -113,7 +144,12 @@ class UpdateChain {
       where(c: any) {
         cond = c;
         const affected = (tables.get(tableName) ?? []).filter((r: Row) => evalCond(r, cond));
-        for (const row of affected) Object.assign(row, patch);
+        for (const row of affected) {
+          for (const [k, v] of Object.entries(patch)) {
+            if (v && (v as any).__sqlExpr) applySqlExpr(row, k, v);
+            else row[k] = v;
+          }
+        }
         chain._affected = affected;
         return chain;
       },
@@ -162,6 +198,8 @@ vi.mock("drizzle-orm", async (importOriginal) => {
     desc: (column: string) => ({ __desc: true, field: fieldNameOf(column) }),
     ilike: (column: string, value: unknown) => ({ __ilike: true, field: fieldNameOf(column), value }),
     inArray: (column: string, values: unknown[]) => ({ __in: true, field: fieldNameOf(column), values }),
+    lt: (column: string, value: unknown) => ({ __lt: true, field: fieldNameOf(column), value }),
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ __sqlExpr: true, strings, values }),
   };
 });
 
@@ -199,6 +237,8 @@ vi.mock("@shared/schema", async (importOriginal) => {
     messagingMessages: mkTable("messagingMessages", ["id", "conversationId", "senderParticipantId", "messageType", "category", "content", "templateId", "replyToMessageId", "createdAt", "editedAt", "deletedAt"]),
     messagingDeliveries: mkTable("messagingDeliveries", ["id", "messageId", "participantId", "status", "statusAt", "failureReason", "providerRef"]),
     messagingEvents: mkTable("messagingEvents", ["id", "conversationId", "messageId", "eventType", "payload", "createdAt"]),
+    customerMarketingFrequency: mkTable("customerMarketingFrequency", ["id", "businessId", "customerId", "windowStart", "sentCount", "updatedAt"]),
+    businessMarketingThroughput: mkTable("businessMarketingThroughput", ["id", "businessId", "windowStart", "sentCount", "updatedAt"]),
   };
 });
 
@@ -697,5 +737,134 @@ describe("Reporting foundation: real counts, never fabricated", () => {
     await executeCampaign(BIZ, AUTHOR, campaign.id);
     const report = await getCampaignReport(BIZ, campaign.id);
     expect(report).toMatchObject({ targeted: 1, sent: 0, skipped: 1, skippedByReason: { customer_blocked: 1 } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 hardening: consent revocation/opt-out re-checked at execution
+// time (never overridden by the snapshot), and marketing frequency caps.
+// See docs/neura-ecosystem/34_PHASE8_MARKETING_HARDENING_IMPLEMENTATION.md.
+// ---------------------------------------------------------------------------
+
+describe("Phase 8: snapshot does not override a later opt-out/consent revocation", () => {
+  it("a customer who opts out (consent revoked) AFTER scheduling remains in the snapshot but is excluded at execution", async () => {
+    const { scheduleCampaign, executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { setChannelConsent } = await import("../../server/modules/customers/service");
+    const { campaign, customer } = await makeReadyCampaign();
+
+    await scheduleCampaign(BIZ, AUTHOR, campaign.id, new Date(Date.now() + 3600_000));
+    const beforeReport = await getCampaignReport(BIZ, campaign.id);
+    expect(beforeReport.targeted).toBe(1); // still snapshotted
+
+    // Real opt-out, via the exact same function the new HTTP consent route calls.
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "marketing" as any, false, "customer_reply_stop");
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const afterReport = await getCampaignReport(BIZ, campaign.id);
+    expect(afterReport.targeted).toBe(1); // snapshot unchanged...
+    expect(afterReport.sent).toBe(0);     // ...but never sent
+    expect(afterReport.skippedByReason["consent_missing"]).toBe(1);
+  });
+
+  it("re-granting consent after an opt-out requires an explicit new grant call -- it is never automatic", async () => {
+    const { setChannelConsent, isEligibleForChannel } = await import("../../server/modules/customers/service");
+    const { customer } = await makeActiveAudienceWithCustomer();
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "marketing" as any, true);
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "marketing" as any, false);
+    expect(await isEligibleForChannel(BIZ, customer.id, "marketing" as any)).toBe(false);
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "marketing" as any, true); // explicit re-consent
+    expect(await isEligibleForChannel(BIZ, customer.id, "marketing" as any)).toBe(true);
+  });
+});
+
+describe("Phase 8: marketing frequency cap gates execution (integration, real frequency.ts against the shared fake DB)", () => {
+  it("a customer already at today's cap is skipped with CUSTOMER_FREQUENCY_CAP_EXCEEDED, never sent", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { startOfUtcDay, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY } = await import("../../server/modules/campaigns/frequency");
+    const { campaign, customer } = await makeReadyCampaign();
+
+    // Pre-seed the customer's frequency counter at the exact default cap
+    // for today's window -- simulates "already received 3 marketing
+    // messages today from earlier campaigns."
+    tables.get("customerMarketingFrequency")!.push({
+      id: 1, businessId: BIZ, customerId: customer.id, windowStart: startOfUtcDay(),
+      sentCount: DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, updatedAt: new Date(),
+    });
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.sent).toBe(0);
+    expect(report.skippedByReason["customer_frequency_cap_exceeded"]).toBe(1);
+  });
+
+  it("frequency capping does not apply to UTILITY campaigns -- only MARKETING", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { setChannelConsent } = await import("../../server/modules/customers/service");
+    const { startOfUtcDay, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY } = await import("../../server/modules/campaigns/frequency");
+    const { campaign, customer } = await makeReadyCampaign({ category: "utility" });
+    await setChannelConsent(BIZ, AUTHOR, customer.id, "utility" as any, true); // the campaign engine's own gate chain (Phase 5) checks consent for utility too, distinct from Phase 7's separate Utility Messaging module
+
+    tables.get("customerMarketingFrequency")!.push({
+      id: 1, businessId: BIZ, customerId: customer.id, windowStart: startOfUtcDay(),
+      sentCount: DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, updatedAt: new Date(),
+    });
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.sent).toBe(1); // utility is never frequency-capped
+  });
+
+  it("a business already at its throughput cap skips further marketing recipients with BUSINESS_THROUGHPUT_CAP_EXCEEDED", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { startOfUtcHour, DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR } = await import("../../server/modules/campaigns/frequency");
+    const { campaign } = await makeReadyCampaign();
+
+    tables.get("businessMarketingThroughput")!.push({
+      id: 1, businessId: BIZ, windowStart: startOfUtcHour(),
+      sentCount: DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR, updatedAt: new Date(),
+    });
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.sent).toBe(0);
+    expect(report.skippedByReason["business_throughput_cap_exceeded"]).toBe(1);
+  });
+
+  it("a capped-out recipient is never charged (frequency gate runs before billing)", async () => {
+    const { executeCampaign } = await import("../../server/modules/campaigns/service");
+    const { startOfUtcDay, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY } = await import("../../server/modules/campaigns/frequency");
+    const { campaign, customer } = await makeReadyCampaign();
+
+    tables.get("customerMarketingFrequency")!.push({
+      id: 1, businessId: BIZ, customerId: customer.id, windowStart: startOfUtcDay(),
+      sentCount: DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, updatedAt: new Date(),
+    });
+
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    expect(chargeMock).not.toHaveBeenCalled();
+  });
+
+  it("two DIFFERENT marketing campaigns to the SAME customer share one frequency budget (campaign-agnostic, overlap-safe)", async () => {
+    const { executeCampaign, createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
+    const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
+
+    const { campaign: campaign1, customer, audience } = await makeReadyCampaign();
+    await executeCampaign(BIZ, AUTHOR, campaign1.id); // consumes 1 unit of the customer's shared daily budget
+
+    const freqRows = tables.get("customerMarketingFrequency")!.filter((r: any) => r.customerId === customer.id);
+    expect(freqRows.length).toBe(1); // ONE counter row for this customer+window, not one per campaign
+    expect(freqRows[0].sentCount).toBe(1);
+
+    // Second, independent campaign, same customer, same day.
+    const { version } = await makeApprovedTemplateVersion(BIZ);
+    const campaign2 = await createCampaign(BIZ, AUTHOR, { name: `camp2_${Date.now()}`, category: "marketing" });
+    await updateCampaign(BIZ, AUTHOR, campaign2.id, { templateVersionId: version.id, audienceId: audience.id });
+    const req2 = await createApprovalRequest(BIZ, AUTHOR, "campaign", campaign2.id);
+    await approveRequest(BIZ, APPROVER, req2.id, false);
+
+    await executeCampaign(BIZ, AUTHOR, campaign2.id);
+    const freqRowsAfter = tables.get("customerMarketingFrequency")!.filter((r: any) => r.customerId === customer.id);
+    expect(freqRowsAfter.length).toBe(1); // still one row -- campaign2 incremented the SAME counter, proving overlap protection is campaign-agnostic
+    expect(freqRowsAfter[0].sentCount).toBe(2);
   });
 });

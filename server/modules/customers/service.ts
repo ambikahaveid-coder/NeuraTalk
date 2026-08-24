@@ -263,6 +263,17 @@ export async function isEligibleForChannel(businessId: number, customerId: numbe
   return row?.status === CUSTOMER_CONSENT_STATUS.GRANTED;
 }
 
+/**
+ * Phase 8: the read side of the consent write path (doc 34). Returns
+ * EVERY channel's current state (a channel with no row is implicitly "not
+ * eligible" -- never returned as a fabricated row). Tenant-scoped via
+ * getOwnedCustomer, same as every other customer read.
+ */
+export async function getCustomerConsents(businessId: number, customerId: number) {
+  await getOwnedCustomer(businessId, customerId);
+  return db.select().from(customerConsents).where(eq(customerConsents.customerId, customerId));
+}
+
 export async function setChannelConsent(businessId: number, actorUserId: number, customerId: number, channel: CustomerConsentChannel, granted: boolean, source?: string) {
   await getOwnedCustomer(businessId, customerId);
   if (!Object.values(CUSTOMER_CONSENT_CHANNEL).includes(channel)) {

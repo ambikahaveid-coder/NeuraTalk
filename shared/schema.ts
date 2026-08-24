@@ -3963,6 +3963,11 @@ export const CAMPAIGN_SKIP_REASON = {
   BILLING_NOT_CONFIGURED: "billing_not_configured",
   RENDER_FAILED: "render_failed",
   SYSTEM_ERROR: "system_error",
+  // Phase 8 (doc 34 section 3) -- marketing-only frequency/throughput gates.
+  // Never set for UTILITY campaigns (frequency capping is a marketing-
+  // specific anti-spam control, not applied to operational messaging).
+  CUSTOMER_FREQUENCY_CAP_EXCEEDED: "customer_frequency_cap_exceeded",
+  BUSINESS_THROUGHPUT_CAP_EXCEEDED: "business_throughput_cap_exceeded",
 } as const;
 export type CampaignSkipReason = typeof CAMPAIGN_SKIP_REASON[keyof typeof CAMPAIGN_SKIP_REASON];
 
@@ -4217,3 +4222,49 @@ export const businessUtilityEvents = pgTable("business_utility_events", {
   uniqueIndex("business_utility_events_idempotency_idx").on(t.businessId, t.eventType, t.eventReference),
 ]);
 export type BusinessUtilityEvent = typeof businessUtilityEvents.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════
+// MARKETING FREQUENCY / THROUGHPUT CAPS (Phase 8 hardening, 2026-08-24)
+//
+// See docs/neura-ecosystem/34_PHASE8_MARKETING_HARDENING_IMPLEMENTATION.md
+// section 3. Two small, additive, windowed counters -- NOT a general
+// rate-limiter reimplementation (server/rate-limit.ts's Redis-backed
+// `rateLimit()` factory already exists for IP/route-level limiting and is
+// reused unchanged elsewhere). These specifically need DURABLE, ATOMIC,
+// per-(business,customer) and per-business counting that survives past a
+// single process/Redis-eviction and is provable under genuine DB-level
+// concurrency (the brief's explicit "do not claim concurrency safety from
+// application-level checks alone" instruction) -- a Redis INCR would work
+// operationally but a DB row gives the same atomic-CAS guarantee this
+// entire codebase already relies on everywhere else (billing, campaign
+// recipients, OTP challenges, utility events), so the SAME idiom is
+// reused here rather than introducing a second concurrency primitive.
+//
+// windowStart is a truncated timestamp (caller-computed, e.g. start of
+// UTC day) -- the window GRANULARITY and the cap VALUES are both
+// explicitly CONFIGURABLE / PRODUCT DECISION defaults, not a legal
+// requirement (doc 34 section 3).
+// ═══════════════════════════════════════════════════════════════════════
+
+export const customerMarketingFrequency = pgTable("customer_marketing_frequency", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  customerId: integer("customer_id").notNull().references(() => customers.id, { onDelete: "cascade" }),
+  windowStart: timestamp("window_start").notNull(),
+  sentCount: integer("sent_count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("customer_marketing_frequency_window_idx").on(t.businessId, t.customerId, t.windowStart),
+]);
+export type CustomerMarketingFrequency = typeof customerMarketingFrequency.$inferSelect;
+
+export const businessMarketingThroughput = pgTable("business_marketing_throughput", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  windowStart: timestamp("window_start").notNull(),
+  sentCount: integer("sent_count").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("business_marketing_throughput_window_idx").on(t.businessId, t.windowStart),
+]);
+export type BusinessMarketingThroughput = typeof businessMarketingThroughput.$inferSelect;

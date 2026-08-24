@@ -3,9 +3,10 @@ import { z } from "zod";
 import { logger } from "../../observability";
 import {
   createCustomer, listCustomers, getCustomer, updateCustomer, archiveCustomer,
+  setChannelConsent, getCustomerConsents,
   NotFoundError, ValidationError, DuplicateCustomerError,
 } from "./service";
-import { CUSTOMER_STATUS } from "@shared/schema";
+import { CUSTOMER_STATUS, CUSTOMER_CONSENT_CHANNEL } from "@shared/schema";
 
 function badRequest(res: Response, msg: string) {
   return res.status(400).json({ success: false, error: msg });
@@ -111,5 +112,47 @@ export async function postArchiveCustomer(req: Request, res: Response) {
     return res.json({ success: true, customer });
   } catch (error) {
     return handleServiceError(res, error, "Failed to archive customer");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Consent write path -- Phase 8 (doc 34). businessId/customerId are ALWAYS
+// resolved from the URL (verified server-side via requireCompanyAccess +
+// getOwnedCustomer inside the service) -- a client body can never forge
+// business ownership. "granted" is an explicit boolean the caller states;
+// the service never infers consent from the customer merely existing.
+// ---------------------------------------------------------------------------
+
+const consentSchema = z.object({
+  channel: z.enum(Object.values(CUSTOMER_CONSENT_CHANNEL) as [string, ...string[]]),
+  granted: z.boolean(),
+  source: z.string().trim().max(100).optional(),
+}).strict();
+
+export async function postConsent(req: Request, res: Response) {
+  const businessId = parseId(req.params.businessId);
+  const customerId = parseId(req.params.customerId);
+  if (businessId === null || customerId === null) return badRequest(res, "Invalid id");
+  const parsed = consentSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return badRequest(res, parsed.error.message);
+
+  try {
+    const consent = await setChannelConsent(businessId, req.user!.id, customerId, parsed.data.channel as any, parsed.data.granted, parsed.data.source);
+    return res.status(200).json({ success: true, consent });
+  } catch (error) {
+    return handleServiceError(res, error, "Failed to update consent");
+  }
+}
+
+export async function getConsents(req: Request, res: Response) {
+  const businessId = parseId(req.params.businessId);
+  const customerId = parseId(req.params.customerId);
+  if (businessId === null || customerId === null) return badRequest(res, "Invalid id");
+
+  try {
+    const consents = await getCustomerConsents(businessId, customerId);
+    return res.json({ success: true, consents });
+  } catch (error) {
+    return handleServiceError(res, error, "Failed to fetch consent");
   }
 }

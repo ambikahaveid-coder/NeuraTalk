@@ -33,6 +33,7 @@ import {
   MESSAGE_TYPE,
   MESSAGE_DELIVERY_STATUS,
   MESSAGE_EVENT_TYPE,
+  MESSAGE_CATEGORY,
   type CampaignStatus,
   type TemplateVariableDeclaration,
 } from "@shared/schema";
@@ -42,6 +43,7 @@ import { renderTemplateContent, TemplateRenderError } from "../templates/render"
 import { isEligibleForChannel } from "../customers/service";
 import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeCampaignMessage, PLACEHOLDER_COST_PER_MESSAGE_PAISE } from "./billing";
+import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot } from "./frequency";
 import { createAuditLog, AUDIT_ACTION_CAMPAIGN } from "./audit";
 
 export class NotFoundError extends Error {
@@ -442,6 +444,20 @@ async function processOneRecipient(
 
     if (!version || version.status !== TEMPLATE_VERSION_STATUS.APPROVED) {
       return skip(CAMPAIGN_SKIP_REASON.TEMPLATE_NOT_APPROVED);
+    }
+
+    // Frequency/throughput gates -- MARKETING only (doc 34 section 3).
+    // Reserved AFTER every other eligibility/template check (so a send
+    // that wouldn't happen anyway never consumes frequency budget) and
+    // BEFORE billing (so a capped-out send is never charged). Atomic
+    // per-slot reservation -- see campaigns/frequency.ts for the
+    // concurrency proof.
+    if (campaign.category === MESSAGE_CATEGORY.MARKETING) {
+      const customerSlot = await reserveCustomerFrequencySlot(tx, businessId, customer.id);
+      if (!customerSlot.allowed) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_FREQUENCY_CAP_EXCEEDED);
+
+      const businessSlot = await reserveBusinessThroughputSlot(tx, businessId);
+      if (!businessSlot.allowed) return skip(CAMPAIGN_SKIP_REASON.BUSINESS_THROUGHPUT_CAP_EXCEEDED);
     }
 
     let rendered: string;
