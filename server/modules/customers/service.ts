@@ -12,6 +12,7 @@ import {
   customers,
   customerConsents,
   organizations,
+  users,
   CUSTOMER_STATUS,
   CUSTOMER_SOURCE,
   CUSTOMER_CONSENT_CHANNEL,
@@ -118,6 +119,62 @@ export async function createCustomer(businessId: number, actorUserId: number, in
 
   await createAuditLog(actorUserId, businessId, AUDIT_ACTION_CUSTOMER.CREATED, customer.id, {
     name: customer.name, source: customer.source,
+  });
+
+  return customer;
+}
+
+/**
+ * P1-1 (2026-08-25): resolves the customer record for a REAL NeuraTalk user
+ * contacting a business themselves, keyed by (businessId, linkedUserId) --
+ * deliberately NOT the phone/email/externalRef dedup createCustomer() uses,
+ * because a user-initiated contact usually has no phone/email on file with
+ * this business at all, and reusing that dedup here would either miss the
+ * common case or risk colliding with the customers table's own unique
+ * indexes on normalizedPhone/normalizedEmail if we tried to populate them
+ * from the user's profile. A business's separately, manually-entered
+ * customer row for the same real person (phone/email match, linkedUserId
+ * still null) is NOT reconciled here -- that is a product decision (should
+ * it auto-link at all, and is that itself a consent question) left for a
+ * later phase, not decided unilaterally in this one.
+ *
+ * Accepts an optional tx so the caller (messaging/service.ts's
+ * sendUserInitiatedMessage) can compose this inside its own transaction,
+ * same DbLike convention used elsewhere in this codebase (e.g.
+ * messaging/service.ts's createBusinessConversationTx). The check-then-
+ * insert has a narrow residual race (two literally-simultaneous first
+ * messages from the same never-before-seen user to the same business could
+ * both pass the "not found" check) since there is no unique DB constraint
+ * on (businessId, linkedUserId) to catch it -- adding one would be a schema
+ * migration, out of scope for this change. Flagged here rather than
+ * silently assumed safe.
+ */
+export async function findOrCreateCustomerByLinkedUser(
+  businessId: number,
+  userId: number,
+  dbClient: DbLike = db,
+): Promise<typeof customers.$inferSelect> {
+  const [existing] = await dbClient.select().from(customers)
+    .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, userId)));
+  if (existing) return existing;
+
+  const [business] = await dbClient.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, businessId));
+  if (!business) throw new NotFoundError("Business not found");
+
+  const [user] = await dbClient.select({ id: users.id, username: users.username }).from(users).where(eq(users.id, userId));
+  if (!user) throw new NotFoundError("User not found");
+
+  const [customer] = await dbClient.insert(customers).values({
+    businessId,
+    linkedUserId: userId,
+    name: user.username || null,
+    status: CUSTOMER_STATUS.ACTIVE,
+    source: CUSTOMER_SOURCE.MANUAL,
+    createdBy: userId,
+  }).returning();
+
+  await createAuditLog(userId, businessId, AUDIT_ACTION_CUSTOMER.CREATED, customer.id, {
+    name: customer.name, source: customer.source, userInitiated: true,
   });
 
   return customer;

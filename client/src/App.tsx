@@ -14,6 +14,7 @@ const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
+const BusinessChatPage = lazy(() => import("@/pages/BusinessChatPage"));
 const VoiceCloneSettings = lazy(() => import("@/pages/VoiceCloneSettings"));
 const ApiDocs = lazy(() => import("@/pages/ApiDocs"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -305,6 +306,14 @@ function Router() {
 
       <Route path="/chat">
         <ProtectedRoute component={ChatPage} />
+      </Route>
+
+      {/* P1-3: any authenticated NeuraTalk user (no allowedRoles restriction,
+          same as /chat) -- consumer messaging a business, not a business-
+          management surface. No discovery UI links here yet (P1-3A); reached
+          via a direct businessId in the URL for this phase. */}
+      <Route path="/business-chat/:businessId">
+        <ProtectedRoute component={BusinessChatPage} />
       </Route>
 
       <Route path="/settings/voice-clone">
