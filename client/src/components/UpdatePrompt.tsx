@@ -26,7 +26,18 @@ export function UpdatePrompt() {
       });
     });
 
+    // A "controllerchange" event also fires the very first time a
+    // service worker ever activates for this page (uncontrolled ->
+    // controlled), not just when a new version replaces an old one.
+    // Reloading unconditionally on that first activation can abort an
+    // in-flight navigation (e.g. a direct deep link) for no reason --
+    // only reload when this page already had a controller, i.e. a real
+    // worker-to-worker update.
+    const hadControllerAtMount = !!navigator.serviceWorker.controller;
+    let refreshing = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadControllerAtMount || refreshing) return;
+      refreshing = true;
       window.location.reload();
     });
 
