@@ -264,6 +264,11 @@ async function getAgentStatusRows(organizationId: number) {
       phone: member.user.phone,
       role: member.user.role,
       memberRole: member.memberRole,
+      // Already loaded by the orgMembers query above -- was never projected
+      // into the response, so the Team UI had no way to show a member's
+      // current Business-platform permission grants (server/business-rbac-routes.ts).
+      // Read-only exposure of existing data; no new query, no new write path.
+      permissions: (member.permissions as string[] | null) ?? [],
       isActive: member.user.isActive,
       isOnline: member.user.isActive,
       isOnCall: !!currentCall,

@@ -19,12 +19,53 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   Sparkles, LogOut, Users, CreditCard, BarChart3, Phone, PhoneCall, Video,
   Settings, Plus, Clock, Check, X, Loader2, Copy, Eye, EyeOff,
   Building2, Key, Activity, ExternalLink, FileText, UserPlus, Languages,
   Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw,
-  Radio, PiggyBank
+  Radio, PiggyBank, Lock
 } from "lucide-react";
+
+// Human-readable labels for the P0-5 Business-platform permission grant --
+// mirrors GRANTABLE_BUSINESS_PERMISSIONS in server/business-rbac-routes.ts
+// exactly (14 entries). This is a display-only mapping; the actual
+// allow-list enforcement lives server-side and is fetched live (see
+// BusinessAccessDialog below), never hardcoded as a security boundary here.
+const BUSINESS_PERMISSION_LABELS: Record<string, { label: string; group: string }> = {
+  "customers:view": { label: "View customers", group: "Customers" },
+  "customers:manage": { label: "Manage customers", group: "Customers" },
+  "audiences:view": { label: "View audiences", group: "Audiences" },
+  "audiences:manage": { label: "Manage audiences", group: "Audiences" },
+  "templates:manage": { label: "Manage message templates", group: "Templates" },
+  "templates:approve": { label: "Approve message templates", group: "Templates" },
+  "campaigns:view": { label: "View campaigns", group: "Campaigns" },
+  "campaigns:manage": { label: "Manage campaigns", group: "Campaigns" },
+  "campaigns:execute": { label: "Launch campaigns", group: "Campaigns" },
+  "otp:view": { label: "View OTP activity", group: "OTP" },
+  "otp:manage": { label: "Manage OTP", group: "OTP" },
+  "utility:view": { label: "View utility messaging", group: "Utility" },
+  "messaging:view": { label: "View business messaging", group: "Messaging" },
+  "messaging:send": { label: "Send business messages", group: "Messaging" },
+};
 
 type Tab = "overview" | "marketing" | "agents" | "reports" | "api" | "settings";
 
@@ -294,7 +335,7 @@ export default function CompanyDashboard() {
           )}
 
           {activeTab === "agents" && (
-            <AgentsTab agents={agents} isLoading={agentsLoading} isError={agentsIsError} error={agentsError} onRetry={refetchAgents} />
+            <AgentsTab agents={agents} isLoading={agentsLoading} isError={agentsIsError} error={agentsError} onRetry={refetchAgents} canManageCompany={canManageCompany} businessId={user?.organization?.id ?? 0} />
           )}
 
           {activeTab === "reports" && (
@@ -967,8 +1008,9 @@ function ClientConnectCard() {
   );
 }
 
-function AgentsTab({ agents, isLoading, isError, error, onRetry }: { agents: any; isLoading: boolean; isError?: boolean; error?: unknown; onRetry?: () => void }) {
+export function AgentsTab({ agents, isLoading, isError, error, onRetry, canManageCompany, businessId }: { agents: any; isLoading: boolean; isError?: boolean; error?: unknown; onRetry?: () => void; canManageCompany: boolean; businessId: number }) {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [businessAccessAgent, setBusinessAccessAgent] = useState<any | null>(null);
   const [newAgentEmail, setNewAgentEmail] = useState("");
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPhone, setNewAgentPhone] = useState("");
@@ -1048,20 +1090,26 @@ function AgentsTab({ agents, isLoading, isError, error, onRetry }: { agents: any
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-bold">Team Members</h2>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={async () => {
-            const token = getAuthToken();
-            const res = await fetch("/api/organization/import/template", { headers: { Authorization: `Bearer ${token}` } });
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = "user_import_template.csv"; a.click();
-          }}>CSV Template</Button>
-          <Button size="sm" variant="outline" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = ".csv"; input.onchange = async (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return; const token = getAuthToken(); const fd = new FormData(); fd.append("file", file); const res = await fetch("/api/organization/import/validate", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd }); const data = await res.json(); if (data.valid) { if (confirm(`Import ${data.summary?.validRows} users? (${data.summary?.invalidRows} invalid rows will be skipped)`)) { const exRes = await fetch("/api/organization/import/execute", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ users: data.validUsers }) }); const exData = await exRes.json(); toast({ title: exData.success ? "Import Complete" : "Import Failed", description: exData.message }); queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] }); } } else { toast({ title: "CSV Validation Failed", description: data.errors?.join(", ") ?? "Invalid file", variant: "destructive" }); } }; input.click(); }}><FileText className="w-4 h-4 mr-1" />Bulk Import</Button>
-          <Button size="sm" onClick={() => setShowAddForm(true)}><UserPlus className="w-4 h-4 mr-2" /> Add Member</Button>
-        </div>
+        {/* These actions all require company_admin server-side (requireCompanyAdminOrAbove) --
+            previously shown to every viewer of this tab, including plain "agent" role users,
+            who would see a working-looking button that 403s on click. Gated client-side now,
+            though the backend check remains the real, authoritative boundary. */}
+        {canManageCompany && (
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={async () => {
+              const token = getAuthToken();
+              const res = await fetch("/api/organization/import/template", { headers: { Authorization: `Bearer ${token}` } });
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a"); a.href = url; a.download = "user_import_template.csv"; a.click();
+            }}>CSV Template</Button>
+            <Button size="sm" variant="outline" onClick={() => { const input = document.createElement("input"); input.type = "file"; input.accept = ".csv"; input.onchange = async (e) => { const file = (e.target as HTMLInputElement).files?.[0]; if (!file) return; const token = getAuthToken(); const fd = new FormData(); fd.append("file", file); const res = await fetch("/api/organization/import/validate", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd }); const data = await res.json(); if (data.valid) { if (confirm(`Import ${data.summary?.validRows} users? (${data.summary?.invalidRows} invalid rows will be skipped)`)) { const exRes = await fetch("/api/organization/import/execute", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ users: data.validUsers }) }); const exData = await exRes.json(); toast({ title: exData.success ? "Import Complete" : "Import Failed", description: exData.message }); queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] }); } } else { toast({ title: "CSV Validation Failed", description: data.errors?.join(", ") ?? "Invalid file", variant: "destructive" }); } }; input.click(); }}><FileText className="w-4 h-4 mr-1" />Bulk Import</Button>
+            <Button size="sm" onClick={() => setShowAddForm(true)}><UserPlus className="w-4 h-4 mr-2" /> Add Member</Button>
+          </div>
+        )}
       </div>
 
-      {showAddForm && (
+      {showAddForm && canManageCompany && (
         <Card>
           <CardHeader><CardTitle className="text-base">Add New Member</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -1087,28 +1135,231 @@ function AgentsTab({ agents, isLoading, isError, error, onRetry }: { agents: any
 
       <Card>
         <CardContent className="p-0">
+          {(agents?.agents?.length ?? 0) === 0 && (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No team members yet.
+            </div>
+          )}
           {agents?.agents?.map((agent: any) => (
-            <div key={agent.id} className="p-4 border-b last:border-0 flex items-center justify-between">
-              <div>
-                <p className="font-bold">{agent.username || agent.email}</p>
-                <p className="text-xs text-muted-foreground">{agent.email} • {agent.role}</p>
+            <div key={agent.id} className="p-4 border-b last:border-0 flex items-center justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="font-bold truncate">{agent.username || agent.email}</p>
+                <p className="text-xs text-muted-foreground truncate">{agent.email} • {agent.role}</p>
+                {(agent.permissions?.length ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                    <Lock className="w-3 h-3" /> {agent.permissions.length} business permission{agent.permissions.length === 1 ? "" : "s"} granted
+                  </p>
+                )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <Badge variant={agent.isActive ? "default" : "secondary"}>{agent.isActive ? "Active" : "Inactive"}</Badge>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={updateAgentStatusMutation.isPending}
-                  onClick={() => updateAgentStatusMutation.mutate({ agentId: agent.id, isActive: !agent.isActive })}
-                >
-                  {agent.isActive ? "Deactivate" : "Activate"}
-                </Button>
+                {canManageCompany && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid={`button-business-access-${agent.id}`}
+                    onClick={() => setBusinessAccessAgent(agent)}
+                  >
+                    <ShieldCheck className="w-4 h-4 mr-1" /> Business Access
+                  </Button>
+                )}
+                {canManageCompany && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updateAgentStatusMutation.isPending}
+                    onClick={() => updateAgentStatusMutation.mutate({ agentId: agent.id, isActive: !agent.isActive })}
+                  >
+                    {agent.isActive ? "Deactivate" : "Activate"}
+                  </Button>
+                )}
               </div>
             </div>
           ))}
         </CardContent>
       </Card>
+
+      {businessAccessAgent && (
+        <BusinessAccessDialog
+          agent={businessAccessAgent}
+          businessId={businessId}
+          onClose={() => setBusinessAccessAgent(null)}
+        />
+      )}
     </div>
+  );
+}
+
+interface GrantablePermissionsResponse {
+  permissions: string[];
+}
+
+/**
+ * P0-5 UI: grants Business-platform permissions (customers/audiences/
+ * templates/campaigns/OTP/utility/messaging) to a team member, via the
+ * narrowly-scoped backend endpoint added in server/business-rbac-routes.ts.
+ *
+ * Security notes (see Phase 2 review):
+ * - businessId always comes from the caller's own organization (passed down
+ *   from CompanyDashboard's useAuth() user, never editable here).
+ * - The checkbox list is fetched live from GET .../rbac/grantable-permissions
+ *   rather than hardcoded, so it can never drift from the backend allow-list.
+ * - This dialog only ADDS permissions (matches the backend's merge-not-
+ *   overwrite behavior) -- there is no revoke action, because the backend
+ *   has no revoke endpoint; not faking one here.
+ * - A confirmation step (AlertDialog) sits between "Save" and the actual
+ *   mutation, since this is a security-sensitive action.
+ * - Any 401/403 from the backend surfaces via the existing toast pattern,
+ *   not swallowed.
+ */
+export function BusinessAccessDialog({ agent, businessId, onClose }: { agent: any; businessId: number; onClose: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const currentPermissions: string[] = agent.permissions ?? [];
+  const [selected, setSelected] = useState<Set<string>>(new Set(currentPermissions));
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const { data: grantable, isLoading: grantableLoading, isError: grantableIsError, error: grantableError, refetch: refetchGrantable } = useQuery<GrantablePermissionsResponse>({
+    queryKey: ["/api/business/rbac/grantable-permissions", businessId],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/rbac/grantable-permissions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load grantable permissions");
+      return res.json();
+    },
+    enabled: businessId > 0,
+  });
+
+  const grantMutation = useMutation({
+    mutationFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/business/${businessId}/rbac/grant-business-access`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: agent.id, permissions: newlySelected }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update business access");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/agents"] });
+      toast({ title: "Business access updated", description: `Permissions saved for ${agent.username || agent.email}.` });
+      onClose();
+    },
+    onError: (err: any) => {
+      toast({ title: "Couldn't update business access", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const groups = new Map<string, { key: string; label: string }[]>();
+  for (const key of grantable?.permissions ?? []) {
+    const meta = BUSINESS_PERMISSION_LABELS[key] ?? { label: key, group: "Other" };
+    if (!groups.has(meta.group)) groups.set(meta.group, []);
+    groups.get(meta.group)!.push({ key, label: meta.label });
+  }
+
+  // Already-granted permissions are locked ON, not just pre-checked: the
+  // backend grant endpoint only merges/adds (server/business-rbac-routes.ts
+  // has no revoke path), so unchecking one here would submit successfully
+  // but silently have no effect -- that's a worse, misleading interaction
+  // than not offering it at all. Only NEW selections count as a change.
+  const newlySelected = Array.from(selected).filter((p) => !currentPermissions.includes(p));
+  const hasChanges = newlySelected.length > 0;
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg" data-testid="dialog-business-access">
+        <DialogHeader>
+          <DialogTitle>Business Access — {agent.username || agent.email}</DialogTitle>
+          <DialogDescription>
+            Grant access to Business-platform features (customers, audiences, templates, campaigns, OTP, utility, business messaging). Existing permissions are preserved; this only adds new ones.
+          </DialogDescription>
+        </DialogHeader>
+
+        {grantableLoading && (
+          <div className="py-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" /></div>
+        )}
+        {grantableIsError && (
+          <div className="py-4"><QueryErrorState error={grantableError} onRetry={() => refetchGrantable()} label="grantable permissions" /></div>
+        )}
+        {!grantableLoading && !grantableIsError && groups.size === 0 && (
+          <p className="text-sm text-muted-foreground py-4">No grantable permissions are configured.</p>
+        )}
+
+        {!grantableLoading && !grantableIsError && groups.size > 0 && (
+          <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+            {Array.from(groups.entries()).map(([group, perms]) => (
+              <div key={group}>
+                <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-2">{group}</p>
+                <div className="space-y-2">
+                  {perms.map(({ key, label }) => {
+                    const alreadyGranted = currentPermissions.includes(key);
+                    return (
+                      <label
+                        key={key}
+                        className={`flex items-center gap-2 text-sm ${alreadyGranted ? "text-muted-foreground" : "cursor-pointer"}`}
+                        data-testid={`checkbox-permission-${key}`}
+                      >
+                        <Checkbox
+                          checked={selected.has(key)}
+                          disabled={alreadyGranted}
+                          onCheckedChange={(checked) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(key); else next.delete(key);
+                              return next;
+                            });
+                          }}
+                        />
+                        {label}
+                        {alreadyGranted && <span className="text-xs">(already granted)</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={grantMutation.isPending}>Cancel</Button>
+          <Button
+            onClick={() => setConfirmOpen(true)}
+            disabled={!hasChanges || grantMutation.isPending || grantableLoading}
+            data-testid="button-save-business-access"
+          >
+            {grantMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm business access change</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will grant {agent.username || agent.email} access to {newlySelected.length} new Business-platform permission{newlySelected.length === 1 ? "" : "s"}. Existing permissions are unaffected. This action is logged in the business audit trail.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmOpen(false); grantMutation.mutate(); }}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }
 
