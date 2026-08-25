@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, getAuthToken } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
@@ -50,11 +50,15 @@ import { cn } from "@/lib/utils";
  * conversation's participants (from GET .../conversations/:id) to decide
  * which side of the chat it renders on.
  *
- * No real-time push in this phase (matches P1-4's decision) -- the
- * conversation list and open conversation's messages refetch on the same
- * conservative 8s interval, paused when the tab isn't focused, stopped on
- * unmount (TanStack Query defaults). Real push delivery remains a later
- * optimization (see the P1-5 implementation report's P1-6 recommendation).
+ * P2 (2026-08-25): Redis-backed SSE real-time delivery with polling
+ * correctness fallback -- see server/modules/messaging/realtime.ts and
+ * BusinessChatPage.tsx's matching file comment for the full architecture
+ * and its accepted crash-window gap. ONE stream
+ * (GET /api/business/:businessId/conversations/stream) covers the whole
+ * business: new/updated conversations, new messages in whichever
+ * conversation is open, and assignment changes (claim/release/admin
+ * (re)assign) -- not three separate connections. The 8s poll below is
+ * NEVER removed, only toggled off while that stream is confirmed healthy.
  */
 
 const POLL_INTERVAL_MS = 8000;
@@ -115,6 +119,9 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
+  // P2: see BusinessChatPage.tsx's identical flag for the exact semantics
+  // -- true only once the stream's "ready" frame has been received.
+  const [sseHealthy, setSseHealthy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -127,7 +134,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
       return res.json();
     },
     enabled: businessId > 0,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: sseHealthy ? false : POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -148,7 +155,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
       return res.json();
     },
     enabled: businessId > 0 && selectedId !== null,
-    refetchInterval: POLL_INTERVAL_MS,
+    refetchInterval: sseHealthy ? false : POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -180,6 +187,99 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [chronologicalMessages.length]);
+
+  // P2: mirrors isNearBottomRef's pattern -- read inside the SSE handler
+  // below without making selectedId a dependency of that effect (which
+  // would tear down and reopen the connection every time an agent clicks
+  // a different conversation).
+  const selectedIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  // P2: single SSE connection for the whole business -- new conversations,
+  // new messages (in whichever conversation is currently open), and
+  // assignment changes all arrive on this one stream and all resolve to
+  // the same action (invalidate the conversations list; additionally
+  // invalidate the open conversation's messages for message.created).
+  // Bounded reconnect (2s/4s/8s) then a slow 30s background retry, same
+  // policy as BusinessChatPage.tsx -- see that file for why this
+  // deliberately does not copy personal chat's permanent-give-up-on-error
+  // behavior.
+  useEffect(() => {
+    if (!(businessId > 0)) return;
+    const token = getAuthToken();
+    if (!token) return;
+
+    let closed = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: number | null = null;
+    let retryAttempt = 0;
+    const RECONNECT_DELAYS_MS = [2000, 4000, 8000];
+    const DEGRADED_RETRY_MS = 30000;
+
+    const scheduleReconnect = () => {
+      if (closed) return;
+      const delay = retryAttempt < RECONNECT_DELAYS_MS.length
+        ? RECONNECT_DELAYS_MS[retryAttempt++]
+        : DEGRADED_RETRY_MS;
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
+
+    function connect() {
+      if (closed) return;
+      try {
+        eventSource = new EventSource(`/api/business/${businessId}/conversations/stream?auth=${encodeURIComponent(token!)}`);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (!payload?.type) return;
+            if (payload.type === "ready") {
+              retryAttempt = 0;
+              setSseHealthy(true);
+              return;
+            }
+            if (payload.type === "heartbeat") return;
+
+            if (payload.type === "message.created" || payload.type === "conversation.created" || payload.type === "assignment.changed") {
+              // Invalidation, not direct cache mutation -- the conversation
+              // list's shape depends on the active assignment filter and
+              // on server-computed fields (lastMessage preview,
+              // assignedToUsername) this event doesn't carry in full, so a
+              // refetch is the correct source of truth here, not a patch.
+              queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations"] });
+              if (payload.type === "message.created" && selectedIdRef.current !== null && payload.conversationId === selectedIdRef.current) {
+                queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations", selectedIdRef.current, "messages"] });
+              }
+            }
+          } catch {
+            // Ignore malformed real-time payloads -- the poll fallback (or
+            // the next valid event) keeps the view eventually consistent.
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          eventSource = null;
+          setSseHealthy(false);
+          scheduleReconnect();
+        };
+      } catch {
+        setSseHealthy(false);
+        scheduleReconnect();
+      }
+    }
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      eventSource?.close();
+      setSseHealthy(false);
+    };
+  }, [businessId, queryClient]);
 
   const sendReplyMutation = useMutation({
     mutationFn: async (content: string) => {

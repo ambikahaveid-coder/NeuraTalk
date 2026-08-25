@@ -30,6 +30,7 @@ import { eq, and, isNull, desc, ne, inArray } from "drizzle-orm";
 import { findOrCreateCustomerByLinkedUser } from "../customers/service";
 import { createAuditLog } from "../../audit";
 import { AUDIT_ACTION } from "@shared/schema";
+import { publishMessagingEvent } from "./realtime";
 
 export class InvalidParticipantError extends Error {
   constructor(public readonly participantType: string) {
@@ -193,11 +194,24 @@ async function createBusinessConversationTx(
  * business's own participant row (always) + any additional validated
  * participants + a conversation.created event. Rolls back entirely on any
  * failure -- no partially-created conversation.
+ *
+ * P2: the real-time publish happens here, AFTER `await db.transaction(...)`
+ * has resolved -- never inside createBusinessConversationTx itself (which
+ * runs on the caller-supplied `tx` and may be composed inside a LARGER
+ * transaction it doesn't own, e.g. via findOrCreateCustomerConversation).
+ * If the transaction throws, this line is never reached, so zero events
+ * are ever published for a rolled-back conversation create.
  */
 export async function createBusinessConversation(
   input: CreateBusinessConversationInput,
 ): Promise<CreateBusinessConversationResult> {
-  return db.transaction((tx) => createBusinessConversationTx(tx, input));
+  const result = await db.transaction((tx) => createBusinessConversationTx(tx, input));
+  publishMessagingEvent({
+    type: "conversation.created",
+    businessId: input.businessId,
+    conversationId: result.businessConversation.id,
+  });
+  return result;
 }
 
 /**
@@ -346,8 +360,46 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   return { message, deliveries };
 }
 
+/**
+ * P2: best-effort lookup of the real NeuraTalk user (if any) behind a
+ * businessConversation's customer, used only to route a message.created
+ * real-time event to that customer's own consumer stream (see
+ * realtime.ts's consumerKey). Returns null for a conversation with no
+ * customer, or a customer never linked to a real user account -- in
+ * either case the event is still published and still reaches the
+ * business's Inbox stream, it just has no specific consumer to also
+ * notify. Never throws -- a failed lookup just means no consumer
+ * real-time push for that one event; the message itself is unaffected.
+ */
+async function resolveCustomerUserIdForConversation(businessId: number, businessConversationId: number): Promise<number | null> {
+  try {
+    const [conv] = await db.select({ customerId: businessConversations.customerId }).from(businessConversations)
+      .where(and(eq(businessConversations.id, businessConversationId), eq(businessConversations.businessId, businessId)));
+    if (!conv?.customerId) return null;
+    const [customer] = await db.select({ linkedUserId: customers.linkedUserId }).from(customers)
+      .where(eq(customers.id, conv.customerId));
+    return customer?.linkedUserId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * P2: publishes AFTER `await db.transaction(...)` resolves -- see the same
+ * doc comment on createBusinessConversation above for why this must never
+ * move inside createMessageTx/tx.
+ */
 export async function createMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
-  return db.transaction((tx) => createMessageTx(tx, input));
+  const result = await db.transaction((tx) => createMessageTx(tx, input));
+  const customerUserId = await resolveCustomerUserIdForConversation(input.businessId, input.businessConversationId);
+  publishMessagingEvent({
+    type: "message.created",
+    businessId: input.businessId,
+    conversationId: input.businessConversationId,
+    customerUserId,
+    message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
+  });
+  return result;
 }
 
 export interface ListMessagesResult {
@@ -456,16 +508,31 @@ async function ensureUserParticipant(tx: DbLike, conversationId: number, userId:
   });
 }
 
+/**
+ * P2: publishes AFTER the transaction resolves, same discipline as
+ * createMessage/createBusinessConversation above. customerUserId is
+ * already known here (the sender IS the customer, `input.authenticatedUserId`)
+ * -- no extra lookup needed, unlike sendBusinessAgentMessage below.
+ * Deliberately does NOT publish a separate conversation.created here even
+ * on a brand-new conversation (findOrCreateCustomerConversation composes
+ * createBusinessConversationTx directly, not through the publishing
+ * createBusinessConversation wrapper) -- the Business Inbox stream treats
+ * every message.created as "refresh the conversation list", which covers
+ * a newly-created conversation appearing for the first time without a
+ * second event type.
+ */
 export async function sendUserInitiatedMessage(
   input: SendUserInitiatedMessageInput,
 ): Promise<CreateMessageResult> {
-  return db.transaction(async (tx) => {
+  let businessConversationId!: number;
+  const result = await db.transaction(async (tx) => {
     const [business] = await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.businessId));
     if (!business) throw new NotFoundError("Business not found");
 
     const customer = await findOrCreateCustomerByLinkedUser(input.businessId, input.authenticatedUserId, tx);
 
     const { businessConversation } = await findOrCreateCustomerConversation(tx, input.businessId, customer.id);
+    businessConversationId = businessConversation.id;
 
     await ensureUserParticipant(tx, businessConversation.conversationId, input.authenticatedUserId, "customer");
 
@@ -477,6 +544,16 @@ export async function sendUserInitiatedMessage(
       messageType: input.messageType,
     });
   });
+
+  publishMessagingEvent({
+    type: "message.created",
+    businessId: input.businessId,
+    conversationId: businessConversationId,
+    customerUserId: input.authenticatedUserId,
+    message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
+  });
+
+  return result;
 }
 
 /**
@@ -503,8 +580,15 @@ export async function sendUserInitiatedMessage(
  * createMessage/createMessageTx's own strict behavior is completely
  * unmodified for any other caller.
  */
+/**
+ * P2: publishes AFTER the transaction resolves. Unlike
+ * sendUserInitiatedMessage, the sender here is the AGENT, not the
+ * customer -- customerUserId for consumer-stream routing has to be looked
+ * up (resolveCustomerUserIdForConversation) rather than being the caller's
+ * own id.
+ */
 export async function sendBusinessAgentMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [bizConversation] = await tx.select().from(businessConversations)
       .where(and(eq(businessConversations.id, input.businessConversationId), eq(businessConversations.businessId, input.businessId)));
     if (!bizConversation) throw new NotFoundError("Conversation not found");
@@ -513,6 +597,17 @@ export async function sendBusinessAgentMessage(input: CreateMessageInput): Promi
 
     return createMessageTx(tx, input);
   });
+
+  const customerUserId = await resolveCustomerUserIdForConversation(input.businessId, input.businessConversationId);
+  publishMessagingEvent({
+    type: "message.created",
+    businessId: input.businessId,
+    conversationId: input.businessConversationId,
+    customerUserId,
+    message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
+  });
+
+  return result;
 }
 
 export interface PublicBusinessIdentity {
@@ -807,6 +902,20 @@ export async function claimConversation(businessId: number, businessConversation
 
   if (!updated) throw new AssignmentConflictError("This conversation was already claimed");
 
+  // P2: publishes only on the success path -- the CAS UPDATE above is a
+  // single atomic statement (no db.transaction wrapper needed here, same
+  // as before P2), so "after a successful resolution" simply means after
+  // `updated` is confirmed non-empty, which this line already guarantees
+  // by being unreachable otherwise (the throw above returns first).
+  publishMessagingEvent({
+    type: "assignment.changed",
+    businessId,
+    conversationId: businessConversationId,
+    assignedToUserId: authenticatedUserId,
+    assignedToUsername: null, // resolved by summarizeConversation below if the subscriber needs it; kept out of the event to avoid an extra query on the hot claim path
+    operation: "claim",
+  });
+
   return summarizeConversation(businessId, businessConversationId);
 }
 
@@ -837,6 +946,15 @@ export async function unassignConversation(businessId: number, businessConversat
     .returning();
 
   if (!updated) throw new NotYourAssignmentError(); // lost the race to someone reassigning in between the check and the update
+
+  publishMessagingEvent({
+    type: "assignment.changed",
+    businessId,
+    conversationId: businessConversationId,
+    assignedToUserId: null,
+    assignedToUsername: null,
+    operation: "release",
+  });
 
   return summarizeConversation(businessId, businessConversationId);
 }
@@ -954,5 +1072,20 @@ export async function adminSetConversationAssignment(
     metadata: { operation, conversationId: existing.id },
   });
 
-  return summarizeConversation(businessId, businessConversationId);
+  const summary = await summarizeConversation(businessId, businessConversationId);
+
+  // P2: published after both the UPDATE and the audit-log write have
+  // completed -- this function has no db.transaction wrapper (each write
+  // is its own already-committed statement, same as claim/unassign above),
+  // so there is no rollback window to worry about here either.
+  publishMessagingEvent({
+    type: "assignment.changed",
+    businessId,
+    conversationId: businessConversationId,
+    assignedToUserId: targetUserId,
+    assignedToUsername: summary.assignedToUsername,
+    operation,
+  });
+
+  return summary;
 }

@@ -23,6 +23,7 @@ import {
   InvalidAssigneeError,
   type ConversationAssignmentFilter,
 } from "./service";
+import { subscribeToBusinessEvents, subscribeToConsumerEvents, type MessagingRealtimeEvent } from "./realtime";
 import { MESSAGING_PARTICIPANT_TYPE } from "@shared/schema";
 
 function badRequest(res: Response, msg: string) {
@@ -328,4 +329,121 @@ export async function getUserMessages(req: Request, res: Response) {
     logger.error("Messaging", "Failed to fetch user-initiated messages", error as Error);
     return res.status(500).json({ success: false, error: "Failed to load messages" });
   }
+}
+
+const SSE_HEARTBEAT_MS = 20_000;
+
+/**
+ * P2: shared SSE plumbing (headers, ready frame, heartbeat, close cleanup)
+ * -- deliberately mirrors server/personal-chat-routes.ts's
+ * /api/personal-chats/stream handler's exact shape, since that's the only
+ * other place in this codebase this pattern has been proven in production.
+ * `subscribe` is one of subscribeToBusinessEvents/subscribeToConsumerEvents
+ * (already called with the caller-verified businessId/userId before this
+ * runs) and `project` narrows a raw MessagingRealtimeEvent down to exactly
+ * what this specific audience (consumer vs. agent) is allowed to see --
+ * see toConsumerFrame/toInboxFrame below.
+ */
+function runMessagingSseStream(
+  req: Request,
+  res: Response,
+  subscribe: (listener: (event: MessagingRealtimeEvent) => void) => () => void,
+  project: (event: MessagingRealtimeEvent) => Record<string, unknown> | null,
+): void {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const send = (payload: Record<string, unknown>) => {
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  send({ type: "ready", emittedAt: new Date().toISOString() });
+
+  const heartbeat = setInterval(() => {
+    send({ type: "heartbeat", ts: Date.now() });
+  }, SSE_HEARTBEAT_MS);
+
+  const listener = (event: MessagingRealtimeEvent) => {
+    const frame = project(event);
+    if (frame) send(frame);
+  };
+  const unsubscribe = subscribe(listener);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
+}
+
+// Strips fields a consumer has no legitimate reason to see over the wire:
+// customerUserId is purely an internal routing key (their own id, already
+// known to them, but not something the wire format needs to repeat), and
+// assignment.changed is Business Inbox-only -- a consumer's own chat page
+// has no use for who on the business side is handling their conversation
+// internally, so that event type is filtered out entirely for this
+// audience rather than forwarded and ignored client-side.
+function toConsumerFrame(event: MessagingRealtimeEvent): Record<string, unknown> | null {
+  if (event.type === "message.created") {
+    return {
+      type: event.type,
+      conversationId: event.conversationId,
+      message: event.message,
+      emittedAt: new Date().toISOString(),
+    };
+  }
+  return null;
+}
+
+// Inbox frame keeps businessId/conversationId (the panel needs both to
+// decide which cached query to invalidate) but still never includes
+// customerUserId -- that field only ever exists to route the event to the
+// right consumer stream locally in realtime.ts, it has no purpose once
+// the event reaches an authorized agent's browser.
+function toInboxFrame(event: MessagingRealtimeEvent): Record<string, unknown> | null {
+  const { customerUserId: _drop, ...rest } = event as any;
+  return { ...rest, emittedAt: new Date().toISOString() };
+}
+
+// P2: consumer-facing stream, same requireAuth-only reasoning as
+// getUserMessages/sendUserMessage above (see routes.ts) -- the caller
+// reads/subscribes to THEIR OWN conversation with this business, not the
+// business's internal event feed. userId passed to subscribeToConsumerEvents
+// is ALWAYS req.user.id -- there is no query/body field that could name a
+// different user, so this can never be used to eavesdrop on someone else's
+// conversation regardless of what businessId is supplied (an invalid/
+// unrelated businessId just means the subscription never matches any
+// published event, not an error -- consistent with getUserMessages's own
+// "no conversation yet -> empty result" behavior rather than a 404).
+export async function streamUserMessages(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+
+  runMessagingSseStream(
+    req,
+    res,
+    (listener) => subscribeToConsumerEvents(req.user!.id, businessId, listener),
+    toConsumerFrame,
+  );
+}
+
+// P2: Business Inbox stream. Same RBAC stack as listConversations/
+// getMessages (requireAuth + requireCompanyAccess + requirePermission
+// MESSAGING_VIEW, enforced in routes.ts before this ever runs) -- this
+// handler adds no authorization logic of its own, matching every other
+// handler in this file. businessId is the validated URL param (already
+// confirmed to belong to req.user's own organization by
+// requireCompanyAccess), never client-suppliable beyond that check.
+export async function streamBusinessConversations(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+
+  runMessagingSseStream(
+    req,
+    res,
+    (listener) => subscribeToBusinessEvents(businessId, listener),
+    toInboxFrame,
+  );
 }

@@ -103,6 +103,20 @@ export function registerMessagingRoutes(app: Express): void {
     ctrl.listEligibleAssigneesHandler,
   );
 
+  // P2: Business Inbox real-time stream -- same RBAC stack as
+  // listConversations/getMessages above, reused verbatim. See
+  // server/modules/messaging/realtime.ts for the Redis-backed transport
+  // and this phase's architecture report for why this is "Redis-backed
+  // SSE real-time delivery with polling correctness fallback", not
+  // guaranteed real-time delivery.
+  app.get(
+    "/api/business/:businessId/conversations/stream",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requirePermission(PERMISSIONS.MESSAGING_VIEW),
+    ctrl.streamBusinessConversations,
+  );
+
   // P1-2: consumer-facing, deliberately NOT requireCompanyAccess/
   // requirePermission -- the caller is a normal NeuraTalk user, not a
   // member of the target business, so there is no business-membership or
@@ -132,5 +146,14 @@ export function registerMessagingRoutes(app: Express): void {
     "/api/messaging/business/:businessId/messages",
     requireAuth,
     ctrl.getUserMessages,
+  );
+
+  // P2: consumer-facing real-time stream, same requireAuth-only reasoning
+  // as sendUserMessage/getUserMessages above -- see this phase's
+  // architecture report and server/modules/messaging/realtime.ts.
+  app.get(
+    "/api/messaging/business/:businessId/stream",
+    requireAuth,
+    ctrl.streamUserMessages,
   );
 }

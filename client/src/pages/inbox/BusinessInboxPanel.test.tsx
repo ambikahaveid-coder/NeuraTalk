@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import BusinessInboxPanel from "./BusinessInboxPanel";
 
 /**
@@ -101,6 +101,28 @@ function defaultRouteFetch(overrides: { conversations?: any; detail?: any; messa
     if (method === "GET" && u.includes("/conversations")) return overrides.conversations ?? jsonResponse(CONVERSATIONS_RESPONSE);
     return jsonResponse({ success: true });
   };
+}
+
+/** P2: see BusinessChatPage.test.tsx's identical fake for the exact
+ * rationale -- jsdom has no native EventSource, installed only for the
+ * dedicated P2 describe block below. */
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+  url: string;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+  close() { this.closed = true; }
+  emit(payload: unknown) {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
+  triggerError() {
+    this.onerror?.();
+  }
 }
 
 beforeEach(() => {
@@ -505,5 +527,149 @@ describe("BusinessInboxPanel", () => {
     const bodyText = document.body.textContent || "";
     expect(bodyText).not.toContain("DATABASE_URL");
     expect(bodyText).not.toContain("pg-pool");
+  });
+});
+
+describe("P2: SSE-preferred real-time transport for the Business Inbox", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("connects to the authenticated Business Inbox stream URL for this businessId", async () => {
+    mockFetch.mockImplementation(defaultRouteFetch());
+    renderPanel();
+
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+    expect(FakeEventSource.instances[0].url).toBe("/api/business/7/conversations/stream?auth=test-token");
+  });
+
+  it("a message.created event for the currently OPEN conversation triggers a refetch that shows the new message, without waiting for the next poll tick", async () => {
+    let messagesState = { ...MESSAGES_RESPONSE };
+    mockFetch.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.includes("/messages")) return jsonResponse(messagesState);
+      return defaultRouteFetch()(url, init);
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Priya Sharma")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("inbox-conversation-1"));
+    await waitFor(() => expect(screen.getByText("Welcome! How can I help?")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    // Server now genuinely has the new message (as it would after a real
+    // send elsewhere) -- the live event just tells the client to go get it.
+    messagesState = {
+      ...messagesState,
+      messages: [{ id: 3, senderParticipantId: 101, content: "live customer message", createdAt: "2026-08-25T00:06:00Z" }, ...messagesState.messages],
+    };
+    act(() => { FakeEventSource.instances[0].emit({ type: "ready" }); });
+    act(() => { FakeEventSource.instances[0].emit({ type: "message.created", conversationId: 1 }); });
+
+    await vi.waitFor(() => expect(screen.getByText("live customer message")).toBeInTheDocument());
+  });
+
+  it("a message.created event for a DIFFERENT (not-open) conversation still leaves the open conversation's own messages intact and correct", async () => {
+    let conversationsState = { ...CONVERSATIONS_RESPONSE };
+    mockFetch.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.includes("/conversations") && !/\/conversations\/\d+/.test(u)) return jsonResponse(conversationsState);
+      return defaultRouteFetch()(url, init);
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Priya Sharma")).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId("inbox-conversation-1"));
+    await waitFor(() => expect(screen.getByText("Welcome! How can I help?")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    act(() => { FakeEventSource.instances[0].emit({ type: "ready" }); });
+    act(() => { FakeEventSource.instances[0].emit({ type: "message.created", conversationId: 999 }); }); // NOT the open conversation (id 1)
+
+    // the unrelated conversation's event triggers only the (harmless,
+    // idempotent) list refresh -- the open conversation's own history is
+    // untouched/uncorrupted by an event that isn't about it
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.getByText("Welcome! How can I help?")).toBeInTheDocument();
+    // "Is this in stock?" legitimately appears twice (list-pane preview +
+    // message bubble), same as the non-SSE tests above in this file.
+    expect(screen.getAllByText("Is this in stock?").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("an assignment.changed event (claim/release/admin reassign from another agent) refreshes the conversation list so the assignee badge updates live", async () => {
+    // Explicit type: CONVERSATIONS_RESPONSE's own literal type infers
+    // assignedToUserId/assignedToUsername/success as exactly `null`/`false`-
+    // incompatible literal types (its fixture values), which would reject
+    // the later reassignment below to a real id/username -- widen to the
+    // real response shape instead of relying on inference from the
+    // fixture's initial values.
+    interface ConversationsStateFixture {
+      success: true;
+      conversations: Array<{
+        id: number; conversationId: number; customerId: number | null; customerName: string | null;
+        status: string; assignedToUserId: number | null; assignedToUsername: string | null;
+        lastMessage: { content: string; createdAt: string } | null; createdAt: string;
+      }>;
+    }
+    let conversationsState: ConversationsStateFixture = { ...CONVERSATIONS_RESPONSE } as ConversationsStateFixture;
+    mockFetch.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.includes("/conversations") && !/\/conversations\/\d+/.test(u)) return jsonResponse(conversationsState);
+      return defaultRouteFetch()(url, init);
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Priya Sharma")).toBeInTheDocument());
+    expect(screen.getByTestId("inbox-assignee-1")).toHaveTextContent("Unassigned");
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    conversationsState = {
+      success: true,
+      conversations: [{ ...CONVERSATIONS_RESPONSE.conversations[0], assignedToUserId: 200, assignedToUsername: "agent_bob" }],
+    };
+    act(() => { FakeEventSource.instances[0].emit({ type: "ready" }); });
+    act(() => { FakeEventSource.instances[0].emit({ type: "assignment.changed", conversationId: 1, assignedToUserId: 200, assignedToUsername: "agent_bob", operation: "claim" }); });
+
+    await vi.waitFor(() => expect(screen.getByTestId("inbox-assignee-1")).toHaveTextContent("agent_bob"));
+  });
+
+  it("bounded reconnect: an SSE error schedules a new connection attempt rather than permanently giving up", async () => {
+    mockFetch.mockImplementation(defaultRouteFetch());
+    renderPanel();
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    act(() => { FakeEventSource.instances[0].triggerError(); });
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(2));
+  });
+
+  it("the 8s poll remains active until the stream's ready frame is received (correctness backstop never disabled prematurely)", async () => {
+    mockFetch.mockImplementation(defaultRouteFetch());
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("Priya Sharma")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    const callsBefore = mockFetch.mock.calls.filter((c: any[]) => String(c[0]).includes("/conversations") && !String(c[0]).includes("/messages")).length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    const callsAfter = mockFetch.mock.calls.filter((c: any[]) => String(c[0]).includes("/conversations") && !String(c[0]).includes("/messages")).length;
+
+    expect(callsAfter).toBeGreaterThan(callsBefore);
+  });
+
+  it("EventSource is closed on unmount (no leaked connection/listener)", async () => {
+    mockFetch.mockImplementation(defaultRouteFetch());
+    const { unmount } = renderPanel();
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    unmount();
+    expect(FakeEventSource.instances[0].closed).toBe(true);
   });
 });

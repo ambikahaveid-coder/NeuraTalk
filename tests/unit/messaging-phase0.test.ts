@@ -190,6 +190,17 @@ vi.mock("../../server/audit", () => ({
   createAuditLog: vi.fn(async (params: Record<string, unknown>) => { auditLogCalls.push(params); }),
 }));
 
+// P2: mocked here (not the real module) so these tests prove the
+// call-vs-no-call CONTRACT (publish only reached after a successful
+// await db.transaction(...), never on a thrown/rolled-back one) without
+// depending on a real Redis connection. The real realtime.ts's own
+// publish/subscribe plumbing is covered separately in
+// tests/unit/messaging-realtime.test.ts.
+const publishMessagingEventCalls: Record<string, unknown>[] = [];
+vi.mock("../../server/modules/messaging/realtime", () => ({
+  publishMessagingEvent: vi.fn((event: Record<string, unknown>) => { publishMessagingEventCalls.push(event); }),
+}));
+
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -260,6 +271,7 @@ async function createConversationWithUser(businessId: number, userId: number) {
 beforeEach(() => {
   resetFakeDb();
   auditLogCalls.length = 0;
+  publishMessagingEventCalls.length = 0;
 });
 
 describe("Phase 0 acceptance criteria", () => {
@@ -1489,5 +1501,198 @@ describe("P1-7: listEligibleAssignees", () => {
 
     const members = await listEligibleAssignees(1);
     expect(members.map((m) => m.id).sort()).toEqual([100]);
+  });
+});
+
+describe("P2: real-time publish -- only after a successful transaction/write, never on rollback/throw", () => {
+  it("15. createMessage on a nonexistent conversation throws NotFoundError inside the transaction and publishes ZERO real-time events", async () => {
+    seedOrg(1);
+    const { createMessage, NotFoundError } = await import("../../server/modules/messaging/service");
+    seedUser(55);
+
+    await expect(createMessage({ businessId: 1, businessConversationId: 999999, authenticatedUserId: 55, content: "hi" }))
+      .rejects.toThrow(NotFoundError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
+  });
+
+  it("createMessage on a valid send publishes EXACTLY ONE message.created event, after the transaction resolves", async () => {
+    seedOrg(1);
+    const { createMessage } = await import("../../server/modules/messaging/service");
+    const conv = await createConversationWithUser(1, 55);
+    publishMessagingEventCalls.length = 0; // createConversationWithUser's own conversation.created publish doesn't count here
+
+    const sent = await createMessage({ businessId: 1, businessConversationId: conv.businessConversation.id, authenticatedUserId: 55, content: "hello" });
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.type).toBe("message.created");
+    expect(event.businessId).toBe(1);
+    expect(event.conversationId).toBe(conv.businessConversation.id);
+    expect(event.message.id).toBe(sent.message.id);
+    expect(event.message.content).toBe("hello");
+  });
+
+  it("sendUserInitiatedMessage against a nonexistent business throws inside the transaction and publishes ZERO events", async () => {
+    const { sendUserInitiatedMessage, NotFoundError } = await import("../../server/modules/messaging/service");
+    seedUser(42);
+
+    await expect(sendUserInitiatedMessage({ businessId: 999999, authenticatedUserId: 42, content: "hi" }))
+      .rejects.toThrow(NotFoundError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
+  });
+
+  it("sendUserInitiatedMessage on success publishes exactly one message.created event with customerUserId === the sender (the consumer IS the customer)", async () => {
+    seedOrg(1);
+    const { sendUserInitiatedMessage } = await import("../../server/modules/messaging/service");
+    seedUser(42);
+
+    const result = await sendUserInitiatedMessage({ businessId: 1, authenticatedUserId: 42, content: "Is this in stock?" });
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.type).toBe("message.created");
+    expect(event.customerUserId).toBe(42);
+    expect(event.message.id).toBe(result.message.id);
+  });
+
+  it("sendBusinessAgentMessage on success resolves the REAL customer's linkedUserId (not the replying agent's id) for consumer-stream routing", async () => {
+    seedOrg(1);
+    const { sendUserInitiatedMessage, sendBusinessAgentMessage, listBusinessConversations } = await import("../../server/modules/messaging/service");
+    seedUser(42); // the consumer/customer
+    seedUser(100); // the replying agent -- must NOT end up as customerUserId
+
+    await sendUserInitiatedMessage({ businessId: 1, authenticatedUserId: 42, content: "hi" });
+    publishMessagingEventCalls.length = 0;
+    const [conv] = await listBusinessConversations(1);
+
+    await sendBusinessAgentMessage({ businessId: 1, businessConversationId: conv.id, authenticatedUserId: 100, content: "how can I help?" });
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.type).toBe("message.created");
+    expect(event.customerUserId).toBe(42); // the customer, never the agent
+    expect(event.customerUserId).not.toBe(100);
+  });
+
+  it("sendBusinessAgentMessage against a nonexistent conversation throws inside the transaction and publishes ZERO events", async () => {
+    seedOrg(1);
+    const { sendBusinessAgentMessage, NotFoundError } = await import("../../server/modules/messaging/service");
+    seedUser(100);
+
+    await expect(sendBusinessAgentMessage({ businessId: 1, businessConversationId: 999999, authenticatedUserId: 100, content: "hi" }))
+      .rejects.toThrow(NotFoundError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
+  });
+
+  it("createBusinessConversation on success publishes exactly one conversation.created event", async () => {
+    seedOrg(1);
+    const { createBusinessConversation } = await import("../../server/modules/messaging/service");
+
+    const result = await createBusinessConversation({ businessId: 1 });
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.type).toBe("conversation.created");
+    expect(event.businessId).toBe(1);
+    expect(event.conversationId).toBe(result.businessConversation.id);
+  });
+
+  it("createBusinessConversation against a nonexistent business throws and publishes ZERO events", async () => {
+    const { createBusinessConversation, NotFoundError } = await import("../../server/modules/messaging/service");
+    await expect(createBusinessConversation({ businessId: 999999 })).rejects.toThrow(NotFoundError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
+  });
+
+  it("claimConversation on success publishes exactly one assignment.changed event with operation 'claim'", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, claimConversation } = await import("../../server/modules/messaging/service");
+    seedUser(100);
+    const conv = await createBusinessConversation({ businessId: 1 });
+    publishMessagingEventCalls.length = 0;
+
+    await claimConversation(1, conv.businessConversation.id, 100);
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.type).toBe("assignment.changed");
+    expect(event.operation).toBe("claim");
+    expect(event.assignedToUserId).toBe(100);
+  });
+
+  it("a LOSING claim attempt (AssignmentConflictError) publishes ZERO events -- only the winner's single publish from the earlier test exists", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, claimConversation, AssignmentConflictError } = await import("../../server/modules/messaging/service");
+    seedUser(100);
+    seedUser(200);
+    const conv = await createBusinessConversation({ businessId: 1 });
+    publishMessagingEventCalls.length = 0;
+
+    await claimConversation(1, conv.businessConversation.id, 100);
+    expect(publishMessagingEventCalls).toHaveLength(1);
+
+    await expect(claimConversation(1, conv.businessConversation.id, 200)).rejects.toThrow(AssignmentConflictError);
+    expect(publishMessagingEventCalls).toHaveLength(1); // still just the winner's
+  });
+
+  it("unassignConversation on success publishes exactly one assignment.changed event with operation 'release'", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, claimConversation, unassignConversation } = await import("../../server/modules/messaging/service");
+    seedUser(100);
+    const conv = await createBusinessConversation({ businessId: 1 });
+    await claimConversation(1, conv.businessConversation.id, 100);
+    publishMessagingEventCalls.length = 0;
+
+    await unassignConversation(1, conv.businessConversation.id, 100);
+
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    const event = publishMessagingEventCalls[0] as any;
+    expect(event.operation).toBe("release");
+    expect(event.assignedToUserId).toBeNull();
+  });
+
+  it("a failed unassign (NotYourAssignmentError) publishes ZERO events", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, claimConversation, unassignConversation, NotYourAssignmentError } = await import("../../server/modules/messaging/service");
+    seedUser(100);
+    seedUser(200);
+    const conv = await createBusinessConversation({ businessId: 1 });
+    await claimConversation(1, conv.businessConversation.id, 100);
+    publishMessagingEventCalls.length = 0;
+
+    await expect(unassignConversation(1, conv.businessConversation.id, 200)).rejects.toThrow(NotYourAssignmentError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
+  });
+
+  it("adminSetConversationAssignment publishes exactly one assignment.changed event per operation (assign / reassign / unassign)", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, adminSetConversationAssignment } = await import("../../server/modules/messaging/service");
+    seedUser(9, "admin_alice", { organizationId: 1 });
+    seedUser(100, "agent_a", { organizationId: 1 });
+    seedUser(200, "agent_b", { organizationId: 1 });
+    const conv = await createBusinessConversation({ businessId: 1 });
+    publishMessagingEventCalls.length = 0;
+
+    await adminSetConversationAssignment(1, conv.businessConversation.id, 9, 100);
+    expect(publishMessagingEventCalls).toHaveLength(1);
+    expect((publishMessagingEventCalls[0] as any).operation).toBe("assign");
+
+    await adminSetConversationAssignment(1, conv.businessConversation.id, 9, 200);
+    expect(publishMessagingEventCalls).toHaveLength(2);
+    expect((publishMessagingEventCalls[1] as any).operation).toBe("reassign");
+
+    await adminSetConversationAssignment(1, conv.businessConversation.id, 9, null);
+    expect(publishMessagingEventCalls).toHaveLength(3);
+    expect((publishMessagingEventCalls[2] as any).operation).toBe("unassign");
+  });
+
+  it("adminSetConversationAssignment against an invalid assignee throws InvalidAssigneeError and publishes ZERO events", async () => {
+    seedOrg(1);
+    const { createBusinessConversation, adminSetConversationAssignment, InvalidAssigneeError } = await import("../../server/modules/messaging/service");
+    seedUser(9, "admin_alice", { organizationId: 1 });
+    const conv = await createBusinessConversation({ businessId: 1 });
+    publishMessagingEventCalls.length = 0;
+
+    await expect(adminSetConversationAssignment(1, conv.businessConversation.id, 9, 999999)).rejects.toThrow(InvalidAssigneeError);
+    expect(publishMessagingEventCalls).toHaveLength(0);
   });
 });

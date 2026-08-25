@@ -272,6 +272,33 @@ export function getRedisClient(): Redis {
   return redisClient;
 }
 
+let redisSubscriberClient: Redis | null = null;
+
+/**
+ * P2: a dedicated, duplicated connection for Redis SUBSCRIBE mode --
+ * required because a client in subscribe mode can't issue normal commands
+ * (including PUBLISH) on the same connection. Reuses whatever mode
+ * (remote or in-memory mock) the main client is already running in via
+ * `.duplicate()`, which carries over the same connection options
+ * (retryStrategy, reconnectOnError, etc.) -- no separate reconnect logic
+ * to maintain here. Lazily created on first call, one per process (not
+ * per caller) -- callers should not call `.duplicate()` themselves.
+ * Throws the same "not ready yet" errors as getRedisClient() if called
+ * before assertRedisReady() has run at startup; callers (see
+ * server/modules/messaging/realtime.ts) are expected to catch and degrade
+ * gracefully, never to crash the process on this.
+ */
+export function getRedisSubscriberClient(): Redis {
+  if (!redisSubscriberClient) {
+    const base = getRedisClient();
+    redisSubscriberClient = base.duplicate();
+    redisSubscriberClient.on("error", (error) => {
+      logger.error("Redis", "Redis subscriber client error", error instanceof Error ? error : new Error(String(error)));
+    });
+  }
+  return redisSubscriberClient;
+}
+
 export async function assertRedisReady(timeoutMs = 5_000): Promise<void> {
   const start = Date.now();
 

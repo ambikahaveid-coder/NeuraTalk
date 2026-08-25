@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { useToast } from "@/hooks/use-toast";
+import { getAuthToken } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 
 /**
@@ -27,17 +28,18 @@ import { apiRequest } from "@/lib/queryClient";
  * reply indistinguishable from (and mislabeled as) the consumer's own
  * message.
  *
- * P1-4 real-time audit finding (honest disclosure, not "real-time"): a real
- * SSE mechanism exists in this codebase (server/personal-chat-routes.ts's
- * "/api/personal-chats/stream", consumed via EventSource in ChatPage.tsx),
- * but it is a dedicated EventEmitter scoped entirely to personal chat's own
- * tables and event shape -- canonical/business messaging never emits to it,
- * and wiring it in would mean building new pub/sub plumbing, which is
- * itself "a new realtime architecture" this phase was explicitly told not
- * to build. So: THIS IS POLLING, not push delivery. A business reply
- * appears within one polling interval (see POLL_INTERVAL_MS below), not
- * instantly. Documented as the deliberate interim state pending real
- * transport (see P1-5 in the implementation report).
+ * P2 (2026-08-25): Redis-backed SSE real-time delivery with polling
+ * correctness fallback. NOT "guaranteed real-time delivery" -- see
+ * server/modules/messaging/realtime.ts's file-level doc comment for the
+ * exact narrow crash-window gap (Postgres COMMIT -> process crash -> Redis
+ * PUBLISH) this design deliberately accepts rather than solving with a
+ * durable outbox. Preference order: SSE (subscribes to
+ * GET /api/messaging/business/:businessId/stream) -> on error, bounded
+ * reconnect at 2s/4s/8s -> if still unavailable, the original 8-second
+ * poll below becomes the active transport (it is NEVER removed, only
+ * toggled off while SSE is healthy) -> a slow background retry keeps
+ * attempting to re-establish SSE so a temporary outage self-heals without
+ * a page reload.
  *
  * No optimistic pre-confirmation state: a message enters the UI only after
  * the server confirms it (201). After a successful send, the cache is
@@ -101,6 +103,12 @@ export default function BusinessChatPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [messageInput, setMessageInput] = useState("");
+  // P2: true only while a live SSE connection is open and has received at
+  // least its "ready" frame. While true, the poll below is disabled
+  // (refetchInterval: false) since SSE is the active transport; false
+  // means either "still connecting" or "degraded", in both of which the
+  // poll stays on as the correctness backstop -- never both, never neither.
+  const [sseHealthy, setSseHealthy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   // Tracked via a real scroll listener (updated on every scroll, no
@@ -128,15 +136,17 @@ export default function BusinessChatPage() {
       return res.json();
     },
     enabled: isValidBusinessId,
-    // P1-4: interim polling (see the file-level comment above for why this
-    // is polling, not push). refetchIntervalInBackground defaults to false
-    // in this project's TanStack Query version -- set explicitly here so
-    // the "does not poll while the tab isn't focused" behavior is a
-    // documented decision, not an implicit default a future reader has to
-    // go verify. react-query itself already stops the interval entirely
-    // once this component (and therefore this query observer) unmounts --
-    // no manual cleanup needed for that part.
-    refetchInterval: POLL_INTERVAL_MS,
+    // P2: the poll is the fallback transport, active whenever SSE isn't
+    // confirmed healthy (see sseHealthy above) -- `false` here means
+    // "SSE has the ready frame, stop polling", not "polling was removed".
+    // refetchIntervalInBackground defaults to false in this project's
+    // TanStack Query version -- set explicitly here so the "does not poll
+    // while the tab isn't focused" behavior is a documented decision, not
+    // an implicit default a future reader has to go verify. react-query
+    // itself already stops the interval entirely once this component (and
+    // therefore this query observer) unmounts -- no manual cleanup needed
+    // for that part.
+    refetchInterval: sseHealthy ? false : POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
   });
 
@@ -175,6 +185,94 @@ export default function BusinessChatPage() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [chronologicalMessages.length]);
+
+  // P2: SSE connection lifecycle -- bounded reconnect (2s/4s/8s), then a
+  // slow background retry (30s) while the 8s poll above carries the load.
+  // Deliberately does NOT copy ChatPage.tsx's personal-chat pattern of
+  // permanently giving up on SSE after the first error; this reconnects.
+  useEffect(() => {
+    if (!isValidBusinessId) return;
+    const token = getAuthToken();
+    if (!token) return;
+
+    let closed = false;
+    let eventSource: EventSource | null = null;
+    let reconnectTimer: number | null = null;
+    let retryAttempt = 0;
+    const RECONNECT_DELAYS_MS = [2000, 4000, 8000];
+    const DEGRADED_RETRY_MS = 30000;
+
+    const scheduleReconnect = () => {
+      if (closed) return;
+      const delay = retryAttempt < RECONNECT_DELAYS_MS.length
+        ? RECONNECT_DELAYS_MS[retryAttempt++]
+        : DEGRADED_RETRY_MS;
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
+
+    function connect() {
+      if (closed) return;
+      try {
+        eventSource = new EventSource(`/api/messaging/business/${businessId}/stream?auth=${encodeURIComponent(token!)}`);
+
+        eventSource.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (!payload?.type) return;
+            if (payload.type === "ready") {
+              retryAttempt = 0;
+              setSseHealthy(true);
+              return;
+            }
+            if (payload.type === "heartbeat") return;
+
+            if (payload.type === "message.created" && payload.message) {
+              const incoming = payload.message as BusinessMessage;
+              queryClient.setQueryData<MessagesResponse>(messagesQueryKey, (current) => {
+                if (!current) return current;
+                // Dedupe against both an in-flight/just-completed
+                // invalidate-refetch and a possible duplicate live event --
+                // the message id is the only identity that matters here.
+                if (current.messages.some((m) => m.id === incoming.id)) return current;
+                return {
+                  ...current,
+                  messages: [incoming, ...current.messages],
+                  total: current.total + 1,
+                };
+              });
+            }
+          } catch {
+            // Ignore malformed real-time payloads -- the poll fallback (or
+            // the next valid event) keeps the view eventually consistent.
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          eventSource = null;
+          setSseHealthy(false);
+          scheduleReconnect();
+        };
+      } catch {
+        setSseHealthy(false);
+        scheduleReconnect();
+      }
+    }
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      eventSource?.close();
+      setSseHealthy(false);
+    };
+    // messagesQueryKey is derived from businessId every render (new array
+    // identity each time) -- intentionally omitted from deps to avoid
+    // tearing down/reconnecting the SSE connection every render; businessId
+    // itself is the real dependency and is included below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [businessId, isValidBusinessId, queryClient]);
 
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {

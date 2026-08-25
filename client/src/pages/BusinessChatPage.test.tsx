@@ -1,6 +1,6 @@
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import BusinessChatPage from "./BusinessChatPage";
 
 /**
@@ -112,6 +112,32 @@ function sequencedMessagesFetch(sequence: any[]) {
     if (method === "GET" && u === "/api/messaging/business/7") return jsonResponse(IDENTITY_RESPONSE);
     return jsonResponse({ success: true });
   };
+}
+
+/** P2: a minimal fake EventSource -- jsdom has no native implementation
+ * (the existing `describe("BusinessChatPage")` tests above all rely on
+ * `new EventSource(...)` throwing in jsdom and falling back to polling,
+ * matching how ChatPage.tsx's own tests already tolerate this gap).
+ * Installed only for the P2 describe block below via
+ * vi.stubGlobal("EventSource", FakeEventSource) so every other test in
+ * this file is completely unaffected. */
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+  url: string;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  closed = false;
+  constructor(url: string) {
+    this.url = url;
+    FakeEventSource.instances.push(this);
+  }
+  close() { this.closed = true; }
+  emit(payload: unknown) {
+    this.onmessage?.({ data: JSON.stringify(payload) });
+  }
+  triggerError() {
+    this.onerror?.();
+  }
 }
 
 beforeEach(() => {
@@ -423,7 +449,12 @@ describe("P1-4: interim polling for business replies", () => {
     const path = await import("path");
     const source = fs.readFileSync(path.resolve(__dirname, "./BusinessChatPage.tsx"), "utf8");
     expect(source).toContain("refetchIntervalInBackground: false");
-    expect(source).toContain("refetchInterval: POLL_INTERVAL_MS");
+    // P2: the poll interval is now conditional on SSE health (sseHealthy ?
+    // false : POLL_INTERVAL_MS) rather than an unconditional constant --
+    // still uses the same POLL_INTERVAL_MS value as the fallback, just no
+    // longer unconditionally active. See the P2-specific describe block
+    // below for direct behavioral proof of the toggle itself.
+    expect(source).toContain("refetchInterval: sseHealthy ? false : POLL_INTERVAL_MS");
   });
 
   it("does not use an aggressive (<5s) polling interval", async () => {
@@ -482,5 +513,117 @@ describe("P1-4: interim polling for business replies", () => {
 
     const responsiveContainer = document.querySelector(".max-w-2xl.mx-auto");
     expect(responsiveContainer).not.toBeNull();
+  });
+});
+
+describe("P2: SSE-preferred real-time transport (bounded reconnect, polling correctness fallback)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    FakeEventSource.instances = [];
+    vi.stubGlobal("EventSource", FakeEventSource);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("connects to the authenticated stream URL for this businessId", async () => {
+    mockFetch.mockImplementation(routeFetch({}));
+    setUrl("/business-chat/7");
+    renderPage();
+
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+    expect(FakeEventSource.instances[0].url).toBe("/api/messaging/business/7/stream?auth=test-token");
+  });
+
+  it("a message.created event renders the incoming message immediately, correctly attributed, without waiting for the next poll tick", async () => {
+    mockFetch.mockImplementation(routeFetch({
+      messages: jsonResponse({ success: true, messages: [], total: 0, limit: 50, offset: 0, viewerParticipantId: MY_PARTICIPANT_ID }),
+    }));
+    setUrl("/business-chat/7");
+    renderPage();
+    await vi.waitFor(() => expect(screen.getByText("No messages sent yet. Say hello to get started.")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    const es = FakeEventSource.instances[0];
+    act(() => { es.emit({ type: "ready" }); });
+    act(() => {
+      es.emit({
+        type: "message.created",
+        conversationId: 1,
+        message: { id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "live business reply", createdAt: "2026-08-25T00:05:00Z" },
+      });
+    });
+
+    await vi.waitFor(() => expect(screen.getByText("live business reply")).toBeInTheDocument());
+    expect(getAlignment("live business reply")).toBe("left"); // role="assistant", correctly attributed even though it arrived via the live stream, not a poll
+  });
+
+  it("does not duplicate a message that arrives via SSE and is also returned by a subsequent poll/refetch of the same data", async () => {
+    let messagesState = { success: true, messages: [] as any[], total: 0, limit: 50, offset: 0, viewerParticipantId: MY_PARTICIPANT_ID as number | null };
+    mockFetch.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.endsWith("/messages")) return jsonResponse(messagesState);
+      if (method === "GET" && u === "/api/messaging/business/7") return jsonResponse(IDENTITY_RESPONSE);
+      return jsonResponse({ success: true });
+    });
+    setUrl("/business-chat/7");
+    renderPage();
+    await vi.waitFor(() => expect(screen.getByText("No messages sent yet. Say hello to get started.")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    const es = FakeEventSource.instances[0];
+    const liveMessage = { id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "no dupes please", createdAt: "2026-08-25T00:05:00Z" };
+    act(() => { es.emit({ type: "ready" }); });
+    act(() => { es.emit({ type: "message.created", conversationId: 1, message: liveMessage }); });
+    await vi.waitFor(() => expect(screen.getAllByText("no dupes please")).toHaveLength(1));
+
+    // Server-side state now reflects the same message (as it genuinely
+    // would once the write is durable) -- if a poll/refetch happens while
+    // SSE is healthy it must not double-render it.
+    messagesState = { ...messagesState, messages: [liveMessage], total: 1 };
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+
+    expect(screen.getAllByText("no dupes please")).toHaveLength(1);
+  });
+
+  it("bounded reconnect: an SSE error schedules a NEW connection attempt rather than permanently giving up (unlike ChatPage.tsx's personal-chat pattern)", async () => {
+    mockFetch.mockImplementation(routeFetch({}));
+    setUrl("/business-chat/7");
+    renderPage();
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    act(() => { FakeEventSource.instances[0].triggerError(); });
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+
+    // first backoff is 2s
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(2));
+  });
+
+  it("the 8s poll remains the active transport (never disabled) until the stream's ready frame is actually received", async () => {
+    mockFetch.mockImplementation(routeFetch({}));
+    setUrl("/business-chat/7");
+    renderPage();
+    await vi.waitFor(() => expect(screen.getByText("No messages sent yet. Say hello to get started.")).toBeInTheDocument());
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    const callsBeforeReady = mockFetch.mock.calls.filter((c: any[]) => String(c[0]).endsWith("/messages")).length;
+    // no "ready" frame emitted -- SSE is connected but not yet confirmed healthy
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    const callsAfterTick = mockFetch.mock.calls.filter((c: any[]) => String(c[0]).endsWith("/messages")).length;
+
+    expect(callsAfterTick).toBeGreaterThan(callsBeforeReady); // poll still firing -- correctness backstop intact
+  });
+
+  it("EventSource is closed on unmount (no leaked connection)", async () => {
+    mockFetch.mockImplementation(routeFetch({}));
+    setUrl("/business-chat/7");
+    const { unmount } = renderPage();
+    await vi.waitFor(() => expect(FakeEventSource.instances.length).toBe(1));
+
+    unmount();
+    expect(FakeEventSource.instances[0].closed).toBe(true);
   });
 });

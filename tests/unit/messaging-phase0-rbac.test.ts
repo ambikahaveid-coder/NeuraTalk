@@ -39,9 +39,50 @@ vi.mock("../../server/modules/messaging/service", () => ({
   InvalidAssigneeError: class InvalidAssigneeError extends Error {},
 }));
 
+// P2: the two new SSE controller handlers import subscribeToBusinessEvents/
+// subscribeToConsumerEvents from this module directly (not from service.ts)
+// -- mocked separately so these tests can assert exactly which businessId/
+// userId the controller passed through, without a real Redis connection.
+vi.mock("../../server/modules/messaging/realtime", () => ({
+  subscribeToBusinessEvents: vi.fn(() => vi.fn()), // returns a no-op unsubscribe
+  subscribeToConsumerEvents: vi.fn(() => vi.fn()),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+// P2: a richer req/res pair for the two SSE handlers -- real handlers call
+// res.setHeader/flushHeaders/write and req.on("close", ...), none of which
+// the plain makeReqRes() above provides.
+function makeSseReqRes(user: any) {
+  const closeHandlers: Array<() => void> = [];
+  const writes: string[] = [];
+  const req: any = {
+    user,
+    params: {},
+    query: {},
+    on(event: string, handler: () => void) {
+      if (event === "close") closeHandlers.push(handler);
+    },
+    __triggerClose() {
+      for (const h of closeHandlers) h();
+    },
+  };
+  const res: any = {
+    statusCode: 200,
+    body: undefined,
+    headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) { this.headers[name] = value; },
+    flushHeaders: vi.fn(),
+    write(chunk: string) { writes.push(chunk); },
+    end: vi.fn(),
+    status(code: number) { this.statusCode = code; return this; },
+    json(body: unknown) { this.body = body; return this; },
+    __writes: writes,
+  };
+  return { req, res };
+}
 
 function makeReqRes(user: any) {
   const req: any = { user, params: {}, body: {}, query: {} };
@@ -596,5 +637,140 @@ describe("P1-7: setConversationAssignmentHandler / listEligibleAssigneesHandler 
     expect(res.body.members).toEqual([{ id: 100, username: "agent_a" }]);
     const callArgs = (service.listEligibleAssignees as any).mock.calls[0];
     expect(callArgs[0]).toBe(1);
+  });
+});
+
+describe("P2: streamUserMessages (consumer SSE) -- spoofing resistance, tenant scoping, cleanup", () => {
+  it("subscribes using req.user.id, never a client-suppliable value -- there is no query/body field this handler even reads for identity", async () => {
+    const realtime = await import("../../server/modules/messaging/realtime");
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 42 });
+    req.params.businessId = "7";
+
+    await ctrl.streamUserMessages(req, res);
+
+    expect(realtime.subscribeToConsumerEvents).toHaveBeenCalledTimes(1);
+    const callArgs = (realtime.subscribeToConsumerEvents as any).mock.calls[0];
+    expect(callArgs[0]).toBe(42); // userId === req.user.id, exactly
+    expect(callArgs[1]).toBe(7); // businessId === the validated URL param
+  });
+
+  it("a different authenticated user subscribing to the SAME businessId still gets THEIR OWN id, never bleeding into another user's stream", async () => {
+    const realtime = await import("../../server/modules/messaging/realtime");
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 999 });
+    req.params.businessId = "7";
+
+    await ctrl.streamUserMessages(req, res);
+
+    const callArgs = (realtime.subscribeToConsumerEvents as any).mock.calls[0];
+    expect(callArgs[0]).toBe(999);
+    expect(callArgs[0]).not.toBe(42);
+  });
+
+  it("invalid businessId is rejected 400 before any subscription is attempted", async () => {
+    const realtime = await import("../../server/modules/messaging/realtime");
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 42 });
+    req.params.businessId = "not-a-number";
+
+    await ctrl.streamUserMessages(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(realtime.subscribeToConsumerEvents).not.toHaveBeenCalled();
+  });
+
+  it("13. sends SSE headers and a ready frame, then unsubscribes on connection close (no listener leak)", async () => {
+    const unsubscribeSpy = vi.fn();
+    const realtime = await import("../../server/modules/messaging/realtime");
+    (realtime.subscribeToConsumerEvents as any).mockReturnValue(unsubscribeSpy);
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 42 });
+    req.params.businessId = "7";
+
+    await ctrl.streamUserMessages(req, res);
+
+    expect(res.headers["Content-Type"]).toBe("text/event-stream");
+    expect(res.__writes.some((w: string) => w.includes('"type":"ready"'))).toBe(true);
+    expect(unsubscribeSpy).not.toHaveBeenCalled();
+
+    req.__triggerClose();
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("P2: streamBusinessConversations (Business Inbox SSE) -- RBAC-gated, tenant-scoped", () => {
+  it("subscribes using the validated businessId URL param -- this handler adds no authorization logic of its own (requireAuth + requireCompanyAccess + requirePermission run in routes.ts before this ever executes)", async () => {
+    const realtime = await import("../../server/modules/messaging/realtime");
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 100, role: "agent" });
+    req.params.businessId = "7";
+
+    await ctrl.streamBusinessConversations(req, res);
+
+    expect(realtime.subscribeToBusinessEvents).toHaveBeenCalledTimes(1);
+    const callArgs = (realtime.subscribeToBusinessEvents as any).mock.calls[0];
+    expect(callArgs[0]).toBe(7);
+  });
+
+  it("invalid businessId is rejected 400 before any subscription is attempted", async () => {
+    const realtime = await import("../../server/modules/messaging/realtime");
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 100 });
+    req.params.businessId = "0";
+
+    await ctrl.streamBusinessConversations(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(realtime.subscribeToBusinessEvents).not.toHaveBeenCalled();
+  });
+
+  it("cleans up its subscription on connection close", async () => {
+    const unsubscribeSpy = vi.fn();
+    const realtime = await import("../../server/modules/messaging/realtime");
+    (realtime.subscribeToBusinessEvents as any).mockReturnValue(unsubscribeSpy);
+    const ctrl = await import("../../server/modules/messaging/controller");
+    const { req, res } = makeSseReqRes({ id: 100 });
+    req.params.businessId = "7";
+
+    await ctrl.streamBusinessConversations(req, res);
+    req.__triggerClose();
+
+    expect(unsubscribeSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("P2: SSE query-param auth pattern -- extends SSE_QUERY_AUTH_PATHS narrowly, only for the two new stream routes", () => {
+  it("the two new business-messaging stream paths match a real requested path with a numeric businessId, and nothing broader", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const source = fs.readFileSync(path.resolve(__dirname, "../../server/role-middleware.ts"), "utf8");
+
+    // Anti-drift check: the real source must still contain exactly these
+    // two pattern literals (not a re-implementation of a regex parser --
+    // just confirms the source wasn't quietly changed to something broader
+    // or narrower without this test being touched).
+    expect(source).toContain("/^\\/api\\/messaging\\/business\\/\\d+\\/stream$/");
+    expect(source).toContain("/^\\/api\\/business\\/\\d+\\/conversations\\/stream$/");
+
+    // Behavioral check against the exact same two patterns (kept in sync
+    // with the source strings asserted above).
+    const patterns = [
+      /^\/api\/messaging\/business\/\d+\/stream$/,
+      /^\/api\/business\/\d+\/conversations\/stream$/,
+    ];
+
+    expect(patterns.some((p) => p.test("/api/messaging/business/7/stream"))).toBe(true);
+    expect(patterns.some((p) => p.test("/api/business/7/conversations/stream"))).toBe(true);
+
+    // Does NOT match: unrelated paths, non-numeric ids, or a path that
+    // merely starts with the right prefix (anchored end via $) -- proves
+    // this stays narrowly scoped, matching the existing fixed-path Set's
+    // own "exactly these routes, nothing else" intent.
+    expect(patterns.some((p) => p.test("/api/messaging/business/abc/stream"))).toBe(false);
+    expect(patterns.some((p) => p.test("/api/messaging/business/7/stream/extra"))).toBe(false);
+    expect(patterns.some((p) => p.test("/api/personal-chats/stream"))).toBe(false);
+    expect(patterns.some((p) => p.test("/api/business/7/conversations"))).toBe(false);
   });
 });

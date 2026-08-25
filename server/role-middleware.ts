@@ -458,7 +458,19 @@ export async function loadUser(
       "/api/calls/incoming/stream",
       "/api/personal-chats/stream",
     ]);
-    const queryAuth = SSE_QUERY_AUTH_PATHS.has(req.path) && typeof req.query?.auth === "string"
+    // P2: the two new business-messaging streams carry a :businessId URL
+    // param, so req.path (the actual resolved request path, e.g.
+    // "/api/business/7/conversations/stream") can never exact-match a Set
+    // entry the way the two fixed paths above do -- matched by pattern
+    // instead, same narrow "exactly these routes, nothing else" intent as
+    // the fixed-path Set (see the comment above SSE_QUERY_AUTH_PATHS's
+    // original two entries for why this stays narrowly scoped).
+    const SSE_QUERY_AUTH_PATTERNS = [
+      /^\/api\/messaging\/business\/\d+\/stream$/,
+      /^\/api\/business\/\d+\/conversations\/stream$/,
+    ];
+    const matchesSseQueryAuthPath = SSE_QUERY_AUTH_PATHS.has(req.path) || SSE_QUERY_AUTH_PATTERNS.some((pattern) => pattern.test(req.path));
+    const queryAuth = matchesSseQueryAuthPath && typeof req.query?.auth === "string"
       ? req.query.auth
       : null;
     const authHeader = queryAuth
