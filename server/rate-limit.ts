@@ -297,3 +297,31 @@ export const businessOtpVerifyLimiter = rateLimit({
   keyFn: (req) => `biz-otp-verify:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
   message: "Too many verification attempts. Please wait before retrying.",
 });
+
+// --- Chat message sending / translation-triggering (P0 fix) --------------
+// Personal and group chat message-send routes had NO rate limit at all
+// despite each send synchronously calling a paid translation provider
+// (Sarvam/Azure/OpenAI/ElevenLabs) -- an authenticated user hitting either
+// route in a tight loop could cheaply generate unlimited translation-API
+// spend and/or flood a recipient. There is no separate "translate" endpoint
+// to limit independently -- translation happens inline inside the same
+// send handler, so limiting the send route IS limiting translation
+// triggering. Per-user (not per-IP), since both routes already require
+// auth and a shared IP (NAT/office wifi) shouldn't penalize unrelated
+// users. 30/min is generous for real rapid-fire chat use (WhatsApp-style
+// back-and-forth) while capping scripted abuse; same shape as the other
+// per-user limiters above, layered on the same rateLimit() factory, not a
+// second implementation.
+export const personalChatSendLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  keyFn: (req) => `personal-chat-send:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "You're sending messages too quickly. Please slow down.",
+});
+
+export const groupChatSendLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  keyFn: (req) => `group-chat-send:${(req as Request & { user?: { id?: number } }).user?.id ?? req.ip ?? "unknown"}`,
+  message: "You're sending messages too quickly. Please slow down.",
+});

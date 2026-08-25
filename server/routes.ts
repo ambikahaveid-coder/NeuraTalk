@@ -62,6 +62,7 @@ import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
 import { registerWebhookRoutes } from "./modules/webhooks/routes";
 import { registerRateLimitAdminRoutes } from "./modules/rate-limits/routes";
 import { registerMessagingRoutes } from "./modules/messaging/routes";
+import { registerBusinessRbacRoutes } from "./business-rbac-routes";
 import { registerBusinessProfileRoutes } from "./modules/business-profile/routes";
 import { registerTemplateRoutes } from "./modules/templates/routes";
 import "./modules/templates/approval-policy"; // side-effect: registers "template_version" with the Approval Center
@@ -192,6 +193,7 @@ export async function registerRoutes(
   registerWebhookRoutes(app); console.log("[Routes] ✓ Outbound webhook routes (org event subscriptions)");
   registerRateLimitAdminRoutes(app); console.log("[Routes] ✓ Rate-limit rule admin routes");
   registerMessagingRoutes(app); console.log("[Routes] ✓ Canonical business messaging routes (Phase 0)");
+  registerBusinessRbacRoutes(app); console.log("[Routes] ✓ Business-platform RBAC grant routes (P0-5 fix)");
   registerBusinessProfileRoutes(app); console.log("[Routes] ✓ Business profile + branding routes (Phase 1)");
   registerTemplateRoutes(app); console.log("[Routes] ✓ Business message template engine routes (Phase 2)");
   registerApprovalRoutes(app); console.log("[Routes] ✓ Generic approval center routes (Phase 3)");

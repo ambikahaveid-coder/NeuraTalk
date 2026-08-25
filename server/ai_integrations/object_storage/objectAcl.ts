@@ -15,7 +15,15 @@ const ACL_POLICY_METADATA_KEY = "aclpolicy";
 // - GROUP_MEMBER: the users who are members of a specific group;
 // - SUBSCRIBER: the users who are subscribers of a specific service / content
 //   creator.
-export enum ObjectAccessGroupType {}
+export enum ObjectAccessGroupType {
+  // The member list IS the group id itself: a JSON-stringified array of user
+  // id strings, e.g. '["12","47"]'. No DB lookup needed -- this lets a
+  // caller that already knows the exact set of authorized users (e.g. a
+  // chat thread's two participants) grant them read access at ACL-set time
+  // without standing up a separate group table. See setObjectAclPolicy call
+  // sites in personal-chat-routes.ts for the intended usage.
+  USER_LIST = "USER_LIST",
+}
 
 // The logic user group that can access the object.
 export interface ObjectAccessGroup {
@@ -85,15 +93,29 @@ abstract class BaseObjectAccessGroup implements ObjectAccessGroup {
   public abstract hasMember(userId: string): Promise<boolean>;
 }
 
+// group.id is a JSON-stringified array of user id strings -- see
+// ObjectAccessGroupType.USER_LIST above.
+class UserListAccessGroup extends BaseObjectAccessGroup {
+  async hasMember(userId: string): Promise<boolean> {
+    let ids: unknown;
+    try {
+      ids = JSON.parse(this.id);
+    } catch {
+      return false;
+    }
+    return Array.isArray(ids) && ids.includes(userId);
+  }
+}
+
 function createObjectAccessGroup(
   group: ObjectAccessGroup,
 ): BaseObjectAccessGroup {
   switch (group.type) {
-    // Implement the case for each type of access group to instantiate.
+    case ObjectAccessGroupType.USER_LIST:
+      return new UserListAccessGroup(group.type, group.id);
+    // Implement the case for each additional type of access group as needed.
     //
     // For example:
-    // case "USER_LIST":
-    //   return new UserListAccessGroup(group.id);
     // case "EMAIL_DOMAIN":
     //   return new EmailDomainAccessGroup(group.id);
     // case "GROUP_MEMBER":

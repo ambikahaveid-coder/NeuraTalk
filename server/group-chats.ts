@@ -9,6 +9,9 @@ import { openai } from "./ai_integrations/audio/client";
 import { Readable } from "stream";
 import { requireAuth } from "./role-middleware";
 import { sendPushNotification } from "./firebase-admin";
+import { groupChatSendLimiter } from "./rate-limit";
+import { hasBlockedUser } from "./blocking";
+import { isTranslationConsentDenied } from "./translation-consent";
 
 const objectStorage = new ObjectStorageService();
 const router = Router();
@@ -158,6 +161,30 @@ async function detectLanguage(text: string, senderLanguage?: string): Promise<st
     return senderLanguage;
   }
   return detected;
+}
+
+// P0-3: DIRECTIONAL, via hasBlockedUser from ./blocking (not the symmetric
+// isBlocked() personal chat uses) -- a message is rejected if ANY other
+// current group member has blocked the sender. Directional is required
+// here specifically because a group has innocent bystanders: if isBlocked's
+// symmetric semantics were used, the person who DID the blocking would also
+// lose their own ability to use the group, which the product spec
+// explicitly rules out ("A can still use the group" after A blocks B).
+// Groups have no per-recipient message model (one row is shared by every
+// member), so "reject the send entirely" is the only enforcement point that
+// actually prevents delivery. Called from every group message-creation
+// route (text + voice) so a block can't be bypassed by switching routes.
+export async function isSenderBlockedInGroup(groupId: number, senderId: number): Promise<boolean> {
+  const members = await db.select({ userId: groupChatMembers.userId })
+    .from(groupChatMembers)
+    .where(eq(groupChatMembers.groupChatId, groupId));
+  for (const member of members) {
+    if (member.userId === senderId) continue;
+    if (await hasBlockedUser(member.userId, senderId)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 router.get("/api/group-chats/languages", (_req: Request, res: Response) => {
@@ -395,7 +422,7 @@ router.delete("/api/group-chats/:groupId/members/:userId", requireAuth, async (r
   }
 });
 
-router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Request, res: Response) => {
+router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimiter, async (req: Request, res: Response) => {
   try {
     const senderId = req.user!.id;
     const groupId = parseInt(req.params.groupId);
@@ -414,7 +441,11 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Reque
     if (senderMember.length === 0) {
       return res.status(403).json({ error: "Not a member of this group" });
     }
-    
+
+    if (await isSenderBlockedInGroup(groupId, senderId)) {
+      return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
+    }
+
     const detectedLang = originalLanguage || await detectLanguage(content, senderMember[0]?.preferredLanguage ?? undefined);
     
     const members = await db.select({
@@ -423,11 +454,23 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, async (req: Reque
     }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, groupId));
     
     const targetLanguages = Array.from(new Set(members.map(m => m.preferredLanguage)));
-    
+
+    // P0-4: same consentTranslation gate as personal chat -- without this,
+    // a user with consent explicitly revoked in personal chat could bypass
+    // it simply by sending the same content through a group instead. No
+    // metadata column exists on groupChatMessages to record a "not
+    // translated -- no consent" reason (unlike personal chat's jsonb
+    // metadata field), so this intentionally does not add one -- adding it
+    // would require a schema migration, which this fix avoids per scope.
+    const [groupSenderRow] = await db.select({ consentTranslation: users.consentTranslation }).from(users).where(eq(users.id, senderId));
+    const groupTranslationConsentDenied = isTranslationConsentDenied(groupSenderRow?.consentTranslation);
+
     const translations: Record<string, string> = {};
-    for (const targetLang of targetLanguages) {
-      if (targetLang !== detectedLang) {
-        translations[targetLang] = await translateText(content, detectedLang, targetLang);
+    if (!groupTranslationConsentDenied) {
+      for (const targetLang of targetLanguages) {
+        if (targetLang !== detectedLang) {
+          translations[targetLang] = await translateText(content, detectedLang, targetLang);
+        }
       }
     }
     
@@ -494,7 +537,7 @@ router.delete("/api/group-chats/:groupId/messages/:messageId", requireAuth, asyn
   }
 });
 
-router.post("/api/group-chats/:groupId/voice-messages", requireAuth, async (req: Request, res: Response) => {
+router.post("/api/group-chats/:groupId/voice-messages", requireAuth, groupChatSendLimiter, async (req: Request, res: Response) => {
   try {
     const senderId = req.user!.id;
     const groupId = parseInt(req.params.groupId);
@@ -515,7 +558,11 @@ router.post("/api/group-chats/:groupId/voice-messages", requireAuth, async (req:
     if (senderMember.length === 0) {
       return res.status(403).json({ error: "Not a member of this group" });
     }
-    
+
+    if (await isSenderBlockedInGroup(groupId, senderId)) {
+      return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
+    }
+
     const message = await db.insert(groupChatMessages).values({
       groupChatId: groupId,
       senderId,
@@ -557,29 +604,37 @@ async function processVoiceMessage(messageId: number) {
     }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, message[0].groupChatId));
     
     const targetLanguages = Array.from(new Set(members.map(m => m.preferredLanguage)));
-    
+
+    // P0-4: same consent gate as the text-message route above -- voice is
+    // another route into the same translation providers for the same
+    // sender, so it must be checked independently, not inherited.
+    const [voiceSenderRow] = await db.select({ consentTranslation: users.consentTranslation }).from(users).where(eq(users.id, message[0].senderId));
+    const voiceTranslationConsentDenied = isTranslationConsentDenied(voiceSenderRow?.consentTranslation);
+
     const translations: Record<string, string> = {};
     const voiceTranslations: Record<string, { audioPath: string }> = {};
-    
-    for (const targetLang of targetLanguages) {
-      if (targetLang !== language) {
-        const translatedText = await translateText(transcript, language, targetLang);
-        translations[targetLang] = translatedText;
-        
-        try {
-          const audioBuffer = await textToSpeech(translatedText, "alloy", "wav", targetLang);
-          const uploadURL = await objectStorage.getObjectEntityUploadURL();
-          const translatedPath = objectStorage.normalizeObjectEntityPath(uploadURL);
-          
-          await fetch(uploadURL, {
-            method: "PUT",
-            body: audioBuffer,
-            headers: { "Content-Type": "audio/mpeg" }
-          });
-          
-          voiceTranslations[targetLang] = { audioPath: encrypt(translatedPath) };
-        } catch (err) {
-          console.error(`Voice translation failed for ${targetLang}:`, err);
+
+    if (!voiceTranslationConsentDenied) {
+      for (const targetLang of targetLanguages) {
+        if (targetLang !== language) {
+          const translatedText = await translateText(transcript, language, targetLang);
+          translations[targetLang] = translatedText;
+
+          try {
+            const audioBuffer = await textToSpeech(translatedText, "alloy", "wav", targetLang);
+            const uploadURL = await objectStorage.getObjectEntityUploadURL();
+            const translatedPath = objectStorage.normalizeObjectEntityPath(uploadURL);
+
+            await fetch(uploadURL, {
+              method: "PUT",
+              body: audioBuffer,
+              headers: { "Content-Type": "audio/mpeg" }
+            });
+
+            voiceTranslations[targetLang] = { audioPath: encrypt(translatedPath) };
+          } catch (err) {
+            console.error(`Voice translation failed for ${targetLang}:`, err);
+          }
         }
       }
     }

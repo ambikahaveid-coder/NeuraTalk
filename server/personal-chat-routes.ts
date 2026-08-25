@@ -8,9 +8,11 @@ import { normalizePhoneNumber } from "@shared/phone";
 import { openai } from "./ai_integrations/audio/client";
 import { requireAuth } from "./role-middleware";
 import { ObjectStorageService } from "./ai_integrations/object_storage/objectStorage";
-import { setObjectAclPolicy } from "./ai_integrations/object_storage/objectAcl";
+import { setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
 import { sendPushNotification } from "./firebase-admin";
 import { isBlocked } from "./blocking";
+import { personalChatSendLimiter } from "./rate-limit";
+import { isTranslationConsentDenied } from "./translation-consent";
 
 const router = Router();
 
@@ -46,11 +48,26 @@ const typingSchema = z.object({
 // Chat image/voice attachments are uploaded via the same presigned-URL flow
 // as the profile avatar, but the object has no ACL until we grant one here —
 // without this, both the sender and recipient get 403 fetching it back.
-async function finalizeChatAttachment(senderUserId: number, objectPath: string): Promise<void> {
+//
+// Kept private (never "public"): the sender gets access as the ACL owner,
+// and the recipient is granted READ via an explicit USER_LIST rule scoped to
+// exactly this thread's two participants. A prior version marked these
+// public, which meant anyone with the URL -- including an unauthenticated
+// request -- could fetch a chat attachment. Fixed as a P0 security item.
+async function finalizeChatAttachment(senderUserId: number, recipientUserId: number, objectPath: string): Promise<void> {
   if (!objectPath.startsWith("/objects/")) return;
   const objectStorage = new ObjectStorageService();
   const objectFile = await objectStorage.getObjectEntityFile(objectPath);
-  await setObjectAclPolicy(objectFile, { owner: String(senderUserId), visibility: "public" });
+  await setObjectAclPolicy(objectFile, {
+    owner: String(senderUserId),
+    visibility: "private",
+    aclRules: [
+      {
+        group: { type: ObjectAccessGroupType.USER_LIST, id: JSON.stringify([String(recipientUserId)]) },
+        permission: ObjectPermission.READ,
+      },
+    ],
+  });
 }
 
 const TYPING_TTL_MS = 8_000;
@@ -670,7 +687,7 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
   }
 });
 
-router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: AuthedRequest, res: Response) => {
+router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatSendLimiter, async (req: AuthedRequest, res: Response) => {
   try {
     const viewerId = req.user!.id;
     markUserPresence(viewerId);
@@ -702,7 +719,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
     }
 
     if (input.attachmentUrl) {
-      await finalizeChatAttachment(viewerId, input.attachmentUrl);
+      await finalizeChatAttachment(viewerId, context.peerUserId, input.attachmentUrl);
     }
 
     const originalLanguage = normalizeLanguage(
@@ -713,9 +730,23 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
     // nothing. Skip translating THIS sender's messages when they've opted
     // out; the recipient's own messages back are unaffected by the
     // sender's setting.
-    const [senderRow] = await db.select({ translationEnabled: users.translationEnabled }).from(users).where(eq(users.id, viewerId));
+    //
+    // P0-4: consentTranslation was written by /api/compliance/consent but
+    // never read anywhere -- translation ran regardless of its value. Now
+    // enforced here, same sender-scoped pattern as translationEnabled.
+    // Opt-out semantics: consentTranslation defaults to false in the schema
+    // and no existing user has ever explicitly set it (nothing read it
+    // before now), so treating unset/default the same as translationEnabled
+    // (only an EXPLICIT false blocks) avoids silently disabling translation
+    // for the entire existing user base on deploy, while making an explicit
+    // revocation actually take effect for the first time.
+    const [senderRow] = await db.select({
+      translationEnabled: users.translationEnabled,
+      consentTranslation: users.consentTranslation,
+    }).from(users).where(eq(users.id, viewerId));
+    const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation);
     const translations: Record<string, string> = {};
-    if (senderRow?.translationEnabled !== false) {
+    if (senderRow?.translationEnabled !== false && !translationConsentDenied) {
       if (context.peerLanguage !== originalLanguage) {
         translations[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
       }
@@ -744,6 +775,9 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, async (req: A
         viewerLanguage: context.viewerLanguage,
         attachmentUrl: input.attachmentUrl || null,
         attachmentTitle: input.attachmentTitle || null,
+        // Lets the client show "not translated -- no consent" instead of
+        // silently looking like a same-language message.
+        translationSkippedReason: translationConsentDenied ? "consent" : null,
       },
     }).returning();
 

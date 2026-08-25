@@ -18,6 +18,20 @@ export async function isBlocked(userAId: number, userBId: number): Promise<boole
   return Boolean(row);
 }
 
+/** Directional: true only if blockerUserId has blocked blockedUserId (not
+ * the reverse). Unlike isBlocked()'s symmetric check -- which is correct
+ * for 1:1 chat, where a block should silence both directions -- group
+ * enforcement needs to know WHO blocked WHOM: the person who did the
+ * blocking must keep full access to a shared group; only the person they
+ * blocked should be prevented from posting into a group that person is in.
+ * See isSenderBlockedInGroup in group-chats.ts. */
+export async function hasBlockedUser(blockerUserId: number, blockedUserId: number): Promise<boolean> {
+  const [row] = await db.select({ id: blockedUsers.id }).from(blockedUsers).where(and(
+    eq(blockedUsers.blockerUserId, blockerUserId), eq(blockedUsers.blockedUserId, blockedUserId),
+  ));
+  return Boolean(row);
+}
+
 router.post("/api/users/:userId/block", requireAuth, async (req: Request, res: Response) => {
   try {
     const blockerUserId = req.user!.id;
