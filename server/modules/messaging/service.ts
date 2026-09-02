@@ -118,7 +118,7 @@ export interface CreateBusinessConversationResult {
 // Same DbLike convention as templates/approvals -- lets this run either
 // standalone (own transaction) or composed inside a caller's own
 // transaction (Phase 5's campaign send path).
-type DbLike = Pick<typeof db, "select" | "update" | "insert">;
+type DbLike = Pick<typeof db, "select" | "update" | "insert" | "delete">;
 
 async function createBusinessConversationTx(
   tx: DbLike,
@@ -136,7 +136,7 @@ async function createBusinessConversationTx(
     organizationId: input.businessId,
   }).returning();
 
-  const [bizConversation] = await tx.insert(businessConversations).values({
+  const insertedBizConversations = await tx.insert(businessConversations).values({
     conversationId: conversation.id,
     businessId: input.businessId,
     customerId: input.customerId ?? null,
@@ -147,7 +147,32 @@ async function createBusinessConversationTx(
     // than implicit, and matches customerId's own explicit-null convention
     // right above.
     assignedToUserId: null,
-  }).returning();
+  })
+    // Backstops business_conversations_business_customer_idx: two
+    // concurrent messages/campaign sends to the same customer can both
+    // reach this point past findOrCreateCustomerConversation's initial
+    // SELECT. Only one businessConversations insert wins; the loser's
+    // messagingConversations row above is now orphaned and must be
+    // deleted (in this same transaction, not an abort) so the caller can
+    // fall through to the winner's actual conversation instead -- a
+    // genuine message-send must never fail just because of this race.
+    .onConflictDoNothing(
+      input.customerId !== undefined
+        ? { target: [businessConversations.businessId, businessConversations.customerId] }
+        : undefined,
+    )
+    .returning();
+
+  if (insertedBizConversations.length === 0 && input.customerId !== undefined) {
+    await tx.delete(messagingConversations).where(eq(messagingConversations.id, conversation.id));
+    const [winner] = await tx.select().from(businessConversations)
+      .where(and(eq(businessConversations.businessId, input.businessId), eq(businessConversations.customerId, input.customerId)));
+    if (!winner) throw new Error("businessConversations insert conflicted but no matching row was found on re-select");
+    const [winnerConversation] = await tx.select().from(messagingConversations).where(eq(messagingConversations.id, winner.conversationId));
+    const winnerParticipants = await tx.select().from(messagingParticipants).where(eq(messagingParticipants.conversationId, winner.conversationId));
+    return { businessConversation: winner, conversation: winnerConversation, participants: winnerParticipants };
+  }
+  const bizConversation = insertedBizConversations[0];
 
   const participants: (typeof messagingParticipants.$inferSelect)[] = [];
 
@@ -500,11 +525,16 @@ async function ensureUserParticipant(tx: DbLike, conversationId: number, userId:
   // inventing one here. The substantive action is captured by the
   // message.created event createMessageTx emits right after this.
   await assertValidParticipant(tx, MESSAGING_PARTICIPANT_TYPE.USER, userId);
+  // onConflictDoNothing backstops messaging_participants_conv_type_id_idx:
+  // concurrent first-replies by the same user/agent can both pass the
+  // SELECT above; only one insert needs to win, the other is a no-op.
   await tx.insert(messagingParticipants).values({
     conversationId,
     participantType: MESSAGING_PARTICIPANT_TYPE.USER,
     participantId: userId,
     role,
+  }).onConflictDoNothing({
+    target: [messagingParticipants.conversationId, messagingParticipants.participantType, messagingParticipants.participantId],
   });
 }
 

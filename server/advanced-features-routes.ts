@@ -10,7 +10,7 @@ import {
   voiceProfiles,
   users
 } from "@shared/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, sql, isNull } from "drizzle-orm";
 import { requireAuth } from "./role-middleware";
 
 const router = Router();
@@ -231,7 +231,12 @@ router.post("/meetings/:roomCode/join", requireAuth, async (req: Request, res: R
 
     const [user] = await db.select().from(users).where(eq(users.id, userId));
 
-    const [participant] = await db
+    // onConflictDoNothing backstops meeting_participants_meeting_user_active_idx:
+    // this route previously had no existence check, so a double-click/retry
+    // deterministically duplicated the row, which downstream roster logic
+    // (WHERE leftAt IS NULL) would then double-count. Falls back to the
+    // existing active row instead of failing the join.
+    const insertedParticipants = await db
       .insert(meetingParticipants)
       .values({
         meetingId: meeting.id,
@@ -240,7 +245,18 @@ router.post("/meetings/:roomCode/join", requireAuth, async (req: Request, res: R
         language: language || "en",
         role: meeting.hostUserId === userId ? "host" : "participant",
       })
+      .onConflictDoNothing({ target: [meetingParticipants.meetingId, meetingParticipants.userId] })
       .returning();
+
+    let participant = insertedParticipants[0];
+    if (!participant) {
+      const [existingActive] = await db.select().from(meetingParticipants)
+        .where(and(eq(meetingParticipants.meetingId, meeting.id), eq(meetingParticipants.userId, userId), isNull(meetingParticipants.leftAt)));
+      if (!existingActive) {
+        return res.status(409).json({ error: "Could not join meeting -- conflicting participant state" });
+      }
+      participant = existingActive;
+    }
 
     if (meeting.status === "scheduled") {
       await db

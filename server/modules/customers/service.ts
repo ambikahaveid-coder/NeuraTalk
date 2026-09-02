@@ -164,14 +164,28 @@ export async function findOrCreateCustomerByLinkedUser(
   const [user] = await dbClient.select({ id: users.id, username: users.username }).from(users).where(eq(users.id, userId));
   if (!user) throw new NotFoundError("User not found");
 
-  const [customer] = await dbClient.insert(customers).values({
+  // onConflictDoNothing backstops the customers_business_linked_user_idx
+  // unique constraint: two concurrent calls for the same (businessId,
+  // userId) can both reach this point past the SELECT above, but only one
+  // insert wins -- the loser gets an empty `inserted` array here instead of
+  // a thrown unique-violation error, and falls through to re-select the
+  // row the winner just created.
+  const inserted = await dbClient.insert(customers).values({
     businessId,
     linkedUserId: userId,
     name: user.username || null,
     status: CUSTOMER_STATUS.ACTIVE,
     source: CUSTOMER_SOURCE.MANUAL,
     createdBy: userId,
-  }).returning();
+  }).onConflictDoNothing({ target: [customers.businessId, customers.linkedUserId] }).returning();
+
+  if (inserted.length === 0) {
+    const [existingAfterConflict] = await dbClient.select().from(customers)
+      .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, userId)));
+    if (existingAfterConflict) return existingAfterConflict;
+    throw new Error("Customer insert conflicted but no matching row was found on re-select");
+  }
+  const customer = inserted[0];
 
   await createAuditLog(userId, businessId, AUDIT_ACTION_CUSTOMER.CREATED, customer.id, {
     name: customer.name, source: customer.source, userInitiated: true,

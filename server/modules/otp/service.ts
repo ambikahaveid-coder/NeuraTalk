@@ -83,7 +83,7 @@ export class OtpLockedOutError extends Error {
   }
 }
 
-type DbLike = Pick<typeof db, "select" | "update" | "insert">;
+type DbLike = Pick<typeof db, "select" | "update" | "insert" | "delete">;
 
 const OTP_EXPIRY_MINUTES = 10; // same default as the existing platform OTP (server/otp-auth.ts)
 const MAX_ATTEMPTS = 3;        // same default as the existing platform OTP

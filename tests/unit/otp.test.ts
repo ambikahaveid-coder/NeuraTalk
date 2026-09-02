@@ -78,17 +78,32 @@ class SelectChain implements PromiseLike<Row[]> {
 }
 
 class InsertChain implements PromiseLike<Row[]> {
+  private data: Row | null = null;
   private row: Row | null = null;
+  private conflicted = false;
   constructor(private tableName: string) {}
-  values(data: Row) {
-    const id = (idCounters.get(this.tableName) ?? 0) + 1;
-    idCounters.set(this.tableName, id);
-    this.row = { id, createdAt: new Date(), ...data };
-    tables.get(this.tableName)!.push(this.row);
+  values(data: Row) { this.data = data; return this; }
+  onConflictDoNothing(config?: { target?: string[] }) {
+    if (config?.target && this.data) {
+      const fields = config.target.map(fieldNameOf);
+      const existing = (tables.get(this.tableName) ?? []).some((row) =>
+        fields.every((f) => row[f] !== undefined && row[f] !== null && row[f] === this.data![f]),
+      );
+      if (existing) this.conflicted = true;
+    }
     return this;
   }
-  returning() { return Promise.resolve([this.row]); }
-  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve([this.row]).then(res, rej); }
+  private commit(): Row[] {
+    if (this.conflicted) return [];
+    if (this.row !== null) return [this.row];
+    const id = (idCounters.get(this.tableName) ?? 0) + 1;
+    idCounters.set(this.tableName, id);
+    this.row = { id, createdAt: new Date(), ...this.data };
+    tables.get(this.tableName)!.push(this.row);
+    return [this.row];
+  }
+  returning() { return Promise.resolve(this.commit()); }
+  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve(this.commit()).then(res, rej); }
 }
 
 // Generic +/- N sql-expression evaluator -- the only two shapes this

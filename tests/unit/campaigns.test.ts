@@ -110,22 +110,33 @@ class SelectChain implements PromiseLike<Row[]> {
 }
 
 class InsertChain implements PromiseLike<Row[]> {
+  private data: Row | null = null;
   private row: Row | null = null;
+  private committed = false;
+  private useOnConflictDoNothing = false;
   constructor(private tableName: string) {}
-  values(data: Row) {
-    if (findUniqueConflict(this.tableName, data)) {
+  values(data: Row) { this.data = data; return this; }
+  // Real call order is .values(data).onConflictDoNothing(), so the actual
+  // conflict check/insert must be deferred to commit() -- checking inside
+  // values() would run before this flag is ever set.
+  onConflictDoNothing() { this.useOnConflictDoNothing = true; return this; }
+  private commit(): Row[] {
+    if (this.committed) return this.row ? [this.row] : [];
+    this.committed = true;
+    if (findUniqueConflict(this.tableName, this.data!)) {
+      if (this.useOnConflictDoNothing) return [];
       const err: any = new Error("duplicate key value violates unique constraint");
       err.code = "23505";
       throw err;
     }
     const id = (idCounters.get(this.tableName) ?? 0) + 1;
     idCounters.set(this.tableName, id);
-    this.row = { id, createdAt: new Date(), ...data };
+    this.row = { id, createdAt: new Date(), ...this.data };
     tables.get(this.tableName)!.push(this.row);
-    return this;
+    return [this.row];
   }
-  returning() { return Promise.resolve([this.row]); }
-  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve([this.row]).then(res, rej); }
+  returning() { return Promise.resolve(this.commit()); }
+  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve(this.commit()).then(res, rej); }
 }
 
 function applySqlExpr(row: Row, field: string, expr: any) {

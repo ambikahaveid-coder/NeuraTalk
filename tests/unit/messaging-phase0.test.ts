@@ -104,18 +104,44 @@ class SelectChain implements PromiseLike<Row[]> {
 }
 
 class InsertChain implements PromiseLike<Row[]> {
+  private data: Row | null = null;
   private row: Row | null = null;
+  // Set by onConflictDoNothing() when a target-column collision is found
+  // against an existing row at insert time -- mirrors real Postgres
+  // ON CONFLICT DO NOTHING: the insert becomes a no-op and returning()/then
+  // resolve to [], not the conflicting row.
+  private conflicted = false;
   constructor(private tableName: string) {}
   values(data: Row) {
-    const id = (idCounters.get(this.tableName) ?? 0) + 1;
-    idCounters.set(this.tableName, id);
-    this.row = { id, createdAt: new Date(), ...data };
-    tables.get(this.tableName)!.push(this.row);
+    this.data = data;
     return this;
   }
-  returning() { return Promise.resolve([this.row]); }
+  // config.target: array of mocked column descriptor strings (e.g.
+  // "business_conversations.businessId"), matching this fake db's
+  // string-based column convention elsewhere in this file. Undefined
+  // target = no conflict simulation, matches previous (pre-fix) behavior.
+  onConflictDoNothing(config?: { target?: string[] }) {
+    if (config?.target && this.data) {
+      const fields = config.target.map(fieldNameOf);
+      const existing = (tables.get(this.tableName) ?? []).some((row) =>
+        fields.every((f) => row[f] !== undefined && row[f] !== null && row[f] === this.data![f]),
+      );
+      if (existing) this.conflicted = true;
+    }
+    return this;
+  }
+  private commit(): Row[] {
+    if (this.conflicted) return [];
+    if (this.row !== null) return [this.row]; // idempotent across repeat awaits (returning() then also via `then`)
+    const id = (idCounters.get(this.tableName) ?? 0) + 1;
+    idCounters.set(this.tableName, id);
+    this.row = { id, createdAt: new Date(), ...this.data };
+    tables.get(this.tableName)!.push(this.row);
+    return [this.row];
+  }
+  returning() { return Promise.resolve(this.commit()); }
   then<T1, T2>(onfulfilled?: ((value: Row[]) => T1 | PromiseLike<T1>) | null, onrejected?: ((reason: any) => T2 | PromiseLike<T2>) | null) {
-    return Promise.resolve([this.row]).then(onfulfilled as any, onrejected as any);
+    return Promise.resolve(this.commit()).then(onfulfilled as any, onrejected as any);
   }
 }
 

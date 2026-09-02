@@ -83,13 +83,21 @@ const UNIQUE_KEYS: Record<string, string[]> = {
 };
 
 class InsertChain implements PromiseLike<Row[]> {
+  private data: Row | null = null;
   private row: Row | null = null;
+  private committed = false;
+  private useOnConflictDoNothing = false;
   constructor(private tableName: string) {}
-  values(data: Row) {
+  values(data: Row) { this.data = data; return this; }
+  onConflictDoNothing() { this.useOnConflictDoNothing = true; return this; }
+  private commit(): Row[] {
+    if (this.committed) return this.row ? [this.row] : [];
+    this.committed = true;
     const uniqueFields = UNIQUE_KEYS[this.tableName];
     if (uniqueFields) {
-      const existing = (tables.get(this.tableName) ?? []).find((r) => uniqueFields.every((f) => r[f] === data[f]));
+      const existing = (tables.get(this.tableName) ?? []).find((r) => uniqueFields.every((f) => r[f] === this.data![f]));
       if (existing) {
+        if (this.useOnConflictDoNothing) return [];
         const err: any = new Error("duplicate key value violates unique constraint");
         err.code = "23505";
         throw err;
@@ -97,12 +105,12 @@ class InsertChain implements PromiseLike<Row[]> {
     }
     const id = (idCounters.get(this.tableName) ?? 0) + 1;
     idCounters.set(this.tableName, id);
-    this.row = { id, createdAt: new Date(), ...data };
+    this.row = { id, createdAt: new Date(), ...this.data };
     tables.get(this.tableName)!.push(this.row);
-    return this;
+    return [this.row];
   }
-  returning() { return Promise.resolve([this.row]); }
-  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve([this.row]).then(res, rej); }
+  returning() { return Promise.resolve(this.commit()); }
+  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve(this.commit()).then(res, rej); }
 }
 
 class UpdateChain {

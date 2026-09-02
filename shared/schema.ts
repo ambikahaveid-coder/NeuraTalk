@@ -634,7 +634,14 @@ export const meetingParticipants = pgTable("meeting_participants", {
   isScreenSharing: boolean("is_screen_sharing").default(false),
   joinedAt: timestamp("joined_at").defaultNow(),
   leftAt: timestamp("left_at"),
-});
+}, (t) => [
+  // POST /meetings/:roomCode/join (server/advanced-features-routes.ts) had
+  // no prior existence check before inserting -- a double-click/retry/
+  // rejoin produced duplicate active rows for the same user, which
+  // downstream roster logic (WHERE leftAt IS NULL) would then double-count.
+  // Scoped to currently-active so a genuine leave-then-rejoin still works.
+  uniqueIndex("meeting_participants_meeting_user_active_idx").on(t.meetingId, t.userId).where(sql`user_id IS NOT NULL AND left_at IS NULL`),
+]);
 
 // === CALL BRIDGING TABLES ===
 
@@ -720,7 +727,14 @@ export const callParticipants = pgTable("call_participants", {
   leftAt: timestamp("left_at"),
   isMuted: boolean("is_muted").default(false),
   metadata: jsonb("metadata").default({}),
-});
+}, (t) => [
+  // addParticipant (server/modules/calls/gateway.ts) does a bare insert
+  // with no prior existence check at all -- worse than a TOCTOU race,
+  // duplication was previously guaranteed on any retry. Scoped to
+  // currently-active (leftAt IS NULL) so a genuine leave-then-rejoin still
+  // gets its own row.
+  uniqueIndex("call_participants_call_phone_active_idx").on(t.callId, t.phoneNumber).where(sql`left_at IS NULL`),
+]);
 
 // Call Consent (privacy and compliance)
 export const callConsents = pgTable("call_consents", {
@@ -3517,6 +3531,11 @@ export const businessConversations = pgTable("business_conversations", {
 }, (t) => [
   index("business_conversations_business_idx").on(t.businessId),
   index("business_conversations_customer_idx").on(t.customerId),
+  // Closes the (businessId, customerId) TOCTOU race in
+  // findOrCreateCustomerConversation (server/modules/messaging/service.ts):
+  // concurrent messages/campaign sends to the same customer could otherwise
+  // create two conversations for the same customer+business pair.
+  uniqueIndex("business_conversations_business_customer_idx").on(t.businessId, t.customerId).where(sql`customer_id IS NOT NULL`),
 ]);
 
 export const messagingParticipants = pgTable("messaging_participants", {
@@ -3530,6 +3549,11 @@ export const messagingParticipants = pgTable("messaging_participants", {
 }, (t) => [
   index("messaging_participants_conversation_idx").on(t.conversationId),
   index("messaging_participants_type_id_idx").on(t.participantType, t.participantId),
+  // Closes the (conversationId, participantType, participantId) TOCTOU
+  // race in ensureUserParticipant (server/modules/messaging/service.ts):
+  // concurrent first-replies by the same agent/user could otherwise
+  // duplicate participant rows for the same conversation.
+  uniqueIndex("messaging_participants_conv_type_id_idx").on(t.conversationId, t.participantType, t.participantId),
 ]);
 
 export const messagingMessages = pgTable("messaging_messages", {
@@ -3815,6 +3839,11 @@ export const customers = pgTable("customers", {
   uniqueIndex("customers_business_phone_idx").on(t.businessId, t.normalizedPhone).where(sql`normalized_phone IS NOT NULL AND normalized_phone != ''`),
   uniqueIndex("customers_business_email_idx").on(t.businessId, t.normalizedEmail).where(sql`normalized_email IS NOT NULL AND normalized_email != ''`),
   uniqueIndex("customers_business_external_ref_idx").on(t.businessId, t.externalRef).where(sql`external_ref IS NOT NULL AND external_ref != ''`),
+  // Closes the (businessId, linkedUserId) TOCTOU race in
+  // findOrCreateCustomerByLinkedUser (server/modules/customers/service.ts):
+  // two concurrent first-messages from the same NEURA user to the same
+  // business could otherwise both pass the SELECT and both INSERT.
+  uniqueIndex("customers_business_linked_user_idx").on(t.businessId, t.linkedUserId).where(sql`linked_user_id IS NOT NULL`),
 ]);
 export type Customer = typeof customers.$inferSelect;
 

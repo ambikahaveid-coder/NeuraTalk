@@ -12,7 +12,7 @@ import {
   type InsertCallParticipant,
   type BridgedCallWithDetails
 } from "@shared/schema";
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq, desc, and, or, isNull } from "drizzle-orm";
 import { detectEmotion } from "../../emotion-engine";
 import { speechToText, textToSpeech } from "../../ai_integrations/audio/client";
 import { createStreamingCall } from "./streaming";
@@ -665,14 +665,25 @@ export async function addParticipant(
     language?: string;
   } = {}
 ): Promise<CallParticipant> {
-  const [participant] = await db.insert(callParticipants).values({
+  // onConflictDoNothing backstops call_participants_call_phone_active_idx:
+  // this function previously had no existence check at all, so a retry
+  // would deterministically duplicate the row, not just under a race
+  // window. Falls back to the existing active row instead of failing.
+  const inserted = await db.insert(callParticipants).values({
     callId,
     phoneNumber,
     userId: options.userId,
     role: options.role || "participant",
     language: options.language || "auto",
-  }).returning();
-  return participant;
+  }).onConflictDoNothing({ target: [callParticipants.callId, callParticipants.phoneNumber] }).returning();
+
+  if (inserted.length === 0) {
+    const [existingActive] = await db.select().from(callParticipants)
+      .where(and(eq(callParticipants.callId, callId), eq(callParticipants.phoneNumber, phoneNumber), isNull(callParticipants.leftAt)));
+    if (existingActive) return existingActive;
+    throw new Error("callParticipants insert conflicted but no matching active row was found on re-select");
+  }
+  return inserted[0];
 }
 
 export async function removeParticipant(participantId: number): Promise<void> {

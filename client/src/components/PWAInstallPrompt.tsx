@@ -152,7 +152,18 @@ export function useServiceWorker() {
           console.error("[PWA] Service worker registration failed:", err);
         });
 
+      // Same fix as UpdatePrompt.tsx: "controllerchange" also fires on the
+      // very first service-worker activation (uncontrolled -> controlled),
+      // not just on a genuine version update. Reloading unconditionally
+      // here would abort an in-flight navigation the first time a worker
+      // ever activates for this page. This hook is currently unused
+      // anywhere in the app (dead code as of this fix), but is corrected
+      // defensively in case it's wired up later.
+      const hadControllerAtMount = !!navigator.serviceWorker.controller;
+      let refreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadControllerAtMount || refreshing) return;
+        refreshing = true;
         window.location.reload();
       });
     }
