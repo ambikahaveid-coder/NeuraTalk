@@ -32,6 +32,10 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
+# ffmpeg is a real runtime dependency (server/ai_integrations/audio/client.ts,
+# server/lip-sync.ts) -- alpine's base image doesn't include it.
+RUN apk add --no-cache ffmpeg
+
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
