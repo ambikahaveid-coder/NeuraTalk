@@ -319,12 +319,23 @@ class LiveKitRealtimeTranslatorBot {
 
   private async startTraced(): Promise<void> {
     if (PRECACHE_ENABLED) {
-      await Promise.allSettled([
+      // Pre-warming is a latency optimization for the first spoken phrase --
+      // it must never gate call/room establishment. Each underlying
+      // translate/TTS call already has its own timeout (3-8s), but running
+      // several phrase-pair batches sequentially could still add up to tens
+      // of seconds under a slow/degraded provider, which previously stalled
+      // room.connect() for that whole time. Fire-and-forget instead, with an
+      // explicit .catch() so a rejected pre-warm can never become an
+      // unhandled rejection (Promise.allSettled itself never rejects today,
+      // but this stays correct even if that changes).
+      void Promise.allSettled([
         preWarmPair("en", "hi"),
         preWarmPair("hi", "en"),
         preWarmPair("en", "te"),
         preWarmPair("te", "en"),
-      ]);
+      ]).catch((error) => {
+        logger.debug("TranslatorBot", `[${this.callId}] background pre-warm failed: ${String(error)}`);
+      });
     }
 
     const room = new Room();
