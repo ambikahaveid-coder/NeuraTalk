@@ -25,6 +25,12 @@ ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
 ENV VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID
 ENV VITE_PHONE_OTP_PROVIDER=$VITE_PHONE_OTP_PROVIDER
 
+# Non-secret build provenance: the S3-sourced CodeBuild pipeline has no .git,
+# so script/build.mjs needs this supplied explicitly to embed a real commit
+# SHA in BUILD_COMMIT_SHA instead of falling back to "unknown".
+ARG GIT_COMMIT_SHA
+ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
+
 COPY . .
 RUN npm run build
 
