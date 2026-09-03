@@ -42,7 +42,11 @@ function getPool(): pg.Pool {
   poolInstance = new Pool({
     connectionString: databaseUrl,
     max: 10,
-    idleTimeoutMillis: 10000,       // release idle conns before Neon auto-suspends
+    idleTimeoutMillis: 30000,       // outlast normal inter-request gaps within a session,
+                                     // while still releasing before Neon auto-suspends on
+                                     // genuine idle periods -- 10s was forcing a fresh,
+                                     // Neon cold-start-costly reconnect (measured 2.3s vs
+                                     // 250-670ms once warm) on nearly every request
     connectionTimeoutMillis: 15000, // Neon cold-start can take 5-10s
     keepAlive: true,                // TCP keepalive so dropped Neon conns fail fast
     keepAliveInitialDelayMillis: 10000,
