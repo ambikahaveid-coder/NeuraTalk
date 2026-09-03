@@ -1,15 +1,23 @@
 import * as esbuild from "esbuild";
 import { execFileSync } from "node:child_process";
 import { statSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 function resolveBuildIdentity() {
   // Best-effort: a shallow/archive checkout (some CI/build environments) may
   // not have git history available, so this must never fail the build.
+  // S3-sourced builds (e.g. CodeBuild without .git) supply GIT_COMMIT_SHA
+  // explicitly since git rev-parse has nothing to read from in that context.
   let commitSha = "unknown";
-  try {
-    commitSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    // no .git available in this build context -- leave as "unknown" rather than fail the build
+  if (process.env.GIT_COMMIT_SHA) {
+    commitSha = process.env.GIT_COMMIT_SHA;
+  } else {
+    try {
+      commitSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    } catch {
+      // no .git available in this build context -- leave as "unknown" rather than fail the build
+    }
   }
   let version = "unknown";
   try {
@@ -96,7 +104,11 @@ async function build() {
   console.log("Done");
 }
 
-build().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+export { resolveBuildIdentity };
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  build().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
