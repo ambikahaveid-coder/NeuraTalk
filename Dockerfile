@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:20-slim AS build
 
 WORKDIR /app
 
@@ -34,13 +34,24 @@ ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 
 WORKDIR /app
 
+# glibc base (not alpine/musl) -- @livekit/rtc-ffi-bindings, the translator
+# bot's native LiveKit dependency, only ships prebuilt binaries for
+# linux-x64-gnu/linux-arm64-gnu, not musl. On alpine those optional
+# platform packages never installed, so the native binding silently failed
+# to load and every translator-bot start crashed with a generic
+# "Cannot read properties of undefined (reading 'has')" once code inside
+# the binding's JS wrapper touched the missing native object.
+#
 # ffmpeg is a real runtime dependency (server/ai_integrations/audio/client.ts,
-# server/lip-sync.ts) -- alpine's base image doesn't include it.
-RUN apk add --no-cache ffmpeg
+# server/lip-sync.ts); wget is needed for the HEALTHCHECK below -- neither
+# ships in the slim base image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg wget \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
