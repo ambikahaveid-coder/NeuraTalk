@@ -124,6 +124,32 @@ export async function abandonQueuedCall(callId: string): Promise<void> {
   }).where(eq(queuedCalls.id, row.id));
 }
 
+export async function assignQueuedCallToAgent(input: {
+  queuedCallId: number;
+  organizationId: number;
+  agentUserId: number;
+}): Promise<{ assigned: true; callId: string } | { assigned: false; reason: "NOT_FOUND" | "ALREADY_RESOLVED" | "AGENT_NOT_IN_ORGANIZATION" }> {
+  const [row] = await db.select().from(queuedCalls).where(
+    and(
+      eq(queuedCalls.id, input.queuedCallId),
+      eq(queuedCalls.organizationId, input.organizationId),
+    ),
+  );
+  if (!row) return { assigned: false, reason: "NOT_FOUND" };
+  if (row.status !== QUEUED_CALL_STATUS.WAITING) return { assigned: false, reason: "ALREADY_RESOLVED" };
+
+  const agent = await storage.getUser(input.agentUserId).catch(() => undefined);
+  if (!agent || agent.organizationId !== input.organizationId) {
+    return { assigned: false, reason: "AGENT_NOT_IN_ORGANIZATION" };
+  }
+
+  await removeFromRedisByCallId(getRedisClient(), row.queueId, row.callId);
+  const assigned = await assignCallToAgent(row.callId, input.agentUserId, input.organizationId);
+  return assigned
+    ? { assigned: true, callId: row.callId }
+    : { assigned: false, reason: "ALREADY_RESOLVED" };
+}
+
 async function removeFromRedisByCallId(client: ReturnType<typeof getRedisClient>, queueId: number, callId: string): Promise<void> {
   const key = queueRedisKey(queueId);
   const members = await client.zrange(key, 0, -1);
@@ -161,7 +187,11 @@ export async function tryAssignQueuedCallToAgent(organizationId: number, agentUs
   // exist, the claim is released back to "available" below.
   const claimed = await db.update(agentPresence)
     .set({ status: "busy", lastStatusChangeAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(agentPresence.userId, agentUserId), eq(agentPresence.status, "available")))
+    .where(and(
+      eq(agentPresence.userId, agentUserId),
+      eq(agentPresence.organizationId, organizationId),
+      eq(agentPresence.status, "available"),
+    ))
     .returning({ userId: agentPresence.userId });
   if (claimed.length === 0) return false; // someone else already claimed this agent, or they're no longer available
 
@@ -212,8 +242,12 @@ async function dequeueOldestMatchingCall(queue: CallQueue, agentSkillList: strin
   return null;
 }
 
-async function assignCallToAgent(callId: string, agentUserId: number): Promise<boolean> {
-  const [row] = await db.select().from(queuedCalls).where(eq(queuedCalls.callId, callId));
+async function assignCallToAgent(callId: string, agentUserId: number, organizationId?: number): Promise<boolean> {
+  const [row] = await db.select().from(queuedCalls).where(
+    organizationId === undefined
+      ? eq(queuedCalls.callId, callId)
+      : and(eq(queuedCalls.callId, callId), eq(queuedCalls.organizationId, organizationId)),
+  );
   if (!row || row.status !== QUEUED_CALL_STATUS.WAITING) return false;
 
   const call = await getSmartCall(callId);
@@ -224,12 +258,18 @@ async function assignCallToAgent(callId: string, agentUserId: number): Promise<b
   }
 
   const waitSeconds = row.enqueuedAt ? Math.round((Date.now() - new Date(row.enqueuedAt).getTime()) / 1000) : null;
-  await db.update(queuedCalls).set({
+  const [claimedRow] = await db.update(queuedCalls).set({
     status: QUEUED_CALL_STATUS.ASSIGNED,
     assignedAgentUserId: agentUserId,
     dequeuedAt: new Date(),
     waitSeconds,
-  }).where(eq(queuedCalls.id, row.id));
+  }).where(and(
+    eq(queuedCalls.id, row.id),
+    eq(queuedCalls.status, QUEUED_CALL_STATUS.WAITING),
+    ...(organizationId === undefined ? [] : [eq(queuedCalls.organizationId, organizationId)]),
+  )).returning({ id: queuedCalls.id });
+
+  if (!claimedRow) return false;
 
   // Flip the agent's own presence to "busy" immediately, in the same
   // transaction-adjacent step as the assignment above. Without this, the

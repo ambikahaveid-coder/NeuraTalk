@@ -298,6 +298,11 @@ async function upsertAgentSkill(req: Request, res: Response) {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) return badRequest(res, parsed.error.message);
 
+  const [agent] = await db.select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.id, agentUserId), eq(users.organizationId, orgId)));
+  if (!agent) return res.status(404).json({ success: false, error: "Agent not found" });
+
   const existing = await db.select({ id: agentSkills.id })
     .from(agentSkills)
     .where(and(eq(agentSkills.userId, agentUserId), eq(agentSkills.organizationId, orgId)));

@@ -44,6 +44,10 @@ export async function joinQueue(req: Request, res: Response) {
     }
 
     const user = req.user!;
+    if (user.role !== "super_admin" && user.organizationId !== queue.organizationId) {
+      return res.status(403).json({ success: false, error: "Queue does not belong to your organization" });
+    }
+
     const conference = await initiateConference({
       hostId: String(user.id),
       participantIds: [],

@@ -5,7 +5,7 @@ import { requireAuth } from "../../role-middleware";
 import {
   departments, branches, teams, teamMembers, businessHours, holidayCalendar,
   ivrMenus, ivrOptions, callQueues, agentPresence, pbxIntegrations,
-  supervisorSessions, costCenters, users, organizations,
+  supervisorSessions, costCenters, users, organizations, enterpriseNumbers,
   insertDepartmentSchema, insertBranchSchema, insertTeamSchema, insertTeamMemberSchema,
   insertBusinessHoursSchema, insertHolidayCalendarSchema,
   insertIvrMenuSchema, insertIvrOptionSchema,
@@ -22,6 +22,45 @@ function requireOrgAdmin(req: any, res: any, next: any) {
 }
 
 const guard = [requireAuth, requireOrgAdmin];
+
+const departmentUpdateSchema = insertDepartmentSchema.omit({ organizationId: true }).partial();
+const branchUpdateSchema = insertBranchSchema.omit({ organizationId: true }).partial();
+const teamUpdateSchema = insertTeamSchema.omit({ organizationId: true }).partial();
+const businessHoursUpdateSchema = insertBusinessHoursSchema.omit({ organizationId: true }).partial();
+const ivrMenuUpdateSchema = insertIvrMenuSchema.omit({ organizationId: true }).partial();
+const callQueueUpdateSchema = insertCallQueueSchema.omit({ organizationId: true }).partial();
+const pbxUpdateSchema = insertPbxIntegrationSchema.omit({ organizationId: true }).partial();
+const costCenterUpdateSchema = insertCostCenterSchema.omit({ organizationId: true, currentMonthSpendPaise: true, alertEmailSent: true }).partial();
+
+async function referenceBelongsToOrganization(table: any, id: number, organizationId: number): Promise<boolean> {
+  const [row] = await db.select({ organizationId: table.organizationId })
+    .from(table)
+    .where(eq(table.id, id));
+  return row?.organizationId === organizationId;
+}
+
+function parseOptionalId(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function validateOrganizationReferences(
+  req: Request,
+  res: Response,
+  references: Array<{ table: any; value: unknown; name: string }>,
+): Promise<boolean> {
+  const organizationId = orgId(req);
+  for (const reference of references) {
+    if (reference.value === undefined || reference.value === null) continue;
+    const id = parseOptionalId(reference.value);
+    if (!id || !(await referenceBelongsToOrganization(reference.table, id, organizationId))) {
+      res.status(404).json({ error: `${reference.name} not found` });
+      return false;
+    }
+  }
+  return true;
+}
 
 function orgId(req: Request): number {
   return (req.user as any).organizationId;
@@ -51,7 +90,12 @@ async function updateDepartment(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(departments).where(and(eq(departments.id, id), eq(departments.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(departments).set({ ...req.body, updatedAt: new Date() }).where(eq(departments.id, id)).returning();
+  const parsed = departmentUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: departments, value: parsed.data.parentDepartmentId, name: "Parent department" },
+  ])) return;
+  const [row] = await db.update(departments).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(departments.id, id), eq(departments.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -59,7 +103,7 @@ async function deleteDepartment(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(departments).where(and(eq(departments.id, id), eq(departments.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(departments).where(eq(departments.id, id));
+  await db.delete(departments).where(and(eq(departments.id, id), eq(departments.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -84,7 +128,9 @@ async function updateBranch(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(branches).where(and(eq(branches.id, id), eq(branches.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(branches).set({ ...req.body, updatedAt: new Date() }).where(eq(branches.id, id)).returning();
+  const parsed = branchUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [row] = await db.update(branches).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(branches.id, id), eq(branches.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -92,7 +138,7 @@ async function deleteBranch(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(branches).where(and(eq(branches.id, id), eq(branches.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(branches).where(eq(branches.id, id));
+  await db.delete(branches).where(and(eq(branches.id, id), eq(branches.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -108,6 +154,10 @@ async function listTeams(req: Request, res: Response) {
 async function createTeam(req: Request, res: Response) {
   const parsed = insertTeamSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: departments, value: parsed.data.departmentId, name: "Department" },
+    { table: branches, value: parsed.data.branchId, name: "Branch" },
+  ])) return;
   const [row] = await db.insert(teams).values(parsed.data).returning();
   await logAuditEvent({ userId: actorId(req), organizationId: orgId(req), action: "admin_action", details: { entity: "team", entityId: row.id, op: "create" } });
   res.status(201).json(row);
@@ -117,7 +167,13 @@ async function updateTeam(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(teams).where(and(eq(teams.id, id), eq(teams.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(teams).set({ ...req.body, updatedAt: new Date() }).where(eq(teams.id, id)).returning();
+  const parsed = teamUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: departments, value: parsed.data.departmentId, name: "Department" },
+    { table: branches, value: parsed.data.branchId, name: "Branch" },
+  ])) return;
+  const [row] = await db.update(teams).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(teams.id, id), eq(teams.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -125,12 +181,13 @@ async function deleteTeam(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(teams).where(and(eq(teams.id, id), eq(teams.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(teams).where(eq(teams.id, id));
+  await db.delete(teams).where(and(eq(teams.id, id), eq(teams.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
 async function listTeamMembers(req: Request, res: Response) {
   const teamId = parseInt(req.params.teamId);
+  if (!await referenceBelongsToOrganization(teams, teamId, orgId(req))) return res.status(404).json({ error: "Team not found" });
   const rows = await db.select({
     id: teamMembers.id, teamId: teamMembers.teamId, userId: teamMembers.userId,
     role: teamMembers.role, joinedAt: teamMembers.joinedAt,
@@ -144,8 +201,11 @@ async function listTeamMembers(req: Request, res: Response) {
 
 async function addTeamMember(req: Request, res: Response) {
   const teamId = parseInt(req.params.teamId);
+  if (!await referenceBelongsToOrganization(teams, teamId, orgId(req))) return res.status(404).json({ error: "Team not found" });
   const parsed = insertTeamMemberSchema.safeParse({ ...req.body, teamId });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const [member] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, parsed.data.userId), eq(users.organizationId, orgId(req))));
+  if (!member) return res.status(404).json({ error: "User not found" });
   const [row] = await db.insert(teamMembers).values(parsed.data).onConflictDoNothing().returning();
   res.status(201).json(row ?? { message: "Already a member" });
 }
@@ -153,6 +213,9 @@ async function addTeamMember(req: Request, res: Response) {
 async function removeTeamMember(req: Request, res: Response) {
   const teamId = parseInt(req.params.teamId);
   const userId = parseInt(req.params.userId);
+  if (!await referenceBelongsToOrganization(teams, teamId, orgId(req))) return res.status(404).json({ error: "Team not found" });
+  const [member] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, userId), eq(users.organizationId, orgId(req))));
+  if (!member) return res.status(404).json({ error: "User not found" });
   await db.delete(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)));
   res.json({ success: true });
 }
@@ -169,6 +232,10 @@ async function listBusinessHours(req: Request, res: Response) {
 async function createBusinessHours(req: Request, res: Response) {
   const parsed = insertBusinessHoursSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: branches, value: parsed.data.branchId, name: "Branch" },
+    { table: enterpriseNumbers, value: parsed.data.enterpriseNumberId, name: "Enterprise number" },
+  ])) return;
   const [row] = await db.insert(businessHours).values(parsed.data).returning();
   res.status(201).json(row);
 }
@@ -177,7 +244,13 @@ async function updateBusinessHours(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(businessHours).where(and(eq(businessHours.id, id), eq(businessHours.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(businessHours).set({ ...req.body, updatedAt: new Date() }).where(eq(businessHours.id, id)).returning();
+  const parsed = businessHoursUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: branches, value: parsed.data.branchId, name: "Branch" },
+    { table: enterpriseNumbers, value: parsed.data.enterpriseNumberId, name: "Enterprise number" },
+  ])) return;
+  const [row] = await db.update(businessHours).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(businessHours.id, id), eq(businessHours.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -185,7 +258,7 @@ async function deleteBusinessHours(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(businessHours).where(and(eq(businessHours.id, id), eq(businessHours.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(businessHours).where(eq(businessHours.id, id));
+  await db.delete(businessHours).where(and(eq(businessHours.id, id), eq(businessHours.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -201,6 +274,9 @@ async function listHolidays(req: Request, res: Response) {
 async function createHoliday(req: Request, res: Response) {
   const parsed = insertHolidayCalendarSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: branches, value: parsed.data.branchId, name: "Branch" },
+  ])) return;
   const [row] = await db.insert(holidayCalendar).values(parsed.data).returning();
   res.status(201).json(row);
 }
@@ -209,7 +285,7 @@ async function deleteHoliday(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(holidayCalendar).where(and(eq(holidayCalendar.id, id), eq(holidayCalendar.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(holidayCalendar).where(eq(holidayCalendar.id, id));
+  await db.delete(holidayCalendar).where(and(eq(holidayCalendar.id, id), eq(holidayCalendar.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -225,6 +301,9 @@ async function listIvrMenus(req: Request, res: Response) {
 async function createIvrMenu(req: Request, res: Response) {
   const parsed = insertIvrMenuSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: enterpriseNumbers, value: parsed.data.enterpriseNumberId, name: "Enterprise number" },
+  ])) return;
   const [row] = await db.insert(ivrMenus).values(parsed.data).returning();
   res.status(201).json(row);
 }
@@ -233,7 +312,12 @@ async function updateIvrMenu(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(ivrMenus).where(and(eq(ivrMenus.id, id), eq(ivrMenus.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(ivrMenus).set({ ...req.body, updatedAt: new Date() }).where(eq(ivrMenus.id, id)).returning();
+  const parsed = ivrMenuUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: enterpriseNumbers, value: parsed.data.enterpriseNumberId, name: "Enterprise number" },
+  ])) return;
+  const [row] = await db.update(ivrMenus).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(ivrMenus.id, id), eq(ivrMenus.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -241,12 +325,13 @@ async function deleteIvrMenu(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(ivrMenus).where(and(eq(ivrMenus.id, id), eq(ivrMenus.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(ivrMenus).where(eq(ivrMenus.id, id));
+  await db.delete(ivrMenus).where(and(eq(ivrMenus.id, id), eq(ivrMenus.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
 async function listIvrOptions(req: Request, res: Response) {
   const menuId = parseInt(req.params.menuId);
+  if (!await referenceBelongsToOrganization(ivrMenus, menuId, orgId(req))) return res.status(404).json({ error: "IVR menu not found" });
   const rows = await db.select().from(ivrOptions)
     .where(eq(ivrOptions.menuId, menuId))
     .orderBy(asc(ivrOptions.displayOrder));
@@ -255,6 +340,7 @@ async function listIvrOptions(req: Request, res: Response) {
 
 async function createIvrOption(req: Request, res: Response) {
   const menuId = parseInt(req.params.menuId);
+  if (!await referenceBelongsToOrganization(ivrMenus, menuId, orgId(req))) return res.status(404).json({ error: "IVR menu not found" });
   const parsed = insertIvrOptionSchema.safeParse({ ...req.body, menuId });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const [row] = await db.insert(ivrOptions).values(parsed.data).returning();
@@ -263,6 +349,8 @@ async function createIvrOption(req: Request, res: Response) {
 
 async function deleteIvrOption(req: Request, res: Response) {
   const id = parseInt(req.params.optionId);
+  const [option] = await db.select({ menuId: ivrOptions.menuId }).from(ivrOptions).where(eq(ivrOptions.id, id));
+  if (!option || !await referenceBelongsToOrganization(ivrMenus, option.menuId, orgId(req))) return res.status(404).json({ error: "IVR option not found" });
   await db.delete(ivrOptions).where(eq(ivrOptions.id, id));
   res.json({ success: true });
 }
@@ -279,6 +367,9 @@ async function listCallQueues(req: Request, res: Response) {
 async function createCallQueue(req: Request, res: Response) {
   const parsed = insertCallQueueSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: teams, value: parsed.data.teamId, name: "Team" },
+  ])) return;
   const [row] = await db.insert(callQueues).values(parsed.data).returning();
   res.status(201).json(row);
 }
@@ -287,7 +378,12 @@ async function updateCallQueue(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(callQueues).where(and(eq(callQueues.id, id), eq(callQueues.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(callQueues).set({ ...req.body, updatedAt: new Date() }).where(eq(callQueues.id, id)).returning();
+  const parsed = callQueueUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: teams, value: parsed.data.teamId, name: "Team" },
+  ])) return;
+  const [row] = await db.update(callQueues).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(callQueues.id, id), eq(callQueues.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -295,7 +391,7 @@ async function deleteCallQueue(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(callQueues).where(and(eq(callQueues.id, id), eq(callQueues.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(callQueues).where(eq(callQueues.id, id));
+  await db.delete(callQueues).where(and(eq(callQueues.id, id), eq(callQueues.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -321,12 +417,16 @@ async function updateMyPresence(req: Request, res: Response) {
   const { status, statusMessage, queueId, teamId } = req.body;
   const allowed = ["online", "available", "busy", "away", "break", "dnd", "offline"];
   if (!allowed.includes(status)) return res.status(400).json({ error: "Invalid status" });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: callQueues, value: queueId, name: "Queue" },
+    { table: teams, value: teamId, name: "Team" },
+  ])) return;
 
   const [row] = await db.insert(agentPresence)
     .values({ userId, organizationId: oId, status, statusMessage, queueId, teamId, lastStatusChangeAt: new Date(), lastHeartbeatAt: new Date() })
     .onConflictDoUpdate({
       target: agentPresence.userId,
-      set: { status, statusMessage, queueId, teamId, lastStatusChangeAt: new Date(), lastHeartbeatAt: new Date(), updatedAt: new Date() },
+      set: { status, statusMessage, queueId, teamId, organizationId: oId, lastStatusChangeAt: new Date(), lastHeartbeatAt: new Date(), updatedAt: new Date() },
     })
     .returning();
 
@@ -346,7 +446,7 @@ async function updateMyPresence(req: Request, res: Response) {
 async function heartbeat(req: Request, res: Response) {
   await db.update(agentPresence)
     .set({ lastHeartbeatAt: new Date(), updatedAt: new Date() })
-    .where(eq(agentPresence.userId, actorId(req)));
+    .where(and(eq(agentPresence.userId, actorId(req)), eq(agentPresence.organizationId, orgId(req))));
   res.json({ ok: true });
 }
 
@@ -372,10 +472,12 @@ async function updatePbxIntegration(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(pbxIntegrations).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const update: Record<string, unknown> = { ...req.body, updatedAt: new Date() };
+  const parsed = pbxUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const update: Record<string, unknown> = { ...parsed.data, updatedAt: new Date() };
   if (update.password === "••••••••") delete update.password;
   if (update.apiKey === "••••••••") delete update.apiKey;
-  const [row] = await db.update(pbxIntegrations).set(update).where(eq(pbxIntegrations.id, id)).returning();
+  const [row] = await db.update(pbxIntegrations).set(update).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req)))).returning();
   res.json({ ...row, password: row.password ? "••••••••" : null, apiKey: row.apiKey ? "••••••••" : null });
 }
 
@@ -383,7 +485,7 @@ async function deletePbxIntegration(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(pbxIntegrations).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(pbxIntegrations).where(eq(pbxIntegrations.id, id));
+  await db.delete(pbxIntegrations).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req))));
   res.json({ success: true });
 }
 
@@ -393,7 +495,7 @@ async function testPbxConnection(req: Request, res: Response) {
   if (!pbx) return res.status(404).json({ error: "Not found" });
 
   // Mark as checking
-  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: new Date() }).where(eq(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: "unknown", lastCheckedAt: new Date() }).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req))));
 
   // Attempt a basic TCP port check
   const net = await import("net");
@@ -414,7 +516,7 @@ async function testPbxConnection(req: Request, res: Response) {
   });
 
   const status = result.success ? "connected" : "disconnected";
-  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: new Date() }).where(eq(pbxIntegrations.id, id));
+  await db.update(pbxIntegrations).set({ connectionStatus: status, lastCheckedAt: new Date() }).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req))));
 
   res.json(result);
 }
@@ -431,6 +533,9 @@ async function listCostCenters(req: Request, res: Response) {
 async function createCostCenter(req: Request, res: Response) {
   const parsed = insertCostCenterSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: departments, value: parsed.data.departmentId, name: "Department" },
+  ])) return;
   const [row] = await db.insert(costCenters).values(parsed.data).returning();
   res.status(201).json(row);
 }
@@ -439,7 +544,12 @@ async function updateCostCenter(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(costCenters).where(and(eq(costCenters.id, id), eq(costCenters.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  const [row] = await db.update(costCenters).set({ ...req.body, updatedAt: new Date() }).where(eq(costCenters.id, id)).returning();
+  const parsed = costCenterUpdateSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  if (!await validateOrganizationReferences(req, res, [
+    { table: departments, value: parsed.data.departmentId, name: "Department" },
+  ])) return;
+  const [row] = await db.update(costCenters).set({ ...parsed.data, updatedAt: new Date() }).where(and(eq(costCenters.id, id), eq(costCenters.organizationId, orgId(req)))).returning();
   res.json(row);
 }
 
@@ -447,7 +557,7 @@ async function deleteCostCenter(req: Request, res: Response) {
   const id = parseInt(req.params.id);
   const [existing] = await db.select().from(costCenters).where(and(eq(costCenters.id, id), eq(costCenters.organizationId, orgId(req))));
   if (!existing) return res.status(404).json({ error: "Not found" });
-  await db.delete(costCenters).where(eq(costCenters.id, id));
+  await db.delete(costCenters).where(and(eq(costCenters.id, id), eq(costCenters.organizationId, orgId(req))));
   res.json({ success: true });
 }
 

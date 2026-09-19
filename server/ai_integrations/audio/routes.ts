@@ -147,9 +147,11 @@ export function registerAudioRoutes(app: Express): void {
   // Send voice message and get streaming audio response
   // Uses gpt-4o-mini-transcribe for STT, gpt-audio-mini for voice response
   // For text model control, chain: speechToText() -> text model -> textToSpeech()
-  app.post("/api/conversations/:id/messages", async (req: Request, res: Response) => {
+  app.post("/api/conversations/:id/messages", loadUser, requireAuth, rateLimiter("api"), async (req: Request, res: Response) => {
     try {
       const conversationId = parseInt(req.params.id);
+      const conversation = await chatStorage.getConversation(conversationId, req.user!.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
       const { audio, voice = "alloy", inputFormat = "wav" } = req.body;
 
       if (!audio) {
@@ -232,9 +234,11 @@ export function registerAudioRoutes(app: Express): void {
   // Streams sentences to TTS as they're generated for lower latency
   // Supports multilingual sentence detection via locale parameter
   // Includes emotion detection for adaptive responses
-  app.post("/api/conversations/:id/voice-stream", async (req: Request, res: Response) => {
+  app.post("/api/conversations/:id/voice-stream", loadUser, requireAuth, rateLimiter("api"), async (req: Request, res: Response) => {
     try {
       const conversationId = parseInt(req.params.id);
+      const conversation = await chatStorage.getConversation(conversationId, req.user!.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
       const { audio, voice = "alloy", inputFormat = "wav", locale = "en" } = req.body;
 
       if (!audio) {
@@ -301,9 +305,11 @@ export function registerAudioRoutes(app: Express): void {
   });
 
   // Get emotion context for a conversation
-  app.get("/api/conversations/:id/emotion", async (req: Request, res: Response) => {
+  app.get("/api/conversations/:id/emotion", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const conversationId = parseInt(req.params.id);
+      const conversation = await chatStorage.getConversation(conversationId, req.user!.id);
+      if (!conversation) return res.status(404).json({ error: "Conversation not found" });
       const sessionId = `conv_${conversationId}`;
       const context = await getEmotionContext(sessionId);
 

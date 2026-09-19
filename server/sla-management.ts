@@ -7,12 +7,12 @@ import { requireRole, requireAuth } from "./role-middleware";
 const router = Router();
 
 interface SLAMetrics {
-  uptime: number;
-  avgResponseTime: number;
-  avgCallQuality: number;
-  totalCalls: number;
-  failedCalls: number;
-  successRate: number;
+  uptime: number | null;
+  avgResponseTime: number | null;
+  avgCallQuality: number | null;
+  totalCalls: number | null;
+  failedCalls: number | null;
+  successRate: number | null;
 }
 
 interface SystemStatus {
@@ -90,23 +90,32 @@ async function getSystemStatus(): Promise<SystemStatus> {
   };
 }
 
-async function getSLAMetrics(_organizationId?: number, _days: number = 30): Promise<SLAMetrics> {
+export async function getSLAMetrics(organizationId?: number, _days: number = 30): Promise<SLAMetrics> {
+  // callTelemetry has no authoritative organization/date dimensions in the
+  // current schema. Do not expose a global sample count through an org route.
+  if (organizationId) {
+    return {
+      uptime: null,
+      avgResponseTime: null,
+      avgCallQuality: null,
+      totalCalls: null,
+      failedCalls: null,
+      successRate: null,
+    };
+  }
+
   const telemetryData = await db.select().from(callTelemetry).limit(100);
-  
-  const totalCalls = telemetryData.length || 100;
-  const failedCalls = Math.floor(totalCalls * 0.005);
-  
-  const avgJitter = telemetryData.length > 0 
-    ? telemetryData.reduce((sum, t) => sum + (t.audioJitter || 0), 0) / telemetryData.length 
-    : 20;
 
   return {
-    uptime: 99.95,
-    avgResponseTime: 150 + avgJitter,
-    avgCallQuality: 4.5,
-    totalCalls,
-    failedCalls,
-    successRate: totalCalls > 0 ? ((totalCalls - failedCalls) / totalCalls) * 100 : 100,
+    // Call telemetry does not currently contain authoritative uptime,
+    // response-time, quality, or failure-state aggregates. Do not fabricate
+    // SLA values from sample size or a fixed failure percentage.
+    uptime: null,
+    avgResponseTime: null,
+    avgCallQuality: null,
+    totalCalls: telemetryData.length,
+    failedCalls: null,
+    successRate: null,
   };
 }
 
@@ -132,19 +141,22 @@ router.get("/api/organization/sla", requireRole("company_admin", "super_admin", 
     const metrics = await getSLAMetrics(organizationId || undefined, days);
 
     const compliance = {
-      uptime: metrics.uptime >= SLA_TARGETS.uptime,
-      responseTime: metrics.avgResponseTime <= SLA_TARGETS.responseTime,
-      callQuality: metrics.avgCallQuality >= SLA_TARGETS.callQuality,
-      successRate: metrics.successRate >= SLA_TARGETS.successRate,
+      uptime: metrics.uptime === null ? null : metrics.uptime >= SLA_TARGETS.uptime,
+      responseTime: metrics.avgResponseTime === null ? null : metrics.avgResponseTime <= SLA_TARGETS.responseTime,
+      callQuality: metrics.avgCallQuality === null ? null : metrics.avgCallQuality >= SLA_TARGETS.callQuality,
+      successRate: metrics.successRate === null ? null : metrics.successRate >= SLA_TARGETS.successRate,
     };
 
-    const overallCompliance = Object.values(compliance).every(Boolean);
+    const overallCompliance = Object.values(compliance).some((value) => value === null)
+      ? null
+      : Object.values(compliance).every(Boolean);
 
     res.json({
       metrics,
       targets: SLA_TARGETS,
       compliance,
       overallCompliance,
+      note: "NOT_AVAILABLE: authoritative SLA telemetry is not available for this period.",
       period: {
         days,
         startDate: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
@@ -168,16 +180,17 @@ router.get("/api/organization/sla/history", requireRole("company_admin", "super_
       
       history.push({
         month: date.toISOString().slice(0, 7),
-        uptime: 99.95,
-        avgResponseTime: 150,
-        successRate: 99.7,
-        totalCalls: 0,
+        uptime: null,
+        avgResponseTime: null,
+        successRate: null,
+        totalCalls: null,
       });
     }
 
     res.json({
       history: history.reverse(),
       targets: SLA_TARGETS,
+      note: "NOT_AVAILABLE: historical SLA telemetry is not available.",
     });
   } catch (error) {
     console.error("Error fetching SLA history:", error);
@@ -203,12 +216,12 @@ router.get("/api/organization/sla/report", requireRole("company_admin", "super_a
       metrics,
       targets: SLA_TARGETS,
       compliance: {
-        uptime: { target: SLA_TARGETS.uptime, actual: metrics.uptime, met: metrics.uptime >= SLA_TARGETS.uptime },
-        responseTime: { target: SLA_TARGETS.responseTime, actual: metrics.avgResponseTime, met: metrics.avgResponseTime <= SLA_TARGETS.responseTime },
-        successRate: { target: SLA_TARGETS.successRate, actual: metrics.successRate, met: metrics.successRate >= SLA_TARGETS.successRate },
+        uptime: { target: SLA_TARGETS.uptime, actual: metrics.uptime, met: metrics.uptime === null ? null : metrics.uptime >= SLA_TARGETS.uptime },
+        responseTime: { target: SLA_TARGETS.responseTime, actual: metrics.avgResponseTime, met: metrics.avgResponseTime === null ? null : metrics.avgResponseTime <= SLA_TARGETS.responseTime },
+        successRate: { target: SLA_TARGETS.successRate, actual: metrics.successRate, met: metrics.successRate === null ? null : metrics.successRate >= SLA_TARGETS.successRate },
       },
       incidents: [],
-      notes: "No major incidents during this period.",
+      notes: "NOT_AVAILABLE: incident and SLA telemetry is not available for this period.",
     };
 
     res.json(report);

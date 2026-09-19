@@ -20,9 +20,12 @@ import {
   billingPlans,
   subscriptions,
   bridgedCalls,
+  callQueues,
+  queuedCalls,
+  QUEUED_CALL_STATUS,
   billingLedgerEntries,
 } from "@shared/schema";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { storage } from "./storage";
 import {
@@ -40,7 +43,8 @@ import { getOrganizationBillingSnapshot } from "./organization-billing";
 import { requireActiveSubscription, warnLowBalance } from "./usage-enforcement";
 import * as callService from "./modules/calls/service";
 import { buildUnifiedSessionFromInitiateResponse } from "./modules/calls/session-view";
-import { routeToSkillAgent } from "./modules/calls/smart-router";
+import { getSmartCall, routeToSkillAgent } from "./modules/calls/smart-router";
+import { assignQueuedCallToAgent } from "./modules/calls/queue-service";
 import {
   mapStoredStatusToOrgState,
   ORG_STATE,
@@ -1299,7 +1303,10 @@ export function registerB2BRoutes(app: Express): void {
   });
 
   /**
-   * Get B2B call queue (empty for now - ready for real data)
+   * Get the canonical B2B ACD queue.
+   *
+   * bridgedCalls remains available for historical call reporting, but it is
+   * no longer a source of truth for the control room.
    */
   app.get("/api/b2b/call-queue", requireAuth, requireApprovedCompany, async (req, res) => {
     try {
@@ -1308,56 +1315,37 @@ export function registerB2BRoutes(app: Express): void {
       }
       const organizationId = req.user.organizationId;
 
-      const pendingCalls = await db.select().from(bridgedCalls)
-        .where(eq(bridgedCalls.status, "pending"));
+      const queuedRows = await db.select({
+        queuedCall: queuedCalls,
+        queueConfig: callQueues,
+      })
+        .from(queuedCalls)
+        .innerJoin(callQueues, eq(queuedCalls.queueId, callQueues.id))
+        .where(and(
+          eq(queuedCalls.organizationId, organizationId),
+          eq(callQueues.organizationId, organizationId),
+          eq(queuedCalls.status, QUEUED_CALL_STATUS.WAITING),
+          eq(callQueues.isActive, true),
+        ))
+        .orderBy(asc(queuedCalls.enqueuedAt));
 
-      const participantIds = Array.from(new Set(
-        pendingCalls.flatMap((call) => [call.callerUserId, call.receiverUserId]).filter(
-          (value): value is number => typeof value === "number" && Number.isFinite(value),
-        ),
-      ));
-
-      const participants = participantIds.length > 0
-        ? await db.select({
-            id: users.id,
-            organizationId: users.organizationId,
-          }).from(users).where(inArray(users.id, participantIds))
-        : [];
-
-      const participantOrgMap = new Map(participants.map((participant) => [participant.id, participant.organizationId]));
-
-      const relevantPendingCalls = pendingCalls.filter((call) => {
-        const participantOrganizations = [call.callerUserId, call.receiverUserId]
-          .map((userId) => (typeof userId === "number" ? participantOrgMap.get(userId) : undefined))
-          .filter((organizationId): organizationId is number => typeof organizationId === "number");
-
-        if (participantOrganizations.includes(organizationId)) {
-          return true;
-        }
-
-        const metadata = (call.metadata as Record<string, unknown> | null) || {};
-        const orgCandidates = [
-          metadata.organizationId,
-          metadata.callerOrganizationId,
-          metadata.receiverOrganizationId,
-          metadata.companyOrganizationId,
-        ];
-        return orgCandidates.some((candidateOrganizationId) => Number(candidateOrganizationId) === organizationId);
-      });
-
-      const queue = relevantPendingCalls.map((call) => {
-        const metadata = (call.metadata as Record<string, unknown> | null) || {};
-        const waitTime = call.createdAt ? Math.round((Date.now() - new Date(call.createdAt).getTime()) / 1000) : 0;
+      const queue = await Promise.all(queuedRows.map(async ({ queuedCall }) => {
+        const call = await getSmartCall(queuedCall.callId);
+        const metadata = call?.metadata || {};
+        const waitTime = queuedCall.enqueuedAt
+          ? Math.max(0, Math.round((Date.now() - new Date(queuedCall.enqueuedAt).getTime()) / 1000))
+          : 0;
 
         return {
-          id: String(call.id),
-          customer: call.callerNumber,
-          language: call.callerLanguage || "auto",
+          id: String(queuedCall.id),
+          customer: call?.callerNumber || call?.callerId || "Unknown customer",
+          language: call?.callerLanguage || "auto",
           waitTime,
-          priority: waitTime >= 120 ? "vip" as const : waitTime >= 60 ? "high" as const : "normal" as const,
+          // No canonical priority field exists yet; do not infer priority from wait time.
+          priority: "normal" as const,
           type: metadata.direction === "outbound" ? "outbound" as const : "inbound" as const,
         };
-      });
+      }));
 
       res.json({ success: true, queue });
     } catch (err) {
@@ -1440,31 +1428,19 @@ export function registerB2BRoutes(app: Express): void {
         return res.status(400).json({ success: false, message: "Queue item and agent are required" });
       }
 
-      const [call] = await db.select().from(bridgedCalls).where(eq(bridgedCalls.id, queueId));
-      if (!call) {
-        return res.status(404).json({ success: false, message: "Queue item not found" });
+      const result = await assignQueuedCallToAgent({
+        queuedCallId: queueId,
+        organizationId: req.user.organizationId,
+        agentUserId,
+      });
+      if (!result.assigned) {
+        if (result.reason === "ALREADY_RESOLVED") {
+          return res.status(409).json({ success: false, message: "Queue item is no longer waiting" });
+        }
+        return res.status(404).json({ success: false, message: "Queue item or agent not found" });
       }
 
-      const agent = await storage.getUser(agentUserId);
-      if (!agent || agent.organizationId !== req.user.organizationId) {
-        return res.status(404).json({ success: false, message: "Agent not found in this company" });
-      }
-
-      await db.update(bridgedCalls)
-        .set({
-          receiverUserId: agent.id,
-          receiverNumber: agent.phone || agent.email || agent.username,
-          status: "ringing",
-          metadata: {
-            ...(call.metadata as Record<string, unknown> || {}),
-            assignedAgentUserId: agent.id,
-            assignedByUserId: req.user.id,
-            assignedAt: new Date().toISOString(),
-          },
-        })
-        .where(eq(bridgedCalls.id, queueId));
-
-      res.json({ success: true, message: "Queue item assigned to agent" });
+      res.json({ success: true, message: "Queue item assigned to agent", callId: result.callId });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to assign queue item", err as Error);
       res.status(500).json({ success: false, message: "Failed to assign queue item" });
@@ -1482,37 +1458,37 @@ export function registerB2BRoutes(app: Express): void {
         return res.status(400).json({ success: false, message: "Invalid queue item" });
       }
 
-      const [call] = await db.select().from(bridgedCalls).where(eq(bridgedCalls.id, queueId));
-      if (!call) {
+      const [queuedCall] = await db.select().from(queuedCalls).where(and(
+        eq(queuedCalls.id, queueId),
+        eq(queuedCalls.organizationId, req.user.organizationId),
+        eq(queuedCalls.status, QUEUED_CALL_STATUS.WAITING),
+      ));
+      if (!queuedCall) {
         return res.status(404).json({ success: false, message: "Queue item not found" });
       }
 
-      const requiredSkills = [call.callerLanguage || "auto"].filter((value) => value && value !== "auto");
+      const call = await getSmartCall(queuedCall.callId);
+      const requiredSkills = [call?.callerLanguage || "auto"].filter((value) => value && value !== "auto");
       const agentUserId = await routeToSkillAgent(req.user.organizationId, requiredSkills);
       if (!agentUserId) {
         return res.status(409).json({ success: false, message: "No available agent matched the call language" });
       }
 
-      const agent = await storage.getUser(Number(agentUserId));
-      if (!agent) {
-        return res.status(404).json({ success: false, message: "Matched agent not found" });
+      const result = await assignQueuedCallToAgent({
+        queuedCallId: queueId,
+        organizationId: req.user.organizationId,
+        agentUserId: Number(agentUserId),
+      });
+      if (!result.assigned) {
+        return res.status(result.reason === "ALREADY_RESOLVED" ? 409 : 404).json({
+          success: false,
+          message: result.reason === "ALREADY_RESOLVED"
+            ? "Queue item is no longer waiting"
+            : "Matched agent or queue item not found",
+        });
       }
 
-      await db.update(bridgedCalls)
-        .set({
-          receiverUserId: agent.id,
-          receiverNumber: agent.phone || agent.email || agent.username,
-          status: "ringing",
-          metadata: {
-            ...(call.metadata as Record<string, unknown> || {}),
-            autoRoutedAgentUserId: agent.id,
-            autoRoutedAt: new Date().toISOString(),
-            autoRouteSkills: requiredSkills,
-          },
-        })
-        .where(eq(bridgedCalls.id, queueId));
-
-      res.json({ success: true, message: "Call auto-routed", agentUserId: agent.id });
+      res.json({ success: true, message: "Call auto-routed", agentUserId: Number(agentUserId), callId: result.callId });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to auto-route queue item", err as Error);
       res.status(500).json({ success: false, message: "Failed to auto-route call" });

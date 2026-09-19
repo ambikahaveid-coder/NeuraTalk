@@ -58,6 +58,21 @@ export function registerEnterpriseRoutes(app: Express): void {
       const orgId = user.organizationId;
       const isSuperAdmin = user.role === "super_admin";
 
+      if (!isSuperAdmin && orgId) {
+        return res.json({
+          totalCalls: null,
+          totalMinutes: null,
+          translationMinutes: null,
+          activeUsers: null,
+          callsToday: null,
+          avgCallDuration: null,
+          topLanguages: [],
+          callsByDay: [],
+          emotionBreakdown: [],
+          note: "NOT_AVAILABLE: tenant-scoped analytics telemetry is not available for this organization.",
+        });
+      }
+
       let userCountCondition = eq(users.isActive, true);
       if (!isSuperAdmin && orgId) {
         userCountCondition = and(eq(users.isActive, true), eq(users.organizationId, orgId))!;
@@ -371,6 +386,31 @@ interface ActiveEnterpriseCall {
 
 const activeEnterpriseCalls = new Map<string, ActiveEnterpriseCall>();
 
+export function canAccessEnterpriseCall(
+  user: NonNullable<Request["user"]>,
+  call: ActiveEnterpriseCall | undefined,
+  smartCall: Awaited<ReturnType<typeof getSmartCall>>,
+): boolean {
+  if (user.role === "super_admin") return Boolean(call || smartCall);
+  if (!user.organizationId || !call && !smartCall) return false;
+
+  const activeCallBelongsToOrg = call?.tenantId === user.organizationId;
+  const smartCallBelongsToOrg = smartCall?.callerOrganizationId === user.organizationId
+    || smartCall?.calleeOrganizationId === user.organizationId;
+
+  return Boolean(activeCallBelongsToOrg || smartCallBelongsToOrg);
+}
+
+async function resolveAuthorizedEnterpriseCall(req: Request, callId: string) {
+  const [call, smartCall] = await Promise.all([
+    Promise.resolve(activeEnterpriseCalls.get(callId)),
+    getSmartCall(callId),
+  ]);
+
+  if (!canAccessEnterpriseCall(req.user!, call, smartCall)) return null;
+  return { call, smartCall };
+}
+
 export function registerEnterpriseCallControlRoutes(app: Express): void {
 
   app.post("/api/enterprise/calls/initiate", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
@@ -424,17 +464,14 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
     }
   });
 
-  app.get("/api/enterprise/calls/:id/status", loadUser, async (req: Request, res: Response) => {
+  app.get("/api/enterprise/calls/:id/status", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
-      const [call, smartCall] = await Promise.all([
-        Promise.resolve(activeEnterpriseCalls.get(req.params.id)),
-        getSmartCall(req.params.id),
-      ]);
-      
-      if (!call && !smartCall) {
+      const authorized = await resolveAuthorizedEnterpriseCall(req, req.params.id);
+      if (!authorized) {
         res.status(404).json({ error: "Call not found" });
         return;
       }
+      const { call, smartCall } = authorized;
 
       const effectiveStart = smartCall?.connectedAt
         ? new Date(smartCall.connectedAt)
@@ -512,16 +549,14 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/enterprise/calls/:id/end", loadUser, async (req: Request, res: Response) => {
+  app.post("/api/enterprise/calls/:id/end", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
-      const call = activeEnterpriseCalls.get(req.params.id);
-
-      const smartCall = await getSmartCall(req.params.id);
-
-      if (!call && !smartCall) {
+      const authorized = await resolveAuthorizedEnterpriseCall(req, req.params.id);
+      if (!authorized) {
         res.status(404).json({ error: "Call not found" });
         return;
       }
+      const { call } = authorized;
 
       if (call) {
         call.status = 'ended';
@@ -542,9 +577,10 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/enterprise/calls/:id/translation/enable", loadUser, async (req: Request, res: Response) => {
+  app.post("/api/enterprise/calls/:id/translation/enable", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
-      const call = activeEnterpriseCalls.get(req.params.id);
+      const authorized = await resolveAuthorizedEnterpriseCall(req, req.params.id);
+      const call = authorized?.call;
       if (!call) { res.status(404).json({ error: "Call not found" }); return; }
       call.translationEnabled = true;
       res.json({ callId: call.callId, translationEnabled: true });
@@ -553,9 +589,10 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/enterprise/calls/:id/translation/disable", loadUser, async (req: Request, res: Response) => {
+  app.post("/api/enterprise/calls/:id/translation/disable", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
-      const call = activeEnterpriseCalls.get(req.params.id);
+      const authorized = await resolveAuthorizedEnterpriseCall(req, req.params.id);
+      const call = authorized?.call;
       if (!call) { res.status(404).json({ error: "Call not found" }); return; }
       call.translationEnabled = false;
       res.json({ callId: call.callId, translationEnabled: false });
@@ -564,9 +601,10 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
     }
   });
 
-  app.patch("/api/enterprise/calls/:id/translation/config", loadUser, async (req: Request, res: Response) => {
+  app.patch("/api/enterprise/calls/:id/translation/config", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
-      const call = activeEnterpriseCalls.get(req.params.id);
+      const authorized = await resolveAuthorizedEnterpriseCall(req, req.params.id);
+      const call = authorized?.call;
       if (!call) { res.status(404).json({ error: "Call not found" }); return; }
       
       const { source, target } = req.body;
@@ -582,6 +620,18 @@ export function registerEnterpriseCallControlRoutes(app: Express): void {
   app.get("/api/enterprise/usage", loadUser, requireCompanyAdminOrAbove, async (req: Request, res: Response) => {
     try {
       const period = req.query.period as string || "current-month";
+      if (req.user!.role !== "super_admin" && req.user!.organizationId) {
+        return res.json({
+          period,
+          totalMinutes: null,
+          translatedMinutes: null,
+          languages: {},
+          emotionDetectionMinutes: null,
+          estimatedCost: null,
+          currency: "INR",
+          note: "NOT_AVAILABLE: tenant-scoped usage telemetry is not available for this organization.",
+        });
+      }
 
       // Real usage from DB
       const [callUsage] = await db.select({
