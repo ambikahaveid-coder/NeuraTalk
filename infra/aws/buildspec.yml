@@ -10,9 +10,9 @@ phases:
       - echo "Build started on $(date)"
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-      - IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | cut -d: -f2)
+      - "IMAGE_TAG=build-$(echo $CODEBUILD_BUILD_ID | cut -d: -f2)"
       - echo "Immutable test tag will be $IMAGE_TAG"
-      - echo "Source commit provenance: GIT_COMMIT_SHA=${GIT_COMMIT_SHA:-unset}"
+      - 'echo "Source commit provenance: GIT_COMMIT_SHA=${GIT_COMMIT_SHA:-unset}"'
   build:
     commands:
       - echo "Building Docker image (no production secrets passed)..."
