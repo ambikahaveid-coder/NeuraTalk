@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
@@ -45,8 +46,32 @@ class _CallScreenState extends State<CallScreen> {
   String _ringingLabel = 'Calling…';
   Timer? _ringingPollTimer;
   Timer? _ringingTimeoutTimer;
+  // Caller-side ringback ("tring-tring") while waiting for the callee. The
+  // caller hasn't joined the LiveKit room yet, so it never overlaps call audio.
+  final AudioPlayer _ringback = AudioPlayer();
 
   static const _ringingTimeout = Duration(seconds: 45);
+
+  Future<void> _startRingback() async {
+    try {
+      await _ringback.setAudioContext(AudioContext(
+        android: const AudioContextAndroid(
+          usageType: AndroidUsageType.voiceCommunicationSignalling,
+          contentType: AndroidContentType.sonification,
+          audioFocus: AndroidAudioFocus.gainTransient,
+        ),
+        iOS: AudioContextIOS(category: AVAudioSessionCategory.playback),
+      ));
+      await _ringback.setReleaseMode(ReleaseMode.loop);
+      await _ringback.play(AssetSource('sounds/ringback.wav'), volume: 0.8);
+    } catch (_) {
+      // A missing ringback tone must never break the call itself.
+    }
+  }
+
+  void _stopRingback() {
+    unawaited(_ringback.stop().catchError((_) {}));
+  }
 
   // Real P0 bug found from physical-device testing (same class as
   // incoming_call_screen.dart): PopScope(canPop: false) here paired its
@@ -83,6 +108,7 @@ class _CallScreenState extends State<CallScreen> {
       _connecting = false;
       _ringingLabel = 'Calling…';
     });
+    unawaited(_startRingback());
 
     _ringingTimeoutTimer = Timer(_ringingTimeout, () {
       if (!mounted || !_waitingForAnswer) return;
@@ -102,6 +128,7 @@ class _CallScreenState extends State<CallScreen> {
           case 'active':
             _ringingPollTimer?.cancel();
             _ringingTimeoutTimer?.cancel();
+            _stopRingback();
             setState(() {
               _waitingForAnswer = false;
               _connecting = true;
@@ -134,6 +161,7 @@ class _CallScreenState extends State<CallScreen> {
     _ending = true;
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
+    _stopRingback();
     _durationTimer?.cancel();
     try {
       await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
@@ -166,6 +194,7 @@ class _CallScreenState extends State<CallScreen> {
   void _endWaitingWithMessage(String message) {
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
+    _stopRingback();
     if (mounted) {
       setState(() {
         _waitingForAnswer = false;
@@ -371,6 +400,7 @@ class _CallScreenState extends State<CallScreen> {
     _durationTimer?.cancel();
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
+    _ringback.dispose();
     _listener?.dispose();
     _room.disconnect();
     if (widget.callService.activeCallSession?.callId == widget.session.callId) {

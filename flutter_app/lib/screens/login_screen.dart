@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/blob_background.dart';
@@ -35,13 +36,25 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _sendOtp() async {
-    final phone = _phoneCtrl.text.trim();
-    if (phone.isEmpty) {
+    final rawPhone = _phoneCtrl.text.trim();
+    if (rawPhone.isEmpty) {
       setState(() => _error = 'Enter your phone number');
       return;
     }
+    // Defensive: the field's inputFormatters already restrict to 10 digits,
+    // but strip anything non-digit (e.g. a pasted value) and re-validate
+    // here too, so a malformed number is caught locally with a clear
+    // message instead of round-tripping to Firebase and coming back as an
+    // opaque "TOO_LONG"/invalid E.164 error.
+    final digitsOnly = rawPhone.replaceAll(RegExp(r'\D'), '');
+    if (rawPhone.startsWith('+')) {
+      // Already has a country code -- use as typed.
+    } else if (digitsOnly.length != 10) {
+      setState(() => _error = 'Enter a valid 10-digit mobile number');
+      return;
+    }
     // Ensure E.164 format
-    final formatted = phone.startsWith('+') ? phone : '+91$phone';
+    final formatted = rawPhone.startsWith('+') ? rawPhone : '+91$digitsOnly';
     setState(() { _loading = true; _error = null; });
 
     await context.read<AuthProvider>().sendFirebaseOtp(
@@ -64,14 +77,14 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainShell()));
         } catch (e) {
           if (!mounted) return;
-          setState(() { _error = e.toString(); _loading = false; });
+          setState(() { _error = context.read<AuthProvider>().error ?? e.toString(); _loading = false; });
         }
       },
     );
   }
 
   Future<void> _verifyOtp() async {
-    final code = _otpCtrl.text.trim();
+    final code = _otpCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (code.length != 6) {
       setState(() => _error = 'Enter the 6-digit code');
       return;
@@ -198,9 +211,14 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
           controller: _phoneCtrl,
           keyboardType: TextInputType.phone,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(10),
+          ],
           style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600),
           decoration: const InputDecoration(
-            hintText: '+91 98765 43210',
+            hintText: '98765 43210',
+            prefixText: '+91 ',
             prefixIcon: Icon(Icons.phone_outlined, color: AppColors.cyan),
           ),
           onSubmitted: (_) => _continue(),
@@ -236,6 +254,9 @@ class _LoginScreenState extends State<LoginScreen> {
         TextField(
           controller: _otpCtrl,
           keyboardType: TextInputType.number,
+          // Strip spaces/dashes from pasted or autofilled codes ("123 456")
+          // before maxLength truncates them into a wrong 6-char string.
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           maxLength: 6,
           textAlign: TextAlign.center,
           autofillHints: const [AutofillHints.oneTimeCode],

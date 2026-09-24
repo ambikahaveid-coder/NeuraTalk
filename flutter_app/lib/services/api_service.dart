@@ -174,7 +174,16 @@ class ApiService {
   }
 
   static dynamic _parse(http.Response res) {
-    final data = jsonDecode(res.body);
+    dynamic data;
+    try {
+      data = jsonDecode(res.body);
+    } on FormatException {
+      // Non-JSON body, e.g. an HTML 502/504 page from the load balancer.
+      throw ApiException(
+        res.statusCode >= 500 ? 'Server is temporarily unavailable' : 'Unexpected server response',
+        res.statusCode >= 400 ? res.statusCode : 502,
+      );
+    }
     if (res.statusCode >= 400) {
       final message = (data is Map ? (data['message'] ?? data['error']) : null) ?? 'Request failed';
       final code = data is Map ? data['code'] as String? : null;

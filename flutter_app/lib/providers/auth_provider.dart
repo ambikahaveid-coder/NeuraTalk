@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/api_service.dart';
@@ -32,6 +34,10 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Drop any stale Firebase session (e.g. a different number from an
+      // earlier attempt) so _doSignIn can safely reuse currentUser.
+      _verificationId = null;
+      await FirebaseAuth.instance.signOut();
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         timeout: const Duration(seconds: 60),
@@ -88,7 +94,8 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  /// Used for auto-verified credentials (Android only)
+  /// Used for auto-verified credentials (Android only). Rethrows so the
+  /// caller never navigates into the app without a NeuraTalk session.
   Future<void> signInWithAutoCredential(PhoneAuthCredential credential) async {
     _loading = true;
     _error = null;
@@ -97,19 +104,39 @@ class AuthProvider extends ChangeNotifier {
       await _signInWithCredential(credential);
     } catch (e) {
       _error = _friendlyFirebaseError(e);
+      rethrow;
     } finally {
       _loading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _signInWithCredential(PhoneAuthCredential credential) async {
-    final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
-    final idToken = await userCred.user?.getIdToken();
+  // Shared in-flight sign-in, so Android auto-retrieval and a manual "Verify"
+  // tap racing each other don't consume the same verification twice (the
+  // loser would otherwise fail with session-expired / invalid code).
+  Future<void>? _signInInFlight;
+
+  Future<void> _signInWithCredential(PhoneAuthCredential credential) {
+    return _signInInFlight ??= _doSignIn(credential).whenComplete(() => _signInInFlight = null);
+  }
+
+  Future<void> _doSignIn(PhoneAuthCredential credential) async {
+    // An SMS code can only be redeemed once. If Firebase is already signed in
+    // (auto-retrieval finished, or a previous attempt got past Firebase but
+    // the backend exchange failed), reuse that session instead of redeeming
+    // the code again.
+    User? fbUser = FirebaseAuth.instance.currentUser;
+    if (fbUser == null || fbUser.phoneNumber == null) {
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+      fbUser = userCred.user;
+    }
+    final idToken = await fbUser?.getIdToken(true);
     if (idToken == null) throw Exception('Firebase sign-in succeeded but no ID token returned.');
 
-    final res = await ApiService.post('/api/auth/firebase-verify', {'idToken': idToken}) as Map<String, dynamic>;
-    await ApiService.saveToken(res['token'] as String);
+    final res = await ApiService.post('/api/auth/firebase-verify', {'idToken': idToken});
+    final token = res['token'] as String?;
+    if (token == null) throw Exception('Login failed: server did not return a session.');
+    await ApiService.saveToken(token);
     _user = res['user'] as Map<String, dynamic>?;
   }
 
@@ -126,6 +153,8 @@ class AuthProvider extends ChangeNotifier {
   Future<void> logout() async {
     try {
       await ApiService.post('/api/auth/logout', {});
+    } catch (_) {}
+    try {
       await FirebaseAuth.instance.signOut();
     } catch (_) {}
     await ApiService.clearToken();
@@ -143,6 +172,17 @@ class AuthProvider extends ChangeNotifier {
         _ => e.message ?? e.code,
       };
     }
-    return e.toString();
+    if (e is ApiException) {
+      // Server sent a specific reason (e.g. FIREBASE_TOKEN_EXPIRED) — its
+      // message is already user-facing.
+      if (e.code != null) return e.message;
+      if (e.statusCode == 401) return 'Server could not verify your login. Please request a new OTP.';
+      if (e.statusCode == 403) return e.message;
+      if (e.statusCode >= 500) return 'Server error while logging in. Please try again.';
+      return e.message;
+    }
+    if (e is TimeoutException) return 'Server is not responding. Check your internet and try again.';
+    if (e is SocketException) return 'No internet connection.';
+    return e.toString().replaceFirst('Exception: ', '');
   }
 }
