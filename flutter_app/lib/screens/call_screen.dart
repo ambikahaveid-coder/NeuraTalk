@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
@@ -38,6 +39,15 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _durationTimer;
   Duration _elapsed = Duration.zero;
   lk.VideoTrack? _remoteVideoTrack;
+
+  // Live translated captions from the translator bot's data messages.
+  String? _captionTranslated;
+  String? _captionOriginal;
+  Timer? _captionClearTimer;
+  // Speakers whose original voice is muted locally because their translated
+  // voice is currently playing for us (mirrors the web client, so a listener
+  // doesn't hear the original and the translation on top of each other).
+  final Set<String> _suppressedSpeakers = {};
 
   // Outbound-call waiting phase — the caller must not join the LiveKit room
   // (and therefore must not show "Connected") until the callee has actually
@@ -241,7 +251,21 @@ class _CallScreenState extends State<CallScreen> {
           if (mounted) setState(() => _reconnecting = false);
         })
         ..on<lk.TrackSubscribedEvent>(_onTrackSubscribed)
-        ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed);
+        ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed)
+        ..on<lk.DataReceivedEvent>(_onDataReceived);
+
+      // Tell the translator we want translated *voice* (not only text), both
+      // via metadata (read whenever the bot sets up this speaker) and a data
+      // message (applied immediately if the bot is already listening).
+      unawaited(_announceTranslationMode());
+
+      // A translated track may already have been subscribed before the
+      // listener above was attached.
+      for (final participant in _room.remoteParticipants.values) {
+        for (final pub in participant.audioTrackPublications) {
+          if (pub.subscribed) _applyTranslatedTrack(pub.name, subscribed: true);
+        }
+      }
 
       // The other participant may have joined and already published video
       // before this side's room.connect() resolved and the listener above
@@ -305,12 +329,108 @@ class _CallScreenState extends State<CallScreen> {
   void _onTrackSubscribed(lk.TrackSubscribedEvent event) {
     if (event.track is lk.VideoTrack) {
       setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
+      return;
+    }
+    _applyTranslatedTrack(event.publication.name, subscribed: true);
+    // A speaker whose translation is already playing may (re)publish their mic.
+    final identity = event.participant.identity;
+    if (_suppressedSpeakers.contains(identity)) {
+      unawaited(event.publication.disable());
     }
   }
 
   void _onTrackUnsubscribed(lk.TrackUnsubscribedEvent event) {
     if (event.track == _remoteVideoTrack) {
       setState(() => _remoteVideoTrack = null);
+      return;
+    }
+    _applyTranslatedTrack(event.publication.name, subscribed: false);
+  }
+
+  Future<void> _announceTranslationMode() async {
+    final local = _room.localParticipant;
+    if (local == null) return;
+    try {
+      Map<String, dynamic> meta = {};
+      try {
+        final parsed = jsonDecode(local.metadata ?? '');
+        if (parsed is Map<String, dynamic>) meta = parsed;
+      } catch (_) {}
+      meta['translationMode'] = 'voice';
+      local.setMetadata(jsonEncode(meta));
+      await local.publishData(
+        utf8.encode(jsonEncode({'type': 'translation-mode', 'payload': {'translationMode': 'voice'}})),
+        reliable: true,
+        topic: 'translation-control',
+      );
+    } catch (_) {
+      // Best-effort; the server already defaults app calls to voice mode.
+    }
+  }
+
+  /// Track names look like `translated-for-<me>-from-<speaker>` (URL-encoded).
+  /// When our translated track for a speaker arrives, mute that speaker's
+  /// original voice for us; when it goes away, restore it so the call never
+  /// goes silent if translation stops.
+  void _applyTranslatedTrack(String? trackName, {required bool subscribed}) {
+    final me = _room.localParticipant?.identity;
+    if (trackName == null || me == null) return;
+    final prefix = 'translated-for-${Uri.encodeComponent(me)}-from-';
+    if (!trackName.startsWith(prefix)) return;
+    final speaker = Uri.decodeComponent(trackName.substring(prefix.length));
+    final participant = _room.remoteParticipants.values
+        .where((p) => p.identity == speaker)
+        .firstOrNull;
+    if (subscribed) {
+      _suppressedSpeakers.add(speaker);
+    } else {
+      _suppressedSpeakers.remove(speaker);
+    }
+    if (participant == null) return;
+    for (final pub in participant.audioTrackPublications) {
+      unawaited(subscribed ? pub.disable() : pub.enable());
+    }
+  }
+
+  void _onDataReceived(lk.DataReceivedEvent event) {
+    if (event.topic != null && event.topic != 'translation') return;
+    try {
+      final msg = jsonDecode(utf8.decode(event.data));
+      if (msg is! Map || msg['type'] != 'translation') return;
+      final payload = msg['payload'];
+      if (payload is! Map) return;
+      final type = payload['type'];
+      final me = _room.localParticipant?.identity;
+      if (payload['targetIdentity'] != null && payload['targetIdentity'] != me) return;
+
+      if (type == 'translation.partial' || type == 'translation.ready' || type == 'translation_failed' || type == 'tts_failed') {
+        final translated = (payload['translatedText'] as String?)?.trim();
+        if (translated == null || translated.isEmpty) return;
+        final original = (payload['originalText'] as String?)?.trim();
+        if (!mounted) return;
+        setState(() {
+          _captionTranslated = translated;
+          _captionOriginal = (original != null && original.isNotEmpty) ? original : _captionOriginal;
+        });
+        // If speech synthesis failed, the text caption is all the listener
+        // gets for that sentence — let them hear the original voice again.
+        if (type == 'tts_failed') {
+          final speaker = payload['sourceIdentity'];
+          if (speaker is String) {
+            final participant = _room.remoteParticipants.values
+                .where((p) => p.identity == speaker)
+                .firstOrNull;
+            participant?.audioTrackPublications.forEach((pub) => unawaited(pub.enable()));
+            _suppressedSpeakers.remove(speaker);
+          }
+        }
+        _captionClearTimer?.cancel();
+        _captionClearTimer = Timer(const Duration(seconds: 7), () {
+          if (mounted) setState(() { _captionTranslated = null; _captionOriginal = null; });
+        });
+      }
+    } catch (_) {
+      // Ignore malformed or unrelated data messages.
     }
   }
 
@@ -401,6 +521,7 @@ class _CallScreenState extends State<CallScreen> {
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
     _ringback.dispose();
+    _captionClearTimer?.cancel();
     _listener?.dispose();
     _room.disconnect();
     if (widget.callService.activeCallSession?.callId == widget.session.callId) {
@@ -480,6 +601,13 @@ class _CallScreenState extends State<CallScreen> {
                           ),
                         ),
                       ),
+                    if (_captionTranslated != null)
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 16,
+                        child: _CaptionBox(translated: _captionTranslated!, original: _captionOriginal),
+                      ),
                     if (_videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true)
                       Positioned(
                         top: 16,
@@ -513,6 +641,46 @@ class _CallScreenState extends State<CallScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Large, high-contrast live caption — readable for elderly users and in
+/// noisy places. Translated text first; the original in smaller text below.
+class _CaptionBox extends StatelessWidget {
+  final String translated;
+  final String? original;
+  const _CaptionBox({required this.translated, this.original});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            translated,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white, fontSize: 22, height: 1.3, fontWeight: FontWeight.w700),
+          ),
+          if (original != null && original != translated) ...[
+            const SizedBox(height: 6),
+            Text(
+              original!,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Color(0xFFCFD8DC), fontSize: 15, height: 1.3),
+            ),
+          ],
+        ],
       ),
     );
   }
