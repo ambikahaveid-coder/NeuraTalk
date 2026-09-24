@@ -18,7 +18,7 @@ import { VoiceGenderEstimator, type VoiceGender } from "./voice-gender";
 import { persistTranslationSegment } from "./modules/transcripts/service";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
 import { runWithTrace } from "./request-context";
-import { getClientConfig } from "./livekit-service";
+import { getClientConfig, setParticipantTrackSubscriptions } from "./livekit-service";
 import { createLatencyTrace, type LatencyTrace } from "./latency-audit";
 import {
   recordStageLatency,
@@ -156,6 +156,8 @@ interface OutputChannel {
   targetLanguage: string;
   audioSource: AudioSource;
   localTrack: LocalAudioTrack;
+  /** Published track SID, used to keep everyone except the target unsubscribed. */
+  trackSid: string | null;
   currentGeneration: number;
   currentTurnId: string | null;
   translationAbort: AbortController | null;
@@ -380,6 +382,11 @@ class LiveKitRealtimeTranslatorBot {
       })
       .on(RoomEvent.ParticipantMetadataChanged, (metadata, participant) => {
         this.applyParticipantMetadata(participant.identity, metadata);
+      })
+      .on(RoomEvent.ParticipantConnected, (participant) => {
+        for (const channel of Array.from(this.outputChannels.values())) {
+          void this.restrictOutputTrack(channel, participant.identity);
+        }
       })
       .on(RoomEvent.ParticipantDisconnected, (participant) => {
         void this.cleanupParticipant(participant.identity);
@@ -1187,7 +1194,7 @@ class LiveKitRealtimeTranslatorBot {
     const options = new TrackPublishOptions();
     options.source = TrackSource.SOURCE_MICROPHONE;
 
-    await this.room.localParticipant.publishTrack(localTrack, options);
+    const publication = await this.room.localParticipant.publishTrack(localTrack, options);
 
     const channel: OutputChannel = {
       key,
@@ -1196,6 +1203,7 @@ class LiveKitRealtimeTranslatorBot {
       targetLanguage,
       audioSource,
       localTrack,
+      trackSid: publication?.sid ?? null,
       currentGeneration: 0,
       currentTurnId: null,
       translationAbort: null,
@@ -1209,7 +1217,26 @@ class LiveKitRealtimeTranslatorBot {
     };
 
     this.outputChannels.set(key, channel);
+    for (const participant of Array.from(this.room.remoteParticipants.values())) {
+      void this.restrictOutputTrack(channel, participant.identity);
+    }
     return channel;
+  }
+
+  /**
+   * A translated track is meant for exactly one listener. Clients auto-
+   * subscribe to every track, so without this the speaker would hear their
+   * own words translated back and other listeners would hear translations in
+   * languages they don't speak. The mobile app has no client-side filter.
+   */
+  private async restrictOutputTrack(channel: OutputChannel, identity: string): Promise<void> {
+    if (!channel.trackSid || !this.room?.name) return;
+    if (identity === channel.targetIdentity || identity === this.botIdentity) return;
+    try {
+      await setParticipantTrackSubscriptions(this.room.name, identity, [channel.trackSid], false);
+    } catch (error) {
+      logger.warn("TranslatorBot", `[${this.callId}] could not unsubscribe ${identity} from ${channel.key}: ${String(error)}`);
+    }
   }
 
   private async resolveSourceLanguage(

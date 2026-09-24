@@ -78,7 +78,10 @@ const initiateSchema = z.object({
   myLanguage: z.string().min(2).max(16).optional().default("auto"),
   theirLanguage: z.string().min(2).max(16).optional().default("auto"),
   translationEnabled: z.boolean().optional(),
-  translationMode: z.enum(["off", "subtitles", "voice"]).optional().default("subtitles"),
+  // Omitted by the mobile app, which has no subtitle UI — "subtitles" there
+  // meant a translated call delivered neither voice nor visible captions.
+  // The web client always sends an explicit mode.
+  translationMode: z.enum(["off", "subtitles", "voice"]).optional().default("voice"),
   enableLipsync: z.boolean().optional(),
   enableRecording: z.boolean().optional(),
 });

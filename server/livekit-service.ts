@@ -217,6 +217,21 @@ export async function endCallRoom(roomName: string): Promise<void> {
 }
 
 /**
+ * Server-side subscribe/unsubscribe of one participant to specific tracks.
+ * Used so a translated-speech track is only received by the listener it was
+ * generated for, regardless of what the client app does.
+ */
+export async function setParticipantTrackSubscriptions(
+  roomName: string,
+  identity: string,
+  trackSids: string[],
+  subscribe: boolean,
+): Promise<void> {
+  if (!isLiveKitConfigured() || trackSids.length === 0) return;
+  await getRoomService().updateSubscriptions(roomName, identity, trackSids, subscribe);
+}
+
+/**
  * Remove a single participant (kick).
  */
 export async function removeParticipant(roomName: string, identity: string): Promise<void> {
