@@ -67,6 +67,53 @@ export function initializeFirebaseAdmin(): boolean {
   }
 }
 
+export type FirebaseTokenFailure =
+  | "FIREBASE_NOT_CONFIGURED"
+  | "FIREBASE_PROJECT_MISMATCH"
+  | "FIREBASE_TOKEN_EXPIRED"
+  | "FIREBASE_NO_PHONE"
+  | "FIREBASE_TOKEN_INVALID";
+
+/**
+ * Verify a Firebase ID token, reporting why it was rejected. The reason code
+ * is safe to return to clients (no token or key material) and is what lets a
+ * failed login be told apart from a server misconfiguration, e.g. the service
+ * account belonging to a different Firebase project than the app.
+ */
+export async function verifyFirebaseTokenDetailed(
+  idToken: string
+): Promise<{ ok: true; phoneNumber: string; uid: string } | { ok: false; reason: FirebaseTokenFailure }> {
+  if (!firebaseAdminApp) {
+    logger.error("FirebaseAdmin", "Cannot verify Firebase ID token — Firebase Admin SDK is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_JSON is set.");
+    return { ok: false, reason: "FIREBASE_NOT_CONFIGURED" };
+  }
+
+  try {
+    const decodedToken = await firebaseAdminApp.auth().verifyIdToken(idToken);
+
+    if (!decodedToken.phone_number) {
+      logger.warn("FirebaseAdmin", "Token valid but no phone number claim", {
+        uid: decodedToken.uid,
+      });
+      return { ok: false, reason: "FIREBASE_NO_PHONE" };
+    }
+
+    logger.info("FirebaseAdmin", "Token verified successfully", {
+      uid: decodedToken.uid,
+      phoneNumber: decodedToken.phone_number.replace(/\d(?=\d{4})/g, "*"),
+    });
+
+    return { ok: true, phoneNumber: decodedToken.phone_number, uid: decodedToken.uid };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string })?.code ?? "";
+    logger.error("FirebaseAdmin", `Token verification failed (${code}): ${errorMessage}`);
+    if (/"aud"|"iss"|audience|issuer/i.test(errorMessage)) return { ok: false, reason: "FIREBASE_PROJECT_MISMATCH" };
+    if (code === "auth/id-token-expired") return { ok: false, reason: "FIREBASE_TOKEN_EXPIRED" };
+    return { ok: false, reason: "FIREBASE_TOKEN_INVALID" };
+  }
+}
+
 /**
  * Verify a Firebase ID token
  * Returns the decoded token with phone number if valid, null if invalid
@@ -74,35 +121,8 @@ export function initializeFirebaseAdmin(): boolean {
 export async function verifyFirebaseToken(
   idToken: string
 ): Promise<{ phoneNumber: string; uid: string } | null> {
-  if (!firebaseAdminApp) {
-    logger.error("FirebaseAdmin", "Cannot verify Firebase ID token — Firebase Admin SDK is not initialized. Ensure FIREBASE_SERVICE_ACCOUNT_JSON is set.");
-    return null;
-  }
-  
-  try {
-    const decodedToken = await firebaseAdminApp.auth().verifyIdToken(idToken);
-    
-    if (!decodedToken.phone_number) {
-      logger.warn("FirebaseAdmin", "Token valid but no phone number claim", {
-        uid: decodedToken.uid,
-      });
-      return null;
-    }
-    
-    logger.info("FirebaseAdmin", "Token verified successfully", {
-      uid: decodedToken.uid,
-      phoneNumber: decodedToken.phone_number.replace(/\d(?=\d{4})/g, "*"),
-    });
-    
-    return {
-      phoneNumber: decodedToken.phone_number,
-      uid: decodedToken.uid,
-    };
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error("FirebaseAdmin", `Token verification failed: ${errorMessage}`);
-    return null;
-  }
+  const result = await verifyFirebaseTokenDetailed(idToken);
+  return result.ok ? { phoneNumber: result.phoneNumber, uid: result.uid } : null;
 }
 
 /**

@@ -8,9 +8,10 @@ import { storage } from "../../storage";
 import { hashPassword, isPasswordHashSupported, needsPasswordRehash, verifyPassword } from "../../password-utils";
 import { createSession, invalidateAllSessionsForUser, invalidateSession, validateSession } from "../../role-middleware";
 import { requestOtp, verifyOtp } from "../../otp-auth";
-import { verifyFirebaseToken, isFirebaseAdminConfigured } from "../../firebase-admin";
+import { verifyFirebaseToken, verifyFirebaseTokenDetailed, isFirebaseAdminConfigured } from "../../firebase-admin";
 import { issueWsToken } from "../../signaling-server";
 import { AuditHelpers } from "../../audit";
+import { logger } from "../../observability";
 import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
@@ -264,46 +265,74 @@ export async function changePassword(
 }
 
 export async function firebaseVerify(idToken: string) {
-  const firebaseUser = await verifyFirebaseToken(idToken);
-  if (!firebaseUser) return { error: "INVALID_TOKEN" as const };
+  const verified = await verifyFirebaseTokenDetailed(idToken);
+  if (!verified.ok) return { error: "INVALID_TOKEN" as const, reason: verified.reason };
+  const firebaseUser = verified;
+
+  // Firebase always returns E.164 ("+919876543210"), but older rows may have
+  // been stored without the "+" or as a bare 10-digit national number (admin
+  // imports, legacy MSG91 flow). Match all of those so an existing account is
+  // found instead of hitting the unique-username constraint on insert.
+  const e164 = firebaseUser.phoneNumber;
+  const phoneVariants = new Set([e164, e164.replace(/^\+/, "")]);
+  if (e164.startsWith("+91") && e164.length === 13) phoneVariants.add(e164.slice(3));
 
   let user = await db.query.users.findFirst({
-    where: eq(users.phone, firebaseUser.phoneNumber),
+    where: or(
+      ...[...phoneVariants].map((p) => eq(users.phone, p)),
+      eq(users.username, e164),
+    ),
   });
 
   const isNewUser = !user;
   if (!user) {
     const [newUser] = await db.insert(users).values({
-      username: firebaseUser.phoneNumber,
-      phone: firebaseUser.phoneNumber,
+      username: e164,
+      phone: e164,
+      phoneVerified: true,
       role: "consumer",
     }).returning();
     user = newUser;
+  }
 
+  // Grant the free trial to any individual consumer who has never had a
+  // subscription — not just brand-new rows. Accounts created while no free
+  // plan existed would otherwise be locked out of calls permanently.
+  if (!user.organizationId && user.role === "consumer") {
     try {
-      const freePlan = await db.query.billingPlans.findFirst({
-        where: and(
-          eq(billingPlans.priceInPaise, 0),
-          eq(billingPlans.planType, "b2c"),
-          eq(billingPlans.isEnabled, true),
-        ),
-      });
-      if (freePlan) {
-        const now = new Date();
-        const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
-        await db.insert(subscriptions).values({
-          userId: user.id,
-          planId: freePlan.id,
-          status: "active",
-          billingModel: "prepaid",
-          startDate: now,
-          endDate: trialEnd,
-          minutesUsed: 0,
-          minutesRemaining: freePlan.includedMinutes || 15,
-          autoRenew: false,
+      const [existingSub] = await db.select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, user.id))
+        .limit(1);
+      if (!existingSub) {
+        const freePlan = await db.query.billingPlans.findFirst({
+          where: and(
+            eq(billingPlans.priceInPaise, 0),
+            eq(billingPlans.planType, "b2c"),
+            eq(billingPlans.isEnabled, true),
+          ),
         });
+        if (freePlan) {
+          const now = new Date();
+          const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
+          await db.insert(subscriptions).values({
+            userId: user.id,
+            planId: freePlan.id,
+            status: "active",
+            billingModel: "prepaid",
+            startDate: now,
+            endDate: trialEnd,
+            minutesUsed: 0,
+            minutesRemaining: freePlan.includedMinutes || 15,
+            autoRenew: false,
+          });
+        } else {
+          logger.warn("Auth", "No enabled free B2C plan — new consumer has no subscription", { userId: user.id });
+        }
       }
-    } catch { /* non-fatal */ }
+    } catch (err) {
+      logger.error("Auth", "Free trial grant failed", err as Error);
+    }
   }
 
   if (!user.isActive) {

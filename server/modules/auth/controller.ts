@@ -174,13 +174,23 @@ export async function firebaseVerify(req: Request, res: Response) {
       if (result.error === "USER_INACTIVE") {
         return res.status(403).json({ success: false, message: "This account is inactive. Please contact your administrator." });
       }
-      return res.status(401).json({ success: false, message: "Invalid Firebase token" });
+      const reason = "reason" in result ? result.reason : "FIREBASE_TOKEN_INVALID";
+      const message =
+        reason === "FIREBASE_NOT_CONFIGURED" || reason === "FIREBASE_PROJECT_MISMATCH"
+          ? "Phone login is temporarily unavailable. Please try again later."
+          : reason === "FIREBASE_TOKEN_EXPIRED"
+            ? "Your verification expired. Please request a new OTP."
+            : "Phone verification failed. Please request a new OTP.";
+      logger.warn("Auth", "firebase-verify rejected", { reason, ip: req.ip });
+      return res.status(reason === "FIREBASE_NOT_CONFIGURED" || reason === "FIREBASE_PROJECT_MISMATCH" ? 503 : 401)
+        .json({ success: false, code: reason, message });
     }
     res.json({ success: true, token: result.token, user: result.user, isNewUser: result.isNewUser });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ success: false, message: err.errors[0].message });
     }
+    logger.error("Auth", "firebase-verify failed", err as Error);
     res.status(500).json({ success: false, message: "Firebase verification failed" });
   }
 }
