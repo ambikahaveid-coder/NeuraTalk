@@ -225,6 +225,8 @@ export async function* streamAzureTtsFrames(
     onResponseHeaders?: (latencyMs: number) => void;
     emotion?: ProsodyEmotionLike | null;
     userAgent?: string;
+    /** Voice gender to speak with; should match the original speaker. */
+    gender?: "male" | "female";
   } = {},
 ): AsyncGenerator<Int16Array> {
   const key = process.env.AZURE_SPEECH_KEY;
@@ -234,7 +236,7 @@ export async function* streamAzureTtsFrames(
     throw new Error("AZURE_SPEECH_KEY not configured");
   }
 
-  const voice = getAzureVoice(language, "female");
+  const voice = getAzureVoice(language, opts.gender ?? "female");
   const locale = toAzureLocale(language);
   const prosody = toAzureProsody(opts.emotion);
   const ssml = `<speak version='1.0' xml:lang='${locale}'><voice name='${voice}'><prosody rate='${prosody.rate}' pitch='${prosody.pitch}' volume='${prosody.volume}'>${escapeXml(

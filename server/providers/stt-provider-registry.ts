@@ -38,9 +38,27 @@ const AZURE_LOCALE_MAP: Record<string, string> = {
   gu: "gu-IN",
   pa: "pa-IN",
   ur: "ur-PK",
+  es: "es-ES",
+  fr: "fr-FR",
+  de: "de-DE",
+  ja: "ja-JP",
+  ko: "ko-KR",
+  zh: "zh-CN",
+  ar: "ar-SA",
+  pt: "pt-BR",
+  ru: "ru-RU",
 };
 
-const AZURE_AUTO_DETECT_LOCALES = ["en-IN", "hi-IN", "te-IN"];
+// Azure continuous language identification accepts at most 10 candidates, and
+// each extra candidate costs some accuracy, so "auto" covers the ten most used
+// Indian languages. Speakers of any other supported language should pick it
+// explicitly. Override with AZURE_STT_AUTO_DETECT_LOCALES (comma-separated).
+const AZURE_AUTO_DETECT_LOCALES = (process.env.AZURE_STT_AUTO_DETECT_LOCALES
+  || "en-IN,hi-IN,te-IN,ta-IN,kn-IN,ml-IN,mr-IN,bn-IN,gu-IN,pa-IN")
+  .split(",")
+  .map((locale) => locale.trim())
+  .filter(Boolean)
+  .slice(0, 10);
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value ?? ""), 10);

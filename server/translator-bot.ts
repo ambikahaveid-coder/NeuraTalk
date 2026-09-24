@@ -14,6 +14,7 @@ import {
   dispose as livekitDispose,
 } from "@livekit/rtc-node";
 import { azureTranslate } from "./azure-service";
+import { VoiceGenderEstimator, type VoiceGender } from "./voice-gender";
 import { persistTranslationSegment } from "./modules/transcripts/service";
 import { detectEmotionFast, type EmotionState } from "./emotion-engine";
 import { runWithTrace } from "./request-context";
@@ -140,6 +141,8 @@ interface SpeakerPipeline {
   lastStartedTranscript: string;
   lastFinalTranscript: string;
   latestEmotion: EmotionState | null;
+  /** Speaker's voice gender, locked on first use so the voice never flips. */
+  voiceGender: VoiceGenderEstimator;
   lastDeepgramSocketLatencyMs?: number;
   lastMediaHeartbeatAt?: number;
   lastBargeInAt?: number;
@@ -451,6 +454,7 @@ class LiveKitRealtimeTranslatorBot {
             void recordSmartCallMediaActivity(this.callId, participant.identity);
           }
           this.observeVad(pipeline, frame);
+          pipeline.voiceGender.push(frame.data);
           await this.ensureDeepgramForPipeline(pipeline);
           pipeline.deepgram?.send(normalizePcmFrame(frame.data));
         }
@@ -538,6 +542,7 @@ class LiveKitRealtimeTranslatorBot {
       lastStartedTranscript: "",
       lastFinalTranscript: "",
       latestEmotion: null,
+      voiceGender: new VoiceGenderEstimator(parseVoiceGender(metadata.voiceGender)),
       lastMediaHeartbeatAt: 0,
       lastBargeInAt: undefined,
       reconnectStartedAt: undefined,
@@ -551,8 +556,14 @@ class LiveKitRealtimeTranslatorBot {
   private async ensureDeepgramForPipeline(pipeline: SpeakerPipeline): Promise<void> {
     if (pipeline.deepgram) return;
 
+    // "auto" speakers start on Azure's multi-language identification until a
+    // language is detected; starting on "en" transcribed Telugu/Hindi speech
+    // as English gibberish, which then defeated the text-based detection.
+    const sttLanguage = pipeline.preferredLanguage === "auto" && !pipeline.detectedLanguage
+      ? "auto"
+      : pipeline.effectiveLanguage;
     pipeline.deepgram = createManagedStreamingSttSession({
-      language: pipeline.effectiveLanguage,
+      language: sttLanguage,
       onTranscript: (event) => void this.handleTranscript(pipeline.identity, event),
       onSocketOpen: (latencyMs) => {
         pipeline.lastDeepgramSocketLatencyMs = latencyMs;
@@ -582,6 +593,13 @@ class LiveKitRealtimeTranslatorBot {
   private async handleTranscript(identity: string, event: StreamingTranscriptEvent): Promise<void> {
     const pipeline = this.speakerPipelines.get(identity);
     if (!pipeline || this.closed) return;
+
+    // Until text detection settles, trust the language Azure identified from
+    // the audio itself (e.g. "te-IN" -> "te") as the translation source.
+    if (pipeline.preferredLanguage === "auto" && !pipeline.detectedLanguage && event.language) {
+      const spoken = normalizeLanguage(event.language.split("-")[0]);
+      if (spoken) pipeline.effectiveLanguage = spoken;
+    }
 
     const text = applySpokenCorrections(event.text, pipeline.effectiveLanguage);
     if (!text) return;
@@ -1059,11 +1077,13 @@ class LiveKitRealtimeTranslatorBot {
     }, TTS_READY_TIMEOUT_MS);
 
     try {
+      const speakerGender = (this.speakerPipelines.get(channel.sourceIdentity) ?? pipeline).voiceGender.resolve();
       for await (const frame of streamAzureTtsFrames(
         text,
         targetLanguage,
         channel.ttsAbort.signal,
         {
+          gender: speakerGender,
           onResponseHeaders: (latencyMs) => {
             trace?.addObservedNetworkLatency("azure_tts_headers", latencyMs);
           },
@@ -1480,6 +1500,10 @@ async function translateTextLowLatency(text: string, fromLang: string, toLang: s
 
 function buildTranslatedTrackName(sourceIdentity: string, targetIdentity: string): string {
   return `translated-for-${encodeURIComponent(targetIdentity)}-from-${encodeURIComponent(sourceIdentity)}`;
+}
+
+function parseVoiceGender(value: unknown): VoiceGender | null {
+  return value === "male" || value === "female" ? value : null;
 }
 
 function readParticipantMetadata(participant: Participant): Record<string, unknown> {
