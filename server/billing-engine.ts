@@ -693,7 +693,9 @@ async function persistRuntimeState(runtime: CallRuntimeState) {
     };
 
     if (runtime.billingType !== "postpaid") {
-      subscriptionUpdate.minutesRemaining = Math.max(0, Math.ceil(runtime.freeSecondsRemaining / 60));
+      // Round down: rounding up let every short call "refund" its partial
+      // minute, so a free user making sub-minute calls never ran out.
+      subscriptionUpdate.minutesRemaining = Math.max(0, Math.floor(runtime.freeSecondsRemaining / 60));
     }
 
     await db.update(subscriptions)

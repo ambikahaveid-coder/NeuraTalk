@@ -7,7 +7,8 @@
  */
 
 import { db } from "./db";
-import { otpChallenges, users, billingPlans, subscriptions } from "@shared/schema";
+import { otpChallenges, users } from "@shared/schema";
+import { grantFreeTrialIfEligible } from "./free-trial";
 import { eq, and, gt, lt } from "drizzle-orm";
 import { createHash, randomInt } from "crypto";
 import { logger } from "./observability";
@@ -219,26 +220,7 @@ async function findOrCreateUser(
     })
     .returning();
 
-  try {
-    const [freePlan] = await db.select().from(billingPlans).where(eq(billingPlans.priceInPaise, 0)).limit(1);
-    if (freePlan) {
-      const now = new Date();
-      const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
-      await db.insert(subscriptions).values({
-        userId: newUser.id,
-        planId: freePlan.id,
-        status: "active",
-        billingModel: "prepaid",
-        startDate: now,
-        endDate: trialEnd,
-        minutesUsed: 0,
-        minutesRemaining: freePlan.includedMinutes || 30,
-        autoRenew: false,
-      });
-    }
-  } catch (err) {
-    logger.warn("OtpAuth", "Failed to assign free trial to new user", { userId: newUser.id });
-  }
+  await grantFreeTrialIfEligible(newUser.id);
 
   return { userId: newUser.id, isNewUser: true };
 }

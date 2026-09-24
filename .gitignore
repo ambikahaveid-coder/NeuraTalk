@@ -84,3 +84,4 @@ flutter_app/android/key.properties
 *.hprof
 hs_err_pid*.log
 replay_pid*.log
+.deploy-tmp/

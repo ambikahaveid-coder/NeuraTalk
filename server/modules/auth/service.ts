@@ -11,7 +11,7 @@ import { requestOtp, verifyOtp } from "../../otp-auth";
 import { verifyFirebaseToken, verifyFirebaseTokenDetailed, isFirebaseAdminConfigured } from "../../firebase-admin";
 import { issueWsToken } from "../../signaling-server";
 import { AuditHelpers } from "../../audit";
-import { logger } from "../../observability";
+import { grantFreeTrialIfEligible } from "../../free-trial";
 import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
@@ -21,30 +21,6 @@ import { setObjectAclPolicy } from "../../ai_integrations/object_storage/objectA
 
 function generateSlug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-}
-
-async function grantFreeTrialB2C(userId: number, defaultMinutes = 30): Promise<void> {
-  try {
-    const [freePlan] = await db.select().from(billingPlans)
-      .where(eq(billingPlans.priceInPaise, 0))
-      .limit(1);
-    if (!freePlan) return;
-    const now = new Date();
-    const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
-    await db.insert(subscriptions).values({
-      userId,
-      planId: freePlan.id,
-      status: "active",
-      billingModel: "prepaid",
-      startDate: now,
-      endDate: trialEnd,
-      minutesUsed: 0,
-      minutesRemaining: freePlan.includedMinutes || defaultMinutes,
-      autoRenew: false,
-    });
-  } catch {
-    /* non-fatal — user can still log in and subscribe manually */
-  }
 }
 
 export interface RegisterInput {
@@ -108,7 +84,7 @@ export async function registerUser(input: RegisterInput, context?: AuthRequestCo
     });
     organization = await storage.getOrganization(organizationId);
   } else {
-    await grantFreeTrialB2C(user.id, 30);
+    await grantFreeTrialIfEligible(user.id);
   }
 
   const token = await createSession(
@@ -279,7 +255,7 @@ export async function firebaseVerify(idToken: string) {
 
   let user = await db.query.users.findFirst({
     where: or(
-      ...[...phoneVariants].map((p) => eq(users.phone, p)),
+      ...Array.from(phoneVariants).map((p) => eq(users.phone, p)),
       eq(users.username, e164),
     ),
   });
@@ -298,41 +274,8 @@ export async function firebaseVerify(idToken: string) {
   // Grant the free trial to any individual consumer who has never had a
   // subscription — not just brand-new rows. Accounts created while no free
   // plan existed would otherwise be locked out of calls permanently.
-  if (!user.organizationId && user.role === "consumer") {
-    try {
-      const [existingSub] = await db.select({ id: subscriptions.id })
-        .from(subscriptions)
-        .where(eq(subscriptions.userId, user.id))
-        .limit(1);
-      if (!existingSub) {
-        const freePlan = await db.query.billingPlans.findFirst({
-          where: and(
-            eq(billingPlans.priceInPaise, 0),
-            eq(billingPlans.planType, "b2c"),
-            eq(billingPlans.isEnabled, true),
-          ),
-        });
-        if (freePlan) {
-          const now = new Date();
-          const trialEnd = new Date(now.getTime() + (freePlan.durationDays || 7) * 24 * 60 * 60 * 1000);
-          await db.insert(subscriptions).values({
-            userId: user.id,
-            planId: freePlan.id,
-            status: "active",
-            billingModel: "prepaid",
-            startDate: now,
-            endDate: trialEnd,
-            minutesUsed: 0,
-            minutesRemaining: freePlan.includedMinutes || 15,
-            autoRenew: false,
-          });
-        } else {
-          logger.warn("Auth", "No enabled free B2C plan — new consumer has no subscription", { userId: user.id });
-        }
-      }
-    } catch (err) {
-      logger.error("Auth", "Free trial grant failed", err as Error);
-    }
+  if (!user.organizationId && user.role === USER_ROLES.CONSUMER) {
+    await grantFreeTrialIfEligible(user.id);
   }
 
   if (!user.isActive) {
@@ -407,9 +350,11 @@ export async function verifyAuthOtp(params: {
         role: "consumer",
       }).returning();
       user = newUser;
-      await grantFreeTrialB2C(newUser.id, 30);
     } else {
       await db.update(users).set({ phoneVerified: true }).where(eq(users.id, user.id));
+    }
+    if (!user.organizationId && user.role === USER_ROLES.CONSUMER) {
+      await grantFreeTrialIfEligible(user.id);
     }
     result = { success: true, userId: user.id };
   } else {
