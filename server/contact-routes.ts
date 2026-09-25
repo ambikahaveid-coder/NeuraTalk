@@ -6,7 +6,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { userContacts, users } from "@shared/schema";
-import { eq, and, desc, or, inArray } from "drizzle-orm";
+import { eq, and, desc, or, inArray, sql } from "drizzle-orm";
 import { normalizePhoneNumber } from "@shared/phone";
 
 function preferredAppIdentifier(user: { username?: string | null; email?: string | null; phone?: string | null }) {
@@ -69,12 +69,29 @@ export function registerContactRoutes(app: Router) {
       ));
       if (normalized.length === 0) return res.json({ matches: [] });
 
+      // Address books store the same number many ways ("098765 43210",
+      // "+91 98765-43210", "9876543210"), and older accounts may be stored
+      // without "+91". Exact E.164 equality missed most of them (a leading
+      // trunk "0" even normalizes to "+9109…"), so also match on the last 10
+      // digits — the national mobile number in India.
+      const suffixes = Array.from(new Set(
+        phones
+          .filter((p): p is string => typeof p === "string")
+          .map((p) => p.replace(/\D/g, ""))
+          .filter((d) => d.length >= 10)
+          .map((d) => d.slice(-10)),
+      ));
+      const phoneDigits = sql<string>`right(regexp_replace(coalesce(${users.phone}, ''), '[^0-9]', '', 'g'), 10)`;
       const matched = await db.select({
         id: users.id,
         username: users.username,
         avatarUrl: users.avatarUrl,
         phone: users.phone,
-      }).from(users).where(inArray(users.phone, normalized));
+      }).from(users).where(
+        suffixes.length > 0
+          ? or(inArray(users.phone, normalized), inArray(phoneDigits, suffixes))
+          : inArray(users.phone, normalized),
+      );
 
       res.json({
         matches: matched
