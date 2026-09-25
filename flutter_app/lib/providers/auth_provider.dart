@@ -22,6 +22,22 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // Firebase rejects the Play Integrity path for builds Google Play doesn't
+  // recognise (e.g. an APK installed directly rather than from the Play
+  // Store) with "missing-client-identifier" and does not fall back to
+  // reCAPTCHA on its own. Once that happens, use the reCAPTCHA path for the
+  // rest of this app session.
+  static bool _useRecaptchaFlow = false;
+  static const _deviceVerificationCodes = {'missing-client-identifier', 'app-not-authorized'};
+
+  // Fictional numbers registered in Firebase Console → Authentication →
+  // Sign-in method → Phone → "Phone numbers for testing". Firebase only
+  // accepts these with their fixed test code and never sends an SMS, so app
+  // verification (Play Integrity / reCAPTCHA) can be skipped for them. This
+  // lets internal testers log in on sideloaded builds. Real numbers are
+  // unaffected. Remove before a public release.
+  static const _firebaseTestNumbers = {'+919999900001', '+919999900002'};
+
   /// Step 1: Send OTP via Firebase Phone Auth
   Future<void> sendFirebaseOtp(
     String phone, {
@@ -38,6 +54,12 @@ class AuthProvider extends ChangeNotifier {
       // earlier attempt) so _doSignIn can safely reuse currentUser.
       _verificationId = null;
       await FirebaseAuth.instance.signOut();
+      final usingRecaptcha = _useRecaptchaFlow;
+      final isTestNumber = _firebaseTestNumbers.contains(phone);
+      await FirebaseAuth.instance.setSettings(
+        appVerificationDisabledForTesting: isTestNumber,
+        forceRecaptchaFlow: isTestNumber ? false : usingRecaptcha,
+      );
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         timeout: const Duration(seconds: 60),
@@ -46,8 +68,18 @@ class AuthProvider extends ChangeNotifier {
           onAutoVerify?.call(credential);
         },
         verificationFailed: (e) {
+          if (!usingRecaptcha && _deviceVerificationCodes.contains(e.code)) {
+            _useRecaptchaFlow = true;
+            unawaited(sendFirebaseOtp(
+              phone,
+              onCodeSent: onCodeSent,
+              onError: onError,
+              onAutoVerify: onAutoVerify,
+            ));
+            return;
+          }
           _loading = false;
-          _error = e.message ?? 'OTP failed. Check Firebase setup.';
+          _error = _friendlyFirebaseError(e);
           notifyListeners();
           onError(_error!);
         },
@@ -169,7 +201,12 @@ class AuthProvider extends ChangeNotifier {
         'session-expired' => 'OTP expired. Request a new one.',
         'too-many-requests' => 'Too many attempts. Try again later.',
         'quota-exceeded' => 'SMS quota exceeded. Contact support.',
-        _ => e.message ?? e.code,
+        'invalid-phone-number' => 'That phone number is not valid. Please check it.',
+        'missing-client-identifier' || 'app-not-authorized' || 'captcha-check-failed' =>
+          'Could not verify this device. Please update Google Chrome and Google Play services, then try again. (${e.code})',
+        'web-context-canceled' => 'Verification was closed before it finished. Please try again.',
+        'network-request-failed' => 'No internet connection. Please try again.',
+        _ => '${e.message ?? 'Phone verification failed.'} (${e.code})',
       };
     }
     if (e is ApiException) {
