@@ -218,9 +218,31 @@ async function detectLanguageRaw(text: string): Promise<string> {
  * the wild guess -- in a 1:1 chat, the sender's own language is overwhelmingly
  * the correct answer for short ambiguous text.
  */
+// Unicode script blocks that identify a language unambiguously. The short-
+// message fallback below exists for *romanized* text; a message written in
+// Telugu/Devanagari/etc. script is reliable regardless of length, and the
+// fallback was turning short native-script messages into the sender's
+// default profile language ("en"), so they were never translated.
+const SCRIPT_LANGUAGES: Array<[RegExp, string]> = [
+  [/[ఀ-౿]/, "te"],
+  [/[஀-௿]/, "ta"],
+  [/[ಀ-೿]/, "kn"],
+  [/[ഀ-ൿ]/, "ml"],
+  [/[ঀ-৿]/, "bn"],
+  [/[઀-૿]/, "gu"],
+  [/[਀-੿]/, "pa"],
+  [/[଀-୿]/, "or"],
+  [/[؀-ۿ]/, "ur"],
+];
+
 async function detectLanguage(text: string, candidates: string[] = []): Promise<string> {
   const pool = Array.from(new Set(candidates.map((c) => normalizeLanguage(c)).filter(Boolean)));
+  for (const [pattern, language] of SCRIPT_LANGUAGES) {
+    if (pattern.test(text)) return language;
+  }
   const detected = await detectLanguageRaw(text);
+  // Devanagari is shared by Hindi and Marathi — trust the detector there.
+  if (/[ऀ-ॿ]/.test(text)) return detected || "hi";
   const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
   if (pool.length > 0 && !pool.includes(detected) && wordCount <= 5) {
     return pool[0];
@@ -747,12 +769,16 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation);
     const translations: Record<string, string> = {};
     if (senderRow?.translationEnabled !== false && !translationConsentDenied) {
-      if (context.peerLanguage !== originalLanguage) {
-        translations[context.peerLanguage] = await translatePersonalText(input.content, originalLanguage, context.peerLanguage);
-      }
-      if (context.viewerLanguage !== originalLanguage && context.viewerLanguage !== context.peerLanguage) {
-        translations[context.viewerLanguage] = await translatePersonalText(input.content, originalLanguage, context.viewerLanguage);
-      }
+      // Both targets in parallel — this runs before the message is stored and
+      // pushed to the recipient, so sequential calls added directly to
+      // delivery latency.
+      const targets = [context.peerLanguage, context.viewerLanguage].filter(
+        (lang, i, all) => lang !== originalLanguage && all.indexOf(lang) === i,
+      );
+      const results = await Promise.all(
+        targets.map((lang) => translatePersonalText(input.content, originalLanguage, lang)),
+      );
+      targets.forEach((lang, i) => { translations[lang] = results[i]; });
     }
 
     const expiresAt = thread.disappearingSeconds

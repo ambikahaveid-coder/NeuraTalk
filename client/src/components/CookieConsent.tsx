@@ -74,7 +74,9 @@ export function CookieConsent() {
     saveConsent(true, preferences);
   };
 
-  if (!showBanner) return null;
+  // The mobile app's in-app login page is not a website visit; the banner
+  // would cover the OTP form.
+  if (!showBanner || window.location.pathname === "/app-login") return null;
 
   return (
     <AnimatePresence>
