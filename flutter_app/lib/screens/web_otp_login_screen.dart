@@ -110,7 +110,7 @@ class _WebOtpLoginScreenState extends State<WebOtpLoginScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.background,
-        foregroundColor: AppColors.white,
+        foregroundColor: AppColors.ink,
         title: const Text('Verify your number'),
       ),
       body: Stack(
@@ -123,7 +123,7 @@ class _WebOtpLoginScreenState extends State<WebOtpLoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_loadError!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.white, fontSize: 18)),
+                    Text(_loadError!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.ink, fontSize: 18)),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: () {

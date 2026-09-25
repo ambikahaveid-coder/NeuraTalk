@@ -70,7 +70,7 @@ class _MicrophoneSettingsScreenState extends State<MicrophoneSettingsScreen> wit
         children: [
           ListTile(
             leading: Icon(granted ? Icons.mic : Icons.mic_off, color: granted ? AppColors.green : AppColors.red),
-            title: const Text('Microphone access', style: TextStyle(color: AppColors.white)),
+            title: const Text('Microphone access', style: TextStyle(color: AppColors.ink)),
             subtitle: Text(_label(_status), style: const TextStyle(color: AppColors.textMuted)),
           ),
           const SizedBox(height: 8),

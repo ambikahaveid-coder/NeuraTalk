@@ -87,7 +87,7 @@ class NeuraTalkApp extends StatelessWidget {
       child: MaterialApp(
         navigatorKey: navigatorKey,
         title: 'NeuraTalk',
-        theme: AppTheme.dark,
+        theme: AppTheme.light,
         debugShowCheckedModeBanner: false,
         home: const _AppRouter(),
       ),

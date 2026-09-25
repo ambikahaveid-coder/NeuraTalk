@@ -334,7 +334,7 @@ class _DialPadState extends State<_DialPad> {
                 Flexible(
                   child: Text(
                     _digits.isEmpty ? 'Enter number' : _displayNumber,
-                    style: TextStyle(color: _digits.isEmpty ? AppColors.textMuted : AppColors.white, fontSize: 26, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: _digits.isEmpty ? AppColors.textMuted : AppColors.ink, fontSize: 26, fontWeight: FontWeight.w600),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -397,7 +397,7 @@ class _DialButton extends StatelessWidget {
         height: 72,
         decoration: BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
         alignment: Alignment.center,
-        child: Text(digit, style: const TextStyle(color: AppColors.white, fontSize: 24, fontWeight: FontWeight.w500)),
+        child: Text(digit, style: const TextStyle(color: AppColors.ink, fontSize: 24, fontWeight: FontWeight.w500)),
       ),
     );
   }

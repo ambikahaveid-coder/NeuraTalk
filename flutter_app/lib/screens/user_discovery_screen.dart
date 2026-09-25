@@ -93,7 +93,7 @@ class _UserDiscoveryScreenState extends State<UserDiscoveryScreen> {
               controller: _searchCtrl,
               autofocus: true,
               onChanged: _onChanged,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Search by username, email, or phone',
                 hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -129,7 +129,7 @@ class _UserDiscoveryScreenState extends State<UserDiscoveryScreen> {
                     backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
                     child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                   subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: _starting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)) : const Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
                   onTap: () => _startChat(u),

@@ -87,7 +87,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: const Text('Copy', style: TextStyle(color: AppColors.white)),
+              title: const Text('Copy', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _copyMessage(message);
@@ -124,7 +124,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(groupName, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(groupName, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
               Text('${members.length} member${members.length == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
             ],
           ),
@@ -176,7 +176,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
           Expanded(
             child: TextField(
               controller: _msgCtrl,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: const InputDecoration(
                 hintText: 'Message...',
                 hintStyle: TextStyle(color: AppColors.textMuted),
@@ -226,7 +226,7 @@ class _GroupMessageBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
-          color: isOwn ? AppColors.cyan : AppColors.surface,
+          color: isOwn ? AppColors.cyan : AppColors.surfaceElevated,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),

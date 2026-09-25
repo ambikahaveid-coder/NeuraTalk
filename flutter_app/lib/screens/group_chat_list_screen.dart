@@ -73,7 +73,7 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
                   child: const Icon(Icons.groups_outlined, color: AppColors.cyan, size: 40),
                 ),
                 const SizedBox(height: 20),
-                const Text('No groups yet', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text('No groups yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 const Text('Create a group to chat with multiple people at once', style: TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center),
                 const SizedBox(height: 24),
@@ -101,7 +101,7 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
         backgroundColor: AppColors.cyan,
         child: Icon(Icons.groups, color: AppColors.background),
       ),
-      title: Text(group['name']?.toString() ?? 'Group', style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+      title: Text(group['name']?.toString() ?? 'Group', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
       subtitle: Text('$memberCount member${memberCount == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupConversationScreen(groupId: group['id'] as int))),
     );

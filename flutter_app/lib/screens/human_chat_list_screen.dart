@@ -77,7 +77,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           children: [
             ListTile(
               leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: AppColors.cyan),
-              title: Text(isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.white)),
+              title: Text(isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, pinned: !isPinned);
@@ -85,7 +85,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
             ),
             ListTile(
               leading: Icon(isMuted ? Icons.notifications_off : Icons.notifications_off_outlined, color: AppColors.cyan),
-              title: Text(isMuted ? 'Unmute' : 'Mute', style: const TextStyle(color: AppColors.white)),
+              title: Text(isMuted ? 'Unmute' : 'Mute', style: const TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, muted: !isMuted);
@@ -93,7 +93,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
             ),
             ListTile(
               leading: Icon(isArchived ? Icons.unarchive_outlined : Icons.archive_outlined, color: AppColors.cyan),
-              title: Text(isArchived ? 'Unarchive' : 'Archive', style: const TextStyle(color: AppColors.white)),
+              title: Text(isArchived ? 'Unarchive' : 'Archive', style: const TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, archived: !isArchived);
@@ -182,7 +182,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                   child: const Icon(Icons.forum_outlined, color: AppColors.cyan, size: 40),
                 ),
                 const SizedBox(height: 20),
-                const Text('No conversations yet', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                const Text('No conversations yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 const Text('Find someone on NeuraTalk to start chatting', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                 const SizedBox(height: 24),
@@ -218,7 +218,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           Flexible(
             child: Text(
               peer['displayName']?.toString() ?? 'Unknown user',
-              style: TextStyle(color: AppColors.white, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600),
+              style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),

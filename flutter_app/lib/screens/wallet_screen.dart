@@ -93,7 +93,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   children: [
                     _walletCard(),
                     const SizedBox(height: 24),
-                    const Text('Plans', style: TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                    const Text('Plans', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 12),
                     if (_plansError != null)
                       _errorCard(_plansError!, _load)
@@ -153,7 +153,7 @@ class _WalletScreenState extends State<WalletScreen> {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [AppColors.teal, AppColors.teal.withOpacity(0.5)],
+          colors: [AppColors.teal, AppColors.cyanDark],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -162,16 +162,16 @@ class _WalletScreenState extends State<WalletScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Wallet Balance', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          const Text('Wallet Balance', style: TextStyle(color: AppColors.onAccent, fontSize: 14)),
           const SizedBox(height: 8),
-          Text('₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.white, fontSize: 36, fontWeight: FontWeight.w800)),
+          Text('₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.onAccent, fontSize: 36, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text('$minutes minutes remaining', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          Text('$minutes minutes remaining', style: const TextStyle(color: AppColors.onAccent, fontSize: 14)),
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: () => _openCheckout(context),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.white,
+              backgroundColor: AppColors.onAccent,
               foregroundColor: AppColors.teal,
               minimumSize: const Size(140, 44),
             ),
@@ -224,7 +224,7 @@ class _PlanCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(name, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+              Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
               Text(price, style: const TextStyle(color: AppColors.cyan, fontSize: 18, fontWeight: FontWeight.w800)),
             ],
           ),

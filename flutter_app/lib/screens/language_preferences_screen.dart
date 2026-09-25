@@ -69,7 +69,7 @@ class _LanguagePreferencesScreenState extends State<LanguagePreferencesScreen> {
                   final code = lang['code'].toString();
                   final isSelected = code == current;
                   return ListTile(
-                    title: Text(lang['name'].toString(), style: const TextStyle(color: AppColors.white)),
+                    title: Text(lang['name'].toString(), style: const TextStyle(color: AppColors.ink)),
                     trailing: _saving == code
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
                         : (isSelected ? const Icon(Icons.check_circle, color: AppColors.cyan) : null),

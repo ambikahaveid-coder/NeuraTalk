@@ -124,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const SizedBox(height: 40),
                 const Text('NeuraTalk', style: TextStyle(
-                  color: AppColors.white,
+                  color: AppColors.ink,
                   fontSize: 38,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.5,
@@ -164,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _accountTypeStep() {
     return Column(
       children: [
-        const Text('Get Started', style: TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+        const Text('Get Started', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         const Text('Choose your account type', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
         const SizedBox(height: 24),
@@ -215,7 +215,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: const Icon(Icons.arrow_back, color: AppColors.textSecondary),
         ),
         const SizedBox(height: 20),
-        const Text('Phone Verification', style: TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+        const Text('Phone Verification', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         const Text('We\'ll send a 6-digit OTP to your number', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
         const SizedBox(height: 24),
@@ -226,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> {
             FilteringTextInputFormatter.digitsOnly,
             LengthLimitingTextInputFormatter(10),
           ],
-          style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600),
+          style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600),
           decoration: const InputDecoration(
             hintText: '98765 43210',
             prefixText: '+91 ',
@@ -258,7 +258,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: const Icon(Icons.arrow_back, color: AppColors.textSecondary),
         ),
         const SizedBox(height: 20),
-        const Text('Enter Verification Code', style: TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+        const Text('Enter Verification Code', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         Text('Sent to ${_phoneCtrl.text}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
         const SizedBox(height: 24),
@@ -271,7 +271,7 @@ class _LoginScreenState extends State<LoginScreen> {
           maxLength: 6,
           textAlign: TextAlign.center,
           autofillHints: const [AutofillHints.oneTimeCode],
-          style: const TextStyle(color: AppColors.white, fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: 12),
+          style: const TextStyle(color: AppColors.ink, fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: 12),
           decoration: const InputDecoration(hintText: '------', counterText: ''),
           onSubmitted: (_) => _verifyOtp(),
         ),

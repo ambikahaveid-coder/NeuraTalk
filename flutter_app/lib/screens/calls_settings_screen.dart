@@ -22,7 +22,7 @@ class CallsSettingsScreen extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
             child: ListTile(
               leading: const Icon(Icons.mic_outlined, color: AppColors.cyan),
-              title: const Text('Microphone', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+              title: const Text('Microphone', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
               subtitle: const Text('Permission status and access', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
               trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MicrophoneSettingsScreen())),
@@ -58,7 +58,7 @@ class CallsSettingsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                Text(title, style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 14)),
                 const SizedBox(height: 4),
                 Text(body, style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5, height: 1.4)),
               ],

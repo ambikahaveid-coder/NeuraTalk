@@ -121,7 +121,7 @@ class _SlidePage extends StatelessWidget {
             slide.title,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: AppColors.white,
+              color: AppColors.ink,
               fontSize: 36,
               fontWeight: FontWeight.w800,
               height: 1.15,

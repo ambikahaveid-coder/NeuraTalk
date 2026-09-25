@@ -63,7 +63,7 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Your language', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+                      const Text('Your language', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                       Text(preferredLanguage.toUpperCase(), style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
                     ],
                   ),
@@ -82,7 +82,7 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
               value: translationEnabled,
               onChanged: _saving ? null : _toggleTranslation,
               activeColor: AppColors.cyan,
-              title: const Text('Auto-translate my chats and calls', style: TextStyle(color: AppColors.white)),
+              title: const Text('Auto-translate my chats and calls', style: TextStyle(color: AppColors.ink)),
               subtitle: const Text(
                 'When off, your messages stay in your own language and your calls run without live translation, even if the other person speaks a different language.',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 12),

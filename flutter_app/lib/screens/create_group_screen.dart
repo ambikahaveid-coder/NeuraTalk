@@ -121,7 +121,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _nameCtrl,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Group name',
                 hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -159,7 +159,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                             top: 0,
                             child: GestureDetector(
                               onTap: () => _toggleSelect(u),
-                              child: const CircleAvatar(radius: 9, backgroundColor: AppColors.red, child: Icon(Icons.close, size: 12, color: AppColors.white)),
+                              child: const CircleAvatar(radius: 9, backgroundColor: AppColors.red, child: Icon(Icons.close, size: 12, color: AppColors.onAccent)),
                             ),
                           ),
                         ],
@@ -185,7 +185,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             child: TextField(
               controller: _searchCtrl,
               onChanged: _onSearchChanged,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Add members by username, email, or phone',
                 hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -208,7 +208,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                     backgroundColor: AppColors.cyan.withOpacity(0.15),
                     child: const Icon(Icons.person, color: AppColors.cyan),
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.white)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink)),
                   subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: Icon(isSelected ? Icons.check_circle : Icons.add_circle_outline, color: AppColors.cyan),
                   onTap: () => _toggleSelect(u),

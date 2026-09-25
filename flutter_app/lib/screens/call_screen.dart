@@ -711,7 +711,7 @@ class _RemotePlaceholder extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Text(name, style: const TextStyle(color: AppColors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+          Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (error != null) ...[
             Text(error!, style: const TextStyle(color: AppColors.red), textAlign: TextAlign.center),
@@ -792,7 +792,7 @@ class _ControlBar extends StatelessWidget {
               width: 64,
               height: 64,
               decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
-              child: const Icon(Icons.call_end, color: AppColors.white, size: 28),
+              child: const Icon(Icons.call_end, color: AppColors.onAccent, size: 28),
             ),
           ),
         ],

@@ -213,7 +213,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
         child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
       ),
-      title: Text(name, style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+      title: Text(name, style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
       subtitle: Text('@${match['username']}', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
       onTap: () => _openChat(match),
       trailing: isCallingThis
@@ -240,7 +240,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget _inviteTile(Contact contact) {
     return ListTile(
       leading: const CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person_outline, color: AppColors.textMuted)),
-      title: Text(contact.displayName, style: const TextStyle(color: AppColors.white)),
+      title: Text(contact.displayName, style: const TextStyle(color: AppColors.ink)),
       trailing: TextButton(
         onPressed: () => Share.share(
           "Let's chat on NeuraTalk — real-time translated voice & video calls. https://neuratalk.in",

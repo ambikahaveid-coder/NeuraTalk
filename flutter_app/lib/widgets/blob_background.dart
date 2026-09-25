@@ -13,17 +13,17 @@ class BlobBackground extends StatelessWidget {
         Positioned(
           top: -80,
           right: -60,
-          child: _blob(220, AppColors.teal.withOpacity(0.35)),
+          child: _blob(220, AppColors.teal.withValues(alpha: 0.08)),
         ),
         Positioned(
           bottom: -100,
           left: -80,
-          child: _blob(260, AppColors.teal.withOpacity(0.28)),
+          child: _blob(260, AppColors.teal.withValues(alpha: 0.06)),
         ),
         Positioned(
           bottom: 120,
           right: -40,
-          child: _blob(160, AppColors.tealLight.withOpacity(0.2)),
+          child: _blob(160, AppColors.tealLight.withValues(alpha: 0.15)),
         ),
         child,
       ],

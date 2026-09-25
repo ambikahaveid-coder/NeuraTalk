@@ -43,7 +43,7 @@ class _NotificationsSettingsScreenState extends State<NotificationsSettingsScree
             value: enabled,
             onChanged: _saving ? null : _toggle,
             activeColor: AppColors.cyan,
-            title: const Text('Message notifications', style: TextStyle(color: AppColors.white)),
+            title: const Text('Message notifications', style: TextStyle(color: AppColors.ink)),
             subtitle: const Text(
               'Get notified about new chat messages when the app is closed or in the background.',
               style: TextStyle(color: AppColors.textMuted, fontSize: 12),

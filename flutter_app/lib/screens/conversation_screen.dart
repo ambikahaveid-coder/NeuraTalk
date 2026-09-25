@@ -107,7 +107,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Report user', style: TextStyle(color: AppColors.white)),
+          title: const Text('Report user', style: TextStyle(color: AppColors.ink)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,14 +116,14 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 value: selected,
                 dropdownColor: AppColors.surface,
                 isExpanded: true,
-                items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: AppColors.white)))).toList(),
+                items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: AppColors.ink)))).toList(),
                 onChanged: (v) => setDialogState(() => selected = v ?? selected),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: descCtrl,
                 maxLines: 3,
-                style: const TextStyle(color: AppColors.white),
+                style: const TextStyle(color: AppColors.ink),
                 decoration: InputDecoration(
                   hintText: 'What happened? (optional)',
                   hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -240,7 +240,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           children: [
             ListTile(
               leading: const Icon(Icons.reply, color: AppColors.cyan),
-              title: const Text('Reply', style: TextStyle(color: AppColors.white)),
+              title: const Text('Reply', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _startReply(message);
@@ -248,7 +248,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
             ListTile(
               leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: const Text('Copy', style: TextStyle(color: AppColors.white)),
+              title: const Text('Copy', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _copyMessage(message);
@@ -274,7 +274,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Clear chat?', style: TextStyle(color: AppColors.white)),
+        title: const Text('Clear chat?', style: TextStyle(color: AppColors.ink)),
         content: const Text(
           'This removes all messages from your view. The other person will still see them.',
           style: TextStyle(color: AppColors.textSecondary),
@@ -309,14 +309,14 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Disappearing messages', style: TextStyle(color: AppColors.white)),
+          title: const Text('Disappearing messages', style: TextStyle(color: AppColors.ink)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: _disappearingOptions.entries.map((entry) => RadioListTile<int>(
               value: entry.key,
               groupValue: selected,
               activeColor: AppColors.cyan,
-              title: Text(entry.value, style: const TextStyle(color: AppColors.white)),
+              title: Text(entry.value, style: const TextStyle(color: AppColors.ink)),
               onChanged: (v) => setDialogState(() => selected = v ?? selected),
             )).toList(),
           ),
@@ -376,7 +376,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           children: [
             ListTile(
               leading: const Icon(Icons.photo_outlined, color: AppColors.cyan),
-              title: const Text('Photo', style: TextStyle(color: AppColors.white)),
+              title: const Text('Photo', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _pickAndSendImage();
@@ -384,7 +384,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
             ListTile(
               leading: const Icon(Icons.insert_drive_file_outlined, color: AppColors.cyan),
-              title: const Text('Document / File', style: TextStyle(color: AppColors.white)),
+              title: const Text('Document / File', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _pickAndSendFile();
@@ -392,7 +392,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             ),
             ListTile(
               leading: const Icon(Icons.location_on_outlined, color: AppColors.cyan),
-              title: const Text('Current Location', style: TextStyle(color: AppColors.white)),
+              title: const Text('Current Location', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _shareCurrentLocation();
@@ -753,7 +753,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(displayName, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                  Text(displayName, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
                   Text(_presenceLabel(provider), style: TextStyle(color: provider.peerTyping ? AppColors.cyan : AppColors.textMuted, fontSize: 11)),
                 ],
               ),
@@ -800,11 +800,11 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.white))),
-              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.white))),
+              const PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
+              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(
                 value: 'block',
-                child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.white : AppColors.red)),
+                child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.ink : AppColors.red)),
               ),
               const PopupMenuItem(value: 'report', child: Text('Report', style: TextStyle(color: AppColors.red))),
             ],
@@ -972,7 +972,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             child: TextField(
               controller: _msgCtrl,
               focusNode: _focusNode,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               onTap: () {
                 if (_showEmoji) setState(() => _showEmoji = false);
               },
@@ -1107,7 +1107,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
             : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
-          color: isOwn ? AppColors.cyan : AppColors.surface,
+          color: isOwn ? AppColors.cyan : AppColors.surfaceElevated,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),

@@ -68,7 +68,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
             child: const Icon(Icons.group_outlined, color: AppColors.cyan, size: 40),
           ),
           const SizedBox(height: 20),
-          const Text('No Teams Yet', style: TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.w700)),
+          const Text('No Teams Yet', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           const Text('Teams will appear here once your\nadmin sets them up', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
         ],
@@ -114,7 +114,7 @@ class _TeamCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(
                       '$members Members${aiEnabled ? ' · Live Translator Enabled' : ''}',

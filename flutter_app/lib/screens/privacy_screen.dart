@@ -22,7 +22,7 @@ class PrivacyScreen extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
             child: ListTile(
               leading: const Icon(Icons.block_outlined, color: AppColors.red),
-              title: const Text('Blocked Contacts', style: TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+              title: const Text('Blocked Contacts', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
               subtitle: const Text(
                 "People you've blocked can't call or message you",
                 style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),

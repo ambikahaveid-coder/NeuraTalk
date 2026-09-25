@@ -121,7 +121,7 @@ class SettingsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(user?['username'] ?? 'User', style: const TextStyle(color: AppColors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text(user?['username'] ?? 'User', style: const TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
                 Text(user?['phone'] ?? user?['email'] ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
                 const SizedBox(height: 4),

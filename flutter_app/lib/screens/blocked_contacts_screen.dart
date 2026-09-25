@@ -52,7 +52,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        title: const Text('Unblock this contact?', style: TextStyle(color: AppColors.white)),
+        title: const Text('Unblock this contact?', style: TextStyle(color: AppColors.ink)),
         content: const Text(
           'They will be able to call and message you again.',
           style: TextStyle(color: AppColors.textSecondary),
@@ -130,7 +130,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
                           ),
                           title: Text(
                             c['username']?.toString() ?? 'Unknown user',
-                            style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600, fontSize: 15),
+                            style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 15),
                           ),
                           subtitle: c['phone'] != null
                               ? Text(c['phone'].toString(), style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5))
@@ -159,7 +159,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
               child: const Icon(Icons.block_outlined, color: AppColors.textMuted, size: 32),
             ),
             const SizedBox(height: 20),
-            const Text('No blocked contacts', style: TextStyle(color: AppColors.white, fontSize: 17, fontWeight: FontWeight.w700)),
+            const Text('No blocked contacts', style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
             const Text(
               "People you block won't be able to call or message you.",
@@ -232,7 +232,7 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        title: const Text('Block this contact?', style: TextStyle(color: AppColors.white)),
+        title: const Text('Block this contact?', style: TextStyle(color: AppColors.ink)),
         content: const Text(
           "They won't be able to call or message you on NeuraTalk.",
           style: TextStyle(color: AppColors.textSecondary),
@@ -285,7 +285,7 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
               controller: _searchCtrl,
               autofocus: true,
               onChanged: _onChanged,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Search by username, email, or phone',
                 hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -310,7 +310,7 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
                     backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
                     child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.textMuted) : null,
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                   subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: _blocking
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red))

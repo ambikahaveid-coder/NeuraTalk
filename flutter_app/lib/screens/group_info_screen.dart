@@ -88,7 +88,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         context: context,
         builder: (dialogContext) => AlertDialog(
           backgroundColor: AppColors.surfaceElevated,
-          title: const Text('Leave this group?', style: TextStyle(color: AppColors.white)),
+          title: const Text('Leave this group?', style: TextStyle(color: AppColors.ink)),
           content: const Text("You won't receive messages from this group anymore.", style: TextStyle(color: AppColors.textSecondary)),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted))),
@@ -120,7 +120,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
             if (role != 'admin')
               ListTile(
                 leading: const Icon(Icons.admin_panel_settings_outlined, color: AppColors.cyan),
-                title: const Text('Make admin', style: TextStyle(color: AppColors.white)),
+                title: const Text('Make admin', style: TextStyle(color: AppColors.ink)),
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   await _changeRole(userId as int, 'admin');
@@ -129,7 +129,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
             if (role == 'admin')
               ListTile(
                 leading: const Icon(Icons.remove_moderator_outlined, color: AppColors.cyan),
-                title: const Text('Remove as admin', style: TextStyle(color: AppColors.white)),
+                title: const Text('Remove as admin', style: TextStyle(color: AppColors.ink)),
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   await _changeRole(userId as int, 'member');
@@ -163,7 +163,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        title: Text('Remove $username?', style: const TextStyle(color: AppColors.white)),
+        title: Text('Remove $username?', style: const TextStyle(color: AppColors.ink)),
         content: const Text('They will no longer see messages in this group.', style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted))),
@@ -197,7 +197,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
                       child: Text(
                         _group?['name']?.toString() ?? 'Group',
-                        style: const TextStyle(color: AppColors.white, fontSize: 20, fontWeight: FontWeight.w700),
+                        style: const TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700),
                       ),
                     ),
                     Padding(
@@ -218,7 +218,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                       final isSelf = m['userId'] == _selfId;
                       return ListTile(
                         leading: const CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person, color: AppColors.textMuted)),
-                        title: Text(isSelf ? '$username (You)' : username, style: const TextStyle(color: AppColors.white)),
+                        title: Text(isSelf ? '$username (You)' : username, style: const TextStyle(color: AppColors.ink)),
                         subtitle: role != 'member' ? Text(role[0].toUpperCase() + role.substring(1), style: const TextStyle(color: AppColors.cyan, fontSize: 12)) : null,
                         onTap: () => _showMemberActions(m),
                       );
@@ -305,7 +305,7 @@ class _AddGroupMemberScreenState extends State<_AddGroupMemberScreen> {
               controller: _searchCtrl,
               autofocus: true,
               onChanged: _onChanged,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Search by username, email, or phone',
                 hintStyle: const TextStyle(color: AppColors.textMuted),
@@ -324,7 +324,7 @@ class _AddGroupMemberScreenState extends State<_AddGroupMemberScreen> {
                 final u = _results[i];
                 return ListTile(
                   leading: const CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person, color: AppColors.textMuted)),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.w600)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                   subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: _adding
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))

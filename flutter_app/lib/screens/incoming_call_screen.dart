@@ -178,7 +178,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              Text(displayName, style: const TextStyle(color: AppColors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+              Text(displayName, style: const TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
                 session.isVideo ? 'Incoming video call' : 'Incoming voice call',
@@ -230,7 +230,7 @@ class _ActionButton extends StatelessWidget {
             width: 72,
             height: 72,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            child: Icon(icon, color: AppColors.white, size: 32),
+            child: Icon(icon, color: AppColors.onAccent, size: 32),
           ),
         ),
         const SizedBox(height: 8),

@@ -120,7 +120,7 @@ class _ChatScreenState extends State<ChatScreen> {
             child: const Icon(Icons.auto_awesome, color: AppColors.cyan, size: 40),
           ),
           const SizedBox(height: 20),
-          Text('Hello${user != null ? ", ${user['username'] ?? 'there'}" : ""}!', style: const TextStyle(color: AppColors.white, fontSize: 22, fontWeight: FontWeight.w700)),
+          Text('Hello${user != null ? ", ${user['username'] ?? 'there'}" : ""}!', style: const TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           const Text('Start a conversation with NeuraTalk AI', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
           const SizedBox(height: 32),
@@ -163,7 +163,7 @@ class _ChatScreenState extends State<ChatScreen> {
           icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
           onPressed: () => setState(() { _activeConversation = null; _messages = []; }),
         ),
-        title: Text(_activeConversation?['title'] ?? 'Chat', style: const TextStyle(color: AppColors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        title: Text(_activeConversation?['title'] ?? 'Chat', style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
       ),
       body: Column(
         children: [
@@ -192,7 +192,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: TextField(
               controller: _msgCtrl,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: const InputDecoration(
                 hintText: 'Message NeuraTalk AI...',
                 hintStyle: TextStyle(color: AppColors.textMuted),

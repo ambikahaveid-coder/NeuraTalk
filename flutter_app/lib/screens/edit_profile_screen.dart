@@ -128,7 +128,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     child: Container(
                       padding: const EdgeInsets.all(6),
                       decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-                      child: const Icon(Icons.camera_alt, size: 18, color: Colors.black),
+                      child: const Icon(Icons.camera_alt, size: 18, color: AppColors.onAccent),
                     ),
                   ),
                 ],
@@ -142,7 +142,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 24),
             TextField(
               controller: _nameController,
-              style: const TextStyle(color: AppColors.white),
+              style: const TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 labelText: 'Name',
                 labelStyle: const TextStyle(color: AppColors.textMuted),
@@ -171,9 +171,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 child: _saving
                     ? const SizedBox(
                         width: 22, height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.onAccent),
                       )
-                    : const Text('Save', style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700, fontSize: 16)),
+                    : const Text('Save', style: TextStyle(color: AppColors.onAccent, fontWeight: FontWeight.w700, fontSize: 16)),
               ),
             ),
           ],
