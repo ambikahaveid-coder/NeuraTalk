@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../widgets/blob_background.dart';
 import '../providers/auth_provider.dart';
 import 'main_shell.dart';
+import 'web_otp_login_screen.dart';
 
 enum LoginStep { accountType, phone, otp }
 
@@ -66,6 +67,16 @@ class _LoginScreenState extends State<LoginScreen> {
       onError: (msg) {
         if (!mounted) return;
         setState(() { _error = msg; _loading = false; });
+      },
+      // Google couldn't verify this install (typical for APKs not from the
+      // Play Store) — continue with the in-app web OTP flow instead.
+      onDeviceVerificationFailed: () {
+        if (!mounted) return;
+        setState(() { _loading = false; _error = null; });
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => WebOtpLoginScreen(phoneDigits: digitsOnly)),
+        );
       },
       onAutoVerify: (credential) async {
         // Android: SMS was auto-read

@@ -10,6 +10,7 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 const Landing = lazy(() => import("@/pages/Landing"));
+const AppLogin = lazy(() => import("@/pages/AppLogin"));
 const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
@@ -193,6 +194,11 @@ function Router() {
     <Switch>
       <Route path="/">
         {isAuthenticated && !needsBusinessSignup ? <Redirect to={getDashboardRedirect()} /> : <WebsitePage><HomePage /></WebsitePage>}
+      </Route>
+
+      {/* Mobile-app phone login (in-app WebView); never redirects on web auth state. */}
+      <Route path="/app-login">
+        <Suspense fallback={<PageLoader />}><AppLogin /></Suspense>
       </Route>
       
       <Route path="/login">

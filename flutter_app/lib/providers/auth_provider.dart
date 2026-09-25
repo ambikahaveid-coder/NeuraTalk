@@ -22,12 +22,9 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // Firebase rejects the Play Integrity path for builds Google Play doesn't
-  // recognise (e.g. an APK installed directly rather than from the Play
-  // Store) with "missing-client-identifier" and does not fall back to
-  // reCAPTCHA on its own. Once that happens, use the reCAPTCHA path for the
-  // rest of this app session.
-  static bool _useRecaptchaFlow = false;
+  // Firebase's Android device verification rejects builds Google Play doesn't
+  // recognise (APKs installed directly) with these codes. The login screen
+  // then switches to the in-app web OTP flow, which works on those builds.
   static const _deviceVerificationCodes = {'missing-client-identifier', 'app-not-authorized'};
 
   // Fictional numbers registered in Firebase Console → Authentication →
@@ -44,6 +41,7 @@ class AuthProvider extends ChangeNotifier {
     required void Function(String verificationId) onCodeSent,
     required void Function(String error) onError,
     void Function(PhoneAuthCredential)? onAutoVerify,
+    void Function()? onDeviceVerificationFailed,
   }) async {
     _loading = true;
     _error = null;
@@ -54,12 +52,8 @@ class AuthProvider extends ChangeNotifier {
       // earlier attempt) so _doSignIn can safely reuse currentUser.
       _verificationId = null;
       await FirebaseAuth.instance.signOut();
-      final usingRecaptcha = _useRecaptchaFlow;
       final isTestNumber = _firebaseTestNumbers.contains(phone);
-      await FirebaseAuth.instance.setSettings(
-        appVerificationDisabledForTesting: isTestNumber,
-        forceRecaptchaFlow: isTestNumber ? false : usingRecaptcha,
-      );
+      await FirebaseAuth.instance.setSettings(appVerificationDisabledForTesting: isTestNumber);
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: phone,
         timeout: const Duration(seconds: 60),
@@ -68,14 +62,10 @@ class AuthProvider extends ChangeNotifier {
           onAutoVerify?.call(credential);
         },
         verificationFailed: (e) {
-          if (!usingRecaptcha && _deviceVerificationCodes.contains(e.code)) {
-            _useRecaptchaFlow = true;
-            unawaited(sendFirebaseOtp(
-              phone,
-              onCodeSent: onCodeSent,
-              onError: onError,
-              onAutoVerify: onAutoVerify,
-            ));
+          if (onDeviceVerificationFailed != null && _deviceVerificationCodes.contains(e.code)) {
+            _loading = false;
+            notifyListeners();
+            onDeviceVerificationFailed();
             return;
           }
           _loading = false;
@@ -170,6 +160,18 @@ class AuthProvider extends ChangeNotifier {
     if (token == null) throw Exception('Login failed: server did not return a session.');
     await ApiService.saveToken(token);
     _user = res['user'] as Map<String, dynamic>?;
+  }
+
+  /// Completes a login done through the in-app web OTP page, which already
+  /// exchanged the Firebase token for a NeuraTalk session on the server.
+  Future<void> completeWebLogin(String token, Map<String, dynamic>? user) async {
+    await ApiService.saveToken(token);
+    _user = user;
+    _error = null;
+    if (_user == null) {
+      await fetchProfile();
+    }
+    notifyListeners();
   }
 
   Future<void> fetchProfile() async {
