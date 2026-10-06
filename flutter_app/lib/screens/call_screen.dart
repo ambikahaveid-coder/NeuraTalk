@@ -263,7 +263,12 @@ class _CallScreenState extends State<CallScreen> {
       // listener above was attached.
       for (final participant in _room.remoteParticipants.values) {
         for (final pub in participant.audioTrackPublications) {
-          if (pub.subscribed) _applyTranslatedTrack(pub.name, subscribed: true);
+          if (!pub.subscribed) continue;
+          if (_isTranslationForSomeoneElse(pub.name)) {
+            unawaited(pub.disable());
+          } else {
+            _applyTranslatedTrack(pub.name, subscribed: true);
+          }
         }
       }
 
@@ -331,6 +336,13 @@ class _CallScreenState extends State<CallScreen> {
       setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
       return;
     }
+    if (_isTranslationForSomeoneElse(event.publication.name)) {
+      // The server also restricts these, but a track can be auto-subscribed
+      // before that lands -- without this the speaker hears their own words
+      // translated back.
+      unawaited(event.publication.disable());
+      return;
+    }
     _applyTranslatedTrack(event.publication.name, subscribed: true);
     // A speaker whose translation is already playing may (re)publish their mic.
     final identity = event.participant.identity;
@@ -366,6 +378,12 @@ class _CallScreenState extends State<CallScreen> {
     } catch (_) {
       // Best-effort; the server already defaults app calls to voice mode.
     }
+  }
+
+  bool _isTranslationForSomeoneElse(String? trackName) {
+    final me = _room.localParticipant?.identity;
+    if (trackName == null || me == null || !trackName.startsWith('translated-for-')) return false;
+    return !trackName.startsWith('translated-for-${Uri.encodeComponent(me)}-from-');
   }
 
   /// Track names look like `translated-for-<me>-from-<speaker>` (URL-encoded).

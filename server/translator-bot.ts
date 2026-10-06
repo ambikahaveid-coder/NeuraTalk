@@ -38,6 +38,7 @@ import {
   type ListenerTranslationMode,
 } from "./translation/translation-service";
 import { buildTtsFailedEvent, buildTtsReadyEvent } from "./translation/tts-service";
+import { UtteranceAudioBuffer, refineCodemixTranscript, shouldRefineCodemix } from "./translation/codemix-stt-refiner";
 import {
   registerParticipantTranscript,
   resolveDirectionalLanguages,
@@ -84,8 +85,11 @@ import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-str
 const BOT_DEFAULT_IDENTITY = "neuratalk-translator";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TARGET_LATENCY_MS, 800);
+const BOT_STOP_DEADLINE_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_STOP_DEADLINE_MS, 3_000);
 const TTS_READY_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TTS_READY_TIMEOUT_MS, 3_000);
-const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.TRANSLATOR_BOT_MIN_PARTIAL_WORDS, 1);
+// Partial transcripts only drive live captions (speech is synthesised from
+// finished utterances), so waiting for a few words saves translation requests.
+const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.TRANSLATOR_BOT_MIN_PARTIAL_WORDS, 3);
 const RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.TRANSLATOR_BOT_RESTART_DELTA, 4);
 const VAD_THRESHOLD = parsePositiveFloat(process.env.TRANSLATOR_BOT_VAD_THRESHOLD, 0.018);
 const SILENCE_RESET_FRAMES = parsePositiveInt(process.env.TRANSLATOR_BOT_SILENCE_RESET_FRAMES, 6);
@@ -93,8 +97,14 @@ const AUTO_DETECT_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_LANGUAGE_DETECT |
 const PRECACHE_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_PRECACHE || "true") === "true";
 const TRANSLATOR_BOT_IDLE_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_IDLE_TIMEOUT_MS, 120_000);
 const TRANSLATOR_BOT_WATCHDOG_INTERVAL_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_WATCHDOG_INTERVAL_MS, 15_000);
-const TRANSLATOR_BOT_MAX_TTS_BACKLOG_SEGMENTS = 3;
-const TRANSLATOR_BOT_MAX_TTS_BACKLOG_MS = 1_500;
+// Translated sentences are spoken in order behind one another, so a
+// speaker who talks for a while builds a queue; it is only cut when it
+// grows this far behind.
+const TRANSLATOR_BOT_MAX_TTS_BACKLOG_SEGMENTS = parsePositiveInt(process.env.TRANSLATOR_BOT_MAX_TTS_BACKLOG_SEGMENTS, 8);
+const TRANSLATOR_BOT_MAX_TTS_BACKLOG_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_MAX_TTS_BACKLOG_MS, 20_000);
+// A listener must talk this long before their translated audio is stopped
+// (barge-in); shorter bursts are usually noise or echo.
+const BARGE_IN_MIN_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_BARGE_IN_MS, 600);
 
 interface BotSession {
   callId: string;
@@ -134,15 +144,21 @@ interface SpeakerPipeline {
   audioTask: Promise<void> | null;
   currentTrackSid: string | null;
   recentSilenceFrames: number;
+  /** Consecutive voiced frames, for barge-in detection. */
+  speechRunFrames: number;
   turnId: string | null;
   turn: SpeakerTurnLatency | null;
   firstSpeechFrameAt: number;
   finalizedSegments: string[];
   lastStartedTranscript: string;
   lastFinalTranscript: string;
+  /** Last finished utterance sent to speech, so a repeated final isn't spoken twice. */
+  lastSpokenFinal: string;
   latestEmotion: EmotionState | null;
   /** Speaker's voice gender, locked on first use so the voice never flips. */
   voiceGender: VoiceGenderEstimator;
+  /** Audio of the utterance in progress, re-recognised for code-mixed speech once it ends. */
+  utteranceAudio: UtteranceAudioBuffer;
   lastDeepgramSocketLatencyMs?: number;
   lastMediaHeartbeatAt?: number;
   lastBargeInAt?: number;
@@ -158,9 +174,15 @@ interface OutputChannel {
   localTrack: LocalAudioTrack;
   /** Published track SID, used to keep everyone except the target unsubscribed. */
   trackSid: string | null;
+  /** Bumped by each new transcript; stale caption translations are dropped. */
   currentGeneration: number;
+  /** Bumped only when queued speech must be discarded (barge-in, backlog, close). */
+  speechGeneration: number;
   currentTurnId: string | null;
+  /** In-flight translation of a partial transcript (captions only). */
   translationAbort: AbortController | null;
+  /** In-flight translations of finished utterances; never cancelled by newer speech. */
+  finalTranslationAborts: Set<AbortController>;
   ttsAbort: AbortController | null;
   ttsChain: Promise<void>;
   speaking: boolean;
@@ -230,11 +252,24 @@ export async function stopBotWorker(callId: string): Promise<void> {
   if (!session) return;
 
   session.status = "ending";
+  // Ending a call must not wait on media teardown: a stuck TTS playout or
+  // room disconnect previously held the /end request open for minutes.
+  // Cleanup carries on in the background after the deadline.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await session.worker.stop();
+    const stopped = session.worker.stop().then(() => true);
+    const finished = await Promise.race([
+      stopped,
+      new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), BOT_STOP_DEADLINE_MS); }),
+    ]);
+    if (!finished) {
+      logger.warn("TranslatorBot", `translator bot stop for ${callId} exceeded ${BOT_STOP_DEADLINE_MS}ms; finishing in background`);
+      stopped.catch((error) => logger.warn("TranslatorBot", `translator bot background stop error for ${callId}: ${String(error)}`));
+    }
   } catch (error) {
     logger.warn("TranslatorBot", `translator bot stop error for ${callId}: ${String(error)}`);
   } finally {
+    if (timer) clearTimeout(timer);
     activeSessions.delete(callId);
   }
 }
@@ -463,7 +498,9 @@ class LiveKitRealtimeTranslatorBot {
           this.observeVad(pipeline, frame);
           pipeline.voiceGender.push(frame.data);
           await this.ensureDeepgramForPipeline(pipeline);
-          pipeline.deepgram?.send(normalizePcmFrame(frame.data));
+          const pcm = normalizePcmFrame(frame.data);
+          pipeline.utteranceAudio.push(pcm);
+          pipeline.deepgram?.send(pcm);
         }
       } catch (error) {
         logger.warn("TranslatorBot", `[${this.callId}] audio stream ended for ${participant.identity}: ${String(error)}`);
@@ -486,6 +523,11 @@ class LiveKitRealtimeTranslatorBot {
     const speaking = rms >= VAD_THRESHOLD;
 
     if (speaking) {
+      // After a real pause (long past the STT's 250 ms end-of-utterance
+      // silence) drop the buffered silence, keeping a short pre-roll.
+      if (!pipeline.turnId || pipeline.recentSilenceFrames * FRAME_DURATION_MS >= 1_000) {
+        pipeline.utteranceAudio.keepLast(300);
+      }
       if (!pipeline.turnId || pipeline.recentSilenceFrames > SILENCE_RESET_FRAMES) {
         pipeline.turnId = randomUUID();
         pipeline.firstSpeechFrameAt = Date.now();
@@ -499,14 +541,23 @@ class LiveKitRealtimeTranslatorBot {
       }
 
       pipeline.recentSilenceFrames = 0;
-      pipeline.lastBargeInAt = Date.now();
-      recordVoiceCounter("overlap_events");
-      this.interruptChannelsForSource(pipeline.identity, "speaker-restarted");
-      this.interruptChannelsForTarget(pipeline.identity, "barge-in");
+      pipeline.speechRunFrames += 1;
+      // A speaker carrying on talking must not cut the translation of what
+      // they already said (it used to be cancelled on every voiced frame, so
+      // listeners heard almost nothing). Only a listener who really starts
+      // talking over their translated audio stops it.
+      if (pipeline.speechRunFrames === Math.ceil(BARGE_IN_MIN_MS / FRAME_DURATION_MS)) {
+        pipeline.lastBargeInAt = Date.now();
+        recordVoiceCounter("overlap_events");
+        this.interruptChannelsForTarget(pipeline.identity, "barge-in");
+      }
       return;
     }
 
     pipeline.recentSilenceFrames += 1;
+    if (pipeline.recentSilenceFrames > SILENCE_RESET_FRAMES) {
+      pipeline.speechRunFrames = 0;
+    }
   }
 
   private async ensureSpeakerPipeline(participant: RemoteParticipant): Promise<SpeakerPipeline> {
@@ -542,14 +593,17 @@ class LiveKitRealtimeTranslatorBot {
       audioTask: null,
       currentTrackSid: null,
       recentSilenceFrames: 0,
+      speechRunFrames: 0,
       turnId: null,
       turn: null,
       firstSpeechFrameAt: 0,
       finalizedSegments: [],
       lastStartedTranscript: "",
       lastFinalTranscript: "",
+      lastSpokenFinal: "",
       latestEmotion: null,
       voiceGender: new VoiceGenderEstimator(parseVoiceGender(metadata.voiceGender)),
+      utteranceAudio: new UtteranceAudioBuffer(),
       lastMediaHeartbeatAt: 0,
       lastBargeInAt: undefined,
       reconnectStartedAt: undefined,
@@ -665,12 +719,13 @@ class LiveKitRealtimeTranslatorBot {
     const finalizedText = appendFinalTranscriptSegment(pipeline, text);
 
     if (event.speechFinal && finalizedText) {
-      pipeline.latestEmotion = detectEmotionFast(finalizedText);
-      if (pipeline.turn) {
-        pipeline.turn.userText = finalizedText;
-      }
       clearFinalizedTranscriptSegments(pipeline);
-      await this.maybeStartTranslation(pipeline, finalizedText, true);
+      const spokenText = await this.refineCodemixFinal(pipeline, finalizedText);
+      pipeline.latestEmotion = detectEmotionFast(spokenText);
+      if (pipeline.turn) {
+        pipeline.turn.userText = spokenText;
+      }
+      await this.maybeStartTranslation(pipeline, spokenText, true);
       return;
     }
 
@@ -679,21 +734,38 @@ class LiveKitRealtimeTranslatorBot {
     }
   }
 
+  /** Final transcript for one finished utterance, corrected for code-mixed speech when possible. */
+  private async refineCodemixFinal(pipeline: SpeakerPipeline, streamingText: string): Promise<string> {
+    const wav = pipeline.utteranceAudio.takeWav();
+    const language = pipeline.effectiveLanguage;
+    if (!shouldRefineCodemix(language)) return streamingText;
+    const result = await refineCodemixTranscript(wav, language, streamingText);
+    logger.debug("TranslatorBot", `[${this.callId}] codemix refine ${result.reason} in ${result.ms}ms for ${pipeline.identity}`);
+    if (!result.refined) return streamingText;
+    return applySpokenCorrections(result.text, language) || streamingText;
+  }
+
   private async maybeStartTranslation(
     pipeline: SpeakerPipeline,
     transcript: string,
     isFinal: boolean,
   ): Promise<void> {
-    const shouldRestart = shouldStartTranslationFromTranscript({
-      transcript,
-      isFinal,
-      partialMinWords: PARTIAL_MIN_WORDS,
-      restartMinCharDelta: RESTART_MIN_CHAR_DELTA,
-      lastStartedTranscript: pipeline.lastStartedTranscript,
-    });
+    // Every finished utterance is spoken once. It used to be skipped when it
+    // matched the last partial already sent for captions, so the last
+    // sentence of a turn was often never voiced.
+    const shouldRestart = isFinal
+      ? normalizeTranscript(transcript) !== normalizeTranscript(pipeline.lastSpokenFinal)
+      : shouldStartTranslationFromTranscript({
+        transcript,
+        isFinal,
+        partialMinWords: PARTIAL_MIN_WORDS,
+        restartMinCharDelta: RESTART_MIN_CHAR_DELTA,
+        lastStartedTranscript: pipeline.lastStartedTranscript,
+      });
     if (!shouldRestart) return;
 
     markStartedTranslation(pipeline, transcript);
+    if (isFinal) pipeline.lastSpokenFinal = transcript;
     const sourceLanguage = await this.resolveSourceLanguage(pipeline, transcript, isFinal);
     const targets = await this.listTargetsForSpeaker(pipeline.identity, sourceLanguage);
     if (targets.length === 0) return;
@@ -707,7 +779,11 @@ class LiveKitRealtimeTranslatorBot {
 
       const generation = channel.currentGeneration + 1;
       channel.currentGeneration = generation;
-      this.interruptChannel(channel, isFinal ? "new-final" : "new-partial");
+      // A newer transcript only supersedes the caption translation still in
+      // flight. Speech already queued or playing for earlier finished
+      // utterances keeps going.
+      channel.translationAbort?.abort();
+      channel.translationAbort = null;
 
       void this.translateAndSpeak({
         pipeline,
@@ -800,9 +876,23 @@ class LiveKitRealtimeTranslatorBot {
     const translationStartedAt = Date.now();
     let translationAbort: AbortController | null = null;
     const trace = this.getOrCreateLatencyTrace(opts.pipeline, opts.channel);
+    // Finished utterances are always translated and spoken, in order, unless
+    // queued speech is discarded (barge-in). Partial transcripts only feed
+    // captions and give way to the next partial.
+    const speechGeneration = opts.channel.speechGeneration;
+    const isCurrent = (): boolean => {
+      if (this.closed) return false;
+      if (opts.isFinal) return opts.channel.speechGeneration === speechGeneration;
+      if (opts.generation !== opts.channel.currentGeneration) return false;
+      if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
+        recordVoiceCounter("turn_order_mismatches");
+        return false;
+      }
+      return true;
+    };
 
     try {
-      if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
+      if (!isCurrent()) return;
 
       if (opts.pipeline.turn && !opts.pipeline.turn.translationStartedAt) {
         opts.pipeline.turn.translationStartedAt = translationStartedAt;
@@ -812,7 +902,11 @@ class LiveKitRealtimeTranslatorBot {
       void preWarmPair(opts.sourceLanguage, opts.targetLanguage);
 
       translationAbort = new AbortController();
-      opts.channel.translationAbort = translationAbort;
+      if (opts.isFinal) {
+        opts.channel.finalTranslationAborts.add(translationAbort);
+      } else {
+        opts.channel.translationAbort = translationAbort;
+      }
       let lastPublishedTranslation = "";
 
       await streamTranslationTokens(
@@ -850,11 +944,7 @@ class LiveKitRealtimeTranslatorBot {
             }
           },
           onPartial: (translatedText) => {
-            if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
-            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             const translated = normalizeSpaces(translatedText);
             if (!translated || !shouldEmitStreamingPartial(lastPublishedTranslation, translated)) return;
 
@@ -881,11 +971,7 @@ class LiveKitRealtimeTranslatorBot {
             }, [opts.targetIdentity]);
           },
           onSegment: (segment, fullTranslatedText) => {
-            if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
-            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             const translated = normalizeSpaces(fullTranslatedText);
             if (translated) {
               recordRenderedTranslation(opts.channel, translated);
@@ -894,11 +980,11 @@ class LiveKitRealtimeTranslatorBot {
               }
             }
 
-            if (shouldDeliverVoiceTranslation(opts.targetMode)) {
+            if (opts.isFinal && shouldDeliverVoiceTranslation(opts.targetMode)) {
               this.enqueueTtsSegment(
                 opts.channel,
                 segment,
-                opts.generation,
+                speechGeneration,
                 opts.turnId,
                 Date.now(),
                 opts.pipeline,
@@ -909,11 +995,7 @@ class LiveKitRealtimeTranslatorBot {
             }
           },
           onFinal: (translatedText) => {
-            if (this.closed || opts.generation !== opts.channel.currentGeneration) return;
-            if (isTurnOrderMismatch(opts.channel.currentTurnId, opts.turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             const translated = normalizeSpaces(translatedText);
             if (!translated) return;
 
@@ -967,7 +1049,7 @@ class LiveKitRealtimeTranslatorBot {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message === "This operation was aborted") {
+      if (translationAbort?.signal.aborted || message === "This operation was aborted") {
         return;
       }
       trace?.markFallback(`translation_runtime_failed:${message}`);
@@ -995,6 +1077,9 @@ class LiveKitRealtimeTranslatorBot {
     } finally {
       if (translationAbort && opts.channel.translationAbort === translationAbort) {
         opts.channel.translationAbort = null;
+      }
+      if (translationAbort) {
+        opts.channel.finalTranslationAborts.delete(translationAbort);
       }
     }
   }
@@ -1036,11 +1121,9 @@ class LiveKitRealtimeTranslatorBot {
     targetMode: ListenerTranslationMode,
     trace: LatencyTrace | null,
   ): Promise<void> {
-    if (this.closed || generation !== channel.currentGeneration) return;
-    if (isTurnOrderMismatch(channel.currentTurnId, turnId)) {
-      recordVoiceCounter("turn_order_mismatches");
-      return;
-    }
+    // generation is the channel speechGeneration captured when this sentence
+    // was queued; a barge-in or backlog reset discards it.
+    if (this.closed || generation !== channel.speechGeneration) return;
     const queueAgeMs = Math.max(0, Date.now() - queuedAt);
     if (queueAgeMs >= TRANSLATOR_BOT_MAX_TTS_BACKLOG_MS) {
       recordVoiceCounter("stale_tts_segments");
@@ -1061,7 +1144,7 @@ class LiveKitRealtimeTranslatorBot {
     let firstByteObserved = false;
     let timeoutFallbackTriggered = false;
     const ttsReadyTimer = setTimeout(() => {
-      if (firstByteObserved || timeoutFallbackTriggered || this.closed || generation !== channel.currentGeneration) {
+      if (firstByteObserved || timeoutFallbackTriggered || this.closed || generation !== channel.speechGeneration) {
         return;
       }
       timeoutFallbackTriggered = true;
@@ -1131,7 +1214,7 @@ class LiveKitRealtimeTranslatorBot {
           userAgent: "NeuraTalk/TranslatorBot",
         },
       )) {
-        if (this.closed || generation !== channel.currentGeneration) break;
+        if (this.closed || generation !== channel.speechGeneration) break;
         await channel.audioSource.captureFrame(new AudioFrame(frame, PCM_SAMPLE_RATE, PCM_CHANNELS, frame.length));
         if (!playbackMarked) {
           playbackMarked = true;
@@ -1205,8 +1288,10 @@ class LiveKitRealtimeTranslatorBot {
       localTrack,
       trackSid: publication?.sid ?? null,
       currentGeneration: 0,
+      speechGeneration: 0,
       currentTurnId: null,
       translationAbort: null,
+      finalTranslationAborts: new Set(),
       ttsAbort: null,
       ttsChain: Promise.resolve(),
       speaking: false,
@@ -1217,8 +1302,17 @@ class LiveKitRealtimeTranslatorBot {
     };
 
     this.outputChannels.set(key, channel);
-    for (const participant of Array.from(this.room.remoteParticipants.values())) {
-      void this.restrictOutputTrack(channel, participant.identity);
+    // An unsubscribe sent before a listener has auto-subscribed to the new
+    // track is a no-op, so the restriction is re-applied as the publication
+    // propagates (measured: the speaker was still receiving their own
+    // translation when it was applied only once, at publish time).
+    for (const delayMs of [0, 500, 1_500, 4_000]) {
+      setTimeout(() => {
+        if (this.closed || !this.room || this.outputChannels.get(key) !== channel) return;
+        for (const participant of Array.from(this.room.remoteParticipants.values())) {
+          void this.restrictOutputTrack(channel, participant.identity);
+        }
+      }, delayMs);
     }
     return channel;
   }
@@ -1280,14 +1374,6 @@ class LiveKitRealtimeTranslatorBot {
     return pipeline.effectiveLanguage;
   }
 
-  private interruptChannelsForSource(sourceIdentity: string, reason: string): void {
-    for (const channel of Array.from(this.outputChannels.values())) {
-      if (channel.sourceIdentity === sourceIdentity) {
-        this.interruptChannel(channel, reason);
-      }
-    }
-  }
-
   private interruptChannelsForTarget(targetIdentity: string, reason: string): void {
     for (const channel of Array.from(this.outputChannels.values())) {
       if (channel.targetIdentity === targetIdentity) {
@@ -1300,8 +1386,11 @@ class LiveKitRealtimeTranslatorBot {
     if (channel.speaking || channel.pendingTtsSegments > 0) {
       recordVoiceCounter("ghost_audio_drops");
     }
+    channel.speechGeneration += 1;
     channel.translationAbort?.abort();
     channel.translationAbort = null;
+    for (const abort of Array.from(channel.finalTranslationAborts)) abort.abort();
+    channel.finalTranslationAborts.clear();
     channel.ttsAbort?.abort();
     channel.ttsAbort = null;
     channel.speaking = false;
@@ -1316,8 +1405,6 @@ class LiveKitRealtimeTranslatorBot {
       if (channel.sourceIdentity !== sourceIdentity) continue;
       channel.currentTurnId = turnId;
       channel.lastRenderedTranslation = "";
-      channel.pendingTtsSegments = 0;
-      channel.backlogSinceAt = null;
     }
   }
 

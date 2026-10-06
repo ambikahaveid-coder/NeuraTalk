@@ -765,8 +765,9 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     const [senderRow] = await db.select({
       translationEnabled: users.translationEnabled,
       consentTranslation: users.consentTranslation,
+      consentTimestamp: users.consentTimestamp,
     }).from(users).where(eq(users.id, viewerId));
-    const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation);
+    const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
     const translations: Record<string, string> = {};
     if (senderRow?.translationEnabled !== false && !translationConsentDenied) {
       // Both targets in parallel — this runs before the message is stored and

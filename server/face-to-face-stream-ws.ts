@@ -49,6 +49,7 @@ import {
 } from "./conversation-engine";
 import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-streaming-translation";
 import { createManagedStreamingSttSession, getDefaultSttProviderName } from "./providers/stt-provider-registry";
+import { UtteranceAudioBuffer, refineCodemixTranscript, shouldRefineCodemix } from "./translation/codemix-stt-refiner";
 import type { StreamingSttProviderSession, StreamingTranscriptEvent } from "./providers/voice-contracts";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.FACE_TO_FACE_TARGET_LATENCY_MS, 900);
@@ -56,8 +57,10 @@ const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.FACE_TO_FACE_MIN_PARTIAL_
 const RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.FACE_TO_FACE_RESTART_DELTA, 4);
 const VAD_THRESHOLD = parsePositiveFloat(process.env.FACE_TO_FACE_VAD_THRESHOLD, 0.014);
 const SILENCE_RESET_FRAMES = parsePositiveInt(process.env.FACE_TO_FACE_SILENCE_RESET_FRAMES, 8);
-const FACE_TO_FACE_MAX_TTS_BACKLOG_SEGMENTS = 3;
-const FACE_TO_FACE_MAX_TTS_BACKLOG_MS = 1_500;
+// Translated sentences are spoken in order; the queue is only cut when it
+// falls this far behind.
+const FACE_TO_FACE_MAX_TTS_BACKLOG_SEGMENTS = parsePositiveInt(process.env.FACE_TO_FACE_MAX_TTS_BACKLOG_SEGMENTS, 8);
+const FACE_TO_FACE_MAX_TTS_BACKLOG_MS = parsePositiveInt(process.env.FACE_TO_FACE_MAX_TTS_BACKLOG_MS, 20_000);
 
 type FaceToFaceSpeaker = "person1" | "person2";
 
@@ -101,6 +104,12 @@ class FaceToFaceRealtimeSession {
   private lastRenderedTranslation = "";
   private latestEmotion: EmotionState | null = null;
   private currentGeneration = 0;
+  /** Bumped only when queued speech must be discarded (stop, speaker switch, backlog). */
+  private speechGeneration = 0;
+  private lastSpokenFinal = "";
+  /** Audio of the utterance in progress, re-recognised for code-mixed speech once it ends. */
+  private utteranceAudio = new UtteranceAudioBuffer();
+  private finalTranslationAborts = new Set<AbortController>();
   private translationAbort: AbortController | null = null;
   private ttsAbort: AbortController | null = null;
   private ttsChain: Promise<void> = Promise.resolve();
@@ -140,10 +149,16 @@ class FaceToFaceRealtimeSession {
     this.userId = opts.userId;
   }
 
-  async handleMessage(data: WebSocket.RawData): Promise<void> {
+  async handleMessage(data: WebSocket.RawData, isBinary?: boolean): Promise<void> {
     if (this.closed) return;
 
-    if (typeof data === "string" || data instanceof Buffer && !looksLikePcmFrame(data)) {
+    // ws delivers text frames as Buffers too, so the frame type -- not the
+    // payload size -- decides: a short JSON control message has an even
+    // length about half the time and was being swallowed as audio.
+    const isControl = isBinary === undefined
+      ? typeof data === "string" || (data instanceof Buffer && !looksLikePcmFrame(data))
+      : !isBinary;
+    if (isControl) {
       try {
         const raw = typeof data === "string" ? data : data.toString("utf8");
         const message = JSON.parse(raw) as Record<string, unknown>;
@@ -242,7 +257,8 @@ class FaceToFaceRealtimeSession {
 
     this.deepgram = createManagedStreamingSttSession({
       language: this.config.sourceLanguage,
-      endpointingMs: 90,
+      // Same end-of-utterance silence as calls: shorter cut people off mid-sentence.
+      endpointingMs: 250,
       utteranceEndMs: 240,
       onSocketOpen: (latencyMs) => {
         this.lastDeepgramSocketLatencyMs = latencyMs;
@@ -271,6 +287,9 @@ class FaceToFaceRealtimeSession {
     const speaking = rms >= VAD_THRESHOLD;
 
     if (speaking) {
+      if (!this.turnId || this.recentSilenceFrames * 20 >= 1_000) {
+        this.utteranceAudio.keepLast(300);
+      }
       if (!this.turnId || this.recentSilenceFrames > SILENCE_RESET_FRAMES) {
         this.turnId = randomUUID();
         this.firstSpeechFrameAt = Date.now();
@@ -284,13 +303,15 @@ class FaceToFaceRealtimeSession {
       }
 
       this.recentSilenceFrames = 0;
-      this.lastBargeInAt = Date.now();
-      recordVoiceCounter("overlap_events");
-      this.interruptPlayback("barge-in");
+      // No voice-triggered interrupt: on one shared phone the translated
+      // speech comes out of the same device the mic is on, and the speaker
+      // carrying on must not cut the translation of what they already said.
+      // Playback stops on an explicit "stop" or a speaker switch.
     } else {
       this.recentSilenceFrames += 1;
     }
 
+    this.utteranceAudio.push(normalized);
     this.deepgram?.send(normalized);
   }
 
@@ -355,9 +376,15 @@ class FaceToFaceRealtimeSession {
     const finalizedText = appendFinalTranscriptSegment(this.transcriptMemoryView(), text);
 
     if (event.speechFinal && finalizedText) {
-      this.latestEmotion = detectEmotionFast(finalizedText);
       clearFinalizedTranscriptSegments(this.transcriptMemoryView());
-      await this.maybeStartTranslation(finalizedText, true);
+      const wav = this.utteranceAudio.takeWav();
+      let spokenText = finalizedText;
+      if (shouldRefineCodemix(this.config.sourceLanguage)) {
+        const refined = await refineCodemixTranscript(wav, this.config.sourceLanguage, finalizedText);
+        if (refined.refined) spokenText = applySpokenCorrections(refined.text, this.config.sourceLanguage) || finalizedText;
+      }
+      this.latestEmotion = detectEmotionFast(spokenText);
+      await this.maybeStartTranslation(spokenText, true);
       return;
     }
 
@@ -367,23 +394,43 @@ class FaceToFaceRealtimeSession {
   }
 
   private async maybeStartTranslation(transcript: string, isFinal: boolean): Promise<void> {
-    const shouldRestart = shouldStartTranslationFromTranscript({
-      transcript,
-      isFinal,
-      partialMinWords: PARTIAL_MIN_WORDS,
-      restartMinCharDelta: RESTART_MIN_CHAR_DELTA,
-      lastStartedTranscript: this.lastStartedTranscript,
-    });
+    // Every finished utterance is spoken once. It used to be skipped when it
+    // matched the last partial already sent for captions, so the last
+    // sentence of a turn was often never voiced.
+    const shouldRestart = isFinal
+      ? normalizeTranscript(transcript) !== normalizeTranscript(this.lastSpokenFinal)
+      : shouldStartTranslationFromTranscript({
+        transcript,
+        isFinal,
+        partialMinWords: PARTIAL_MIN_WORDS,
+        restartMinCharDelta: RESTART_MIN_CHAR_DELTA,
+        lastStartedTranscript: this.lastStartedTranscript,
+      });
     if (!shouldRestart) return;
 
     markStartedTranslation(this.transcriptMemoryView(), transcript);
+    if (isFinal) this.lastSpokenFinal = transcript;
     const generation = ++this.currentGeneration;
-    this.interruptPlayback(isFinal ? "new-final" : "new-partial");
+    this.translationAbort?.abort();
+    this.translationAbort = null;
     void this.translateAndSpeak(transcript, generation, this.turnId, isFinal);
   }
 
   private async translateAndSpeak(transcript: string, generation: number, turnId: string | null, isFinal: boolean): Promise<void> {
     let translationAbort: AbortController | null = null;
+    // Finished utterances are always translated and spoken in order unless
+    // queued speech is discarded; partials only feed captions.
+    const speechGeneration = this.speechGeneration;
+    const isCurrent = (): boolean => {
+      if (this.closed) return false;
+      if (isFinal) return this.speechGeneration === speechGeneration;
+      if (generation !== this.currentGeneration) return false;
+      if (isTurnOrderMismatch(this.turnId, turnId)) {
+        recordVoiceCounter("turn_order_mismatches");
+        return false;
+      }
+      return true;
+    };
     try {
       const sourceState = await registerParticipantTranscript(
         this.sessionId,
@@ -431,7 +478,11 @@ class FaceToFaceRealtimeSession {
       void preWarmCacheForCall(resolvedLanguages.sourceLanguage, resolvedLanguages.targetLanguage).catch(() => undefined);
 
       translationAbort = new AbortController();
-      this.translationAbort = translationAbort;
+      if (isFinal) {
+        this.finalTranslationAborts.add(translationAbort);
+      } else {
+        this.translationAbort = translationAbort;
+      }
       let lastPublishedTranslation = "";
 
       await streamTranslationTokens(
@@ -462,11 +513,7 @@ class FaceToFaceRealtimeSession {
             this.turn?.trace?.mark("first_translated_token");
           },
           onPartial: (translatedText) => {
-            if (this.closed || generation !== this.currentGeneration) return;
-            if (isTurnOrderMismatch(this.turnId, turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             const translated = normalizeSpaces(translatedText);
             if (!translated || !shouldEmitStreamingPartial(lastPublishedTranslation, translated)) return;
 
@@ -484,20 +531,14 @@ class FaceToFaceRealtimeSession {
             });
           },
           onSegment: (segment, fullTranslatedText) => {
-            if (this.closed || generation !== this.currentGeneration) return;
-            if (isTurnOrderMismatch(this.turnId, turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             recordRenderedTranslation(this.outputMemoryView(), fullTranslatedText);
-            this.enqueueTtsSegment(segment, generation, turnId, Date.now(), resolvedLanguages.targetLanguage, this.turn?.trace || null);
+            if (isFinal) {
+              this.enqueueTtsSegment(segment, speechGeneration, turnId, Date.now(), resolvedLanguages.targetLanguage, this.turn?.trace || null);
+            }
           },
           onFinal: (translatedText) => {
-            if (this.closed || generation !== this.currentGeneration) return;
-            if (isTurnOrderMismatch(this.turnId, turnId)) {
-              recordVoiceCounter("turn_order_mismatches");
-              return;
-            }
+            if (!isCurrent()) return;
             const translated = normalizeSpaces(translatedText);
             if (!translated) return;
 
@@ -509,7 +550,8 @@ class FaceToFaceRealtimeSession {
 
             recordDeliveredFinalTranslation(this.outputMemoryView(), translated);
             this.sendJson({
-              type: "translation.final",
+              // A partial transcript's translation is still provisional.
+              type: isFinal ? "translation.final" : "translation.partial",
               speaker: this.config.speaker,
               originalText: transcript,
               translatedText: translated,
@@ -531,10 +573,10 @@ class FaceToFaceRealtimeSession {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message === "This operation was aborted") {
+      if (translationAbort?.signal.aborted || message === "This operation was aborted") {
         return;
       }
-      if (message !== "This operation was aborted") {
+      {
         this.turn?.trace?.markFallback(`translation_runtime_failed:${message}`);
         logger.warn("FaceToFaceWS", `Streaming translation failed in ${this.sessionId}: ${message}`);
         recordVoiceCounter("translation_fallbacks");
@@ -552,6 +594,9 @@ class FaceToFaceRealtimeSession {
     } finally {
       if (translationAbort && this.translationAbort === translationAbort) {
         this.translationAbort = null;
+      }
+      if (translationAbort) {
+        this.finalTranslationAborts.delete(translationAbort);
       }
     }
   }
@@ -590,11 +635,8 @@ class FaceToFaceRealtimeSession {
     targetLanguage: string,
     trace: LatencyTrace | null,
   ): Promise<void> {
-    if (this.closed || generation !== this.currentGeneration) return;
-    if (isTurnOrderMismatch(this.turnId, turnId)) {
-      recordVoiceCounter("turn_order_mismatches");
-      return;
-    }
+    // generation is the speechGeneration captured when this sentence was queued.
+    if (this.closed || generation !== this.speechGeneration) return;
     const queueAgeMs = Math.max(0, Date.now() - queuedAt);
     if (queueAgeMs >= FACE_TO_FACE_MAX_TTS_BACKLOG_MS) {
       recordVoiceCounter("stale_tts_segments");
@@ -631,7 +673,7 @@ class FaceToFaceRealtimeSession {
           },
         },
       )) {
-        if (this.closed || generation !== this.currentGeneration) break;
+        if (this.closed || generation !== this.speechGeneration) break;
         if (!playbackMarked) {
           playbackMarked = true;
           trace?.mark("playback_start");
@@ -657,8 +699,11 @@ class FaceToFaceRealtimeSession {
     if (this.pendingTtsSegments > 0 || this.ttsAbort) {
       recordVoiceCounter("ghost_audio_drops");
     }
+    this.speechGeneration += 1;
     this.translationAbort?.abort();
     this.translationAbort = null;
+    for (const abort of Array.from(this.finalTranslationAborts)) abort.abort();
+    this.finalTranslationAborts.clear();
     if (this.ttsAbort) {
       this.ttsAbort.abort();
       this.ttsAbort = null;
@@ -735,6 +780,16 @@ export function setupFaceToFaceRealtimeWebSocket(wss: WebSocketServer): void {
 }
 
 async function handleConnection(ws: WebSocket, request: IncomingMessage): Promise<void> {
+  // Clients send their language config as soon as the socket opens, while
+  // the auth/billing checks below are still running; with no listener yet
+  // that first message was silently dropped and the session ran on "auto"
+  // (Telugu was transcribed as Marathi). Hold early messages until ready.
+  const early: Array<{ data: WebSocket.RawData; isBinary: boolean }> = [];
+  const holdEarly = (data: WebSocket.RawData, isBinary: boolean) => {
+    if (early.length < 500) early.push({ data, isBinary });
+  };
+  ws.on("message", holdEarly);
+
   const url = new URL(request.url || "", `http://${request.headers.host || "localhost"}`);
   const token = url.searchParams.get("token");
   const claims = token ? await verifyWsToken(token) : null;
@@ -784,8 +839,15 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     targetLatencyMs: TARGET_LATENCY_MS,
   }));
 
-  ws.on("message", (data) => {
-    void session.handleMessage(data);
+  // Drain in arrival order; anything arriving meanwhile joins the queue.
+  // The swap below happens with no await after the queue is seen empty.
+  while (early.length > 0) {
+    const message = early.shift()!;
+    await session.handleMessage(message.data, message.isBinary);
+  }
+  ws.off("message", holdEarly);
+  ws.on("message", (data, isBinary) => {
+    void session.handleMessage(data, isBinary);
   });
 
   ws.on("close", () => {

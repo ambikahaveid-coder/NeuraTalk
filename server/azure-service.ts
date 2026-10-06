@@ -87,8 +87,8 @@ const AZURE_VOICES: Record<string, { male: string; female: string }> = {
   mr: { male: "mr-IN-ManoharNeural", female: "mr-IN-AarohiNeural" },
   bn: { male: "bn-IN-BashkarNeural", female: "bn-IN-TanishaaNeural" },
   gu: { male: "gu-IN-NiranjanNeural", female: "gu-IN-DhwaniNeural" },
-  pa: { male: "pa-IN-GurpreetNeural", female: "pa-IN-SalimNeural" },
-  ur: { male: "ur-PK-AsadNeural", female: "ur-PK-UzmaNeural" },
+  pa: { male: "pa-IN-OjasNeural", female: "pa-IN-VaaniNeural" },
+  ur: { male: "ur-IN-SalmanNeural", female: "ur-IN-GulNeural" },
   es: { male: "es-ES-AlvaroNeural", female: "es-ES-ElviraNeural" },
   fr: { male: "fr-FR-HenriNeural", female: "fr-FR-DeniseNeural" },
   de: { male: "de-DE-ConradNeural", female: "de-DE-KatjaNeural" },
@@ -104,7 +104,7 @@ const AZURE_VOICES: Record<string, { male: string; female: string }> = {
 const AZURE_LOCALES: Record<string, string> = {
   en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN",
   ml: "ml-IN", mr: "mr-IN", bn: "bn-IN", gu: "gu-IN", pa: "pa-IN",
-  ur: "ur-PK", es: "es-ES", fr: "fr-FR", de: "de-DE", ja: "ja-JP",
+  ur: "ur-IN", es: "es-ES", fr: "fr-FR", de: "de-DE", ja: "ja-JP",
   zh: "zh-CN", ar: "ar-SA", ko: "ko-KR", pt: "pt-BR", ru: "ru-RU",
   it: "it-IT", nl: "nl-NL", tr: "tr-TR",
 };

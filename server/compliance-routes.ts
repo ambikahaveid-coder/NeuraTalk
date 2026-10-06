@@ -3,18 +3,21 @@ import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "./observability";
+import { loadUser, requireAuth } from "./role-middleware";
 
 const router = Router();
 
 /**
  * Persist user legal consents for regulatory compliance (DPDP/GDPR)
  */
-router.post("/api/compliance/consent", async (req, res) => {
+// Consent is always recorded for the signed-in user; a userId in the body is
+// accepted only when it matches, so one account cannot change another's consent.
+router.post("/api/compliance/consent", loadUser, requireAuth, async (req, res) => {
   try {
-    const { userId, termsAccepted, translationConsent, recordingConsent } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: "User ID is required for compliance logging" });
+    const { termsAccepted, translationConsent, recordingConsent } = req.body;
+    const userId = req.user!.id;
+    if (req.body.userId != null && Number(req.body.userId) !== userId) {
+      return res.status(403).json({ error: "You can only update your own consent" });
     }
 
     await db.update(users)
@@ -43,9 +46,10 @@ router.post("/api/compliance/consent", async (req, res) => {
  * Latency-Aware Regional Routing
  * Allows the client to specify their preferred execution node
  */
-router.post("/api/compliance/routing", async (req, res) => {
+router.post("/api/compliance/routing", loadUser, requireAuth, async (req, res) => {
   try {
-    const { userId, preferredRegion } = req.body;
+    const { preferredRegion } = req.body;
+    const userId = req.user!.id;
 
     await db.update(users)
       .set({ preferredRegion })

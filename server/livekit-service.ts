@@ -185,7 +185,7 @@ export async function issueBotToken(roomName: string, botName = "neuratalk-trans
     canPublish: true,
     canSubscribe: true,
     canPublishData: true,
-    hidden: true,
+    hidden: false,
     recorder: false,
   });
 
@@ -197,6 +197,13 @@ export async function issueBotToken(roomName: string, botName = "neuratalk-trans
 /**
  * List participants in a room (to check who's live).
  */
+/** LiveKit reports a missing room as code "not_found" with message "requested room does not exist". */
+export function isRoomMissingError(err: unknown): boolean {
+  const e = err as { code?: unknown; status?: unknown; message?: unknown } | null;
+  const text = `${e?.code ?? ""} ${e?.message ?? err}`.toLowerCase();
+  return e?.status === 404 || text.includes("not_found") || text.includes("does not exist") || text.includes("not found");
+}
+
 export async function listParticipants(roomName: string): Promise<ParticipantInfo[]> {
   return getRoomService().listParticipants(roomName);
 }
@@ -212,7 +219,7 @@ export async function endCallRoom(roomName: string): Promise<void> {
     await getRoomService().deleteRoom(roomName);
   } catch (err: any) {
     // Room may already be gone — not an error
-    if (!err?.message?.includes("not_found")) throw err;
+    if (!isRoomMissingError(err)) throw err;
   }
 }
 

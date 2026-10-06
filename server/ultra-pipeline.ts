@@ -296,6 +296,14 @@ export async function preWarmCacheForCall(
   const start = Date.now();
   const stats: PreWarmStats = { translationsCached: 0, ttsCached: 0, totalLatencyMs: 0, errors: 0 };
 
+  // Off by default: warming ~60 phrases (plus their speech) per language
+  // pair at call start fired bursts that tripped Azure Translator's rate
+  // limit (429) just as the callers' real sentences needed translating, and
+  // billed TTS for phrases that are rarely said word for word.
+  if ((process.env.ENABLE_TRANSLATION_PREWARM || "false").trim().toLowerCase() !== "true") {
+    return stats;
+  }
+
   const sourcePhrases = COMMON_PHRASES[sourceLanguage] || COMMON_PHRASES["en"];
   const targetPhrases = COMMON_PHRASES[targetLanguage] || COMMON_PHRASES["en"];
 
@@ -368,22 +376,12 @@ export async function ultraTranslate(
   const cached = getCachedTranslation(text, from, to);
   if (cached) return cached;
 
-  // 2. Sarvam Mayura — tried first for Indian-language pairs: purpose-built for
-  // Hindi/Telugu/Tamil/etc (and their code-mixed forms), not an afterthought
-  // the way Azure's general-purpose translator is.
-  if (isSarvamAvailable() && isSarvamLanguage(from) && isSarvamLanguage(to)) {
-    try {
-      const result = await sarvamTranslate(text, from, to);
-      if (result && result !== text) {
-        setCachedTranslation(text, from, to, result);
-        return result;
-      }
-    } catch (err) {
-      logger.warn("UltraPipeline", `sarvamTranslate failed: ${err}`);
-    }
-  }
-
-  // 3. Azure Translator — single hop on the hot path, ~30ms with keepalive.
+  // 2. Azure Translator — single hop on the hot path, ~0.1–0.6 s. Tried before
+  // Sarvam: on short spoken utterances with code-mixed English (the speech
+  // this path translates), Sarvam Mayura was measured adding content and
+  // flipping meaning ("can you suggest a tablet?" -> "are you suggesting a
+  // tablet?", "10 minutes late" -> "keep it within a 10-minute timeframe"),
+  // while Azure kept the meaning in 7 of 8 cases and is ~5x faster.
   if (isAzureTranslatorAvailable()) {
     try {
       const result = await azureTranslate(text, from, to);
@@ -393,6 +391,19 @@ export async function ultraTranslate(
       }
     } catch (err) {
       logger.warn("UltraPipeline", `azureTranslate failed: ${err}`);
+    }
+  }
+
+  // 3. Sarvam Mayura — Indian-language pairs when Azure is unavailable.
+  if (isSarvamAvailable() && isSarvamLanguage(from) && isSarvamLanguage(to)) {
+    try {
+      const result = await sarvamTranslate(text, from, to);
+      if (result && result !== text) {
+        setCachedTranslation(text, from, to, result);
+        return result;
+      }
+    } catch (err) {
+      logger.warn("UltraPipeline", `sarvamTranslate failed: ${err}`);
     }
   }
 

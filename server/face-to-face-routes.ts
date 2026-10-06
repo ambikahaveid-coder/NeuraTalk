@@ -20,8 +20,18 @@ export function registerFaceToFaceRoutes(app: Express): void {
     warnLowBalance,
     (req: Request, res: Response) => {
       const user = req.user!;
+      // verifyWsToken only accepts tokens bound to a live login session; a
+      // token with just the user id was rejected (4401), so face-to-face could
+      // never connect.
+      const authHeader = req.headers.authorization;
+      const sessionToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (!sessionToken || !user.sessionId) {
+        return res.status(401).json({ message: "Active session required" });
+      }
       const token = issueWsToken({
         userId: user.id,
+        sessionId: user.sessionId,
+        sessionToken,
         phoneNumber: user.phone ?? undefined,
       }, 60 * 60);
 

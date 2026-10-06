@@ -10,28 +10,33 @@ import { isTranslationConsentDenied } from "../../server/translation-consent";
  * send (server/personal-chat-routes.ts), group chat text send, and group
  * chat voice-message processing (both in server/group-chats.ts).
  *
- * Opt-out semantics were an explicit product decision (see
- * server/translation-consent.ts's comment): consentTranslation defaults to
- * false and no existing user has ever set it, so only an EXPLICIT false
- * blocks translation -- unset/true both pass. This avoids silently
- * disabling translation for the entire existing user base on deploy.
+ * Opt-out semantics (see server/translation-consent.ts): consentTranslation
+ * defaults to false and the apps never record consent, so `false` alone means
+ * "never asked". Only a recorded refusal -- false WITH a consentTimestamp from
+ * /api/compliance/consent -- blocks translation.
  */
 
 describe("P0-4: isTranslationConsentDenied predicate", () => {
-  it("1. consent explicitly false -> denied (providers must not be called)", () => {
-    expect(isTranslationConsentDenied(false)).toBe(true);
+  const recordedAt = new Date("2026-10-01T10:00:00Z");
+
+  it("1. recorded refusal (false + consent timestamp) -> denied (providers must not be called)", () => {
+    expect(isTranslationConsentDenied(false, recordedAt)).toBe(true);
+    expect(isTranslationConsentDenied(false, recordedAt.toISOString())).toBe(true);
   });
 
-  it("2. consent explicitly true -> not denied (providers called normally)", () => {
-    expect(isTranslationConsentDenied(true)).toBe(false);
+  it("2. consent true -> not denied, recorded or not", () => {
+    expect(isTranslationConsentDenied(true, recordedAt)).toBe(false);
+    expect(isTranslationConsentDenied(true, null)).toBe(false);
   });
 
-  it("unset (undefined, the real-world default for every existing user) -> not denied (opt-out semantics)", () => {
-    expect(isTranslationConsentDenied(undefined)).toBe(false);
+  it("schema default (false, never recorded) -> not denied -- this is every real user, since no app records consent", () => {
+    expect(isTranslationConsentDenied(false, null)).toBe(false);
+    expect(isTranslationConsentDenied(false, undefined)).toBe(false);
   });
 
-  it("null (defensive -- some query paths could plausibly return null) -> not denied", () => {
-    expect(isTranslationConsentDenied(null)).toBe(false);
+  it("unset/null consent -> not denied", () => {
+    expect(isTranslationConsentDenied(undefined, undefined)).toBe(false);
+    expect(isTranslationConsentDenied(null, recordedAt)).toBe(false);
   });
 });
 
@@ -42,7 +47,7 @@ describe("P0-4: consent gate is wired BEFORE any provider call at all three chat
     const source = fs.readFileSync(path.resolve(__dirname, "../../server/personal-chat-routes.ts"), "utf8");
 
     const gateIdx = source.indexOf("const translationConsentDenied = isTranslationConsentDenied(");
-    const firstProviderCallIdx = source.indexOf("await translatePersonalText(");
+    const firstProviderCallIdx = source.indexOf("translatePersonalText(input.content");
     expect(gateIdx).toBeGreaterThan(-1);
     expect(firstProviderCallIdx).toBeGreaterThan(-1);
     expect(gateIdx).toBeLessThan(firstProviderCallIdx);

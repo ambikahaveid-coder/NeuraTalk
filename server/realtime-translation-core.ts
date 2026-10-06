@@ -452,7 +452,7 @@ export function toAzureLocale(language: string): string {
     bn: "bn-IN",
     gu: "gu-IN",
     pa: "pa-IN",
-    ur: "ur-PK",
+    ur: "ur-IN",
     es: "es-ES",
     fr: "fr-FR",
     de: "de-DE",

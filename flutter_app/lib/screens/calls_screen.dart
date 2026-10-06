@@ -5,6 +5,7 @@ import '../services/api_service.dart';
 import '../services/call_service.dart';
 import 'call_screen.dart';
 import 'transcript_history_screen.dart';
+import 'face_to_face_screen.dart';
 import 'transcript_detail_screen.dart';
 
 class CallsScreen extends StatefulWidget {
@@ -76,6 +77,17 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
       floatingActionButton: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          FloatingActionButton(
+            heroTag: 'face-to-face',
+            tooltip: 'Face to face',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FaceToFaceScreen()),
+            ),
+            backgroundColor: AppColors.orange,
+            child: const Icon(Icons.record_voice_over),
+          ),
+          const SizedBox(height: 12),
           FloatingActionButton(
             heroTag: 'video',
             onPressed: _startVideoCall,

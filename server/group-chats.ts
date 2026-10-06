@@ -10,6 +10,27 @@ import { Readable } from "stream";
 import { requireAuth } from "./role-middleware";
 import { sendPushNotification } from "./firebase-admin";
 import { groupChatSendLimiter } from "./rate-limit";
+
+/**
+ * A member reads and hears the group in their own profile language. The
+ * per-member column defaulted to "en" (the app always sent "en" when adding
+ * someone), so a Telugu speaker saw every message in English.
+ */
+async function groupMemberLanguages(groupId: number): Promise<Array<{ userId: number; language: string }>> {
+  const rows = await db.select({
+    userId: groupChatMembers.userId,
+    memberLanguage: groupChatMembers.preferredLanguage,
+    profileLanguage: users.preferredLanguage,
+  }).from(groupChatMembers)
+    .leftJoin(users, eq(users.id, groupChatMembers.userId))
+    .where(eq(groupChatMembers.groupChatId, groupId));
+  return rows.map((r) => ({ userId: r.userId, language: r.profileLanguage || r.memberLanguage || "en" }));
+}
+
+async function profileLanguageOf(userId: number): Promise<string | null> {
+  const [row] = await db.select({ language: users.preferredLanguage }).from(users).where(eq(users.id, userId));
+  return row?.language || null;
+}
 import { hasBlockedUser } from "./blocking";
 import { isTranslationConsentDenied } from "./translation-consent";
 
@@ -213,7 +234,7 @@ router.post("/api/group-chats", requireAuth, async (req: Request, res: Response)
     await db.insert(groupChatMembers).values({
       groupChatId: group[0].id,
       userId: createdById,
-      preferredLanguage: defaultLanguage || "en",
+      preferredLanguage: (await profileLanguageOf(createdById)) || defaultLanguage || "en",
       role: "admin",
     });
     
@@ -342,7 +363,7 @@ router.post("/api/group-chats/:groupId/members", requireAuth, async (req: Reques
     const member = await db.insert(groupChatMembers).values({
       groupChatId: groupId,
       userId,
-      preferredLanguage: preferredLanguage || "en",
+      preferredLanguage: (await profileLanguageOf(Number(userId))) || preferredLanguage || "en",
       role: "member",
     }).returning();
     
@@ -446,14 +467,11 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
     }
 
-    const detectedLang = originalLanguage || await detectLanguage(content, senderMember[0]?.preferredLanguage ?? undefined);
+    const detectedLang = originalLanguage || await detectLanguage(content, req.user!.preferredLanguage || senderMember[0]?.preferredLanguage || undefined);
     
-    const members = await db.select({
-      userId: groupChatMembers.userId,
-      preferredLanguage: groupChatMembers.preferredLanguage,
-    }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, groupId));
+    const members = await groupMemberLanguages(groupId);
     
-    const targetLanguages = Array.from(new Set(members.map(m => m.preferredLanguage)));
+    const targetLanguages = Array.from(new Set(members.map(m => m.language)));
 
     // P0-4: same consentTranslation gate as personal chat -- without this,
     // a user with consent explicitly revoked in personal chat could bypass
@@ -462,8 +480,8 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     // translated -- no consent" reason (unlike personal chat's jsonb
     // metadata field), so this intentionally does not add one -- adding it
     // would require a schema migration, which this fix avoids per scope.
-    const [groupSenderRow] = await db.select({ consentTranslation: users.consentTranslation }).from(users).where(eq(users.id, senderId));
-    const groupTranslationConsentDenied = isTranslationConsentDenied(groupSenderRow?.consentTranslation);
+    const [groupSenderRow] = await db.select({ consentTranslation: users.consentTranslation, consentTimestamp: users.consentTimestamp }).from(users).where(eq(users.id, senderId));
+    const groupTranslationConsentDenied = isTranslationConsentDenied(groupSenderRow?.consentTranslation, groupSenderRow?.consentTimestamp);
 
     const translations: Record<string, string> = {};
     if (!groupTranslationConsentDenied) {
@@ -599,17 +617,15 @@ async function processVoiceMessage(messageId: number) {
     const transcript = await speechToText(audioBuffer, "webm");
     const language = await detectLanguage(transcript);
     
-    const members = await db.select({
-      preferredLanguage: groupChatMembers.preferredLanguage,
-    }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, message[0].groupChatId));
+    const members = await groupMemberLanguages(message[0].groupChatId);
     
-    const targetLanguages = Array.from(new Set(members.map(m => m.preferredLanguage)));
+    const targetLanguages = Array.from(new Set(members.map(m => m.language)));
 
     // P0-4: same consent gate as the text-message route above -- voice is
     // another route into the same translation providers for the same
     // sender, so it must be checked independently, not inherited.
-    const [voiceSenderRow] = await db.select({ consentTranslation: users.consentTranslation }).from(users).where(eq(users.id, message[0].senderId));
-    const voiceTranslationConsentDenied = isTranslationConsentDenied(voiceSenderRow?.consentTranslation);
+    const [voiceSenderRow] = await db.select({ consentTranslation: users.consentTranslation, consentTimestamp: users.consentTimestamp }).from(users).where(eq(users.id, message[0].senderId));
+    const voiceTranslationConsentDenied = isTranslationConsentDenied(voiceSenderRow?.consentTranslation, voiceSenderRow?.consentTimestamp);
 
     const translations: Record<string, string> = {};
     const voiceTranslations: Record<string, { audioPath: string }> = {};
@@ -670,7 +686,7 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
       return res.status(403).json({ error: "Not a member of this group" });
     }
     
-    const userLanguage = memberInfo.length > 0 ? memberInfo[0].preferredLanguage : "en";
+    const userLanguage = req.user!.preferredLanguage || memberInfo[0].preferredLanguage || "en";
     
     const messages = await db.select().from(groupChatMessages)
       .where(and(

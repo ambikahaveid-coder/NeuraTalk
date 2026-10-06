@@ -37,7 +37,7 @@ const AZURE_LOCALE_MAP: Record<string, string> = {
   bn: "bn-IN",
   gu: "gu-IN",
   pa: "pa-IN",
-  ur: "ur-PK",
+  ur: "ur-IN",
   es: "es-ES",
   fr: "fr-FR",
   de: "de-DE",
@@ -190,7 +190,9 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
     this.onError = opts.onError;
     this.onProviderSwitch = opts.onProviderSwitch;
     this.onSocketOpen = opts.onSocketOpen;
-    this.endpointingMs = opts.endpointingMs ?? AZURE_STT_SEGMENTATION_SILENCE_MS;
+    // Azure rejects segmentation silence outside 100–5000 ms ("Could not
+    // validate speech context", 1007) and the session never starts.
+    this.endpointingMs = Math.min(5_000, Math.max(100, opts.endpointingMs ?? AZURE_STT_SEGMENTATION_SILENCE_MS));
   }
 
   async connect(): Promise<void> {

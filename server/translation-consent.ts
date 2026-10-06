@@ -3,15 +3,17 @@
  * group-chats.ts so the same opt-out semantics apply everywhere translation
  * is triggered from a chat send, not re-implemented per call site.
  *
- * Opt-out semantics (not strict opt-in): users.consentTranslation defaults
- * to false in the schema and, before this fix, was never read anywhere --
- * no existing user has ever explicitly set it. Gating strictly on `=== true`
- * would silently stop translation for the entire existing user base on
- * deploy. Instead, only an EXPLICIT false blocks translation -- unset/true
- * both pass -- mirroring how the sibling `translationEnabled` toggle is
- * already checked in this codebase. An explicit revocation now actually
- * takes effect for the first time; nothing already working changes.
+ * Opt-out semantics (not strict opt-in). users.consentTranslation defaults
+ * to false in the schema, and neither the mobile nor the web app ever calls
+ * /api/compliance/consent, so `false` on its own almost always means "never
+ * asked", not "said no". Treating that default as a refusal blocked chat
+ * translation for every user. A refusal only counts when the user actually
+ * recorded a consent choice, which /api/compliance/consent stamps in
+ * users.consentTimestamp.
  */
-export function isTranslationConsentDenied(consentTranslation: boolean | null | undefined): boolean {
-  return consentTranslation === false;
+export function isTranslationConsentDenied(
+  consentTranslation: boolean | null | undefined,
+  consentTimestamp: Date | string | null | undefined,
+): boolean {
+  return consentTranslation === false && consentTimestamp != null;
 }

@@ -72,6 +72,14 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === "AbortError" || error.message.includes("aborted"));
 }
 
+/** The caller's own signal fired for a reason other than a deadline (linked controllers abort with "timed out" on deadlines). */
+function isCallerCancellation(signal: AbortSignal | undefined): boolean {
+  if (!signal?.aborted) return false;
+  const reason = signal.reason;
+  const message = reason instanceof Error ? reason.message : String(reason ?? "");
+  return !message.includes("timed out");
+}
+
 function shouldAllowAttempt(entry: ProviderHealthEntry): boolean {
   if (entry.state !== "open") {
     return true;
@@ -192,6 +200,15 @@ export async function runWithResilience<T>(
       return result;
     } catch (error) {
       lastError = error;
+      // The caller cancelled (a newer partial transcript replaced this
+      // request, or the speaker barged in). That happens many times per
+      // sentence in a live call and says nothing about the provider's
+      // health; counting it opened the circuit after a few words and
+      // silenced translation and TTS for the rest of the call. Timeouts
+      // still count, because only the caller's own signal is excluded.
+      if (isCallerCancellation(options.signal)) {
+        throw error;
+      }
       markFailure(options.provider, error);
       logger.warn("VoiceResilience", "Provider operation failed", {
         provider: options.provider,

@@ -10,7 +10,7 @@ import {
   initCallLanguageTracking,
   setParticipantLanguagePreference,
 } from "../../universal-language-runtime";
-import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken, setParticipantHold } from "../../livekit-service";
+import { createCallRoom, endCallRoom, isRoomMissingError, issueAccessToken, issueBotToken, listParticipants, setParticipantHold } from "../../livekit-service";
 import { getPSTNProvider, isPSTNAvailable } from "../../pstn/registry";
 import { recordCallOutcome } from "../../pstn/monitor";
 import { checkOutboundCallFraud } from "../../fraud-detection-service";
@@ -52,6 +52,10 @@ const PROVIDER_TIMEOUT_ACTIVE_MS = parsePositiveInt(process.env.SMART_CALL_PROVI
 const PROVIDER_TIMEOUT_RINGING_MS = parsePositiveInt(process.env.SMART_CALL_PROVIDER_TIMEOUT_RINGING_MS, 90_000);
 const MEDIA_HEARTBEAT_INTERVAL_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_HEARTBEAT_INTERVAL_MS, 1_000);
 const MEDIA_STALL_WARN_MS = parsePositiveInt(process.env.SMART_CALL_MEDIA_STALL_WARN_MS, 30_000);
+// An app-to-app call with no media for this long and no person left in its
+// LiveKit room is abandoned (app killed, phone lost network) and is ended so
+// it stops billing and stops blocking that user's next call.
+const APP_CALL_ABANDON_MS = parsePositiveInt(process.env.SMART_CALL_APP_ABANDON_MS, 60_000);
 // P0 diagnostic (2026-08-23): a real cross-language call showed a bot token
 // issued with zero TranslatorBot log output afterward -- no success, no
 // retry warning, no final failure, no latency trace -- for the entire call.
@@ -526,6 +530,45 @@ export async function recordSmartCallMediaActivity(
   }).catch(() => null);
 }
 
+/** People (not the translator bot) still connected to a call's room; null when LiveKit can't be asked. */
+async function countPeopleInRoom(roomName: string): Promise<number | null> {
+  try {
+    const participants = await listParticipants(roomName);
+    return participants.filter((p) => !isTranslatorBotIdentity(p.identity, p.metadata)).length;
+  } catch (error) {
+    if (isRoomMissingError(error)) return 0;
+    const message = String((error as { message?: string })?.message || error);
+    logger.warn("SmartCallRouter", `could not list participants for ${roomName}: ${message}`);
+    return null;
+  }
+}
+
+function isTranslatorBotIdentity(identity: string, metadata?: string): boolean {
+  if (identity === "neuratalk-translator" || identity.startsWith("assistant-") || identity.startsWith("neuratalk-translator")) return true;
+  try {
+    return JSON.parse(metadata || "{}")?.role === "bot";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a call holding a user's active-call lock is really over: its
+ * record is gone or ended, or it went quiet with nobody left in the room.
+ */
+async function isCallAbandoned(callId: string): Promise<boolean> {
+  const record = await getSmartCall(callId).catch(() => null);
+  if (!record) return true;
+  const state = normalizeSmartCallState(record.status);
+  if (!state || !isActiveSmartCallState(state)) return true;
+  if (record.joinMethod === "app_to_pstn") return false;
+  const quietMs = Date.now() - latestHeartbeat(record);
+  const inCall = record.status === SMART_CALL_STATE.ACTIVE || record.status === SMART_CALL_STATE.ANSWERED;
+  const ringingTooLong = !inCall && quietMs >= PROVIDER_TIMEOUT_RINGING_MS;
+  if (quietMs < APP_CALL_ABANDON_MS && !ringingTooLong) return false;
+  return (await countPeopleInRoom(callId)) === 0;
+}
+
 function ensureSmartCallWatchdog(): void {
   if (watchdogStarted) {
     return;
@@ -587,6 +630,16 @@ async function processSmartCallWatchdog(): Promise<void> {
     }
 
     if (record.joinMethod !== "app_to_pstn") {
+      if (
+        (record.status === SMART_CALL_STATE.ACTIVE || record.status === SMART_CALL_STATE.ANSWERED)
+        && inactiveMs >= APP_CALL_ABANDON_MS
+        && (await countPeopleInRoom(record.callId)) === 0
+      ) {
+        logger.warn("SmartCallRouter", `ending abandoned app call ${record.callId}`, { callId: record.callId, status: record.status, inactiveMs });
+        await endCall(record.callId, "ABANDONED").catch((error) => {
+          logger.error("SmartCallRouter", `watchdog failed to end abandoned call ${record.callId}`, error as Error);
+        });
+      }
       return;
     }
     const timeoutMs = record.status === SMART_CALL_STATE.ACTIVE
@@ -1087,7 +1140,19 @@ export async function initiateCall(req: CallInitiateRequest): Promise<CallInitia
   // and both end up as fully created, fully billed calls. Acquiring the lock
   // up front closes that window; it's released on any failure below.
   const lockStartNs = process.hrtime.bigint();
-  const acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+  let acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+  if (!acquiredLock) {
+    // A crashed app never calls /end, so the previous call can still hold
+    // this lock. Release it when that call is really over instead of
+    // blocking the user from calling anyone for up to an hour.
+    const heldBy = await redisClient().get(activeCallKey);
+    if (heldBy && heldBy !== callId && await isCallAbandoned(heldBy)) {
+      logger.warn("SmartCallRouter", `releasing abandoned call ${heldBy} for caller ${req.callerId}`);
+      await endCall(heldBy, "ABANDONED").catch(() => undefined);
+      await redisClient().del(activeCallKey).catch(() => undefined);
+      acquiredLock = await redisClient().set(activeCallKey, callId, "EX", 3600, "NX");
+    }
+  }
   logSetupLatency(callId, "pending", "redis_lock_acquire", elapsedMs(lockStartNs));
   if (!acquiredLock) {
     throw new Error("CONCURRENT_CALL_RESTRICTED");
@@ -1757,7 +1822,12 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
   }
   await redisClient().del(`call_metadata:${callId}:callee`);
 
-  await endCallRoom(callId);
+  // A LiveKit API blip must not stop the call from ending: billing and the
+  // call record below still have to be finalised. An undeleted room empties
+  // on its own once the apps leave.
+  await endCallRoom(callId).catch((error) => {
+    logger.warn("SmartCallRouter", `room cleanup failed while ending ${callId}: ${String(error)}`);
+  });
   const terminationReasons = new Set([
     "insufficient_balance",
     "INSUFFICIENT_BALANCE",
