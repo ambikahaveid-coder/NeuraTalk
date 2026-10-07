@@ -54,9 +54,12 @@ describe("P0-4: consent gate is wired BEFORE any provider call at all three chat
 
     // The if-condition guarding the translation block must reference the
     // consent flag, not just the pre-existing translationEnabled toggle.
-    const ifBlockStart = source.indexOf("if (senderRow?.translationEnabled !== false");
-    expect(ifBlockStart).toBeGreaterThan(-1);
-    const ifLine = source.slice(ifBlockStart, source.indexOf("\n", ifBlockStart));
+    // (Photos/files skip translation entirely, so the condition may also start with isTextMessage.)
+    const conditionIdx = source.indexOf("senderRow?.translationEnabled !== false");
+    expect(conditionIdx).toBeGreaterThan(-1);
+    const lineStart = source.lastIndexOf("\n", conditionIdx) + 1;
+    const ifLine = source.slice(lineStart, source.indexOf("\n", conditionIdx));
+    expect(ifLine.trim().startsWith("if (")).toBe(true);
     expect(ifLine).toContain("translationConsentDenied");
   });
 

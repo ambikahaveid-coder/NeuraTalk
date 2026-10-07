@@ -3,35 +3,51 @@ import { ObjectStorageService, ObjectNotFoundError, isObjectStorageConfigured } 
 import { canAccessObject, ObjectPermission } from "./objectAcl";
 import { loadUser, requireAuth } from "../../role-middleware";
 
-// Bumped from 25MB -- real chat file sharing (video clips, PPT decks) needs
-// more headroom than the original example-route default.
-const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
-const ALLOWED_UPLOAD_CONTENT_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "text/csv",
-  "text/plain",
-  "audio/wav",
-  "audio/mpeg",
-  "audio/webm",
-  "audio/mp4",
-  "audio/aac",
-  "video/mp4",
-  "video/quicktime",
-  "video/webm",
-  "video/3gpp",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/zip",
-  "application/x-zip-compressed",
+// Chat file sharing (photos, videos, documents). Uploads go straight to
+// S3 via a presigned URL, so the server never holds the file in memory.
+export const MAX_UPLOAD_SIZE_BYTES = 200 * 1024 * 1024;
+
+export const ALLOWED_UPLOAD_CONTENT_TYPES = [
+  // Images (HEIC/HEIF = iPhone photos)
+  "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/bmp",
+  // Audio
+  "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3", "audio/webm", "audio/mp4", "audio/x-m4a", "audio/m4a",
+  "audio/aac", "audio/ogg", "audio/opus", "audio/amr", "audio/3gpp", "audio/flac",
+  // Video
+  "video/mp4", "video/quicktime", "video/webm", "video/3gpp", "video/x-matroska", "video/x-msvideo", "video/mpeg",
+  // Documents
+  "application/pdf", "text/plain", "text/csv", "application/rtf", "text/rtf", "application/json",
+  "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.oasis.opendocument.text", "application/vnd.oasis.opendocument.spreadsheet",
+  "application/vnd.oasis.opendocument.presentation", "application/epub+zip",
+  // Archives
+  "application/zip", "application/x-zip-compressed", "application/x-7z-compressed",
+  "application/x-rar-compressed", "application/vnd.rar", "application/gzip", "application/x-tar",
+  // Any other document the phone can't name. Always served as a download
+  // (never rendered), see ObjectStorageService.downloadObject.
+  "application/octet-stream",
 ];
+
+// Files that run code when opened. Blocked by extension because their
+// declared type can be anything (usually application/octet-stream).
+export const BLOCKED_UPLOAD_EXTENSIONS = new Set([
+  "exe", "msi", "bat", "cmd", "com", "scr", "pif", "cpl", "vbs", "vbe", "js", "jse", "wsf", "wsh", "ps1",
+  "psm1", "hta", "jar", "apk", "aab", "xapk", "dll", "sys", "reg", "lnk", "html", "htm", "xhtml", "svg", "svgz",
+  "sh", "app", "dmg", "deb", "rpm",
+]);
+
+export function uploadRejection(name: string, size: unknown, contentType: unknown): string | null {
+  if (!name || typeof name !== "string") return "Missing required field: name";
+  if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) return "Missing or invalid required field: size";
+  if (size > MAX_UPLOAD_SIZE_BYTES) return `File is larger than ${MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)} MB`;
+  if (!contentType || typeof contentType !== "string") return "Missing required field: contentType";
+  if (!ALLOWED_UPLOAD_CONTENT_TYPES.includes(contentType)) return "Unsupported file type for upload";
+  const ext = name.toLowerCase().split(".").pop() || "";
+  if (name.includes(".") && BLOCKED_UPLOAD_EXTENSIONS.has(ext)) return "This type of file can't be sent for safety reasons";
+  return null;
+}
 
 /**
  * Register object storage routes for file uploads.
@@ -75,25 +91,12 @@ export function registerObjectStorageRoutes(app: Express): void {
 
       const { name, size, contentType } = req.body;
 
-      if (!name || typeof name !== "string") {
-        return res.status(400).json({
-          error: "Missing required field: name",
-        });
-      }
-      if (!Number.isFinite(size) || size <= 0) {
-        return res.status(400).json({ error: "Missing or invalid required field: size" });
-      }
-      if (size > MAX_UPLOAD_SIZE_BYTES) {
-        return res.status(400).json({ error: `File exceeds maximum size of ${MAX_UPLOAD_SIZE_BYTES} bytes` });
-      }
-      if (!contentType || typeof contentType !== "string") {
-        return res.status(400).json({ error: "Missing required field: contentType" });
-      }
-      if (!ALLOWED_UPLOAD_CONTENT_TYPES.includes(contentType)) {
-        return res.status(400).json({ error: "Unsupported file type for upload" });
+      const rejection = uploadRejection(name, size, contentType);
+      if (rejection) {
+        return res.status(400).json({ error: rejection });
       }
 
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL(contentType);
 
       // Extract object path from the presigned URL for later reference
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
@@ -129,7 +132,13 @@ export function registerObjectStorageRoutes(app: Express): void {
       if (!acl) {
         return res.status(403).json({ error: "You do not have access to this object" });
       }
-      await objectStorageService.downloadObject(objectFile, res);
+      // ?name= gives the saved file its real name; ?download=1 forces a download.
+      const downloadName = typeof req.query.name === "string" ? req.query.name : undefined;
+      await objectStorageService.downloadObject(objectFile, res, 3600, {
+        range: typeof req.headers.range === "string" ? req.headers.range : undefined,
+        downloadName,
+        forceDownload: req.query.download === "1",
+      });
     } catch (error) {
       console.error("Error serving object:", error);
       if (error instanceof ObjectNotFoundError) {

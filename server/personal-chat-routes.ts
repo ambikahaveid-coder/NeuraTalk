@@ -7,12 +7,14 @@ import { personalChatMessages, personalChatThreads, userContacts, users } from "
 import { normalizePhoneNumber } from "@shared/phone";
 import { openai } from "./ai_integrations/audio/client";
 import { requireAuth } from "./role-middleware";
-import { ObjectStorageService } from "./ai_integrations/object_storage/objectStorage";
-import { setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
+import { ObjectStorageService, ObjectNotFoundError } from "./ai_integrations/object_storage/objectStorage";
+import { setObjectAclPolicy, getObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
 import { sendPushNotification } from "./firebase-admin";
 import { isBlocked } from "./blocking";
 import { personalChatSendLimiter } from "./rate-limit";
 import { isTranslationConsentDenied } from "./translation-consent";
+import { transcribeVoiceNote } from "./voice-note-transcript";
+import { translateChatText } from "./translation/chat-translate";
 
 const router = Router();
 
@@ -38,6 +40,9 @@ const sendMessageSchema = z.object({
   messageType: z.enum(["text", "voice_note", "attachment", "file", "location"]).optional(),
   attachmentUrl: z.string().trim().min(1).max(2000).optional(),
   attachmentTitle: z.string().trim().min(1).max(240).optional(),
+  // Shown in the bubble ("PDF · 2.4 MB") and used to pick the right preview.
+  attachmentSize: z.number().int().positive().max(1024 * 1024 * 1024).optional(),
+  attachmentMime: z.string().trim().min(3).max(120).optional(),
   replyToId: z.number().int().positive().optional(),
 });
 
@@ -54,16 +59,33 @@ const typingSchema = z.object({
 // exactly this thread's two participants. A prior version marked these
 // public, which meant anyone with the URL -- including an unauthenticated
 // request -- could fetch a chat attachment. Fixed as a P0 security item.
+export class AttachmentNotOwnedError extends Error {}
+
 async function finalizeChatAttachment(senderUserId: number, recipientUserId: number, objectPath: string): Promise<void> {
   if (!objectPath.startsWith("/objects/")) return;
   const objectStorage = new ObjectStorageService();
   const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+  const existing = await getObjectAclPolicy(objectFile);
+  // Only the person who uploaded a file may share it. Without this, anyone who
+  // had seen a file's path could re-attach it and take over its access list.
+  if (existing && existing.owner !== String(senderUserId)) {
+    throw new AttachmentNotOwnedError("This attachment belongs to someone else.");
+  }
+  // Sending the same file to another chat adds that person; earlier readers keep access.
+  const readers = new Set<string>([String(recipientUserId)]);
+  for (const rule of existing?.aclRules ?? []) {
+    if (rule.group?.type === ObjectAccessGroupType.USER_LIST) {
+      try {
+        for (const id of JSON.parse(rule.group.id) as string[]) readers.add(String(id));
+      } catch { /* ignore malformed rule */ }
+    }
+  }
   await setObjectAclPolicy(objectFile, {
     owner: String(senderUserId),
     visibility: "private",
     aclRules: [
       {
-        group: { type: ObjectAccessGroupType.USER_LIST, id: JSON.stringify([String(recipientUserId)]) },
+        group: { type: ObjectAccessGroupType.USER_LIST, id: JSON.stringify(Array.from(readers)) },
         permission: ObjectPermission.READ,
       },
     ],
@@ -157,10 +179,12 @@ function buildMessagePreview(
   attachmentTitle?: string | null,
 ) {
   if (messageType === "voice_note") {
-    return attachmentTitle?.trim() || "Voice note";
+    return attachmentTitle?.trim() ? `🎤 Voice message (${attachmentTitle.trim()})` : "🎤 Voice message";
   }
-  if (messageType === "attachment" || messageType === "file") {
-    return attachmentTitle?.trim() || content.trim() || "Attachment";
+  if (messageType === "attachment") return "📷 Photo";
+  if (messageType === "file") {
+    const name = attachmentTitle?.trim() || content.trim() || "File";
+    return /\.(mp4|mov|webm|3gp|mkv|avi|mpeg|m4v)$/i.test(name) ? "🎥 Video" : `📄 ${name}`;
   }
   if (messageType === "location") {
     return "📍 Location";
@@ -254,54 +278,11 @@ async function translatePersonalText(text: string, fromLang: string, toLang: str
   if (!text.trim() || normalizeLanguage(fromLang) === normalizeLanguage(toLang)) {
     return text;
   }
-
-  // Sarvam — tried first for Indian language pairs: it's built for exactly this
-  // (casual, code-mixed Hinglish/Tanglish/Tenglish chat text), where Azure's
-  // general-purpose translator tends to over-formalize or mishandle mixing.
+  // Fail open: if every provider fails, deliver the original text.
   try {
-    const { isSarvamAvailable, isSarvamLanguage, sarvamTranslate } = await import("./sarvam-service");
-    if (isSarvamAvailable() && isSarvamLanguage(fromLang) && isSarvamLanguage(toLang)) {
-      const translated = await sarvamTranslate(text, fromLang, toLang);
-      if (translated?.trim()) {
-        return translated;
-      }
-    }
+    return await translateChatText(text, fromLang, toLang);
   } catch {
-    // fall through
-  }
-
-  try {
-    const { isAzureTranslatorAvailable, azureTranslate } = await import("./azure-service");
-    if (isAzureTranslatorAvailable()) {
-      const translated = await azureTranslate(text, fromLang, toLang);
-      if (translated?.trim()) {
-        return translated;
-      }
-    }
-  } catch {
-    // fall through
-  }
-
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Translate this personal chat message from ${fromLang} to ${toLang}. Keep slang, tone, emojis, and casual wording natural. Reply with only the translated message.`,
-        },
-        { role: "user", content: text },
-      ],
-    });
-
-    return response.choices[0]?.message?.content?.trim() || text;
-  } catch {
-    try {
-      const { translateText } = await import("./elevenlabs-service");
-      return await translateText(text, fromLang, toLang);
-    } catch {
-      return text;
-    }
+    return text;
   }
 }
 
@@ -353,6 +334,9 @@ function formatMessage(
     translations,
     attachmentUrl: message.isDeleted ? null : (typeof (message.metadata as any)?.attachmentUrl === "string" ? (message.metadata as any).attachmentUrl : null),
     attachmentTitle: typeof (message.metadata as any)?.attachmentTitle === "string" ? (message.metadata as any).attachmentTitle : null,
+    attachmentSize: typeof (message.metadata as any)?.attachmentSize === "number" ? (message.metadata as any).attachmentSize : null,
+    attachmentMime: typeof (message.metadata as any)?.attachmentMime === "string" ? (message.metadata as any).attachmentMime : null,
+    voiceTranscribed: (message.metadata as any)?.voiceTranscribed === true,
     translatedContent: message.isDeleted ? null : translatedContent,
     displayContent,
     displayLanguage: !isOwn && translatedContent ? viewerLanguage : normalizeLanguage(message.originalLanguage),
@@ -741,7 +725,29 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     }
 
     if (input.attachmentUrl) {
-      await finalizeChatAttachment(viewerId, context.peerUserId, input.attachmentUrl);
+      try {
+        await finalizeChatAttachment(viewerId, context.peerUserId, input.attachmentUrl);
+      } catch (err) {
+        if (err instanceof AttachmentNotOwnedError) return res.status(403).json({ message: err.message });
+        if (err instanceof ObjectNotFoundError) return res.status(400).json({ message: "The attachment was not uploaded. Please try again." });
+        throw err;
+      }
+    }
+    // Photos, videos, files and locations carry a caption/file name, not
+    // something to translate.
+    let isTextMessage = !input.messageType || input.messageType === "text";
+
+    // Voice notes: transcribe what was said (in the sender's language) so the
+    // other person can read it and read/hear it translated. If speech-to-text
+    // fails the voice note is still delivered, just without text.
+    let voiceTranscribed = false;
+    if (input.messageType === "voice_note" && input.attachmentUrl) {
+      const transcript = await transcribeVoiceNote(input.attachmentUrl, context.viewerLanguage);
+      if (transcript) {
+        input.content = transcript.slice(0, 4000);
+        isTextMessage = true;
+        voiceTranscribed = true;
+      }
     }
 
     const originalLanguage = normalizeLanguage(
@@ -769,7 +775,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     }).from(users).where(eq(users.id, viewerId));
     const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
     const translations: Record<string, string> = {};
-    if (senderRow?.translationEnabled !== false && !translationConsentDenied) {
+    if (isTextMessage && senderRow?.translationEnabled !== false && !translationConsentDenied) {
       // Both targets in parallel — this runs before the message is stored and
       // pushed to the recipient, so sequential calls added directly to
       // delivery latency.
@@ -802,6 +808,9 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
         viewerLanguage: context.viewerLanguage,
         attachmentUrl: input.attachmentUrl || null,
         attachmentTitle: input.attachmentTitle || null,
+        attachmentSize: input.attachmentSize ?? null,
+        attachmentMime: input.attachmentMime || null,
+        voiceTranscribed,
         // Lets the client show "not translated -- no consent" instead of
         // silently looking like a same-language message.
         translationSkippedReason: translationConsentDenied ? "consent" : null,

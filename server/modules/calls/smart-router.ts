@@ -1901,7 +1901,7 @@ export async function endCall(callId: string, reason = "completed"): Promise<{
       callId: updatedCall.callId,
       joinMethod: updatedCall.joinMethod as "app_to_app" | "app_to_pstn" | "conference",
       callerId: updatedCall.callerId,
-      callerUserId: null,
+      callerUserId: Number.isInteger(Number(updatedCall.callerId)) ? Number(updatedCall.callerId) : null,
       callerOrganizationId: updatedCall.callerOrganizationId ?? null,
       callerNumber: updatedCall.callerNumber ?? null,
       calleeIdentifier: updatedCall.calleeIdentifier,

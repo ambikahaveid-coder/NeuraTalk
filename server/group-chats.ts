@@ -3,6 +3,40 @@ import { db } from "./db";
 import { groupChats, groupChatMembers, groupChatMessages, users } from "@shared/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { ObjectStorageService } from "./ai_integrations/object_storage";
+import { ObjectNotFoundError } from "./ai_integrations/object_storage/objectStorage";
+import { getObjectAclPolicy, setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
+
+const GROUP_ATTACHMENT_TYPES = new Set(["attachment", "file", "voice_note"]);
+
+/** Lets every current member of the group read a file the sender uploaded.
+ * Returns an error message if the file can't be used. */
+async function finalizeGroupAttachment(senderId: number, groupId: number, objectPath: string): Promise<string | null> {
+  if (!objectPath.startsWith("/objects/")) return "Invalid attachment.";
+  try {
+    const file = await new ObjectStorageService().getObjectEntityFile(objectPath);
+    const existing = await getObjectAclPolicy(file);
+    if (existing && existing.owner !== String(senderId)) return "This attachment belongs to someone else.";
+    const rules = (existing?.aclRules ?? []).filter(
+      (r) => !(r.group.type === ObjectAccessGroupType.GROUP_CHAT_MEMBER && r.group.id === String(groupId)),
+    );
+    rules.push({ group: { type: ObjectAccessGroupType.GROUP_CHAT_MEMBER, id: String(groupId) }, permission: ObjectPermission.READ });
+    await setObjectAclPolicy(file, { owner: String(senderId), visibility: "private", aclRules: rules });
+    return null;
+  } catch (err) {
+    if (err instanceof ObjectNotFoundError) return "The attachment was not uploaded. Please try again.";
+    throw err;
+  }
+}
+
+function groupMessagePreview(messageType: string, content: string, title?: string): string {
+  if (messageType === "attachment") return "📷 Photo";
+  if (messageType === "voice_note") return "🎤 Voice message";
+  if (messageType === "file") {
+    const name = title || content || "File";
+    return /\.(mp4|mov|webm|3gp|mkv|avi|mpeg|m4v)$/i.test(name) ? "🎥 Video" : `📄 ${name}`;
+  }
+  return content;
+}
 import { speechToText, textToSpeech } from "./ai_integrations/audio/client";
 import crypto from "crypto";
 import { openai } from "./ai_integrations/audio/client";
@@ -33,6 +67,7 @@ async function profileLanguageOf(userId: number): Promise<string | null> {
 }
 import { hasBlockedUser } from "./blocking";
 import { isTranslationConsentDenied } from "./translation-consent";
+import { translateChatText } from "./translation/chat-translate";
 
 const objectStorage = new ObjectStorageService();
 const router = Router();
@@ -106,40 +141,7 @@ const SUPPORTED_LANGUAGES = [
 
 async function translateText(text: string, fromLang: string, toLang: string): Promise<string> {
   if (fromLang === toLang) return text;
-  
-  // 1. Try Azure Translator first (2M chars/month FREE)
-  try {
-    const { isAzureTranslatorAvailable, azureTranslate } = await import("./azure-service");
-    if (isAzureTranslatorAvailable()) {
-      const result = await azureTranslate(text, fromLang, toLang);
-      if (result && result !== text) return result;
-    }
-  } catch {
-    // Azure not available
-  }
-
-  // 2. Try OpenAI
-  try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { 
-          role: "system", 
-          content: `Translate from ${fromLang} to ${toLang}. Preserve emotion and tone. Reply with ONLY the translation.` 
-        },
-        { role: "user", content: text }
-      ]
-    });
-    return response.choices[0]?.message?.content?.trim() || text;
-  } catch {
-    // OpenAI failed, use free translation fallback
-    try {
-      const { translateText: freeTranslate } = await import("./elevenlabs-service");
-      return await freeTranslate(text, fromLang, toLang);
-    } catch {
-      return text;
-    }
-  }
+  return translateChatText(text, fromLang, toLang);
 }
 
 async function detectLanguageRaw(text: string): Promise<string> {
@@ -447,10 +449,17 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
   try {
     const senderId = req.user!.id;
     const groupId = parseInt(req.params.groupId);
-    const { messageType, content, originalLanguage, replyToId } = req.body;
+    const { messageType, originalLanguage, replyToId, attachmentUrl, attachmentTitle, attachmentSize, attachmentMime } = req.body;
+    const isAttachment = GROUP_ATTACHMENT_TYPES.has(messageType) && typeof attachmentUrl === "string";
+    const content: string = typeof req.body.content === "string" && req.body.content.trim()
+      ? req.body.content
+      : (isAttachment ? (typeof attachmentTitle === "string" ? attachmentTitle : "Attachment") : "");
     
     if (!content) {
       return res.status(400).json({ error: "Content required" });
+    }
+    if (messageType && messageType !== "text" && !isAttachment) {
+      return res.status(400).json({ error: "Unsupported message type" });
     }
     
     const senderMember = await db.select().from(groupChatMembers)
@@ -465,6 +474,11 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
 
     if (await isSenderBlockedInGroup(groupId, senderId)) {
       return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
+    }
+
+    if (isAttachment) {
+      const problem = await finalizeGroupAttachment(senderId, groupId, attachmentUrl);
+      if (problem) return res.status(problem.startsWith("This attachment") ? 403 : 400).json({ error: problem });
     }
 
     const detectedLang = originalLanguage || await detectLanguage(content, req.user!.preferredLanguage || senderMember[0]?.preferredLanguage || undefined);
@@ -484,7 +498,8 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     const groupTranslationConsentDenied = isTranslationConsentDenied(groupSenderRow?.consentTranslation, groupSenderRow?.consentTimestamp);
 
     const translations: Record<string, string> = {};
-    if (!groupTranslationConsentDenied) {
+    // File names and captions of photos/videos/files are not translated.
+    if (!groupTranslationConsentDenied && !isAttachment) {
       for (const targetLang of targetLanguages) {
         if (targetLang !== detectedLang) {
           translations[targetLang] = await translateText(content, detectedLang, targetLang);
@@ -500,6 +515,14 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       originalLanguage: detectedLang,
       translations,
       replyToId: replyToId || null,
+      metadata: isAttachment
+        ? {
+            attachmentUrl,
+            attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null,
+            attachmentSize: Number.isFinite(attachmentSize) ? attachmentSize : null,
+            attachmentMime: typeof attachmentMime === "string" ? attachmentMime.slice(0, 120) : null,
+          }
+        : {},
     }).returning();
     
     await db.update(groupChats)
@@ -512,12 +535,14 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     for (const recipientId of recipients) {
       sendPushNotification(recipientId, {
         title: senderRow?.username || "New group message",
-        body: content,
+        body: groupMessagePreview(messageType || "text", content, attachmentTitle),
         data: { type: "group_chat_message", groupId: String(groupId) },
       }).catch(() => {});
     }
 
-    res.status(201).json(message[0]);
+    const saved = message[0];
+    const meta = (saved.metadata as Record<string, unknown> | null) || {};
+    res.status(201).json({ ...saved, ...meta, displayContent: saved.originalContent });
   } catch (error) {
     console.error("Error sending message:", error);
     res.status(500).json({ error: "Failed to send message" });
@@ -717,8 +742,13 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
         hasVoiceTranslation = !!voiceTranslations[userLanguage];
       }
       
+      const meta = (msg.metadata as Record<string, unknown> | null) || {};
       return {
         ...msg,
+        attachmentUrl: typeof meta.attachmentUrl === "string" ? meta.attachmentUrl : null,
+        attachmentTitle: typeof meta.attachmentTitle === "string" ? meta.attachmentTitle : null,
+        attachmentSize: typeof meta.attachmentSize === "number" ? meta.attachmentSize : null,
+        attachmentMime: typeof meta.attachmentMime === "string" ? meta.attachmentMime : null,
         displayContent,
         hasVoiceTranslation,
         sender: senders.find(s => s.id === msg.senderId) || null,

@@ -369,6 +369,8 @@ app.use((req, res, next) => {
     await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_user_idx" ON "user_notifications" ("user_id")`);
     await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_read_idx" ON "user_notifications" ("user_id", "is_read")`);
     await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_created_idx" ON "user_notifications" ("created_at")`);
+    // Group chat photos/videos/files (additive, safe to run on every start).
+    await _db.execute(_sql`ALTER TABLE "group_chat_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
   }, { optional: true });
   let redisOperational = false;
   try {

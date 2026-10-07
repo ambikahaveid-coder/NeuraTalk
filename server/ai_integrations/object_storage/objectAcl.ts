@@ -1,4 +1,7 @@
 import type { ObjectFileHandle } from "./objectStorage";
+import { and, eq } from "drizzle-orm";
+import { db } from "../../db";
+import { groupChatMembers } from "@shared/schema";
 
 // S3 metadata keys are lowercased and delivered without the "x-amz-meta-"
 // prefix by the SDK, and may not contain colons -- unlike the GCS custom
@@ -23,6 +26,10 @@ export enum ObjectAccessGroupType {
   // without standing up a separate group table. See setObjectAclPolicy call
   // sites in personal-chat-routes.ts for the intended usage.
   USER_LIST = "USER_LIST",
+  // The group id is a group chat id: current members of that group chat may
+  // read (checked against the database, so people who join later can see
+  // earlier files and people who leave lose access).
+  GROUP_CHAT_MEMBER = "GROUP_CHAT_MEMBER",
 }
 
 // The logic user group that can access the object.
@@ -107,12 +114,26 @@ class UserListAccessGroup extends BaseObjectAccessGroup {
   }
 }
 
+class GroupChatMemberAccessGroup extends BaseObjectAccessGroup {
+  async hasMember(userId: string): Promise<boolean> {
+    const groupId = Number(this.id);
+    const uid = Number(userId);
+    if (!Number.isInteger(groupId) || !Number.isInteger(uid)) return false;
+    const rows = await db.select({ id: groupChatMembers.id }).from(groupChatMembers)
+      .where(and(eq(groupChatMembers.groupChatId, groupId), eq(groupChatMembers.userId, uid)))
+      .limit(1);
+    return rows.length > 0;
+  }
+}
+
 function createObjectAccessGroup(
   group: ObjectAccessGroup,
 ): BaseObjectAccessGroup {
   switch (group.type) {
     case ObjectAccessGroupType.USER_LIST:
       return new UserListAccessGroup(group.type, group.id);
+    case ObjectAccessGroupType.GROUP_CHAT_MEMBER:
+      return new GroupChatMemberAccessGroup(group.type, group.id);
     // Implement the case for each additional type of access group as needed.
     //
     // For example:

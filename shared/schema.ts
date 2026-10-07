@@ -579,6 +579,8 @@ export const groupChatMessages = pgTable("group_chat_messages", {
   // Metadata
   emotionTags: text("emotion_tags").array(),
   replyToId: integer("reply_to_id"), // For reply threads
+  // Photo / video / file messages: { attachmentUrl, attachmentTitle, attachmentSize, attachmentMime }
+  metadata: jsonb("metadata").default({}),
   
   isEdited: boolean("is_edited").default(false),
   isDeleted: boolean("is_deleted").default(false),

@@ -1010,7 +1010,8 @@ class LiveKitRealtimeTranslatorBot {
 
             // Fire-and-forget — transcript persistence must never add
             // latency to the live translated-audio delivery path below.
-            void persistTranslationSegment({
+            // Only finished utterances are stored; partials are provisional.
+            if (opts.isFinal) void persistTranslationSegment({
               smartCallId: this.callId,
               direction: "caller_to_receiver",
               speakerIdentity: opts.pipeline.identity,
@@ -1033,7 +1034,9 @@ class LiveKitRealtimeTranslatorBot {
                 targetLanguage: opts.targetLanguage,
                 original: opts.transcript,
                 translated,
-                partial: false,
+                // A partial transcript's translation is still provisional;
+                // marking it final made captions show each sentence twice.
+                partial: !opts.isFinal,
                 mode: opts.targetMode,
               }),
               ts: Date.now(),

@@ -122,10 +122,15 @@ export class ObjectFileHandle {
     }));
   }
 
-  createReadStream(): Readable {
+  /** `range` is an inclusive byte range, as in an HTTP Range header. */
+  createReadStream(range?: { start: number; end: number }): Readable {
     const passthrough = new PassThrough();
     objectStorageClient()
-      .send(new GetObjectCommand({ Bucket: bucket(), Key: this.key }))
+      .send(new GetObjectCommand({
+        Bucket: bucket(),
+        Key: this.key,
+        ...(range ? { Range: `bytes=${range.start}-${range.end}` } : {}),
+      }))
       .then((obj) => {
         const body = obj.Body as Readable;
         body.on("error", (err) => passthrough.emit("error", err));
@@ -154,22 +159,66 @@ export class ObjectFileHandle {
 export class ObjectStorageService {
   constructor() {}
 
-  async downloadObject(file: ObjectFileHandle, res: Response, cacheTtlSec: number = 3600) {
+  /**
+   * Streams an object to the client.
+   * - Supports single-range requests (206) so video/audio players can seek.
+   * - `downloadName` sets the file name the browser/app saves it as.
+   * - Only images, audio, video and PDF may render inline; everything else is
+   *   forced to download, and nothing is sniffed or allowed to run scripts.
+   */
+  async downloadObject(
+    file: ObjectFileHandle,
+    res: Response,
+    cacheTtlSec: number = 3600,
+    opts: { range?: string; downloadName?: string; forceDownload?: boolean } = {},
+  ) {
     try {
       const [metadata] = await file.getMetadata();
       const aclPolicy = await getObjectAclPolicy(file);
       const isPublic = aclPolicy?.visibility === "public";
+      const contentType = metadata.contentType || "application/octet-stream";
+      const size = metadata.size;
+      const inlineSafe = /^(image\/(jpeg|png|gif|webp|heic|heif|bmp)|audio\/|video\/|application\/pdf$)/.test(contentType);
+      const name = (opts.downloadName || "").replace(/[\r\n"\\/]/g, "_").slice(0, 200);
+      const disposition = opts.forceDownload || !inlineSafe ? "attachment" : "inline";
+
       res.set({
-        "Content-Type": metadata.contentType || "application/octet-stream",
-        ...(metadata.size !== undefined ? { "Content-Length": String(metadata.size) } : {}),
+        "Content-Type": contentType,
         "Cache-Control": `${isPublic ? "public" : "private"}, max-age=${cacheTtlSec}`,
+        "Accept-Ranges": "bytes",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+        "Content-Disposition": name
+          ? `${disposition}; filename="${name.replace(/[^ -~]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`
+          : disposition,
       });
 
-      const stream = file.createReadStream();
+      let range: { start: number; end: number } | undefined;
+      const m = opts.range && size !== undefined ? /^bytes=(\d*)-(\d*)$/.exec(opts.range.trim()) : null;
+      if (m && size !== undefined && (m[1] || m[2])) {
+        let start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+        let end = m[1] && m[2] ? Number(m[2]) : size - 1;
+        end = Math.min(end, size - 1);
+        if (start > end || start >= size) {
+          res.status(416).set("Content-Range", `bytes */${size}`).end();
+          return;
+        }
+        range = { start, end };
+        res.status(206).set({
+          "Content-Range": `bytes ${start}-${end}/${size}`,
+          "Content-Length": String(end - start + 1),
+        });
+      } else if (size !== undefined) {
+        res.set("Content-Length", String(size));
+      }
+
+      const stream = file.createReadStream(range);
       stream.on("error", (err) => {
         console.error("Stream error:", err);
         if (!res.headersSent) {
           res.status(500).json({ error: "Error streaming file" });
+        } else {
+          res.destroy(err as Error);
         }
       });
       stream.pipe(res);
@@ -181,9 +230,12 @@ export class ObjectStorageService {
     }
   }
 
-  async getObjectEntityUploadURL(): Promise<string> {
+  /** When `contentType` is given it is signed into the URL, so the upload
+   * must use exactly that Content-Type (a client can't declare a PDF and then
+   * store HTML). */
+  async getObjectEntityUploadURL(contentType?: string): Promise<string> {
     const key = `uploads/${randomUUID()}`;
-    const command = new PutObjectCommand({ Bucket: bucket(), Key: key });
+    const command = new PutObjectCommand({ Bucket: bucket(), Key: key, ...(contentType ? { ContentType: contentType } : {}) });
     return getSignedUrl(objectStorageClient(), command, { expiresIn: 900 });
   }
 

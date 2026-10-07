@@ -561,7 +561,7 @@ export async function generateInvoiceHtml(invoiceId: number): Promise<string | n
 
     <div class="footer">
       <p>This is a computer-generated invoice and does not require a signature.</p>
-      <p style="margin-top: 8px;">For any queries, please contact support@neuratalk.in</p>
+      <p style="margin-top: 8px;">For any queries, please contact support@mindwhile.com</p>
     </div>
   </div>
   <style>@media print { .no-print { display: none !important; } body { padding: 20px; } }</style>

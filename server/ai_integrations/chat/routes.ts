@@ -4,6 +4,12 @@ import { chatStorage } from "./storage";
 import { getOpenAIKey, hasWorkingOpenAIKey } from "../../openai-config";
 import { loadUser, requireAuth } from "../../role-middleware";
 
+// Sets the assistant's role for every AI chat (mobile NEURA AI screen and web).
+export const NEURA_SYSTEM_PROMPT =
+  "You are NEURA, the AI assistant inside NeuraTalk, an app for real-time translated calls and chat. " +
+  "You are a communication assistant: translate text, draft replies, rewrite messages in a different tone, explain what a message really means, and summarise long text. " +
+  "Reply in the language the user writes in unless they ask for another language. Keep answers short and clear.";
+
 const openai = new OpenAI({
   apiKey: getOpenAIKey() || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
@@ -89,10 +95,13 @@ export function registerChatRoutes(app: Express): void {
 
       // Get conversation history for context
       const messages = await chatStorage.getMessagesByConversation(conversationId);
-      const chatMessages = messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      }));
+      const chatMessages = [
+        { role: "system" as const, content: NEURA_SYSTEM_PROMPT },
+        ...messages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ];
 
       // Set up SSE
       res.setHeader("Content-Type", "text/event-stream");
@@ -103,7 +112,7 @@ export function registerChatRoutes(app: Express): void {
 
       if (isMockKey) {
         // No real OpenAI key — return a helpful message via SSE
-        const fallbackMsg = "I'm NEURA's internal assistant. The OpenAI API key is not configured. Please add a real OPENAI_API_KEY to the environment to enable full AI chat. In the meantime, you can use NeuraTalk's voice features and translation services which are powered by ElevenLabs.";
+        const fallbackMsg = "NEURA AI is not available right now. Translated calls and chat still work. Please try again later.";
         res.write(`data: ${JSON.stringify({ content: fallbackMsg })}\n\n`);
         await chatStorage.createMessage(conversationId, "assistant", fallbackMsg);
         res.write(`data: ${JSON.stringify({ done: true })}\n\n`);

@@ -5,7 +5,7 @@
 
 import type { Request, Response } from "express";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { eq, inArray, or } from "drizzle-orm";
+import { desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
 import { db } from "../../db";
@@ -48,7 +48,7 @@ import {
   verifyCallConsent,
 } from "./streaming";
 import { hasValidConsent } from "../../call-privacy";
-import { CALL_STATUS, PERMISSIONS, users } from "@shared/schema";
+import { CALL_STATUS, PERMISSIONS, bridgedCalls, users } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { isBlocked } from "../../blocking";
 import * as svc from "./service";
@@ -1309,43 +1309,104 @@ export async function activeCalls(req: Request, res: Response) {
 }
 
 // GET /api/calls/history?limit=N — recent calls for the currently logged-in user
+/**
+ * The signed-in user's calls, newest first. Recent calls come from Redis
+ * (live state, ~24 h); older ones from the bridged_calls rows written when a
+ * call ends, so history no longer disappears after a day. Each row says who
+ * the other person is and whether the call was outgoing, incoming or missed
+ * from this user's side, which the apps need to draw a call log.
+ */
 export async function callHistory(req: Request, res: Response) {
   try {
     const user = req.user!;
+    const me = String(user.id);
     const limit = Math.min(Number(req.query.limit) || 20, 100);
-    const smartCalls = await svc.listSmartCallsForUser(String(user.id));
-    const sorted = smartCalls
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, limit);
 
-    const calls = sorted.map(c => ({
+    const smartCalls = await svc.listSmartCallsForUser(me);
+    type Row = {
+      callId: string; callType: string; status: string; joinMethod: string; callerId: string;
+      calleeIdentifier: string; calleeUserId: string | null; callerLanguage: string | null; calleeLanguage: string | null;
+      createdAt: string; connectedAt: string | null; endedAt: string | null; costInr: number; session?: unknown;
+    };
+    const rows: Row[] = smartCalls.map((c) => ({
       callId: c.callId,
       callType: c.callType,
       status: c.status,
       joinMethod: c.joinMethod,
-      displayCategory: c.joinMethod === "app_to_pstn"
-        ? "PSTN (Phone)"
-        : c.joinMethod === "conference"
-        ? "B2B (Conference)"
-        : "C2C (App-to-App)",
       callerId: c.callerId,
       calleeIdentifier: c.calleeIdentifier,
-      callerLanguage: c.callerLanguage,
+      calleeUserId: c.calleeUserId ?? null,
+      callerLanguage: c.callerLanguage ?? null,
       calleeLanguage: c.calleeLanguage ?? null,
-      durationSeconds: c.connectedAt && c.endedAt
-        ? Math.round((new Date(c.endedAt).getTime() - new Date(c.connectedAt).getTime()) / 1000)
-        : null,
-      costInr: c.estimatedRateInrPerMin > 0
-        ? Number(((c.estimatedRateInrPerMin / 60) * (
-            c.connectedAt && c.endedAt
-              ? (new Date(c.endedAt).getTime() - new Date(c.connectedAt).getTime()) / 1000
-              : 0
-          )).toFixed(2))
-        : 0,
       createdAt: c.createdAt,
+      connectedAt: c.connectedAt ?? null,
       endedAt: c.endedAt ?? null,
+      costInr: c.estimatedRateInrPerMin > 0 && c.connectedAt && c.endedAt
+        ? Number(((c.estimatedRateInrPerMin / 60) * ((new Date(c.endedAt).getTime() - new Date(c.connectedAt).getTime()) / 1000)).toFixed(2))
+        : 0,
       session: buildUnifiedSessionFromSmartCall(c),
     }));
+
+    const seen = new Set(rows.map((r) => r.callId));
+    const persisted = await db.select().from(bridgedCalls)
+      .where(or(eq(bridgedCalls.callerUserId, user.id), eq(bridgedCalls.receiverUserId, user.id), eq(bridgedCalls.callerNumber, me)))
+      .orderBy(desc(bridgedCalls.createdAt))
+      .limit(limit)
+      .catch(() => [] as Array<typeof bridgedCalls.$inferSelect>);
+    for (const p of persisted) {
+      if (!p.callSid || seen.has(p.callSid)) continue;
+      const meta = (p.metadata || {}) as Record<string, unknown>;
+      const outgoing = p.callerUserId === user.id || p.callerNumber === me;
+      rows.push({
+        callId: p.callSid,
+        callType: (meta.callType as string) || "voice",
+        status: p.status,
+        joinMethod: (meta.joinMethod as string) || p.gatewayNumber,
+        callerId: outgoing ? me : String(p.callerUserId ?? p.callerNumber),
+        calleeIdentifier: p.receiverNumber,
+        calleeUserId: p.receiverUserId != null ? String(p.receiverUserId) : null,
+        callerLanguage: p.callerLanguage ?? null,
+        calleeLanguage: p.receiverLanguage ?? null,
+        createdAt: (p.startedAt ?? p.createdAt ?? new Date()).toISOString(),
+        connectedAt: p.connectedAt ? p.connectedAt.toISOString() : null,
+        endedAt: p.endedAt ? p.endedAt.toISOString() : null,
+        costInr: Number(meta.totalCostInr ?? 0) || 0,
+      });
+    }
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const page = rows.slice(0, limit);
+
+    const remoteIds = new Set<number>();
+    for (const r of page) {
+      const remote = r.callerId === me ? r.calleeUserId : r.callerId;
+      const n = Number(remote);
+      if (remote && Number.isInteger(n)) remoteIds.add(n);
+    }
+    const people = remoteIds.size
+      ? await db.select({ id: users.id, username: users.username, phone: users.phone, avatarUrl: users.avatarUrl }).from(users).where(inArray(users.id, Array.from(remoteIds)))
+      : [];
+    const byId = new Map(people.map((p) => [String(p.id), p]));
+
+    const calls = page.map((r) => {
+      const outgoing = r.callerId === me;
+      const remoteId = outgoing ? r.calleeUserId : r.callerId;
+      const person = remoteId ? byId.get(String(remoteId)) : undefined;
+      const answered = Boolean(r.connectedAt);
+      const durationSeconds = r.connectedAt && r.endedAt
+        ? Math.max(0, Math.round((new Date(r.endedAt).getTime() - new Date(r.connectedAt).getTime()) / 1000))
+        : null;
+      return {
+        ...r,
+        displayCategory: r.joinMethod === "app_to_pstn" ? "PSTN (Phone)" : r.joinMethod === "conference" ? "B2B (Conference)" : "C2C (App-to-App)",
+        direction: outgoing ? "outgoing" : "incoming",
+        outcome: answered ? "answered" : outgoing ? "not_answered" : "missed",
+        remoteUserId: person ? person.id : null,
+        remoteName: person && person.username && person.username !== person.phone ? person.username : null,
+        remotePhone: person?.phone ?? (outgoing ? r.calleeIdentifier : null),
+        remoteAvatarUrl: person?.avatarUrl ?? null,
+        durationSeconds,
+      };
+    });
 
     res.json({ calls });
   } catch (error) {

@@ -37,7 +37,7 @@ Authorization: Bearer <your-token>
     `,
     contact: {
       name: "Mindwhile IT Solutions Pvt Ltd",
-      email: "support@neuratalk.in",
+      email: "support@mindwhile.com",
       url: "https://neuratalk.in"
     },
     license: {
