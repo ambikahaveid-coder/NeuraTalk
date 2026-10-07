@@ -86,6 +86,13 @@ function withStartupTimeout<T>(promise: Promise<T>, callId: string, stage: strin
   });
 }
 let watchdogStarted = false;
+// Poll fast only while calls exist; idle 5s polling was ~520K Redis reads/month.
+const WATCHDOG_ACTIVE_MS = 5_000;
+const WATCHDOG_IDLE_MS = 30_000;
+let watchdogHasCalls = false;
+let watchdogTimer: NodeJS.Timeout | null = null;
+let watchdogDueAtMs = 0;
+let scheduleWatchdog: ((delayMs: number) => void) | null = null;
 
 export const smartCallEvents = new EventEmitter();
 smartCallEvents.setMaxListeners(64);
@@ -352,6 +359,8 @@ async function storeSmartCall(record: SmartCallRecord): Promise<void> {
   multi.set(smartCallKey(record.callId), JSON.stringify(record), "EX", SMART_CALL_TTL_SECONDS);
 
   if (isActiveSmartCallStatus(record.status)) {
+    watchdogHasCalls = true;
+    if (scheduleWatchdog && watchdogDueAtMs - Date.now() > WATCHDOG_ACTIVE_MS) scheduleWatchdog(WATCHDOG_ACTIVE_MS);
     // ZADD with expiry score — watchdog queries ZRANGEBYSCORE(0, now) to find expired, ZRANGEBYSCORE(0, +inf) to find active
     multi.zadd("smart_call:active_z", expiryScore, record.callId);
   } else {
@@ -575,11 +584,20 @@ function ensureSmartCallWatchdog(): void {
   }
 
   watchdogStarted = true;
-  setInterval(() => {
-    void processSmartCallWatchdog().catch((error) => {
-      logger.warn("SmartCallRouter", `watchdog tick skipped: ${String(error)}`);
-    });
-  }, 5_000).unref?.();
+  const schedule = (delayMs: number) => {
+    if (watchdogTimer) clearTimeout(watchdogTimer);
+    watchdogDueAtMs = Date.now() + delayMs;
+    watchdogTimer = setTimeout(() => {
+      void processSmartCallWatchdog()
+        .catch((error) => {
+          logger.warn("SmartCallRouter", `watchdog tick skipped: ${String(error)}`);
+        })
+        .finally(() => schedule(watchdogHasCalls ? WATCHDOG_ACTIVE_MS : WATCHDOG_IDLE_MS));
+    }, delayMs);
+    watchdogTimer.unref?.();
+  };
+  scheduleWatchdog = schedule;
+  schedule(WATCHDOG_ACTIVE_MS);
 }
 
 async function processSmartCallWatchdog(): Promise<void> {
@@ -590,6 +608,7 @@ async function processSmartCallWatchdog(): Promise<void> {
     logger.warn("SmartCallRouter", `watchdog failed to load active calls: ${String(error)}`);
     return;
   }
+  watchdogHasCalls = activeCalls.length > 0;
   const nowMs = Date.now();
 
   await Promise.all(activeCalls.map(async (record) => {

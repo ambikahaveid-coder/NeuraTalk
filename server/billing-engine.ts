@@ -191,6 +191,24 @@ const BILLING_RUNTIME_LOCK_PREFIX = "billing:lock:";
 const BILLING_ACTIVE_SET_KEY = "billing:active";
 const BILLING_RUNTIME_TTL_SECONDS = 60 * 60 * 24 * 2;
 let billingSupervisorStarted = false;
+// The sweep bills by elapsed time since lastProcessedAtMs, so ticking less
+// often while idle loses no charges. Idle 1s polling alone was ~2.6M Redis
+// reads/month and exhausted the Upstash quota.
+const BILLING_SWEEP_ACTIVE_MS = 1_000;
+const BILLING_SWEEP_IDLE_MS = 15_000;
+const BILLING_ACTIVE_GRACE_MS = 30_000;
+let billingLastActiveAtMs = 0;
+let billingSweepTimer: NodeJS.Timeout | null = null;
+let billingSweepDueAtMs = 0;
+let scheduleBillingSweep: ((delayMs: number) => void) | null = null;
+
+/** Sweep within a second: a call started billing on this instance. */
+function wakeBillingSupervisor(): void {
+  billingLastActiveAtMs = Date.now();
+  if (scheduleBillingSweep && billingSweepDueAtMs - Date.now() > BILLING_SWEEP_ACTIVE_MS) {
+    scheduleBillingSweep(BILLING_SWEEP_ACTIVE_MS);
+  }
+}
 
 export const billingEvents = new EventEmitter();
 
@@ -230,6 +248,7 @@ async function persistRuntimeSession(runtime: CallRuntimeState) {
     .set(runtimeKey(runtime.sessionId), serializeRuntimeState(runtime), "EX", BILLING_RUNTIME_TTL_SECONDS);
 
   if (runtime.billingActive) {
+    wakeBillingSupervisor();
     multi.sadd(BILLING_ACTIVE_SET_KEY, runtime.sessionId);
   } else {
     multi.srem(BILLING_ACTIVE_SET_KEY, runtime.sessionId);
@@ -1125,11 +1144,23 @@ export class BillingEngine {
     }
 
     billingSupervisorStarted = true;
-    setInterval(() => {
-      void this.processActiveRuntimeSessions().catch((error) => {
-        logger.warn("BillingEngine", `Runtime supervisor tick skipped: ${String(error)}`);
-      });
-    }, 1_000).unref?.();
+    const schedule = (delayMs: number) => {
+      if (billingSweepTimer) clearTimeout(billingSweepTimer);
+      billingSweepDueAtMs = Date.now() + delayMs;
+      billingSweepTimer = setTimeout(() => {
+        void this.processActiveRuntimeSessions()
+          .catch((error) => {
+            logger.warn("BillingEngine", `Runtime supervisor tick skipped: ${String(error)}`);
+          })
+          .finally(() => {
+            const active = Date.now() - billingLastActiveAtMs < BILLING_ACTIVE_GRACE_MS;
+            schedule(active ? BILLING_SWEEP_ACTIVE_MS : BILLING_SWEEP_IDLE_MS);
+          });
+      }, delayMs);
+      billingSweepTimer.unref?.();
+    };
+    scheduleBillingSweep = schedule;
+    schedule(BILLING_SWEEP_ACTIVE_MS);
   }
 
   private static async processActiveRuntimeSessions() {
@@ -1140,6 +1171,7 @@ export class BillingEngine {
       logger.warn("BillingEngine", `Skipping runtime sweep tick — Redis unavailable: ${String(error)}`);
       return;
     }
+    if (sessionIds.length > 0) billingLastActiveAtMs = Date.now();
     await Promise.all(sessionIds.map(async (sessionId) => {
       try {
         await this.advanceRuntimeSession(sessionId);
