@@ -23,11 +23,7 @@ export default function LegalNoticePage() {
               </tr>
               <tr>
                 <td className="border p-2 font-semibold">CIN</td>
-                <td className="border p-2">U72900TG2024PTC123456</td>
-              </tr>
-              <tr>
-                <td className="border p-2 font-semibold">GSTIN</td>
-                <td className="border p-2">36AABCM1234A1Z5</td>
+                <td className="border p-2">U72900AP2022PTC122855</td>
               </tr>
               <tr>
                 <td className="border p-2 font-semibold">Registered Office</td>
@@ -39,11 +35,11 @@ export default function LegalNoticePage() {
               </tr>
               <tr>
                 <td className="border p-2 font-semibold">Email</td>
-                <td className="border p-2">legal@neuratalk.in</td>
+                <td className="border p-2">support@mindwhile.com</td>
               </tr>
               <tr>
                 <td className="border p-2 font-semibold">Phone</td>
-                <td className="border p-2">+91 80 4567 8900</td>
+                <td className="border p-2">+91 81437 52025</td>
               </tr>
             </tbody>
           </table>
@@ -115,7 +111,7 @@ export default function LegalNoticePage() {
             upon receiving proper notice from competent authorities or affected parties.
           </p>
           <p>
-            To report unlawful content or submit a takedown notice, contact: legal@neuratalk.in
+            To report unlawful content or submit a takedown notice, contact: support@mindwhile.com
           </p>
 
           <h2>8. Grievance Officer (India)</h2>
@@ -124,14 +120,14 @@ export default function LegalNoticePage() {
           </p>
           <div className="bg-muted p-4 rounded-lg">
             <p><strong>Name:</strong> Grievance Officer, Mindwhile IT Solutions Pvt Ltd</p>
-            <p><strong>Email:</strong> grievance@neuratalk.in</p>
+            <p><strong>Email:</strong> support@mindwhile.com</p>
             <p><strong>Address:</strong> 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503</p>
             <p><strong>Response Time:</strong> Complaints acknowledged within 24 hours; resolved within 15 days</p>
           </div>
 
           <h2>9. Data Protection Officer</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Email:</strong> dpo@neuratalk.in</p>
+            <p><strong>Email:</strong> support@mindwhile.com</p>
             <p><strong>Address:</strong> 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503</p>
           </div>
 

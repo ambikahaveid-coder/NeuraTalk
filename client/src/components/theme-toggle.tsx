@@ -2,30 +2,56 @@ import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 
-export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
+const STORAGE_KEY = "theme";
 
+function preferredDark(): boolean {
+  try {
+    const theme = localStorage.getItem(STORAGE_KEY);
+    if (theme === "dark") return true;
+    if (theme === "light") return false;
+  } catch {
+    // Storage blocked: fall back to the system setting.
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
+}
+
+function applyDark(dark: boolean) {
+  document.documentElement.classList.toggle("dark", dark);
+}
+
+/**
+ * Public pages (website + login) follow the visitor's light/dark choice.
+ * Dashboards are built for the dark theme only, so leaving a public page
+ * switches back to dark (index.html also starts dark).
+ */
+export function usePublicTheme() {
   useEffect(() => {
-    const theme = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setIsDark(theme === "dark" || (!theme && prefersDark));
+    applyDark(preferredDark());
+    return () => applyDark(true);
   }, []);
+}
 
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
+export function ThemeToggle() {
+  const [isDark, setIsDark] = useState(() => preferredDark());
+
+  const toggle = () => {
+    const next = !isDark;
+    setIsDark(next);
+    applyDark(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, next ? "dark" : "light");
+    } catch {
+      // Not saved; the choice still applies until the page is closed.
     }
-  }, [isDark]);
+  };
 
   return (
     <Button
       variant="ghost"
       size="icon"
-      onClick={() => setIsDark(!isDark)}
+      onClick={toggle}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Light mode" : "Dark mode"}
       data-testid="button-theme-toggle"
     >
       {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}

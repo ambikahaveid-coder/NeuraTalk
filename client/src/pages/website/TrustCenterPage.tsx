@@ -169,7 +169,7 @@ export default function TrustCenterPage() {
             <h2>Vulnerability Disclosure</h2>
             <p>
               We welcome responsible disclosure of security vulnerabilities. If you discover a security
-              issue, please report it to <strong>security@neuratalk.in</strong> before making it public.
+              issue, please report it to <strong>support@mindwhile.com</strong> before making it public.
               We commit to:
             </p>
             <ul>
@@ -190,10 +190,10 @@ export default function TrustCenterPage() {
 
             <h2>Contact Security &amp; Trust Team</h2>
             <div className="bg-muted p-4 rounded-lg">
-              <p><strong>Security Issues:</strong> security@neuratalk.in</p>
-              <p><strong>Trust &amp; Safety:</strong> trust@neuratalk.in</p>
-              <p><strong>DPO:</strong> dpo@neuratalk.in</p>
-              <p><strong>Compliance:</strong> compliance@neuratalk.in</p>
+              <p><strong>Security Issues:</strong> support@mindwhile.com</p>
+              <p><strong>Trust &amp; Safety:</strong> support@mindwhile.com</p>
+              <p><strong>DPO:</strong> support@mindwhile.com</p>
+              <p><strong>Compliance:</strong> support@mindwhile.com</p>
             </div>
           </div>
         </div>

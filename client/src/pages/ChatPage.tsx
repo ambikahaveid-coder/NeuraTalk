@@ -41,7 +41,7 @@ type PersonalThreadSummary = {
 type PersonalThreadMessage = {
   id: number;
   senderUserId: number;
-  messageType?: "text" | "voice_note" | "attachment";
+  messageType?: "text" | "voice_note" | "attachment" | "file" | "location";
   originalContent: string;
   originalLanguage: string;
   translatedContent?: string | null;
@@ -52,6 +52,8 @@ type PersonalThreadMessage = {
   deliveryStatus: string;
   attachmentUrl?: string | null;
   attachmentTitle?: string | null;
+  attachmentSize?: number | null;
+  attachmentMime?: string | null;
   deliveredAt?: string | null;
   seenAt?: string | null;
   createdAt: string;
@@ -955,6 +957,8 @@ export default function ChatPage() {
                             status={message.isOwn ? formatDeliveryStatus(message.deliveryStatus) : null}
                             attachmentTitle={message.attachmentTitle}
                             attachmentUrl={message.attachmentUrl}
+                            attachmentSize={message.attachmentSize}
+                            attachmentMime={message.attachmentMime}
                             messageType={message.messageType}
                           />
                           {showToggle ? (

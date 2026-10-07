@@ -20,6 +20,7 @@ import {
   Video, Mic, Languages, ChartLine, PieChart, Calendar,
   UserPlus, Mail, Smartphone, Eye, RefreshCw, History, ArrowDownUp
 } from "lucide-react";
+import { LogoWithIcon } from "@/components/Logo";
 
 type Tab = "analytics" | "team" | "audit" | "settings" | "recordings" | "credits";
 
@@ -44,8 +45,7 @@ export default function EnterpriseDashboard() {
           <div className="flex items-center gap-4">
             <Link href="/enterprise">
               <div className="flex items-center gap-2 cursor-pointer hover:opacity-80">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="font-bold">NeuraTalk</span>
+                <LogoWithIcon size="sm" />
               </div>
             </Link>
             <Badge className="text-xs hidden sm:flex bg-gradient-to-r from-amber-500 to-orange-500">
@@ -609,7 +609,7 @@ function RecordingsTab() {
       <Card className="glass-card">
         <CardHeader className="border-b border-white/5">
           <CardTitle className="font-display font-bold">Secure Recording Vault</CardTitle>
-          <CardDescription className="text-xs">End-to-end encrypted call data with mandatory consent</CardDescription>
+          <CardDescription className="text-xs">Encrypted call data with mandatory consent</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-white/5">
@@ -763,7 +763,7 @@ function EnterpriseSettingsTab() {
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Data Encryption</Label>
-                  <p className="text-sm text-muted-foreground">End-to-end encryption for all calls</p>
+                  <p className="text-sm text-muted-foreground">Calls encrypted in transit</p>
                 </div>
                 <Switch checked disabled data-testid="switch-encryption" />
               </div>

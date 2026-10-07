@@ -97,7 +97,7 @@ export default function DataExportPage() {
 
           <h3>3.2 Requesting via Email</h3>
           <p>
-            Email privacy@neuratalk.in with subject "Data Export Request". Include your registered
+            Email support@mindwhile.com with subject "Data Export Request". Include your registered
             email and phone number for identity verification. We will process and respond within
             <strong> 30 days</strong> as required by law.
           </p>
@@ -112,7 +112,7 @@ export default function DataExportPage() {
             <li>SIP trunk configurations (API credentials excluded)</li>
           </ul>
           <p>
-            Go to <strong>Admin Panel → Compliance → Data Export</strong> or contact enterprise@neuratalk.in
+            Go to <strong>Admin Panel → Compliance → Data Export</strong> or contact support@mindwhile.com
             for large-scale exports.
           </p>
 
@@ -142,9 +142,9 @@ export default function DataExportPage() {
 
           <h2>8. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Data Export Requests:</strong> privacy@neuratalk.in</p>
-            <p><strong>Enterprise Exports:</strong> enterprise@neuratalk.in</p>
-            <p><strong>DPO:</strong> dpo@neuratalk.in</p>
+            <p><strong>Data Export Requests:</strong> support@mindwhile.com</p>
+            <p><strong>Enterprise Exports:</strong> support@mindwhile.com</p>
+            <p><strong>DPO:</strong> support@mindwhile.com</p>
             <p><strong>Response Time:</strong> Within 30 days of verified request</p>
           </div>
         </div>

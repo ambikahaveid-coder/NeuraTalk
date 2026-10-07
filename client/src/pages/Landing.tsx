@@ -10,6 +10,8 @@ import {
   Globe, Users, Shield, ExternalLink
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { LogoWithIcon } from "@/components/Logo";
+import { usePublicTheme } from "@/components/theme-toggle";
 import {
   Select,
   SelectContent,
@@ -58,9 +60,10 @@ function normalizeIdentifierByChannel(identifier: string, channel: Channel, coun
 }
 
 export default function Landing() {
+  usePublicTheme();
   const savedFlow = getSignupFlow();
-  const [step, setStepState] = useState<Step>(savedFlow?.step || "choose");
-  const [accountType, setAccountType] = useState<AccountType>(savedFlow?.accountType || "consumer");
+  const [step, setStepState] = useState<Step>(savedFlow?.step && savedFlow.step !== "choose" ? savedFlow.step : "identifier");
+  const [accountType] = useState<AccountType>(savedFlow?.accountType === "business" ? "business" : "consumer");
   
   const setStep = (newStep: Step) => {
     setStepState(newStep);
@@ -325,100 +328,68 @@ export default function Landing() {
   const isVerifying = isVerifyingOtp || isVerifyingFirebaseOtp;
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden mesh-bg">
-      {/* Dynamic Background Orbs */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <motion.div 
-          animate={{ 
-            scale: [1, 1.2, 1],
-            opacity: [0.1, 0.2, 0.1],
-            x: [0, 50, 0],
-            y: [0, -30, 0]
-          }}
-          transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-          className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-primary/30 rounded-full blur-[120px]" 
-        />
-        <motion.div 
-          animate={{ 
-            scale: [1, 1.3, 1],
-            opacity: [0.1, 0.15, 0.1],
-            x: [0, -40, 0],
-            y: [0, 40, 0]
-          }}
-          transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
-          className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-secondary/30 rounded-full blur-[120px]" 
-        />
-      </div>
-
-      {/* Invisible reCAPTCHA container for Firebase Phone Auth */}
-      <div id="recaptcha-container" ref={recaptchaContainerRef} />
-
-      <header className="w-full py-4 px-4 flex items-center justify-between z-10">
-        <Link href="/">
-          <Button variant="ghost" size="sm" className="gap-1" data-testid="link-home">
-            <ArrowLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Back to Home</span>
-          </Button>
-        </Link>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Globe className="w-4 h-4" />
-          <span className="hidden sm:inline">Multi-language Support</span>
-        </div>
-      </header>
-
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="w-full max-w-md"
-      >
-        <div className="text-center mb-10">
-          <motion.div 
-            className="inline-flex items-center justify-center px-4 py-1.5 rounded-full bg-white/[0.05] border border-white/[0.1] backdrop-blur-md mb-6"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            whileHover={{ scale: 1.05, backgroundColor: "rgba(255,255,255,0.08)" }}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-primary mr-2 animate-pulse" />
-            <span className="text-[10px] font-bold tracking-[0.2em] text-primary uppercase">Next-Gen Voice AI</span>
-          </motion.div>
-          <motion.h1 
-            className="text-6xl md:text-7xl font-black mb-4 font-display tracking-tight bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60"
-            initial={{ opacity: 0, filter: "blur(10px)" }}
-            animate={{ opacity: 1, filter: "blur(0px)" }}
-            transition={{ duration: 0.8, delay: 0.3 }}
-          >
-            NeuraTalk
-          </motion.h1>
-          <motion.p 
-            className="text-lg text-muted-foreground/80 max-w-sm mx-auto leading-relaxed"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-          >
-            Real-time multilingual voice communication with <span className="text-white">human-eye emotion</span> awareness.
-          </motion.p>
+    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-background">
+      {/* Brand panel (mockup 01): navy with a soft blue glow */}
+      <aside className="relative overflow-hidden px-6 pt-6 pb-10 lg:px-14 lg:py-12 flex flex-col bg-[#0B1530] bg-[radial-gradient(ellipse_at_80%_110%,rgba(30,102,245,0.45),transparent_55%),radial-gradient(ellipse_at_0%_0%,rgba(42,168,255,0.18),transparent_45%)]">
+        <div className="flex items-center justify-between">
+          <Link href="/" data-testid="link-home">
+            <span className="cursor-pointer"><LogoWithIcon size="md" tagline onDark /></span>
+          </Link>
+          <Link href="/">
+            <Button variant="ghost" size="sm" className="gap-1 text-white/80 hover:text-white">
+              <ArrowLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">Home</span>
+            </Button>
+          </Link>
         </div>
 
+        <div className="mt-10 lg:mt-auto lg:mb-auto max-w-lg">
+          <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white leading-[1.1]">
+            Talk to anyone, <span className="text-[#5AB4FF]">in their own language.</span>
+          </h1>
+          <p className="mt-4 text-base md:text-lg text-white/75 leading-relaxed">
+            Voice calls, video calls and chat, translated live. Speak naturally, mix languages, and you will still be understood.
+          </p>
+          <ul className="mt-8 hidden md:grid gap-4">
+            {[
+              { icon: <Phone className="w-5 h-5" />, t: "Translated voice & video calls", d: "Hear the other person in your language, with live captions." },
+              { icon: <Globe className="w-5 h-5" />, t: "Chat in 20 languages", d: "Telugu, Hindi, Tamil, English and more, auto-translated." },
+              { icon: <Users className="w-5 h-5" />, t: "Face to face on one phone", d: "Talk with someone next to you, each in your own language." },
+              { icon: <Building2 className="w-5 h-5" />, t: "For business teams", d: "Teams, call routing and usage reports for your company." },
+            ].map((f) => (
+              <li key={f.t} className="flex gap-3">
+                <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-[#7CC4FF]">{f.icon}</span>
+                <span>
+                  <span className="block font-semibold text-white">{f.t}</span>
+                  <span className="block text-sm text-white/65">{f.d}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="hidden lg:block text-sm text-white/50">© Mindwhile IT Solutions Pvt Ltd · support@mindwhile.com</p>
+      </aside>
+
+      {/* Sign-in card */}
+      <main className="relative flex items-start lg:items-center justify-center px-4 pb-12 lg:py-12 lg:bg-muted">
+        {/* Invisible reCAPTCHA container for Firebase Phone Auth */}
+        <div id="recaptcha-container" ref={recaptchaContainerRef} className="absolute" />
         <motion.div
-          className="glass-card p-8 rounded-[2rem] relative z-10 overflow-hidden"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="w-full max-w-md"
+        >
+        <motion.div
+          className="rounded-3xl border border-border bg-card p-6 sm:p-8 shadow-2xl shadow-black/10 dark:shadow-black/30 relative z-10 overflow-hidden"
           layout
         >
-          <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
-            <Volume2 className="w-24 h-24 text-primary" />
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-foreground">Welcome back</h2>
+            <p className="text-sm text-muted-foreground mt-1">Sign in with your mobile number or email. New here? We'll create your account.</p>
           </div>
-          <SignupProgress step={step} accountType={accountType} />
-          <AnimatePresence mode="wait">
-            {step === "choose" && (
-              <ChooseAccountType 
-                accountType={accountType}
-                setAccountType={setAccountType}
-                onContinue={() => setStep("identifier")}
-              />
-            )}
-
+                    <AnimatePresence mode="wait">
             {step === "identifier" && (
               <>
                 <IdentifierStep
@@ -429,7 +400,6 @@ export default function Landing() {
                   identifier={identifier}
                   setIdentifier={setIdentifier}
                   isLoading={isOtpLoading}
-                  onBack={() => setStep("choose")}
                   onContinue={handleRequestOtp}
                   firebaseEnabled={firebaseEnabled}
                 />
@@ -478,23 +448,23 @@ export default function Landing() {
 
             {step === "forgot-password" && (
               <motion.div key="forgot-password" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                <button onClick={() => setStep("choose")} className="flex items-center gap-1 text-sm text-muted-foreground mb-6 hover:text-foreground">
+                <button onClick={() => setStep("identifier")} className="flex items-center gap-1 text-sm text-muted-foreground mb-6 hover:text-foreground">
                   <ArrowLeft className="w-4 h-4" /> Back
                 </button>
                 <h2 className="text-2xl font-bold mb-2">Reset Password</h2>
                 <p className="text-sm text-muted-foreground mb-6">Enter your email or phone to receive a reset code</p>
                 <div className="flex gap-2 mb-4">
-                  <button onClick={() => setChannel("email")} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${channel === "email" ? "bg-primary text-black border-primary" : "border-white/10 hover:border-white/20"}`}>
+                  <button onClick={() => setChannel("email")} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${channel === "email" ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-input"}`}>
                     <Mail className="w-4 h-4 inline mr-1" /> Email
                   </button>
-                  <button onClick={() => setChannel("mobile")} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${channel === "mobile" ? "bg-primary text-black border-primary" : "border-white/10 hover:border-white/20"}`}>
+                  <button onClick={() => setChannel("mobile")} className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${channel === "mobile" ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-input"}`}>
                     <Phone className="w-4 h-4 inline mr-1" /> Mobile
                   </button>
                 </div>
                 {channel === "mobile" ? (
                   <div className="grid grid-cols-[150px_1fr] gap-2 mb-4">
                     <Select value={phoneCountryCode} onValueChange={setPhoneCountryCode}>
-                      <SelectTrigger className="bg-white/5 border-white/10">
+                      <SelectTrigger className="bg-muted border-border">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -513,7 +483,7 @@ export default function Landing() {
                         const selectedCountry = countries.find((country) => country.code === phoneCountryCode);
                         setIdentifier(sanitizePhoneInput(e.target.value, selectedCountry?.phoneLength || 15));
                       }}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary/50"
+                      className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary/50"
                     />
                   </div>
                 ) : (
@@ -522,7 +492,7 @@ export default function Landing() {
                     placeholder="your@email.com"
                     value={identifier}
                     onChange={e => setIdentifier(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
+                    className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
                   />
                 )}
                 {channel === "mobile" && (
@@ -550,14 +520,14 @@ export default function Landing() {
                   maxLength={6}
                   value={otpCode}
                   onChange={e => setOtpCode(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm mb-3 text-center text-2xl tracking-widest focus:outline-none focus:border-primary/50"
+                  className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm mb-3 text-center text-2xl tracking-widest focus:outline-none focus:border-primary/50"
                 />
                 <input
                   type="password"
                   placeholder="New password (min 6 chars)"
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
+                  className="w-full bg-muted border border-border rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary/50"
                 />
                 <Button onClick={handleResetPassword} disabled={isForgotLoading} className="w-full mb-3">
                   {isForgotLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -570,131 +540,23 @@ export default function Landing() {
             )}
           </AnimatePresence>
         </motion.div>
-      </motion.div>
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          By continuing you agree to our{" "}
+          <Link href="/terms" className="underline hover:text-foreground">Terms</Link> and{" "}
+          <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
+        </p>
+        </motion.div>
 
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.7, duration: 0.8 }}
-        className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl w-full px-4"
-      >
-        <FeatureCard 
-          icon={<Globe className="w-6 h-6 text-primary" />}
-          title="50+ Languages"
-          desc="Real-time translation with ultra-natural localized voice synthesis"
-          delay={0.8}
-        />
-        <FeatureCard 
-          icon={<Mic className="w-6 h-6 text-secondary" />}
-          title="Linguistic Nuance"
-          desc="Sub-200ms response time with perfect dialect preservation"
-          delay={0.9}
-        />
-        <FeatureCard 
-          icon={<Shield className="w-6 h-6 text-cyan-400" />}
-          title="Secure by Design"
-          desc="Enterprise-grade encryption with self-hosted sovereignty"
-          delay={1.0}
-        />
-      </motion.div>
-      
-      {/* Discreet system access link */}
-      <Link href="/sys" className="absolute bottom-4 right-4 text-xs text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors">
-        v1.0
-      </Link>
-      </div>
+        {/* Discreet system access link */}
+        <Link href="/sys" className="fixed bottom-4 right-4 text-xs text-muted-foreground/30 hover:text-muted-foreground/50 transition-colors">
+          v1.0
+        </Link>
+      </main>
     </div>
   );
 }
 
-function ChooseAccountType({ 
-  accountType, 
-  setAccountType, 
-  onContinue 
-}: { 
-  accountType: AccountType;
-  setAccountType: (t: AccountType) => void;
-  onContinue: () => void;
-}) {
-  return (
-    <motion.div
-      key="choose"
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-4"
-    >
-      <div className="text-center mb-4">
-        <h2 className="text-lg font-semibold">Get Started</h2>
-        <p className="text-sm text-muted-foreground">Choose your account type</p>
-      </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={() => setAccountType("consumer")}
-          data-testid="button-consumer"
-          className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
-            accountType === "consumer" 
-              ? "border-primary bg-primary/10" 
-              : "border-white/10 hover:border-white/20"
-          }`}
-        >
-          <User className={`w-8 h-8 ${accountType === "consumer" ? "text-primary" : "text-muted-foreground"}`} />
-          <span className="text-sm font-medium">Personal</span>
-          <span className="text-xs text-muted-foreground">For individuals</span>
-        </button>
-
-        <button
-          onClick={() => setAccountType("business")}
-          data-testid="button-business"
-          className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
-            accountType === "business" 
-              ? "border-secondary bg-secondary/10" 
-              : "border-white/10 hover:border-white/20"
-          }`}
-        >
-          <Building2 className={`w-8 h-8 ${accountType === "business" ? "text-secondary" : "text-muted-foreground"}`} />
-          <span className="text-sm font-medium">Business</span>
-          <span className="text-xs text-muted-foreground">For teams & enterprises</span>
-        </button>
-      </div>
-
-      <Button 
-        onClick={onContinue} 
-        className="w-full mt-4" 
-        size="lg"
-        data-testid="button-continue-account-type"
-      >
-        Continue <ArrowRight className="w-4 h-4 ml-2" />
-      </Button>
-    </motion.div>
-  );
-}
-
-function SignupProgress({ step, accountType }: { step: Step; accountType: AccountType }) {
-  const steps: Step[] = accountType === "business"
-    ? ["choose", "identifier", "otp", "company-details"]
-    : ["choose", "identifier", "otp"];
-  const currentIndex = steps.indexOf(step);
-  if (currentIndex === -1) return null;
-
-  return (
-    <div className="relative z-10 flex items-center justify-center gap-2 mb-6" data-testid="signup-progress">
-      {steps.map((_, i) => (
-        <div
-          key={i}
-          className={`h-1.5 rounded-full transition-all ${
-            i === currentIndex
-              ? "w-8 bg-primary"
-              : i < currentIndex
-                ? "w-4 bg-primary/50"
-                : "w-4 bg-white/10"
-          }`}
-        />
-      ))}
-    </div>
-  );
-}
 
 function IdentifierStep({
   channel,
@@ -715,7 +577,7 @@ function IdentifierStep({
   identifier: string;
   setIdentifier: (v: string) => void;
   isLoading: boolean;
-  onBack: () => void;
+  onBack?: () => void;
   onContinue: () => void;
   firebaseEnabled?: boolean;
 }) {
@@ -730,25 +592,26 @@ function IdentifierStep({
       exit={{ opacity: 0, x: -20 }}
       className="space-y-4"
     >
-      <button 
-        onClick={onBack} 
-        className="flex items-center text-sm text-muted-foreground hover:text-white transition-colors"
-        data-testid="button-back-identifier"
-      >
-        <ArrowLeft className="w-4 h-4 mr-1" /> Back
-      </button>
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="button-back-identifier"
+        >
+          <ArrowLeft className="w-4 h-4 mr-1" /> Back
+        </button>
+      )}
 
       <div className="text-center mb-4">
-        <h2 className="text-lg font-semibold">Verify Your Identity</h2>
-        <p className="text-sm text-muted-foreground">We'll send you a one-time code</p>
+        <p className="text-sm text-muted-foreground">We'll send you a one-time code.</p>
       </div>
 
-      <div className="flex gap-2 p-1 rounded-lg bg-white/5">
+      <div className="flex gap-2 p-1 rounded-lg bg-muted">
         <button
           onClick={() => { setChannel("email"); setIdentifier(""); }}
           data-testid="button-channel-email"
           className={`flex-1 py-2 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition-all ${
-            channel === "email" ? "bg-white/10 text-white" : "text-muted-foreground"
+            channel === "email" ? "bg-foreground/10 text-foreground" : "text-muted-foreground"
           }`}
         >
           <Mail className="w-4 h-4" /> Email
@@ -757,7 +620,7 @@ function IdentifierStep({
           onClick={() => { setChannel("mobile"); setIdentifier(""); }}
           data-testid="button-channel-mobile"
           className={`flex-1 py-2 px-3 rounded-md text-sm font-medium flex items-center justify-center gap-2 transition-all ${
-            channel === "mobile" ? "bg-white/10 text-white" : "text-muted-foreground"
+            channel === "mobile" ? "bg-foreground/10 text-foreground" : "text-muted-foreground"
           }`}
         >
           <Phone className="w-4 h-4" /> Mobile
@@ -861,7 +724,7 @@ function OtpStep({
     >
       <button 
         onClick={onBack} 
-        className="flex items-center text-sm text-muted-foreground hover:text-white transition-colors"
+        className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
         data-testid="button-back-otp"
       >
         <ArrowLeft className="w-4 h-4 mr-1" /> Back
@@ -896,7 +759,7 @@ function OtpStep({
 
       <button 
         onClick={onResend}
-        className="w-full text-sm text-muted-foreground hover:text-white transition-colors"
+        className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
         data-testid="button-resend-otp"
       >
         Didn't receive code? <span className="text-primary">Resend</span>
@@ -934,7 +797,7 @@ function CompanyDetailsStep({
     >
       <button 
         onClick={onBack} 
-        className="flex items-center text-sm text-muted-foreground hover:text-white transition-colors"
+        className="flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
         data-testid="button-back-company"
       >
         <ArrowLeft className="w-4 h-4 mr-1" /> Back
@@ -1051,10 +914,10 @@ function PendingApprovalStep({ companyName }: { companyName: string }) {
       
       <h2 className="text-xl font-semibold mb-2">Application Submitted!</h2>
       <p className="text-sm text-muted-foreground mb-4">
-        Your application for <span className="font-medium text-white">{companyName}</span> is pending review.
+        Your application for <span className="font-medium text-foreground">{companyName}</span> is pending review.
       </p>
       
-      <div className="p-4 rounded-lg bg-white/5 text-left space-y-2">
+      <div className="p-4 rounded-lg bg-muted text-left space-y-2">
         <h3 className="text-sm font-medium">What happens next?</h3>
         <ul className="text-xs text-muted-foreground space-y-1">
           <li className="flex items-start gap-2">
@@ -1084,18 +947,3 @@ function PendingApprovalStep({ companyName }: { companyName: string }) {
   );
 }
 
-function FeatureCard({ icon, title, desc, delay }: { icon: React.ReactNode; title: string; desc: string; delay: number }) {
-  return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay }}
-      whileHover={{ y: -5, backgroundColor: "rgba(255,255,255,0.08)" }}
-      className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.05] shadow-lg transition-colors group"
-    >
-      <div className="mb-4 p-3 rounded-xl bg-white/[0.05] w-fit group-hover:scale-110 transition-transform">{icon}</div>
-      <h3 className="text-base font-bold mb-2 font-display">{title}</h3>
-      <p className="text-sm text-muted-foreground/70 leading-relaxed">{desc}</p>
-    </motion.div>
-  );
-}

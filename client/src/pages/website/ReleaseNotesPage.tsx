@@ -118,7 +118,7 @@ export default function ReleaseNotesPage() {
             <p className="text-sm text-muted-foreground mb-4">
               Get notified when new features are released.
             </p>
-            <a href="mailto:updates@neuratalk.in?subject=Subscribe to Release Notes" className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
+            <a href="mailto:support@mindwhile.com?subject=Subscribe to Release Notes" className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
               Subscribe to Updates
             </a>
           </div>

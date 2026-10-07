@@ -27,15 +27,15 @@ export default function PrivacyPage() {
             <li><strong>India:</strong> Digital Personal Data Protection Act, 2023 (DPDP Act) and DPDP Rules 2025</li>
             <li><strong>European Union:</strong> General Data Protection Regulation (GDPR)</li>
             <li><strong>India IT Act:</strong> Information Technology Act, 2000 and IT Rules, 2011</li>
-            <li><strong>International:</strong> ISO 27001 security standards</li>
+            <li><strong>Security:</strong> industry-standard practices, including encryption in transit</li>
           </ul>
 
           <h2>2. Data Controller / Data Fiduciary</h2>
           <p>
             <strong>Mindwhile IT Solutions Pvt Ltd</strong><br />
             Registered Address: 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503<br />
-            Data Protection Officer: dpo@neuratalk.in<br />
-            Grievance Officer: grievance@neuratalk.in
+            Data Protection Officer: support@mindwhile.com<br />
+            Grievance Officer: support@mindwhile.com
           </p>
 
           <h2>3. Information We Collect</h2>
@@ -212,12 +212,12 @@ export default function PrivacyPage() {
               <tr>
                 <td className="border p-2"><strong>Restrict Processing</strong></td>
                 <td className="border p-2">Limit how we process your data</td>
-                <td className="border p-2">Email: privacy@neuratalk.in</td>
+                <td className="border p-2">Email: support@mindwhile.com</td>
               </tr>
               <tr>
                 <td className="border p-2"><strong>Object</strong></td>
                 <td className="border p-2">Object to certain processing activities</td>
-                <td className="border p-2">Email: privacy@neuratalk.in</td>
+                <td className="border p-2">Email: support@mindwhile.com</td>
               </tr>
               <tr>
                 <td className="border p-2"><strong>Withdraw Consent</strong></td>
@@ -227,7 +227,7 @@ export default function PrivacyPage() {
               <tr>
                 <td className="border p-2"><strong>Nominate</strong></td>
                 <td className="border p-2">Nominate someone to exercise rights on your behalf</td>
-                <td className="border p-2">Email: privacy@neuratalk.in</td>
+                <td className="border p-2">Email: support@mindwhile.com</td>
               </tr>
             </tbody>
           </table>
@@ -362,9 +362,9 @@ export default function PrivacyPage() {
 
           <h2>16. Contact Us</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Data Protection Officer:</strong> dpo@neuratalk.in</p>
-            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.in</p>
-            <p><strong>Grievance Officer (India):</strong> grievance@neuratalk.in</p>
+            <p><strong>Data Protection Officer:</strong> support@mindwhile.com</p>
+            <p><strong>Privacy Inquiries:</strong> support@mindwhile.com</p>
+            <p><strong>Grievance Officer (India):</strong> support@mindwhile.com</p>
             <p><strong>Address:</strong> Mindwhile It Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, Andhra Pradesh 522503</p>
             <p className="mt-2">
               <strong>Response Time:</strong> We aim to respond to all privacy inquiries within 30 days.

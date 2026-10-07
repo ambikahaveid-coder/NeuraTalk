@@ -5,40 +5,71 @@
 @tailwind utilities;
 
 :root {
-  /* Dark Futuristic Theme Base - Premium HSL Palette */
-  --background: 240 30% 4%;      /* Deeper Dark */
-  --foreground: 210 40% 98%;     
-  
-  --card: 240 25% 8%;           
-  --card-foreground: 210 40% 98%;
-  
-  --popover: 240 25% 8%;
-  --popover-foreground: 210 40% 98%;
-  
-  --primary: 180 100% 50%;       /* Neon Cyan */
-  --primary-foreground: 240 30% 4%;
-  
-  --secondary: 280 100% 65%;     /* Vibrant Purple */
-  --secondary-foreground: 210 40% 98%;
-  
-  --muted: 240 20% 12%;
-  --muted-foreground: 215 20% 65%;
-  
-  --accent: 240 20% 12%;
-  --accent-foreground: 180 100% 50%;
-  
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  /* NeuraTalk light theme. Brand blue on white, navy text. */
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
 
-  --border: 240 20% 15%;
-  --input: 240 20% 15%;
-  --ring: 180 100% 70%;
-  
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 220 91% 54%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 214 95% 93%;
+  --secondary-foreground: 220 91% 40%;
+
+  --muted: 216 33% 97%;
+  --muted-foreground: 215 19% 35%;
+
+  --accent: 214 95% 95%;
+  --accent-foreground: 220 91% 45%;
+
+  --destructive: 347 77% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 214 32% 89%;
+  --input: 214 32% 89%;
+  --ring: 220 91% 54%;
+
   --radius: 1rem;
   
   /* Modern Typography - Inter for UI, Outfit for Display */
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-display: 'Outfit', system-ui, sans-serif;
+}
+
+/* NeuraTalk dark theme (brand navy + blue). Dashboards always use this. */
+.dark {
+  --background: 224 63% 11%;     /* brand navy #0B1530 */
+  --foreground: 210 40% 98%;
+
+  --card: 223 50% 16%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 223 50% 16%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 220 91% 54%;        /* NeuraTalk blue #1E66F5 */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 202 100% 58%;     /* logo sky #2AA8FF */
+  --secondary-foreground: 224 63% 11%;
+
+  --muted: 223 40% 20%;
+  --muted-foreground: 215 25% 72%;
+
+  --accent: 223 40% 20%;
+  --accent-foreground: 202 100% 70%;
+
+  --destructive: 347 77% 55%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 223 35% 24%;
+  --input: 223 35% 24%;
+  --ring: 220 91% 60%;
 }
 
 @layer base {
@@ -82,12 +113,12 @@
   }
 
   .mesh-bg {
-    background-color: hsla(240,30%,4%,1);
+    background-color: hsla(224,63%,11%,1);
     background-image:
-      radial-gradient(at 0% 0%, hsla(280,100%,65%,0.15) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(180,100%,50%,0.15) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(280,100%,65%,0.1) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(180,100%,50%,0.1) 0px, transparent 50%);
+      radial-gradient(at 0% 0%, hsla(243,75%,59%,0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(202,100%,58%,0.15) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, hsla(243,75%,59%,0.1) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, hsla(202,100%,58%,0.1) 0px, transparent 50%);
   }
 
   @keyframes gradient-shift {

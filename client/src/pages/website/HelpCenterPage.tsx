@@ -113,7 +113,7 @@ export default function HelpCenterPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <a
-                href="mailto:support@neuratalk.in"
+                href="mailto:support@mindwhile.com"
                 className="inline-flex items-center justify-center px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
               >
                 📧 Email Support
@@ -126,7 +126,7 @@ export default function HelpCenterPage() {
               </a>
             </div>
             <p className="text-xs text-muted-foreground mt-4">
-              Email: support@neuratalk.in · Phone: +91 80 4567 8900
+              Email: support@mindwhile.com · Phone: +91 81437 52025
             </p>
           </div>
         </div>

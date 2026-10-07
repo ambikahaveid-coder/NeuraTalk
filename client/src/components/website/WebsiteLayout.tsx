@@ -4,8 +4,9 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu, Phone, Globe, Mail, MapPin, Linkedin, Twitter, Youtube, ArrowRight, Building2, Users, Shield, FileText } from "lucide-react";
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeToggle, usePublicTheme } from "@/components/theme-toggle";
 import AIChatbot from "./AIChatbot";
+import { LogoWithIcon } from "@/components/Logo";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -61,6 +62,7 @@ interface WebsiteLayoutProps {
 }
 
 export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
+  usePublicTheme();
   const [location] = useLocation();
   const [language, setLanguage] = useState("en");
   const currentYear = new Date().getFullYear();
@@ -71,8 +73,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <Link href="/">
             <div className="flex items-center gap-2 cursor-pointer">
-              <Phone className="w-6 h-6 text-primary" />
-              <span className="font-bold text-xl">NeuraTalk</span>
+              <LogoWithIcon size="md" />
             </div>
           </Link>
 
@@ -163,8 +164,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
             <div className="col-span-2 md:col-span-1">
               <div className="flex items-center gap-2 mb-4">
-                <Phone className="w-5 h-5 text-primary" />
-                <span className="font-bold">NeuraTalk</span>
+                <LogoWithIcon size="sm" />
               </div>
               <p className="text-sm text-muted-foreground mb-4">
                 Breaking language barriers with AI-powered voice translation for enterprises worldwide.
@@ -257,11 +257,11 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <h5 className="font-medium text-sm">Contact Information</h5>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Mail className="w-4 h-4" />
-                  <span>support@neuratalk.in</span>
+                  <a href="mailto:support@mindwhile.com" className="hover:text-foreground">support@mindwhile.com</a>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Phone className="w-4 h-4" />
-                  <span>+91 80 4567 8900</span>
+                  <a href="tel:+918143752025" className="hover:text-foreground">+91 81437 52025</a>
                 </div>
                 <div className="flex items-start gap-2 text-sm text-muted-foreground">
                   <MapPin className="w-4 h-4 mt-0.5" />
@@ -269,15 +269,13 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-2">
-                <h5 className="font-medium text-sm">Compliance & Certifications</h5>
+                <h5 className="font-medium text-sm">Privacy & Compliance</h5>
                 <div className="flex flex-wrap gap-2">
                   <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">GDPR Compliant</span>
                   <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">DPDP Act 2023</span>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">SOC 2 Ready</span>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">ISO 27001</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Enterprise-grade security with end-to-end encryption for all voice communications.
+                  Calls and messages are encrypted in transit. We follow India's DPDP Act 2023.
                 </p>
               </div>
             </div>
@@ -287,8 +285,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 © {currentYear} Mindwhile IT Solutions Pvt Ltd. All rights reserved.
               </p>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>CIN: U72900TG2024PTC123456</span>
-                <span>GSTIN: 36AABCM1234A1Z5</span>
+                <span>CIN: U72900AP2022PTC122855</span>
               </div>
             </div>
           </div>

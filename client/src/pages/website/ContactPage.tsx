@@ -153,10 +153,8 @@ export default function ContactPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground mb-2">For general inquiries:</p>
-                <p className="font-medium">support@neuratalk.in</p>
-                <p className="text-muted-foreground mt-4 mb-2">For enterprise sales:</p>
-                <p className="font-medium">sales@neuratalk.in</p>
+                <p className="text-muted-foreground mb-2">For support, sales and partnerships:</p>
+                <a href="mailto:support@mindwhile.com" className="font-medium hover:text-primary">support@mindwhile.com</a>
               </CardContent>
             </Card>
 
@@ -164,14 +162,11 @@ export default function ContactPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Phone className="w-5 h-5" />
-                  Phone Support
+                  Phone
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground mb-2">India:</p>
-                <p className="font-medium">+91 80 4567 8900</p>
-                <p className="text-muted-foreground mt-4 mb-2">Toll-free:</p>
-                <p className="font-medium">1800 123 4567</p>
+                <a href="tel:+918143752025" className="font-medium hover:text-primary">+91 81437 52025</a>
               </CardContent>
             </Card>
 

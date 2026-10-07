@@ -45,6 +45,7 @@ import {
   Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw,
   Radio, PiggyBank, Lock, MessagesSquare
 } from "lucide-react";
+import { LogoWithIcon } from "@/components/Logo";
 
 // Human-readable labels for the P0-5 Business-platform permission grant --
 // mirrors GRANTABLE_BUSINESS_PERMISSIONS in server/business-rbac-routes.ts
@@ -281,8 +282,7 @@ export default function CompanyDashboard() {
           <div className="flex items-center gap-4">
             <Link href="/company">
               <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 font-bold">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span>NeuraTalk</span>
+                <LogoWithIcon size="sm" />
               </div>
             </Link>
             <Badge variant="secondary" className="text-xs hidden sm:flex">

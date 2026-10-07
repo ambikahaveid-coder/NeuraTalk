@@ -107,7 +107,7 @@ export default function CookiePolicyPage() {
           <ul>
             <li><strong>Cookie Settings Panel:</strong> Click "Cookie Settings" in the bottom banner to update your preferences at any time.</li>
             <li><strong>Browser Settings:</strong> Most browsers allow you to block or delete cookies through their privacy settings. Refer to your browser's help documentation.</li>
-            <li><strong>Opt-out of Analytics:</strong> Contact us at privacy@neuratalk.in to opt out of analytics tracking.</li>
+            <li><strong>Opt-out of Analytics:</strong> Contact us at support@mindwhile.com to opt out of analytics tracking.</li>
           </ul>
 
           <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-lg my-4">
@@ -148,8 +148,8 @@ export default function CookiePolicyPage() {
 
           <h2>8. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.in</p>
-            <p><strong>DPO:</strong> dpo@neuratalk.in</p>
+            <p><strong>Privacy Inquiries:</strong> support@mindwhile.com</p>
+            <p><strong>DPO:</strong> support@mindwhile.com</p>
             <p><strong>Address:</strong> Mindwhile IT Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503</p>
           </div>
         </div>

@@ -338,7 +338,7 @@ export default function HomePage() {
               { icon: Globe, title: "20+ Languages", desc: "Telugu, Tamil, Kannada, Hindi, Spanish, French, Arabic and more", color: "text-blue-500" },
               { icon: Zap, title: "Ultra-Low Latency", desc: "Sub-300ms translation for natural, flowing conversations", color: "text-amber-500" },
               { icon: HeartHandshake, title: "Emotion Detection", desc: "AI detects and preserves emotional tone across translations", color: "text-rose-500" },
-              { icon: Shield, title: "Enterprise Security", desc: "Self-hosted infrastructure with end-to-end encryption", color: "text-emerald-500" },
+              { icon: Shield, title: "Enterprise Security", desc: "Encrypted in transit, with consent and data controls", color: "text-emerald-500" },
               { icon: Video, title: "HD Video Calls", desc: "High-quality video with real-time subtitle translation overlay", color: "text-indigo-500" },
               { icon: Wifi, title: "Always Connected", desc: "WebRTC with TURN fallback ensures calls work everywhere", color: "text-cyan-500" },
             ].map((item, i) => (

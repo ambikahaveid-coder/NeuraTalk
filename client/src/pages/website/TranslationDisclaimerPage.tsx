@@ -121,7 +121,7 @@ export default function TranslationDisclaimerPage() {
           <h2>7. Feedback &amp; Improvement</h2>
           <p>
             Translation errors can be reported via the in-call feedback button (thumbs down icon) or by
-            emailing ai-feedback@neuratalk.in. User feedback helps improve our models for future users.
+            emailing ai-support@mindwhile.com. User feedback helps improve our models for future users.
             Reported audio segments are reviewed anonymously and not linked to your identity without consent.
           </p>
 
@@ -137,8 +137,8 @@ export default function TranslationDisclaimerPage() {
 
           <h2>9. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Translation Feedback:</strong> ai-feedback@neuratalk.in</p>
-            <p><strong>Support:</strong> support@neuratalk.in</p>
+            <p><strong>Translation Feedback:</strong> ai-support@mindwhile.com</p>
+            <p><strong>Support:</strong> support@mindwhile.com</p>
           </div>
         </div>
       </section>

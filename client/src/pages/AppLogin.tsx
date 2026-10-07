@@ -18,6 +18,7 @@ import {
   getFirebasePhoneAuthErrorMessage,
   clearRecaptcha,
 } from "@/lib/firebase";
+import { LogoWithIcon } from "@/components/Logo";
 
 declare global {
   interface Window {
@@ -39,9 +40,16 @@ export default function AppLogin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmation = useRef<ConfirmationResult | null>(null);
+  const autoSent = useRef(false);
 
   useEffect(() => {
     initializeFirebase();
+    // The app already asked for the number: send the code right away so the
+    // user only has to type the OTP once.
+    if (initialDigits.length === 10 && !autoSent.current) {
+      autoSent.current = true;
+      void sendCode();
+    }
     return () => {
       try { clearRecaptcha(); } catch { /* already cleared */ }
     };
@@ -103,13 +111,13 @@ export default function AppLogin() {
     }
   }
 
-  const input = "w-full rounded-xl border-2 border-slate-600 bg-slate-900 px-4 py-4 text-2xl text-white tracking-wider outline-none focus:border-cyan-400";
-  const button = "w-full rounded-xl bg-cyan-500 py-4 text-xl font-bold text-slate-950 disabled:opacity-50";
+  const input = "w-full rounded-xl border-2 border-slate-600 bg-slate-900 px-4 py-4 text-2xl text-white tracking-wider outline-none focus:border-[#4F8DFF]";
+  const button = "w-full rounded-xl bg-[#1E66F5] py-4 text-xl font-bold text-white disabled:opacity-50";
 
   return (
     <div className="min-h-screen bg-slate-950 px-5 py-10 text-white">
       <div className="mx-auto max-w-md">
-        <h1 className="text-center text-4xl font-extrabold">NeuraTalk</h1>
+        <h1 className="flex justify-center"><LogoWithIcon size="lg" /></h1>
         <p className="mt-2 text-center text-lg text-slate-400">Sign in with your mobile number</p>
 
         <div className="mt-10 space-y-5">

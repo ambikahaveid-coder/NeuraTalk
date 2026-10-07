@@ -100,13 +100,13 @@ export default function ReportAbusePage() {
               <label className="block text-sm font-medium mb-2">Evidence / Screenshots</label>
               <textarea
                 rows={3}
-                placeholder="Paste links, call IDs, or describe any evidence you have. (File uploads: email evidence to trust@neuratalk.in)"
+                placeholder="Paste links, call IDs, or describe any evidence you have. (File uploads: email evidence to support@mindwhile.com)"
                 className="w-full px-3 py-2 border rounded-lg bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                 value={form.evidence}
                 onChange={(e) => setForm({ ...form, evidence: e.target.value })}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                To attach files or recordings as evidence, email them to trust@neuratalk.in referencing your report.
+                To attach files or recordings as evidence, email them to support@mindwhile.com referencing your report.
               </p>
             </div>
 
@@ -146,10 +146,10 @@ export default function ReportAbusePage() {
           <div className="mt-8 bg-card border rounded-xl p-6">
             <h3 className="font-bold mb-3">Other Ways to Report</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><strong>Email:</strong> trust@neuratalk.in</li>
-              <li><strong>Legal notices:</strong> legal@neuratalk.in</li>
-              <li><strong>Law enforcement requests:</strong> legal@neuratalk.in (include official letterhead)</li>
-              <li><strong>Grievance Officer (India):</strong> grievance@neuratalk.in</li>
+              <li><strong>Email:</strong> support@mindwhile.com</li>
+              <li><strong>Legal notices:</strong> support@mindwhile.com</li>
+              <li><strong>Law enforcement requests:</strong> support@mindwhile.com (include official letterhead)</li>
+              <li><strong>Grievance Officer (India):</strong> support@mindwhile.com</li>
             </ul>
           </div>
         </div>

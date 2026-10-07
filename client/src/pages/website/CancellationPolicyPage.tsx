@@ -28,7 +28,7 @@ export default function CancellationPolicyPage() {
             <li>Click <strong>Cancel Subscription</strong> and confirm.</li>
             <li>You will receive a cancellation confirmation email within 5 minutes.</li>
           </ol>
-          <p>You may also request cancellation by emailing billing@neuratalk.in from your registered email address.</p>
+          <p>You may also request cancellation by emailing support@mindwhile.com from your registered email address.</p>
 
           <h3>2.2 When Cancellation Takes Effect</h3>
           <table className="w-full border-collapse">
@@ -145,9 +145,9 @@ export default function CancellationPolicyPage() {
 
           <h2>7. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Billing Support:</strong> billing@neuratalk.in</p>
-            <p><strong>Enterprise Cancellations:</strong> enterprise@neuratalk.in</p>
-            <p><strong>Grievance Officer:</strong> grievance@neuratalk.in</p>
+            <p><strong>Billing Support:</strong> support@mindwhile.com</p>
+            <p><strong>Enterprise Cancellations:</strong> support@mindwhile.com</p>
+            <p><strong>Grievance Officer:</strong> support@mindwhile.com</p>
           </div>
         </div>
       </section>

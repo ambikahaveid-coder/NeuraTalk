@@ -140,7 +140,7 @@ export default function StatusPage() {
                 Subscribe
               </button>
             </div>
-            <p className="text-xs text-muted-foreground mt-2">Or email status@neuratalk.in to subscribe manually.</p>
+            <p className="text-xs text-muted-foreground mt-2">Or email support@mindwhile.com to subscribe manually.</p>
           </div>
 
           <div className="bg-card border rounded-xl p-6">

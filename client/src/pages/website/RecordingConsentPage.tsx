@@ -127,7 +127,7 @@ export default function RecordingConsentPage() {
             <li>Transcripts are generated only when the transcript feature is explicitly enabled.</li>
             <li>AI transcription providers process audio ephemerally per their API terms.</li>
             <li>Transcripts are stored with the same access controls as recordings.</li>
-            <li>Transcript participants can request deletion of their transcript segments via privacy@neuratalk.in.</li>
+            <li>Transcript participants can request deletion of their transcript segments via support@mindwhile.com.</li>
           </ul>
 
           <h2>6. User Responsibilities</h2>
@@ -143,7 +143,7 @@ export default function RecordingConsentPage() {
           <h2>7. Withdrawing Consent / Requesting Deletion</h2>
           <p>
             If you are a call participant (not the account holder) who wishes to request deletion of
-            a recording in which you appeared, email privacy@neuratalk.in with:
+            a recording in which you appeared, email support@mindwhile.com with:
           </p>
           <ul>
             <li>Your name and phone number</li>
@@ -154,9 +154,9 @@ export default function RecordingConsentPage() {
 
           <h2>8. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.in</p>
-            <p><strong>Enterprise Recording Config:</strong> enterprise@neuratalk.in</p>
-            <p><strong>DPO:</strong> dpo@neuratalk.in</p>
+            <p><strong>Privacy Inquiries:</strong> support@mindwhile.com</p>
+            <p><strong>Enterprise Recording Config:</strong> support@mindwhile.com</p>
+            <p><strong>DPO:</strong> support@mindwhile.com</p>
           </div>
         </div>
       </section>

@@ -214,7 +214,7 @@ export default function DataRetentionPage() {
           </p>
           <ul>
             <li>Use <strong>Settings → Privacy → Delete My Data</strong> in the dashboard.</li>
-            <li>Email privacy@neuratalk.in with "Erasure Request" in the subject line.</li>
+            <li>Email support@mindwhile.com with "Erasure Request" in the subject line.</li>
           </ul>
           <p>
             We will confirm deletion within 30 days. Note that data subject to legal hold (e.g., tax
@@ -236,8 +236,8 @@ export default function DataRetentionPage() {
 
           <h2>7. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Data Protection Officer:</strong> dpo@neuratalk.in</p>
-            <p><strong>Privacy Inquiries:</strong> privacy@neuratalk.in</p>
+            <p><strong>Data Protection Officer:</strong> support@mindwhile.com</p>
+            <p><strong>Privacy Inquiries:</strong> support@mindwhile.com</p>
             <p><strong>Address:</strong> Mindwhile IT Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503</p>
           </div>
         </div>

@@ -4,8 +4,8 @@
   "description": "Real-time multilingual voice and video communication with AI translation",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#6366f1",
+  "background_color": "#0B1530",
+  "theme_color": "#0B1530",
   "orientation": "any",
   "scope": "/",
   "icons": [

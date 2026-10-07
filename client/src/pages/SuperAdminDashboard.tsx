@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
+import { LogoWithIcon } from "@/components/Logo";
 
 type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations";
 
@@ -70,8 +71,7 @@ export default function SuperAdminDashboard() {
         <div className="p-4 border-b">
           <Link href="/admin">
             <div className="flex items-center gap-2 cursor-pointer">
-              <Sparkles className="w-6 h-6 text-primary" />
-              <span className="font-bold text-lg">NeuraTalk</span>
+              <LogoWithIcon size="md" />
             </div>
           </Link>
           <Badge variant="destructive" className="mt-2 text-xs">

@@ -160,7 +160,7 @@ export default function AIUsagePolicyPage() {
           <h2>10. Reporting AI Misuse</h2>
           <p>
             If you believe AI features on NeuraTalk are being misused or causing harm, report it to:
-            <strong> trust@neuratalk.in</strong> or use the <a href="/report-abuse">Report Abuse</a> form.
+            <strong> support@mindwhile.com</strong> or use the <a href="/report-abuse">Report Abuse</a> form.
           </p>
 
           <h2>11. Policy Updates</h2>
@@ -171,9 +171,9 @@ export default function AIUsagePolicyPage() {
 
           <h2>12. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>AI Ethics &amp; Safety:</strong> trust@neuratalk.in</p>
-            <p><strong>DPO:</strong> dpo@neuratalk.in</p>
-            <p><strong>General:</strong> support@neuratalk.in</p>
+            <p><strong>AI Ethics &amp; Safety:</strong> support@mindwhile.com</p>
+            <p><strong>DPO:</strong> support@mindwhile.com</p>
+            <p><strong>General:</strong> support@mindwhile.com</p>
           </div>
         </div>
       </section>

@@ -100,7 +100,7 @@ export default function RefundPolicyPage() {
           <p>
             Enterprise plan refunds are governed by the specific terms in your Enterprise Agreement (MSA).
             In the absence of custom terms, the standard annual subscription refund policy applies.
-            Contact your account manager or enterprise@neuratalk.in for assistance.
+            Contact your account manager or support@mindwhile.com for assistance.
           </p>
 
           <h2>5. Technical Issues &amp; Service Credits</h2>
@@ -115,7 +115,7 @@ export default function RefundPolicyPage() {
 
           <div className="bg-primary/10 p-4 rounded-lg my-4">
             <p className="font-semibold">How to Report a Technical Issue:</p>
-            <p>Email support@neuratalk.in with your account email, transaction ID, and a description of the issue. We investigate all reports within 48 hours.</p>
+            <p>Email support@mindwhile.com with your account email, transaction ID, and a description of the issue. We investigate all reports within 48 hours.</p>
           </div>
 
           <h2>6. How to Request a Refund</h2>
@@ -126,7 +126,7 @@ export default function RefundPolicyPage() {
             <li>Provide the reason and any supporting details.</li>
             <li>Our team will respond within <strong>3 business days</strong>.</li>
           </ol>
-          <p>Alternatively, email billing@neuratalk.in with your transaction ID and reason.</p>
+          <p>Alternatively, email support@mindwhile.com with your transaction ID and reason.</p>
 
           <h2>7. Refund Processing Time</h2>
           <table className="w-full border-collapse">
@@ -157,16 +157,15 @@ export default function RefundPolicyPage() {
             If your refund request is denied and you disagree with the decision, you may escalate to:
           </p>
           <ul>
-            <li><strong>Grievance Officer:</strong> grievance@neuratalk.in (response within 15 days)</li>
+            <li><strong>Grievance Officer:</strong> support@mindwhile.com (response within 15 days)</li>
             <li><strong>Consumer Forum:</strong> Under the Consumer Protection Act 2019 (India)</li>
             <li><strong>Payment Dispute:</strong> Contact your bank or card issuer for chargeback under applicable rules</li>
           </ul>
 
           <h2>9. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Billing Support:</strong> billing@neuratalk.in</p>
-            <p><strong>General Support:</strong> support@neuratalk.in</p>
-            <p><strong>Phone:</strong> +91 80 4567 8900 (Mon–Fri, 9am–6pm IST)</p>
+            <p><strong>Billing Support:</strong> support@mindwhile.com</p>
+            <p><strong>General Support:</strong> support@mindwhile.com</p>
           </div>
         </div>
       </section>

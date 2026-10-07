@@ -46,7 +46,7 @@ export default function AccountDeletionPage() {
 
           <h3>3.2 Request via Email</h3>
           <p>
-            If you cannot access your account, email privacy@neuratalk.in from your registered email
+            If you cannot access your account, email support@mindwhile.com from your registered email
             address with the subject line "Account Deletion Request". Include your full name and
             registered phone number for identity verification.
           </p>
@@ -150,13 +150,13 @@ export default function AccountDeletionPage() {
           <ul>
             <li>All active subscriptions must be cancelled first.</li>
             <li>All agent accounts must be deactivated or transferred.</li>
-            <li>Contact enterprise@neuratalk.in to initiate organisation-level deletion.</li>
+            <li>Contact support@mindwhile.com to initiate organisation-level deletion.</li>
           </ul>
 
           <h2>8. Contact</h2>
           <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Deletion Requests:</strong> privacy@neuratalk.in</p>
-            <p><strong>Enterprise Deletions:</strong> enterprise@neuratalk.in</p>
+            <p><strong>Deletion Requests:</strong> support@mindwhile.com</p>
+            <p><strong>Enterprise Deletions:</strong> support@mindwhile.com</p>
             <p><strong>Response Time:</strong> Confirmation within 3 business days, deletion within 30 days</p>
           </div>
         </div>
