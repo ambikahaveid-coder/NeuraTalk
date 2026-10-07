@@ -65,7 +65,8 @@ const APP_CALL_ABANDON_MS = parsePositiveInt(process.env.SMART_CALL_APP_ABANDON_
 // settled at all, rather than failing loudly. This bounds that wait so a
 // hang becomes an observable, retried, eventually-reported failure instead
 // of an indefinitely pending operation.
-const TRANSLATOR_BOT_STARTUP_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_STARTUP_TIMEOUT_MS, 10_000);
+// 20 s: a slow-but-working LiveKit connect must not be killed and retried.
+const TRANSLATOR_BOT_STARTUP_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_STARTUP_TIMEOUT_MS, 20_000);
 let billingTerminationBound = false;
 
 function withStartupTimeout<T>(promise: Promise<T>, callId: string, stage: string): Promise<T> {
@@ -548,6 +549,20 @@ async function countPeopleInRoom(roomName: string): Promise<number | null> {
     if (isRoomMissingError(error)) return 0;
     const message = String((error as { message?: string })?.message || error);
     logger.warn("SmartCallRouter", `could not list participants for ${roomName}: ${message}`);
+    return null;
+  }
+}
+
+/**
+ * People still in a group call's room, not counting the translator or the
+ * person who is leaving. null when LiveKit can't be reached.
+ */
+export async function countOthersInRoom(roomName: string, leavingIdentity: string): Promise<number | null> {
+  try {
+    const participants = await listParticipants(roomName);
+    return participants.filter((p) => p.identity !== leavingIdentity && !isTranslatorBotIdentity(p.identity, p.metadata)).length;
+  } catch (error) {
+    if (isRoomMissingError(error)) return 0;
     return null;
   }
 }
@@ -1559,6 +1574,7 @@ export async function initiateConference(params: {
   hostLanguage?: string;
   participantIds: string[];
   title?: string;
+  callType?: "voice" | "video";
 }): Promise<CallInitiateResponse & { participantTokens: Record<string, string> }> {
   const activeCallKey = `user:active_call:${params.hostId}`;
   const callId = `conf_${randomUUID()}`;
@@ -1586,16 +1602,18 @@ async function initiateConferenceLocked(
     hostLanguage?: string;
     participantIds: string[];
     title?: string;
+    callType?: "voice" | "video";
   },
   callId: string,
 ): Promise<CallInitiateResponse & { participantTokens: Record<string, string> }> {
+  const callType = params.callType === "video" ? "video" : "voice";
   const hostUserId = Number.isFinite(Number(params.hostId)) ? Number(params.hostId) : null;
   const hostUser = hostUserId ? await storage.getUser(hostUserId) : undefined;
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: hostUserId,
     organizationId: hostUser?.organizationId ?? null,
-    callType: "voice",
+    callType,
     translationEnabled: false,
     recordingEnabled: false,
     joinMethod: "conference",
@@ -1612,7 +1630,7 @@ async function initiateConferenceLocked(
     callId,
     maxParticipants: params.participantIds.length + 5,
     emptyTimeoutSec: 300,
-    metadata: { type: "conference", hostId: params.hostId, title: params.title },
+    metadata: { type: "conference", hostId: params.hostId, title: params.title, callType },
   });
   await initCallLanguageTracking(callId, [
     { speakerId: params.hostId, preferredLanguage: hostLanguage },
@@ -1620,8 +1638,9 @@ async function initiateConferenceLocked(
 
   const hostToken = await issueAccessToken(callId, {
     userId: params.hostId,
-    displayName: params.hostId,
+    displayName: (hostUser as any)?.username || params.hostId,
     language: hostLanguage,
+    translationMode: "voice",
     role: "caller",
   });
 
@@ -1633,14 +1652,16 @@ async function initiateConferenceLocked(
     await setParticipantLanguagePreference(callId, participantId, language);
     participantTokens[participantId] = await issueAccessToken(callId, {
       userId: participantId,
-      displayName: participantId,
+      displayName: (user as any)?.username || participantId,
       language,
+      translationMode: "voice",
       role: "caller",
     });
     await sendIncomingCallPush(participantId, {
       callId,
       callerId: params.hostId,
-      callType: "voice",
+      callType,
+      callerName: params.title || (hostUser as any)?.username,
     });
   }
 
@@ -1669,7 +1690,7 @@ async function initiateConferenceLocked(
     callerOrganizationId: hostUser?.organizationId ?? null,
     callerNumber: hostUser?.phone ?? null,
     calleeIdentifier: params.participantIds.join(","),
-    callType: "voice",
+    callType,
     callerLanguage: hostLanguage,
     livekitUrl: process.env.LIVEKIT_URL ?? null,
     languageDetectionActive: true,

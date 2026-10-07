@@ -9,6 +9,7 @@ import { desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
 import { db } from "../../db";
+import { groupChats, groupChatMembers } from "@shared/schema";
 import { getRedisClient } from "../../redis";
 import type { AuthenticatedUser } from "../../role-middleware";
 import {
@@ -462,70 +463,131 @@ export async function initiate(req: Request, res: Response) {
   }
 }
 
+function conferenceResponse(
+  user: { id: number | string; username?: string | null },
+  result: Awaited<ReturnType<typeof svc.initiateConference>>,
+  opts: { participantIds: string[]; title?: string; hostLanguage: string; callType: "voice" | "video"; groupId?: number },
+) {
+  return {
+    ...result,
+    session: {
+      id: result.callId,
+      callId: result.callId,
+      sessionId: result.callId,
+      status: "created",
+      routeType: "conference",
+      transport: "livekit",
+      provider: "conference",
+      callType: opts.callType,
+      sourceLanguage: opts.hostLanguage,
+      targetLanguage: "multi",
+      translationEnabled: true,
+      translationMode: "voice",
+      callerIdentityMode: "app_identity",
+      callerIdentityDisclaimer: null,
+      caller: {
+        userId: String(user.id),
+        externalId: String(user.id),
+        phoneNumber: null,
+        displayName: user.username || null,
+      },
+      callee: {
+        userId: null,
+        externalId: opts.participantIds.join(","),
+        phoneNumber: null,
+        displayName: opts.title || null,
+      },
+      maskedNumber: null,
+      livekitUrl: result.livekitUrl ?? null,
+      pstnCallId: null,
+      createdAt: new Date().toISOString(),
+      connectedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      statusSource: "smart-router" as const,
+      metadata: {
+        participantIds: opts.participantIds,
+        title: opts.title || null,
+        groupId: opts.groupId ?? null,
+      },
+    },
+  };
+}
+
 export async function conference(req: Request, res: Response) {
   try {
-    const { hostLanguage, participantIds, title } = req.body as {
+    const { hostLanguage, participantIds, title, callType } = req.body as {
       hostLanguage?: string;
       participantIds: string[];
       title?: string;
+      callType?: string;
     };
     if (!Array.isArray(participantIds)) {
       return res.status(400).json({ message: "participantIds required" });
     }
     const user = req.user!;
+    const type = callType === "video" ? "video" : "voice";
     const result = await svc.initiateConference({
       hostId: String(user.id),
       hostUsername: user.username,
       hostLanguage: hostLanguage || "auto",
       participantIds,
       title,
+      callType: type,
     });
-    res.json({
-      ...result,
-      session: {
-        id: result.callId,
-        callId: result.callId,
-        sessionId: result.callId,
-        status: "created",
-        routeType: "conference",
-        transport: "livekit",
-        provider: "conference",
-        callType: "voice",
-        sourceLanguage: hostLanguage || "auto",
-        targetLanguage: "multi",
-        translationEnabled: true,
-        translationMode: "subtitles",
-        callerIdentityMode: "app_identity",
-        callerIdentityDisclaimer: null,
-        caller: {
-          userId: String(user.id),
-          externalId: String(user.id),
-          phoneNumber: null,
-          displayName: user.username || null,
-        },
-        callee: {
-          userId: null,
-          externalId: participantIds.join(","),
-          phoneNumber: null,
-          displayName: title || null,
-        },
-        maskedNumber: null,
-        livekitUrl: result.livekitUrl ?? null,
-        pstnCallId: null,
-        createdAt: new Date().toISOString(),
-        connectedAt: null,
-        endedAt: null,
-        durationSeconds: null,
-        statusSource: "smart-router" as const,
-        metadata: {
-          participantIds,
-          title: title || null,
-        },
-      },
-    });
+    res.json(conferenceResponse(user, result, { participantIds, title, hostLanguage: hostLanguage || "auto", callType: type }));
   } catch (e: any) {
     logger.error("CallConference", `Failed: ${e?.message}`, e);
     res.status(500).json({ message: e?.message ?? "Conference failed" });
+  }
+}
+
+const GROUP_CALL_MAX_OTHERS = { voice: 15, video: 7 } as const;
+
+/**
+ * Voice or video call to everyone in a group chat. Only members can start
+ * one, and only the group's other members are rung. Each person speaks and
+ * hears their own language; people who share a language hear each other
+ * directly, with no translation.
+ */
+export async function groupCall(req: Request, res: Response) {
+  try {
+    const groupId = Number.parseInt(String(req.params.groupId), 10);
+    if (!Number.isFinite(groupId)) return res.status(400).json({ message: "Invalid group" });
+    const type = req.body?.callType === "video" ? "video" : "voice";
+    const user = req.user!;
+    const [group] = await db.select({ id: groupChats.id, name: groupChats.name }).from(groupChats).where(eq(groupChats.id, groupId));
+    if (!group) return res.status(404).json({ message: "Group not found" });
+    const members = await db.select({ userId: groupChatMembers.userId }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, groupId));
+    if (!members.some((m) => m.userId === Number(user.id))) {
+      return res.status(403).json({ message: "You're not a member of this group." });
+    }
+    const participantIds = members.map((m) => String(m.userId)).filter((id) => id !== String(user.id));
+    if (participantIds.length === 0) {
+      return res.status(400).json({ message: "Add someone to the group before calling." });
+    }
+    if (participantIds.length > GROUP_CALL_MAX_OTHERS[type]) {
+      return res.status(400).json({
+        message: type === "video"
+          ? `Group video calls support up to ${GROUP_CALL_MAX_OTHERS.video + 1} people.`
+          : `Group calls support up to ${GROUP_CALL_MAX_OTHERS.voice + 1} people.`,
+      });
+    }
+    const hostLanguage = String(user.preferredLanguage || "auto").toLowerCase();
+    const result = await svc.initiateConference({
+      hostId: String(user.id),
+      hostUsername: user.username,
+      hostLanguage,
+      participantIds,
+      title: group.name,
+      callType: type,
+    });
+    res.json(conferenceResponse(user, result, { participantIds, title: group.name, hostLanguage, callType: type, groupId }));
+  } catch (e: any) {
+    logger.error("GroupCall", `Failed: ${e?.message}`, e);
+    const busy = e?.message === "CONCURRENT_CALL_RESTRICTED";
+    res.status(busy ? 409 : e?.message === "PAYMENT_REQUIRED" || e?.message === "INSUFFICIENT_BALANCE" ? 402 : 500)
+      .json({ message: busy ? "You're already on a call." : e?.message ?? "Group call failed" });
   }
 }
 
@@ -546,6 +608,16 @@ export async function end(req: Request, res: Response) {
       // failure, masking the true cause for diagnosis.
       const rawReason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 64) : undefined;
       const reason = rawReason && /^[a-zA-Z0-9_.:-]+$/.test(rawReason) ? rawReason : undefined;
+
+      // Group call: hanging up only takes *you* out. The call (and billing)
+      // ends when the last person leaves; the watchdog closes empty rooms.
+      if (call.joinMethod === "conference") {
+        const others = await svc.countOthersInRoom(rawCallId, String(user.id));
+        if (others !== null && others > 0) {
+          await svc.removeIncomingCall(String(user.id), rawCallId).catch(() => undefined);
+          return res.json({ callId: rawCallId, status: "left", remaining: others });
+        }
+      }
 
       const result = await svc.endCallById(rawCallId, reason);
       return res.json({
@@ -822,6 +894,11 @@ export async function reject(req: Request, res: Response) {
     if (svc.isSmartCallId(callId)) {
       const smartCall = await svc.getSmartCall(callId).catch(() => null);
       callerUserId = smartCall ? Number(smartCall.callerId) : null;
+      // In a group call one person declining must not end it for everyone.
+      if (smartCall?.joinMethod === "conference") {
+        await svc.removeIncomingCall(String(rejectingUserId), callId);
+        return res.json({ success: true });
+      }
       void svc.updateSmartCallStatus(callId, CALL_STATUS.MISSED, { rejectedByUserId: rejectingUserId });
     }
 

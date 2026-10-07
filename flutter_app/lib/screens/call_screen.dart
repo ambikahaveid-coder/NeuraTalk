@@ -116,7 +116,7 @@ class _CallScreenState extends State<CallScreen> {
     _room = lk.Room();
     _videoOn = widget.session.isVideo;
     widget.callService.setActiveCall(widget.session);
-    if (widget.session.isIncoming) {
+    if (widget.session.isIncoming || widget.session.isGroup) {
       _connect();
     } else {
       _waitForAnswer();
@@ -263,7 +263,11 @@ class _CallScreenState extends State<CallScreen> {
         })
         ..on<lk.TrackSubscribedEvent>(_onTrackSubscribed)
         ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed)
-        ..on<lk.DataReceivedEvent>(_onDataReceived);
+        ..on<lk.DataReceivedEvent>(_onDataReceived)
+        ..on<lk.ParticipantConnectedEvent>((_) => _refresh())
+        ..on<lk.ParticipantDisconnectedEvent>((_) => _refresh())
+        ..on<lk.ParticipantMetadataUpdatedEvent>((_) => _refresh())
+        ..on<lk.ActiveSpeakersChangedEvent>((_) => _refresh());
 
       // Tell the translator we want translated *voice* (not only text), both
       // via metadata (read whenever the bot sets up this speaker) and a data
@@ -333,6 +337,15 @@ class _CallScreenState extends State<CallScreen> {
         if (!mounted || _connectedAt == null) return;
         setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
       });
+      // A group call I started where nobody picks up: don't wait forever.
+      if (widget.session.isGroup && !widget.session.isIncoming) {
+        _ringingTimeoutTimer = Timer(_ringingTimeout, () {
+          if (!mounted || _people.isNotEmpty) return;
+          setState(() => _error = 'No one answered.');
+          unawaited(_performEndCallNetwork());
+          Future.delayed(const Duration(seconds: 2), _exitScreen);
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -342,7 +355,46 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
+  static bool _isBot(lk.RemoteParticipant p) {
+    if (p.identity == 'neuratalk-translator' || p.identity.startsWith('assistant-')) return true;
+    return _metaOf(p.metadata)['role'] == 'bot';
+  }
+
+  static Map<String, dynamic> _metaOf(String? raw) {
+    try {
+      final decoded = jsonDecode(raw ?? '');
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return const {};
+  }
+
+  /// Real people in the call besides me (never the translator).
+  List<lk.RemoteParticipant> get _people =>
+      _room.remoteParticipants.values.where((p) => !_isBot(p)).toList();
+
+  String? get _myLanguage =>
+      _mySpeakingLang ?? _metaOf(_room.localParticipant?.metadata)['language']?.toString();
+
+  static String _base(String? code) => (code ?? 'auto').toLowerCase().split(RegExp('[-_]')).first;
+
+  /// Everyone here speaks my language: no translation, they hear each other
+  /// directly (the server also skips translation in this case).
+  bool get _everyoneSharesMyLanguage {
+    final mine = _base(_myLanguage);
+    final people = _people;
+    if (mine == 'auto' || people.isEmpty) return false;
+    return people.every((p) => _base(_metaOf(p.metadata)['language']?.toString()) == mine);
+  }
+
   void _onTrackSubscribed(lk.TrackSubscribedEvent event) {
+    if (event.track is lk.VideoTrack && widget.session.isGroup) {
+      _refresh();
+      return;
+    }
     if (event.track is lk.VideoTrack) {
       setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
       return;
@@ -363,6 +415,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _onTrackUnsubscribed(lk.TrackUnsubscribedEvent event) {
+    if (widget.session.isGroup) _refresh();
     if (event.track == _remoteVideoTrack) {
       setState(() => _remoteVideoTrack = null);
       return;
@@ -643,7 +696,9 @@ class _CallScreenState extends State<CallScreen> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (hasRemoteVideo)
+                        if (widget.session.isGroup && _error == null && !_connecting)
+                          _groupGrid(remoteName)
+                        else if (hasRemoteVideo)
                           ClipRRect(
                             borderRadius: BorderRadius.circular(24),
                             child: lk.VideoTrackRenderer(_remoteVideoTrack!, fit: lk.VideoViewFit.cover),
@@ -787,10 +842,102 @@ class _CallScreenState extends State<CallScreen> {
     );
   }
 
+  /// Everyone in a group call: video when on, otherwise their initial, with
+  /// their language and a ring while they speak.
+  Widget _groupGrid(String groupName) {
+    final people = _people;
+    if (people.isEmpty) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          NtAvatar(name: groupName, size: 96),
+          const SizedBox(height: 18),
+          Text(groupName, style: const TextStyle(color: AppColors.onAccent, fontSize: 24, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          const Text('Ringing everyone… they join here when they answer',
+              textAlign: TextAlign.center, style: TextStyle(color: Color(0xB3FFFFFF), fontSize: 15)),
+        ]),
+      );
+    }
+    final cols = people.length <= 1 ? 1 : 2;
+    final mine = _base(_myLanguage);
+    return GridView.count(
+      crossAxisCount: cols,
+      mainAxisSpacing: 10,
+      crossAxisSpacing: 10,
+      childAspectRatio: cols == 1 ? 0.8 : 0.78,
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      children: [
+        for (final p in people)
+          Builder(builder: (_) {
+            final meta = _metaOf(p.metadata);
+            final lang = meta['language']?.toString();
+            final name = ContactResolver.instance.displayNameFor(p.name.isNotEmpty ? p.name : p.identity);
+            final video = p.videoTrackPublications
+                .where((pub) => pub.subscribed && pub.track != null && !pub.muted)
+                .map((pub) => pub.track as lk.VideoTrack)
+                .firstOrNull;
+            final translated = _base(lang) != mine && mine != 'auto';
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                color: const Color(0x14FFFFFF),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: p.isSpeaking ? AppColors.green : Colors.transparent, width: 3),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Stack(fit: StackFit.expand, children: [
+                if (video != null)
+                  lk.VideoTrackRenderer(video, fit: lk.VideoViewFit.cover)
+                else
+                  Center(child: NtAvatar(name: name, size: cols == 1 ? 110 : 72)),
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(color: const Color(0x66000000), borderRadius: BorderRadius.circular(12)),
+                    child: Row(children: [
+                      if (p.isMuted) const Padding(padding: EdgeInsets.only(right: 4), child: Icon(Icons.mic_off, size: 14, color: Colors.white)),
+                      Expanded(
+                        child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                      ),
+                      if (lang != null && lang != 'auto')
+                        Text('${Languages.of(lang).name}${translated ? ' ⇄' : ''}',
+                            style: TextStyle(color: translated ? const Color(0xFF7CC4FF) : const Color(0xCCFFFFFF), fontSize: 12, fontWeight: FontWeight.w600)),
+                    ]),
+                  ),
+                ),
+              ]),
+            );
+          }),
+      ],
+    );
+  }
+
   /// Language pair and a live transcript: what the other person said, with the
   /// translation large underneath. Newest at the bottom, older lines fade.
   Widget _captionPanel() {
     if (!_showCaptions || _connectedAt == null) return const SizedBox(height: 12);
+    if (_everyoneSharesMyLanguage && _transcript.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          const Icon(Icons.record_voice_over, color: Color(0xB3FFFFFF), size: 18),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              widget.session.isGroup
+                  ? 'Everyone speaks ${Languages.name(_myLanguage)} · no translation needed'
+                  : 'You both speak ${Languages.name(_myLanguage)} · no translation needed',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ]),
+      );
+    }
     final mine = _mySpeakingLang ?? _captionToLang;
     final theirs = _captionFromLang;
     return Padding(

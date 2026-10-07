@@ -64,3 +64,24 @@ export function buildTranslationFailedEvent(input: TranslationFailedEventInput) 
     translationMode: input.mode,
   };
 }
+
+/** "te-IN" and "te" are the same language for this purpose. */
+function baseLanguage(code: string): string {
+  return code.trim().toLowerCase().split(/[-_]/)[0];
+}
+
+/**
+ * Whether a speaker's words must be transcribed and translated for anyone.
+ * Same language for every listener means nobody needs speech-to-text.
+ */
+export function computeNeedsTranslation(
+  speakerLanguage: string,
+  listeners: Array<{ language: string; mode: ListenerTranslationMode }>,
+): boolean {
+  const speaker = baseLanguage(speakerLanguage || "auto");
+  return listeners.some((listener) => {
+    if (!shouldTranslateForListener(listener.mode)) return false;
+    const heard = baseLanguage(listener.language || "auto");
+    return speaker === "auto" || heard === "auto" || heard !== speaker;
+  });
+}

@@ -353,14 +353,17 @@ export interface InitiateConferenceParams {
   hostLanguage?: string;
   participantIds: string[];
   title?: string;
+  callType?: "voice" | "video";
 }
 
 export async function initiateConference(params: InitiateConferenceParams) {
+  const callType = params.callType === "video" ? "video" : "voice";
   const result = await routerInitiateConference({
     hostId: params.hostId,
     hostLanguage: params.hostLanguage || "auto",
     participantIds: params.participantIds,
     title: params.title,
+    callType,
   });
 
   for (const pid of params.participantIds) {
@@ -369,8 +372,9 @@ export async function initiateConference(params: InitiateConferenceParams) {
       await queueIncomingCall(pid, {
         callId: result.callId,
         callerId: params.hostId,
-        callerName: params.hostUsername,
-        callType: "voice",
+        // Group calls ring as "Family · Kiran" so people know which group.
+        callerName: params.title ? `${params.title} · ${params.hostUsername || "Someone"}` : params.hostUsername,
+        callType,
         livekitUrl: result.livekitUrl,
         livekitToken: tok,
       });
@@ -379,6 +383,8 @@ export async function initiateConference(params: InitiateConferenceParams) {
 
   return result;
 }
+
+export { countOthersInRoom } from "./smart-router";
 
 export async function endCallById(callId: string, reason?: string) {
   return await routerEndCall(callId, reason);

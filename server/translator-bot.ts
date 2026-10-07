@@ -35,6 +35,7 @@ import {
   resolveListenerTranslationMode,
   shouldDeliverVoiceTranslation,
   shouldTranslateForListener,
+  computeNeedsTranslation,
   type ListenerTranslationMode,
 } from "./translation/translation-service";
 import { buildTtsFailedEvent, buildTtsReadyEvent } from "./translation/tts-service";
@@ -163,6 +164,9 @@ interface SpeakerPipeline {
   lastMediaHeartbeatAt?: number;
   lastBargeInAt?: number;
   reconnectStartedAt?: number;
+  /** Cached answer to "does anyone listening need this speaker translated?" */
+  needsTranslation?: boolean;
+  needsTranslationCheckedAt?: number;
 }
 
 interface OutputChannel {
@@ -238,7 +242,8 @@ export async function startBotWorker(callId: string, botToken: string): Promise<
     session.status = "active";
     logger.info("TranslatorBot", `translator bot active for ${callId}`);
   } catch (error) {
-    activeSessions.delete(callId);
+    // Only forget our own session: a retry may already have replaced it.
+    if (activeSessions.get(callId) === session) activeSessions.delete(callId);
     logger.error("TranslatorBot", `translator bot failed for ${callId}: ${String(error)}`);
     throw error;
   }
@@ -339,6 +344,10 @@ class LiveKitRealtimeTranslatorBot {
   private closed = false;
   private readonly speakerPipelines = new Map<string, SpeakerPipeline>();
   private readonly outputChannels = new Map<string, OutputChannel>();
+  /** Channels being published right now, so concurrent transcripts share one track. */
+  private readonly pendingOutputChannels = new Map<string, Promise<OutputChannel>>();
+  /** Publishes one track at a time: back-to-back publishes left the second track silent for everyone. */
+  private publishQueue: Promise<unknown> = Promise.resolve();
 
   constructor(opts: { callId: string; botToken: string; botIdentity: string }) {
     this.callId = opts.callId;
@@ -419,8 +428,16 @@ class LiveKitRealtimeTranslatorBot {
         this.applyParticipantMetadata(participant.identity, metadata);
       })
       .on(RoomEvent.ParticipantConnected, (participant) => {
-        for (const channel of Array.from(this.outputChannels.values())) {
-          void this.restrictOutputTrack(channel, participant.identity);
+        // Someone joining later must not hear other people's translations.
+        // An unsubscribe before they've auto-subscribed is a no-op, so retry
+        // as the subscriptions settle (same schedule as at publish time).
+        for (const delayMs of [0, 500, 1_500, 4_000]) {
+          setTimeout(() => {
+            if (this.closed) return;
+            for (const channel of Array.from(this.outputChannels.values())) {
+              void this.restrictOutputTrack(channel, participant.identity);
+            }
+          }, delayMs);
         }
       })
       .on(RoomEvent.ParticipantDisconnected, (participant) => {
@@ -453,6 +470,14 @@ class LiveKitRealtimeTranslatorBot {
       dynacast: true,
     });
     logger.info("TranslatorBot", `[translator-diag] LiveKit CONNECT RESOLVED`, { callId: this.callId });
+
+    // Stopped while still connecting (startup timeout, call ended): leave at
+    // once. Otherwise a closed bot sits in the room looking present while
+    // translating nothing, and a retried bot can't take over.
+    if (this.closed) {
+      await room.disconnect().catch(() => {});
+      throw new Error("TRANSLATOR_BOT_STOPPED_DURING_STARTUP");
+    }
 
     this.room = room;
   }
@@ -494,6 +519,19 @@ class LiveKitRealtimeTranslatorBot {
           if (!pipeline.lastMediaHeartbeatAt || now - pipeline.lastMediaHeartbeatAt >= 1_000) {
             pipeline.lastMediaHeartbeatAt = now;
             void recordSmartCallMediaActivity(this.callId, participant.identity);
+          }
+          // Same language for everyone listening: they already hear this
+          // speaker directly, so skip speech-to-text entirely (no cost, no
+          // delay). It starts again the moment someone with a different
+          // language joins or switches language.
+          if (!this.speakerNeedsTranslation(pipeline, now)) {
+            if (pipeline.deepgram) {
+              const stt = pipeline.deepgram;
+              pipeline.deepgram = null;
+              void stt.close().catch(() => {});
+              logger.info("TranslatorBot", `[${this.callId}] ${pipeline.identity}: everyone shares their language, speech-to-text paused`);
+            }
+            continue;
           }
           this.observeVad(pipeline, frame);
           pipeline.voiceGender.push(frame.data);
@@ -558,6 +596,33 @@ class LiveKitRealtimeTranslatorBot {
     if (pipeline.recentSilenceFrames > SILENCE_RESET_FRAMES) {
       pipeline.speechRunFrames = 0;
     }
+  }
+
+  /**
+   * True when at least one other person in the room wants translation and
+   * uses a different language from this speaker (or a language is still
+   * unknown, so we must listen to find out). Re-checked about once a second
+   * so joins, leaves and in-call language switches take effect quickly.
+   */
+  private speakerNeedsTranslation(pipeline: SpeakerPipeline, now: number): boolean {
+    if (pipeline.needsTranslation !== undefined && now - (pipeline.needsTranslationCheckedAt ?? 0) < 1_000) {
+      return pipeline.needsTranslation;
+    }
+    pipeline.needsTranslation = computeNeedsTranslation(
+      pipeline.preferredLanguage,
+      this.room ? Array.from(this.room.remoteParticipants.values())
+        .filter((p) => p.identity !== pipeline.identity && !isBotParticipant(p))
+        .map((p) => {
+          const meta = readParticipantMetadata(p);
+          const own = this.speakerPipelines.get(p.identity);
+          return {
+            language: normalizeLanguage(String(own?.preferredLanguage || meta.language || p.attributes?.language || "auto")),
+            mode: resolveListenerTranslationMode(own?.translationMode || meta.translationMode),
+          };
+        }) : [],
+    );
+    pipeline.needsTranslationCheckedAt = now;
+    return pipeline.needsTranslation;
   }
 
   private async ensureSpeakerPipeline(participant: RemoteParticipant): Promise<SpeakerPipeline> {
@@ -637,6 +702,7 @@ class LiveKitRealtimeTranslatorBot {
       },
     });
 
+    logger.info("TranslatorBot", `[${this.callId}] ${pipeline.identity}: speech-to-text started (${sttLanguage})`);
     await pipeline.deepgram.connect();
   }
 
@@ -1273,14 +1339,50 @@ class LiveKitRealtimeTranslatorBot {
       existing.targetLanguage = targetLanguage;
       return existing;
     }
+    // Two transcripts arriving together used to publish the same track twice
+    // (seen in a real group call: two "translated-for-X-from-Y" tracks). The
+    // orphan copy was never restricted, so other people heard it.
+    const pending = this.pendingOutputChannels.get(key);
+    if (pending) {
+      const channel = await pending;
+      channel.targetLanguage = targetLanguage;
+      return channel;
+    }
+    const creating = this.createOutputChannel(key, sourceIdentity, targetIdentity, targetLanguage);
+    this.pendingOutputChannels.set(key, creating);
+    try {
+      return await creating;
+    } finally {
+      this.pendingOutputChannels.delete(key);
+    }
+  }
 
+  private async createOutputChannel(
+    key: string,
+    sourceIdentity: string,
+    targetIdentity: string,
+    targetLanguage: string,
+  ): Promise<OutputChannel> {
+    if (!this.room?.localParticipant) {
+      throw new Error("Translator bot is not connected to a LiveKit room");
+    }
     const audioSource = new AudioSource(PCM_SAMPLE_RATE, PCM_CHANNELS, 120);
     const trackName = buildTranslatedTrackName(sourceIdentity, targetIdentity);
     const localTrack = LocalAudioTrack.createAudioTrack(trackName, audioSource);
     const options = new TrackPublishOptions();
-    options.source = TrackSource.SOURCE_MICROPHONE;
+    // Not MICROPHONE: one participant publishing several microphone tracks
+    // (one per listener in a group call) confuses subscriptions.
+    options.source = TrackSource.SOURCE_UNKNOWN;
 
-    const publication = await this.room.localParticipant.publishTrack(localTrack, options);
+    const room = this.room;
+    const publishing = this.publishQueue.then(async () => {
+      const pub = await room.localParticipant!.publishTrack(localTrack, options);
+      // Let the new track finish negotiating before the next one starts.
+      await new Promise((resolve) => setTimeout(resolve, PUBLISH_SETTLE_MS));
+      return pub;
+    });
+    this.publishQueue = publishing.catch(() => undefined);
+    const publication = await publishing;
 
     const channel: OutputChannel = {
       key,
@@ -1331,6 +1433,7 @@ class LiveKitRealtimeTranslatorBot {
     if (identity === channel.targetIdentity || identity === this.botIdentity) return;
     try {
       await setParticipantTrackSubscriptions(this.room.name, identity, [channel.trackSid], false);
+      logger.info("TranslatorBot", `[${this.callId}] kept ${identity} off ${channel.key} (${channel.trackSid})`);
     } catch (error) {
       logger.warn("TranslatorBot", `[${this.callId}] could not unsubscribe ${identity} from ${channel.key}: ${String(error)}`);
     }
@@ -1614,6 +1717,8 @@ async function translateTextLowLatency(text: string, fromLang: string, toLang: s
   }
   return translated || normalizedText;
 }
+
+const PUBLISH_SETTLE_MS = parsePositiveInt(process.env.TRANSLATOR_PUBLISH_SETTLE_MS, 400);
 
 function buildTranslatedTrackName(sourceIdentity: string, targetIdentity: string): string {
   return `translated-for-${encodeURIComponent(targetIdentity)}-from-${encodeURIComponent(sourceIdentity)}`;

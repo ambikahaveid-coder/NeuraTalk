@@ -13,6 +13,8 @@ import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
 import '../utils/languages.dart';
 import 'group_info_screen.dart';
+import 'call_screen.dart';
+import '../services/call_service.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
 /// (that backend has no SSE stream, unlike 1:1 chat).
@@ -29,6 +31,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
   bool _showEmoji = false;
+  bool _calling = false;
   // Current upload ("Sending 2 of 3 · photo.jpg").
   String? _uploadLabel;
   double _uploadProgress = 0;
@@ -67,6 +70,25 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _msgCtrl.clear();
     context.read<GroupChatProvider>().sendMessage(widget.groupId, text);
     _scrollToBottom();
+  }
+
+  /// Rings everyone else in the group. Each person hears their own language;
+  /// people who share a language hear each other directly.
+  Future<void> _startGroupCall({required bool video}) async {
+    if (_calling) return;
+    final groupName = context.read<GroupChatProvider>().activeGroup?['name']?.toString() ?? 'Group';
+    final callService = context.read<CallService>();
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _calling = true);
+    try {
+      final session = await callService.startGroupCall(groupId: widget.groupId, groupName: groupName, video: video);
+      await navigator.push(MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : friendlyCallError(e))));
+    } finally {
+      if (mounted) setState(() => _calling = false);
+    }
   }
 
   Future<void> _shareLocation() async {
@@ -211,6 +233,18 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
           ]),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Group voice call',
+            onPressed: _calling ? null : () => _startGroupCall(video: false),
+            icon: _calling
+                ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Icon(Icons.call_outlined, color: AppColors.cyan),
+          ),
+          IconButton(
+            tooltip: 'Group video call',
+            onPressed: _calling ? null : () => _startGroupCall(video: true),
+            icon: Icon(Icons.videocam_outlined, color: AppColors.cyan),
+          ),
           IconButton(icon: const Icon(Icons.info_outline), tooltip: 'Group info', onPressed: openInfo),
         ],
       ),

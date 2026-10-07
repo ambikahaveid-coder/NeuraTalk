@@ -40,6 +40,15 @@ export function registerCallsRoutes(app: Express): void {
   );
 
   app.post(
+    "/api/group-chats/:groupId/call",
+    loadUser,
+    requireAuth,
+    requireCallAccess,
+    requireActiveSubscription,
+    ctrl.groupCall,
+  );
+
+  app.post(
     "/api/calls/:callId/connect",
     loadUser,
     requireAuth,

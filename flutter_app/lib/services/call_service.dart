@@ -158,7 +158,13 @@ class CallService extends ChangeNotifier {
       'participantIds': participantIds,
       if (title != null) 'title': title,
     });
-    return CallSession.fromCreateResponse(res, callType: 'voice', remoteName: title ?? 'Group call');
+    return CallSession.fromCreateResponse(res, callType: 'voice', remoteName: title ?? 'Group call', isGroup: true);
+  }
+
+  /// Voice or video call to everyone in a group chat (server checks membership).
+  Future<CallSession> startGroupCall({required int groupId, required String groupName, bool video = false}) async {
+    final res = await ApiService.post('/api/group-chats/$groupId/call', {'callType': video ? 'video' : 'voice'});
+    return CallSession.fromCreateResponse(res, callType: video ? 'video' : 'voice', remoteName: groupName, isGroup: true);
   }
 
   /// Polls the real call record so the caller can show Calling/Ringing/
