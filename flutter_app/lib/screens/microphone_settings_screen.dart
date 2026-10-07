@@ -70,11 +70,11 @@ class _MicrophoneSettingsScreenState extends State<MicrophoneSettingsScreen> wit
         children: [
           ListTile(
             leading: Icon(granted ? Icons.mic : Icons.mic_off, color: granted ? AppColors.green : AppColors.red),
-            title: const Text('Microphone access', style: TextStyle(color: AppColors.ink)),
-            subtitle: Text(_label(_status), style: const TextStyle(color: AppColors.textMuted)),
+            title: Text('Microphone access', style: TextStyle(color: AppColors.ink)),
+            subtitle: Text(_label(_status), style: TextStyle(color: AppColors.textMuted)),
           ),
           const SizedBox(height: 8),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
             child: Text(
               'Required for voice calls, video calls, and voice messages. NeuraTalk always uses your device\'s default microphone — there is no separate in-app selection on Android.',
@@ -90,7 +90,7 @@ class _MicrophoneSettingsScreenState extends State<MicrophoneSettingsScreen> wit
                 style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan, padding: const EdgeInsets.symmetric(vertical: 14)),
                 child: Text(
                   _status == PermissionStatus.permanentlyDenied ? 'Open App Settings' : 'Allow Microphone',
-                  style: const TextStyle(color: AppColors.background, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: AppColors.background, fontWeight: FontWeight.w700),
                 ),
               ),
             ),

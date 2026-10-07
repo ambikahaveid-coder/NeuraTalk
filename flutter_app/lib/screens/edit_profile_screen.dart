@@ -23,7 +23,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     final user = context.read<AuthProvider>().user;
-    _nameController = TextEditingController(text: user?['username'] as String? ?? '');
+    // New accounts get username = phone number; start with an empty name field instead of the number.
+    final username = user?['username'] as String? ?? '';
+    _nameController = TextEditingController(text: username == user?['phone'] ? '' : username);
   }
 
   @override
@@ -119,7 +121,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             ? NetworkImage('${ApiService.baseUrl}$avatarUrl') as ImageProvider
                             : null),
                     child: (_pickedImage == null && avatarUrl == null)
-                        ? const Icon(Icons.person, color: AppColors.cyan, size: 48)
+                        ? Icon(Icons.person, color: AppColors.cyan, size: 48)
                         : null,
                   ),
                   Positioned(
@@ -127,7 +129,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     bottom: 0,
                     child: Container(
                       padding: const EdgeInsets.all(6),
-                      decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
+                      decoration: BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
                       child: const Icon(Icons.camera_alt, size: 18, color: AppColors.onAccent),
                     ),
                   ),
@@ -137,15 +139,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 8),
             TextButton(
               onPressed: _pickImage,
-              child: const Text('Change photo', style: TextStyle(color: AppColors.cyan)),
+              child: Text('Change photo', style: TextStyle(color: AppColors.cyan)),
             ),
             const SizedBox(height: 24),
             TextField(
               controller: _nameController,
-              style: const TextStyle(color: AppColors.ink),
+              style: TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 labelText: 'Name',
-                labelStyle: const TextStyle(color: AppColors.textMuted),
+                labelStyle: TextStyle(color: AppColors.textMuted),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(

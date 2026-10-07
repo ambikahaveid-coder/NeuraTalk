@@ -46,7 +46,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Team Calls')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+          ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
           : _teams.isEmpty
               ? _emptyState()
               : ListView.builder(
@@ -65,12 +65,12 @@ class _TeamsScreenState extends State<TeamsScreen> {
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(color: AppColors.cyan.withOpacity(0.1), shape: BoxShape.circle),
-            child: const Icon(Icons.group_outlined, color: AppColors.cyan, size: 40),
+            child: Icon(Icons.group_outlined, color: AppColors.cyan, size: 40),
           ),
           const SizedBox(height: 20),
-          const Text('No Teams Yet', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
+          Text('No Teams Yet', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          const Text('Teams will appear here once your\nadmin sets them up', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          Text('Teams will appear here once your\nadmin sets them up', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
         ],
       ),
     );
@@ -107,18 +107,18 @@ class _TeamCard extends StatelessWidget {
                   color: AppColors.teal.withOpacity(0.3),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.group, color: AppColors.cyan, size: 24),
+                child: Icon(Icons.group, color: AppColors.cyan, size: 24),
               ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text(name, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(
                       '$members Members${aiEnabled ? ' · Live Translator Enabled' : ''}',
-                      style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                     ),
                   ],
                 ),

@@ -71,16 +71,24 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
       _error = null;
     });
     try {
-      final data = await ApiService.get('/api/calls/history') as List;
+      // /api/calls/history returns { calls: [...] } (same shape CallsScreen reads).
+      final data = await ApiService.get('/api/calls/history?limit=100');
+      final list = data is Map<String, dynamic> ? (data['calls'] as List? ?? const []) : (data as List? ?? const []);
       if (!mounted) return;
       setState(() {
-        _results = data.cast<Map<String, dynamic>>().map((c) {
+        var i = 0;
+        _results = list.cast<Map<String, dynamic>>().map((c) {
+          final outcome = c['outcome']?.toString();
           return TranscriptSearchResult(
-            id: c['id'] as int? ?? 0,
-            callId: c['id'] as int?,
-            originalText: c['remoteIdentifier'] ?? c['toNumber'] ?? c['fromNumber'] ?? 'Unknown',
-            translatedText: c['status'] == 'missed' ? 'Missed call' : 'Completed call',
-            createdAt: c['createdAt'] as String? ?? c['startedAt'] as String?,
+            id: i++,
+            callId: c['callId']?.toString(),
+            originalText: c['remoteName']?.toString() ?? c['remotePhone']?.toString() ?? 'Unknown',
+            translatedText: outcome == 'missed'
+                ? 'Missed call'
+                : outcome == 'not_answered'
+                    ? 'Not answered'
+                    : (c['callType'] == 'video' ? 'Video call' : 'Voice call'),
+            createdAt: c['createdAt'] as String?,
           );
         }).toList();
         _total = _results.length;
@@ -135,7 +143,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
     if (result.callId == null) return;
     final deleted = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: result.callId!.toString())),
+      MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: result.callId!)),
     );
     if (deleted == true) {
       if (_query.length >= 2) {
@@ -158,8 +166,8 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
             child: TextField(
               controller: _controller,
               onChanged: _onSearchChanged,
-              style: const TextStyle(color: AppColors.textPrimary),
-              decoration: const InputDecoration(
+              style: TextStyle(color: AppColors.textPrimary),
+              decoration: InputDecoration(
                 hintText: 'Search transcripts…',
                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
               ),
@@ -173,7 +181,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.cyan));
+      return Center(child: CircularProgressIndicator(color: AppColors.cyan));
     }
     if (_error != null) {
       return Center(
@@ -182,7 +190,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
           children: [
             const Icon(Icons.error_outline, color: AppColors.red, size: 40),
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
+            Text(_error!, style: TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: () => _query.length >= 2 ? _runSearch(reset: true) : _loadCallHistoryAsTranscripts(),
@@ -197,11 +205,11 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.description_outlined, color: AppColors.textMuted, size: 48),
+            Icon(Icons.description_outlined, color: AppColors.textMuted, size: 48),
             const SizedBox(height: 12),
             Text(
               _query.length >= 2 ? 'No transcripts match "$_query"' : 'No calls yet',
-              style: const TextStyle(color: AppColors.textMuted),
+              style: TextStyle(color: AppColors.textMuted),
             ),
           ],
         ),
@@ -211,17 +219,17 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
       controller: _scrollController,
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _results.length + (_loadingMore ? 1 : 0),
-      separatorBuilder: (_, __) => const Divider(color: AppColors.border, height: 1, indent: 16, endIndent: 16),
+      separatorBuilder: (_, __) => Divider(color: AppColors.border, height: 1, indent: 16, endIndent: 16),
       itemBuilder: (_, i) {
         if (i >= _results.length) {
-          return const Padding(
+          return Padding(
             padding: EdgeInsets.all(16),
             child: Center(child: CircularProgressIndicator(color: AppColors.cyan, strokeWidth: 2)),
           );
         }
         final result = _results[i];
         return ListTile(
-          leading: const CircleAvatar(
+          leading: CircleAvatar(
             backgroundColor: AppColors.surfaceElevated,
             child: Icon(Icons.description_outlined, color: AppColors.cyan, size: 20),
           ),
@@ -229,15 +237,15 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
             result.originalText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
             result.translatedText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
           ),
-          trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+          trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
           onTap: () => _openTranscript(result),
         );
       },

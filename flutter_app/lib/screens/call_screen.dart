@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
 import '../services/contact_resolver.dart';
+import '../utils/languages.dart';
+import '../widgets/nt_ui.dart';
 
 /// Real in-call screen — connects to the LiveKit room for [session] and
 /// exposes mute/speaker/hold/video/end controls. There is no CallKit
@@ -41,8 +44,16 @@ class _CallScreenState extends State<CallScreen> {
   lk.VideoTrack? _remoteVideoTrack;
 
   // Live translated captions from the translator bot's data messages.
-  String? _captionTranslated;
   String? _captionOriginal;
+  // Languages of the latest caption (from the translator bot), shown as "Telugu ⇄ English".
+  String? _captionFromLang;
+  String? _captionToLang;
+  bool _showCaptions = true;
+  // Last few sentences from the other person: what they said + translation.
+  // A partial (still-speaking) line is replaced until its final version arrives.
+  final List<({String original, String translated, bool partial})> _transcript = [];
+  // The language I speak in this call (changed mid-call via participant metadata).
+  String? _mySpeakingLang;
   Timer? _captionClearTimer;
   // Speakers whose original voice is muted locally because their translated
   // voice is currently playing for us (mirrors the web client, so a listener
@@ -427,8 +438,17 @@ class _CallScreenState extends State<CallScreen> {
         final original = (payload['originalText'] as String?)?.trim();
         if (!mounted) return;
         setState(() {
-          _captionTranslated = translated;
+          final isPartial = type == 'translation.partial';
+          final line = (original: original ?? '', translated: translated, partial: isPartial);
+          if (_transcript.isNotEmpty && _transcript.last.partial) {
+            _transcript[_transcript.length - 1] = line;
+          } else {
+            _transcript.add(line);
+          }
+          if (_transcript.length > 4) _transcript.removeAt(0);
           _captionOriginal = (original != null && original.isNotEmpty) ? original : _captionOriginal;
+          _captionFromLang = (payload['sourceLanguage'] as String?) ?? _captionFromLang;
+          _captionToLang = (payload['targetLanguage'] as String?) ?? _captionToLang;
         });
         // If speech synthesis failed, the text caption is all the listener
         // gets for that sentence — let them hear the original voice again.
@@ -443,12 +463,56 @@ class _CallScreenState extends State<CallScreen> {
           }
         }
         _captionClearTimer?.cancel();
-        _captionClearTimer = Timer(const Duration(seconds: 7), () {
-          if (mounted) setState(() { _captionTranslated = null; _captionOriginal = null; });
+        _captionClearTimer = Timer(const Duration(seconds: 20), () {
+          if (mounted) setState(() { _captionOriginal = null; _transcript.clear(); });
         });
       }
     } catch (_) {
       // Ignore malformed or unrelated data messages.
+    }
+  }
+
+  Future<void> _switchMyLanguage() async {
+    final local = _room.localParticipant;
+    if (local == null) return;
+    Map<String, dynamic> meta = {};
+    try {
+      final decoded = jsonDecode(local.metadata ?? '{}');
+      if (decoded is Map<String, dynamic>) meta = decoded;
+    } catch (_) {}
+    final current = _mySpeakingLang ?? meta['language']?.toString();
+    const codes = ['en', 'hi', 'te', 'ta', 'kn', 'ml', 'mr', 'bn', 'gu', 'pa', 'ur', 'es', 'fr', 'de', 'ar', 'ja', 'ko', 'zh', 'pt', 'ru'];
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheet) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text("I'm speaking…", style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            for (final c in codes)
+              ListTile(
+                leading: Text(Languages.of(c).flag, style: const TextStyle(fontSize: 22)),
+                title: Text(Languages.of(c).name),
+                subtitle: Text(Languages.of(c).native),
+                trailing: Languages.of(current).code == c ? Icon(Icons.check_circle, color: AppColors.cyan) : null,
+                onTap: () => Navigator.pop(sheet, c),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    try {
+      local.setMetadata(jsonEncode({...meta, 'language': picked}));
+      setState(() => _mySpeakingLang = picked);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Now translating what you say from ${Languages.name(picked)}.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not change the language. Please try again.')));
     }
   }
 
@@ -556,148 +620,229 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final remoteName = ContactResolver.instance.displayNameFor(widget.session.remoteName);
+    final hasRemoteVideo = _remoteVideoTrack != null;
+    final hasLocalVideo = _videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true;
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
         await _endCall();
       },
-      child: Scaffold(
-        backgroundColor: AppColors.background,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (_remoteVideoTrack != null)
-                      lk.VideoTrackRenderer(_remoteVideoTrack!)
-                    else
-                      _RemotePlaceholder(
-                        name: ContactResolver.instance.displayNameFor(widget.session.remoteName),
-                        connecting: _connecting,
-                        error: _error,
-                        statusLabel: _waitingForAnswer ? _ringingLabel : null,
-                        showOpenSettings: _permissionPermanentlyDenied,
-                      ),
-                    if (_reconnecting)
-                      Positioned(
-                        top: 12,
-                        left: 0,
-                        right: 0,
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.orange.withValues(alpha: 0.85),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              'Reconnecting…',
-                              style: TextStyle(color: AppColors.background, fontSize: 13, fontWeight: FontWeight.w700),
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light,
+        child: Scaffold(
+          backgroundColor: AppColors.navy,
+          body: SafeArea(
+            child: Column(
+              children: [
+                _topBar(remoteName),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (hasRemoteVideo)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(24),
+                            child: lk.VideoTrackRenderer(_remoteVideoTrack!, fit: lk.VideoViewFit.cover),
+                          )
+                        else
+                          _RemotePlaceholder(
+                            name: remoteName,
+                            connecting: _connecting,
+                            error: _error,
+                            statusLabel: _waitingForAnswer ? _ringingLabel : null,
+                            showOpenSettings: _permissionPermanentlyDenied,
+                          ),
+                        if (hasLocalVideo)
+                          Positioned(
+                            right: 12,
+                            bottom: 12,
+                            width: 96,
+                            height: 132,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: AppColors.onAccent, width: 2),
+                                boxShadow: const [BoxShadow(color: Color(0x66000000), blurRadius: 12)],
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: lk.VideoTrackRenderer(
+                                  _room.localParticipant!.videoTrackPublications.first.track as lk.VideoTrack,
+                                  fit: lk.VideoViewFit.cover,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    if (_connectedAt != null)
-                      Positioned(
-                        top: 12,
-                        left: 0,
-                        right: 0,
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.background.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              _formatElapsed(_elapsed),
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                        if (_reconnecting)
+                          Positioned(
+                            top: 12,
+                            left: 0,
+                            right: 0,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(color: AppColors.orange, borderRadius: BorderRadius.circular(20)),
+                                child: const Text('Reconnecting…',
+                                    style: TextStyle(color: AppColors.onAccent, fontSize: 14, fontWeight: FontWeight.w700)),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    if (_captionTranslated != null)
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        bottom: 16,
-                        child: _CaptionBox(translated: _captionTranslated!, original: _captionOriginal),
-                      ),
-                    if (_videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true)
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        width: 110,
-                        height: 150,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: lk.VideoTrackRenderer(
-                            _room.localParticipant!.videoTrackPublications.first.track as lk.VideoTrack,
-                          ),
-                        ),
-                      ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              _ControlBar(
-                muted: _muted,
-                speakerOn: _speakerOn,
-                videoOn: _videoOn,
-                onHold: _onHold,
-                isVideoCall: widget.session.isVideo,
-                enabled: !_connecting && !_waitingForAnswer && _error == null,
-                onMute: _toggleMute,
-                onSpeaker: _toggleSpeaker,
-                onVideo: _toggleVideo,
-                onSwitchCamera: _switchCamera,
-                onHoldToggle: _toggleHold,
-                onEnd: _endCall,
-              ),
-            ],
+                _captionPanel(),
+                _ControlBar(
+                  muted: _muted,
+                  speakerOn: _speakerOn,
+                  videoOn: _videoOn,
+                  languageLabel: Languages.of(_mySpeakingLang ?? _captionToLang).name,
+                  isVideoCall: widget.session.isVideo,
+                  enabled: !_connecting && !_waitingForAnswer && _error == null,
+                  onMute: _toggleMute,
+                  onSpeaker: _toggleSpeaker,
+                  onVideo: _toggleVideo,
+                  onLanguage: _switchMyLanguage,
+                  onEnd: _endCall,
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-}
 
-/// Large, high-contrast live caption — readable for elderly users and in
-/// noisy places. Translated text first; the original in smaller text below.
-class _CaptionBox extends StatelessWidget {
-  final String translated;
-  final String? original;
-  const _CaptionBox({required this.translated, this.original});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _topBar(String remoteName) {
+    final enabled = !_connecting && !_waitingForAnswer && _error == null;
+    final quality = _room.localParticipant?.connectionQuality;
+    final (qColor, qLabel, qBars) = switch (quality) {
+      lk.ConnectionQuality.excellent => (AppColors.green, 'Excellent connection', 3),
+      lk.ConnectionQuality.good => (AppColors.green, 'Good connection', 2),
+      lk.ConnectionQuality.poor => (AppColors.orange, 'Weak connection', 1),
+      lk.ConnectionQuality.lost => (AppColors.red, 'Connection lost', 0),
+      _ => (const Color(0x99FFFFFF), 'Checking connection', 0),
+    };
+    return SizedBox(
+      height: 60,
+      child: Row(
         children: [
-          Text(
-            translated,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white, fontSize: 22, height: 1.3, fontWeight: FontWeight.w700),
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'End call',
+            icon: const Icon(Icons.arrow_back, color: AppColors.onAccent),
+            onPressed: _endCall,
           ),
-          if (original != null && original != translated) ...[
-            const SizedBox(height: 6),
-            Text(
-              original!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Color(0xFFCFD8DC), fontSize: 15, height: 1.3),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _connectedAt != null ? _formatElapsed(_elapsed) : (widget.session.isVideo ? 'Video call' : 'Voice call'),
+                  style: const TextStyle(color: AppColors.onAccent, fontSize: 17, fontWeight: FontWeight.w700, fontFeatures: [FontFeature.tabularFigures()]),
+                ),
+                if (_connectedAt != null)
+                  Semantics(
+                    label: qLabel,
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      for (var i = 1; i <= 3; i++)
+                        Container(
+                          width: 3,
+                          height: 4.0 + i * 3,
+                          margin: const EdgeInsets.only(right: 2),
+                          decoration: BoxDecoration(color: i <= qBars ? qColor : const Color(0x40FFFFFF), borderRadius: BorderRadius.circular(1)),
+                        ),
+                      const SizedBox(width: 4),
+                      Text(_remoteVideoTrack != null ? remoteName : qLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12)),
+                    ]),
+                  ),
+              ],
             ),
-          ],
+          ),
+          IconButton(
+            tooltip: _showCaptions ? 'Hide live transcript' : 'Show live transcript',
+            icon: Icon(_showCaptions ? Icons.closed_caption : Icons.closed_caption_off_outlined, color: AppColors.onAccent),
+            onPressed: () => setState(() => _showCaptions = !_showCaptions),
+          ),
+          if (widget.session.isVideo && _videoOn)
+            IconButton(
+              tooltip: 'Switch camera',
+              icon: const Icon(Icons.cameraswitch_outlined, color: AppColors.onAccent),
+              onPressed: enabled ? _switchCamera : null,
+            )
+          else
+            IconButton(
+              tooltip: _onHold ? 'Resume call' : 'Hold call',
+              icon: Icon(_onHold ? Icons.play_circle_outline : Icons.pause_circle_outline, color: AppColors.onAccent),
+              onPressed: enabled ? _toggleHold : null,
+            ),
+          const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+
+  /// Language pair and a live transcript: what the other person said, with the
+  /// translation large underneath. Newest at the bottom, older lines fade.
+  Widget _captionPanel() {
+    if (!_showCaptions || _connectedAt == null) return const SizedBox(height: 12);
+    final mine = _mySpeakingLang ?? _captionToLang;
+    final theirs = _captionFromLang;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Column(
+        children: [
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            if (mine != null && theirs != null)
+              LanguagePairChip(mine: theirs, theirs: mine, onDark: true)
+            else
+              const LiveBadge(onDark: true, label: 'Live translation on'),
+          ]),
+          const SizedBox(height: 10),
+          if (_transcript.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text('The live transcript appears here when the other person speaks.',
+                  textAlign: TextAlign.center, style: TextStyle(color: Color(0x99FFFFFF), fontSize: 14)),
+            )
+          else
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 190),
+              child: SingleChildScrollView(
+                reverse: true,
+                child: Column(children: [
+                  for (var i = 0; i < _transcript.length; i++)
+                    Opacity(
+                      opacity: i == _transcript.length - 1 ? 1 : 0.55,
+                      child: Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                        decoration: BoxDecoration(color: const Color(0x14FFFFFF), borderRadius: BorderRadius.circular(14)),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          if (_transcript[i].original.isNotEmpty && _transcript[i].original != _transcript[i].translated)
+                            Text(_transcript[i].original, style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 14, height: 1.3)),
+                          const SizedBox(height: 3),
+                          Text(
+                            _transcript[i].translated + (_transcript[i].partial ? ' …' : ''),
+                            style: TextStyle(
+                              color: const Color(0xFF7CC4FF),
+                              fontSize: i == _transcript.length - 1 ? 19 : 16,
+                              height: 1.3,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                ]),
+              ),
+            ),
         ],
       ),
     );
@@ -719,31 +864,37 @@ class _RemotePlaceholder extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 96,
-            height: 96,
-            decoration: const BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
-            alignment: Alignment.center,
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(color: AppColors.cyan, fontSize: 36, fontWeight: FontWeight.w700),
+            padding: const EdgeInsets.all(5),
+            decoration: const BoxDecoration(gradient: AppColors.brandGradient, shape: BoxShape.circle),
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: const BoxDecoration(color: AppColors.navySoft, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: Text(
+                name.isNotEmpty && !name.startsWith('+') ? name.characters.first.toUpperCase() : '?',
+                style: const TextStyle(color: AppColors.onAccent, fontSize: 46, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
-          const SizedBox(height: 16),
-          Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(name, textAlign: TextAlign.center, maxLines: 2,
+                style: const TextStyle(color: AppColors.onAccent, fontSize: 26, fontWeight: FontWeight.w700)),
+          ),
           const SizedBox(height: 8),
           if (error != null) ...[
-            Text(error!, style: const TextStyle(color: AppColors.red), textAlign: TextAlign.center),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(error!, style: const TextStyle(color: Color(0xFFFF8FA3), fontSize: 15), textAlign: TextAlign.center),
+            ),
             if (showOpenSettings) ...[
               const SizedBox(height: 12),
-              TextButton(
-                onPressed: openAppSettings,
-                child: const Text('Open Settings', style: TextStyle(color: AppColors.cyan)),
-              ),
+              TextButton(onPressed: openAppSettings, child: const Text('Open Settings', style: TextStyle(color: AppColors.tealLight))),
             ],
-          ] else if (statusLabel != null)
-            Text(statusLabel!, style: const TextStyle(color: AppColors.textSecondary))
-          else
-            Text(connecting ? 'Connecting…' : 'Connected', style: const TextStyle(color: AppColors.textSecondary)),
+          ] else
+            Text(statusLabel ?? (connecting ? 'Connecting…' : 'Connected'), style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 16)),
         ],
       ),
     );
@@ -754,65 +905,46 @@ class _ControlBar extends StatelessWidget {
   final bool muted;
   final bool speakerOn;
   final bool videoOn;
-  final bool onHold;
   final bool isVideoCall;
   final bool enabled;
+  final String languageLabel;
   final VoidCallback onMute;
   final VoidCallback onSpeaker;
   final VoidCallback onVideo;
-  final VoidCallback onSwitchCamera;
-  final VoidCallback onHoldToggle;
+  final VoidCallback onLanguage;
   final VoidCallback onEnd;
 
   const _ControlBar({
     required this.muted,
     required this.speakerOn,
     required this.videoOn,
-    required this.onHold,
     required this.isVideoCall,
     required this.enabled,
+    required this.languageLabel,
     required this.onMute,
     required this.onSpeaker,
     required this.onVideo,
-    required this.onSwitchCamera,
-    required this.onHoldToggle,
+    required this.onLanguage,
     required this.onEnd,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _CallControlButton(icon: muted ? Icons.mic_off : Icons.mic, active: muted, onTap: enabled ? onMute : null),
-              const SizedBox(width: 20),
-              _CallControlButton(icon: speakerOn ? Icons.volume_up : Icons.hearing, active: speakerOn, onTap: enabled ? onSpeaker : null),
-              const SizedBox(width: 20),
-              _CallControlButton(icon: onHold ? Icons.play_arrow : Icons.pause, active: onHold, onTap: enabled ? onHoldToggle : null),
-              if (isVideoCall) ...[
-                const SizedBox(width: 20),
-                _CallControlButton(icon: videoOn ? Icons.videocam : Icons.videocam_off, active: !videoOn, onTap: enabled ? onVideo : null),
-                if (videoOn) ...[
-                  const SizedBox(width: 20),
-                  _CallControlButton(icon: Icons.cameraswitch, active: false, onTap: enabled ? onSwitchCamera : null),
-                ],
-              ],
-            ],
-          ),
-          const SizedBox(height: 24),
-          GestureDetector(
-            onTap: onEnd,
-            child: Container(
-              width: 64,
-              height: 64,
-              decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
-              child: const Icon(Icons.call_end, color: AppColors.onAccent, size: 28),
-            ),
-          ),
+          _CallControlButton(icon: muted ? Icons.mic_off : Icons.mic, label: muted ? 'Unmute' : 'Mute', active: muted, onTap: enabled ? onMute : null),
+          if (isVideoCall)
+            _CallControlButton(
+                icon: videoOn ? Icons.videocam : Icons.videocam_off, label: 'Camera', active: !videoOn, onTap: enabled ? onVideo : null)
+          else
+            _CallControlButton(
+                icon: speakerOn ? Icons.volume_up : Icons.hearing, label: 'Speaker', active: speakerOn, onTap: enabled ? onSpeaker : null),
+          _CallControlButton(icon: Icons.translate, label: languageLabel, active: false, onTap: enabled ? onLanguage : null),
+          _CallControlButton(icon: Icons.call_end, label: 'End', active: false, danger: true, onTap: onEnd),
         ],
       ),
     );
@@ -821,22 +953,33 @@ class _ControlBar extends StatelessWidget {
 
 class _CallControlButton extends StatelessWidget {
   final IconData icon;
+  final String label;
   final bool active;
+  final bool danger;
   final VoidCallback? onTap;
-  const _CallControlButton({required this.icon, required this.active, required this.onTap});
+  const _CallControlButton({required this.icon, required this.label, required this.active, required this.onTap, this.danger = false});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 56,
-        height: 56,
-        decoration: BoxDecoration(
-          color: active ? AppColors.cyan : AppColors.surfaceElevated,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: active ? AppColors.background : AppColors.textPrimary, size: 24),
+    final Color bg = danger ? AppColors.red : (active ? AppColors.onAccent : const Color(0x26FFFFFF));
+    final Color fg = active && !danger ? AppColors.navy : AppColors.onAccent;
+    return Opacity(
+      opacity: onTap == null ? 0.45 : 1,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: bg,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: SizedBox(width: 60, height: 60, child: Icon(icon, color: fg, size: 26, semanticLabel: label)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(color: Color(0xD9FFFFFF), fontSize: 13, fontWeight: FontWeight.w500)),
+        ],
       ),
     );
   }

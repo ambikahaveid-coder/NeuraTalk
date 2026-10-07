@@ -1,7 +1,7 @@
 class TranscriptSegment {
   final int id;
   final String? smartCallId;
-  final int? callId;
+  final String? callId;
   final String? speakerIdentity;
   final String? targetIdentity;
   final String originalText;
@@ -27,7 +27,7 @@ class TranscriptSegment {
     return TranscriptSegment(
       id: json['id'] as int,
       smartCallId: json['smartCallId'] as String?,
-      callId: json['callId'] as int?,
+      callId: json['callId']?.toString(),
       speakerIdentity: json['speakerIdentity'] as String?,
       targetIdentity: json['targetIdentity'] as String?,
       originalText: json['originalText'] as String? ?? '',
@@ -41,7 +41,7 @@ class TranscriptSegment {
 
 class TranscriptSearchResult {
   final int id;
-  final int? callId;
+  final String? callId;
   final String originalText;
   final String translatedText;
   final String? createdAt;
@@ -57,7 +57,7 @@ class TranscriptSearchResult {
   factory TranscriptSearchResult.fromJson(Map<String, dynamic> json) {
     return TranscriptSearchResult(
       id: json['id'] as int,
-      callId: json['callId'] as int?,
+      callId: json['callId']?.toString(),
       originalText: json['originalText'] as String? ?? '',
       translatedText: json['translatedText'] as String? ?? '',
       createdAt: json['createdAt'] as String?,

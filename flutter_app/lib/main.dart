@@ -15,9 +15,11 @@ import 'services/callkit_service.dart';
 import 'services/push_service.dart';
 import 'services/contact_resolver.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/incoming_call_screen.dart';
 import 'screens/call_screen.dart';
+import 'widgets/brand_logo.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -83,13 +85,19 @@ class NeuraTalkApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CallService(), lazy: false),
         ChangeNotifierProvider(create: (_) => PersonalChatProvider()),
         ChangeNotifierProvider(create: (_) => GroupChatProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeController()..load()),
       ],
-      child: MaterialApp(
-        navigatorKey: navigatorKey,
-        title: 'NeuraTalk',
-        theme: AppTheme.light,
-        debugShowCheckedModeBanner: false,
-        home: const _AppRouter(),
+      child: Consumer<ThemeController>(
+        builder: (_, appearance, __) => MaterialApp(
+          navigatorKey: navigatorKey,
+          title: 'NeuraTalk',
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: appearance.mode,
+          debugShowCheckedModeBanner: false,
+          builder: (context, child) => ThemeSync(child: child!),
+          home: const _AppRouter(),
+        ),
       ),
     );
   }
@@ -236,8 +244,11 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    if (!auth.ready) {
+      return const BrandSplash();
+    }
     if (!auth.isLoggedIn) {
-      return const OnboardingScreen();
+      return auth.onboardingDone ? const LoginScreen() : const OnboardingScreen();
     }
     return const MainShell();
   }

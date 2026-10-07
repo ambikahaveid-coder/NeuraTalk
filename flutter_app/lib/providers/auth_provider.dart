@@ -2,23 +2,49 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _user;
   bool _loading = false;
+  bool _ready = false;
+  bool _onboardingDone = false;
+  static const _onboardingKey = 'onboarding_done_v1';
   String? _error;
   String? _verificationId;
 
   Map<String, dynamic>? get user => _user;
   bool get loading => _loading;
+  /// False until the saved session has been checked at startup (the router shows the splash meanwhile).
+  bool get ready => _ready;
+  /// True once the intro slides were seen on this device (then logged-out users see Login directly).
+  bool get onboardingDone => _onboardingDone;
+
+  Future<void> markOnboardingDone() async {
+    _onboardingDone = true;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_onboardingKey, true);
+    } catch (_) {}
+  }
   String? get error => _error;
   bool get isLoggedIn => ApiService.isLoggedIn && _user != null;
 
   Future<void> init() async {
-    await ApiService.init();
-    if (ApiService.isLoggedIn) {
-      await fetchProfile();
+    try {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        _onboardingDone = prefs.getBool(_onboardingKey) ?? false;
+      } catch (_) {}
+      await ApiService.init();
+      if (ApiService.isLoggedIn) {
+        await fetchProfile();
+      }
+    } finally {
+      _ready = true;
+      notifyListeners();
     }
   }
 

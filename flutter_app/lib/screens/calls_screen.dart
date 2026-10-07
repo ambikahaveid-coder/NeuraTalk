@@ -7,6 +7,7 @@ import 'call_screen.dart';
 import 'transcript_history_screen.dart';
 import 'face_to_face_screen.dart';
 import 'transcript_detail_screen.dart';
+import '../services/contact_resolver.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -19,37 +20,50 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
   late TabController _tabs;
   List<Map<String, dynamic>> _calls = [];
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _tabs = TabController(length: 2, vsync: this);
+    ContactResolver.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     _loadCalls();
   }
 
+  // GET /api/calls/history returns { calls: [...] } with direction, outcome
+  // and the other person's name/number for each call.
   Future<void> _loadCalls() async {
     try {
-      final data = await ApiService.get('/api/calls/history') as List;
+      final data = await ApiService.get('/api/calls/history?limit=100');
+      final list = data is Map<String, dynamic> ? (data['calls'] as List? ?? const []) : (data as List? ?? const []);
+      if (!mounted) return;
       setState(() {
-        _calls = data.cast<Map<String, dynamic>>();
+        _calls = list.cast<Map<String, dynamic>>();
         _loading = false;
+        _error = null;
       });
     } catch (_) {
-      setState(() => _loading = false);
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not load your calls. Pull down to try again.';
+      });
     }
   }
 
-  List<Map<String, dynamic>> get _missed => _calls.where((c) => c['status'] == 'missed').toList();
+  List<Map<String, dynamic>> get _missed => _calls.where((c) => c['outcome'] == 'missed').toList();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Call Translator'),
+        title: const Text('Calls'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.description_outlined, color: AppColors.textSecondary),
+            icon: Icon(Icons.description_outlined, color: AppColors.textSecondary),
             tooltip: 'Transcripts',
             onPressed: () => Navigator.push(
               context,
@@ -62,96 +76,145 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
           indicatorColor: AppColors.cyan,
           labelColor: AppColors.cyan,
           unselectedLabelColor: AppColors.textMuted,
-          tabs: const [Tab(text: 'All'), Tab(text: 'Missed')],
+          tabs: [const Tab(text: 'All'), Tab(text: _missed.isEmpty ? 'Missed' : 'Missed (${_missed.length})')],
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
-          : TabBarView(
-              controller: _tabs,
-              children: [
-                _callList(_calls),
-                _callList(_missed),
-              ],
-            ),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
+      body: TabBarView(
+        controller: _tabs,
         children: [
-          FloatingActionButton(
-            heroTag: 'face-to-face',
-            tooltip: 'Face to face',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const FaceToFaceScreen()),
-            ),
-            backgroundColor: AppColors.orange,
-            child: const Icon(Icons.record_voice_over),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'video',
-            onPressed: _startVideoCall,
-            backgroundColor: AppColors.blue,
-            child: const Icon(Icons.videocam),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'voice',
-            onPressed: _startVoiceCall,
-            backgroundColor: AppColors.cyan,
-            foregroundColor: AppColors.background,
-            child: const Icon(Icons.grid_view),
-          ),
+          _callList(_calls, showFaceToFace: true),
+          _callList(_missed),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'new-call',
+        onPressed: _showNewCall,
+        backgroundColor: AppColors.cyan,
+        foregroundColor: AppColors.onAccent,
+        icon: const Icon(Icons.dialpad),
+        label: const Text('New call', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
 
-  Widget _callList(List<Map<String, dynamic>> calls) {
-    if (calls.isEmpty) {
-      return const Center(
+  Widget _faceToFaceCard() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Material(
+        color: AppColors.orange.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FaceToFaceScreen())),
+          child: Padding(
+            padding: EdgeInsets.all(14),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundColor: AppColors.orange,
+                  child: Icon(Icons.record_voice_over, color: AppColors.onAccent),
+                ),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Face to face', style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
+                      SizedBox(height: 2),
+                      Text('Talk with someone next to you, each in your own language',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: AppColors.textMuted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _callList(List<Map<String, dynamic>> calls, {bool showFaceToFace = false}) {
+    final Widget content;
+    if (_loading) {
+      content = Padding(
+        padding: EdgeInsets.only(top: 80),
+        child: Center(child: CircularProgressIndicator(color: AppColors.cyan)),
+      );
+    } else if (_error != null || calls.isEmpty) {
+      content = Padding(
+        padding: const EdgeInsets.only(top: 64, left: 32, right: 32),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.call_outlined, color: AppColors.textMuted, size: 48),
-            SizedBox(height: 12),
-            Text('No calls yet', style: TextStyle(color: AppColors.textMuted)),
+            Icon(_error != null ? Icons.wifi_off : Icons.call_outlined, color: AppColors.textMuted, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              _error ?? (showFaceToFace ? 'No calls yet. Tap New call to talk to anyone in their language.' : 'No missed calls'),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 15),
+            ),
           ],
         ),
       );
+    } else {
+      content = Column(
+        children: [
+          for (var i = 0; i < calls.length; i++) ...[
+            _CallTile(
+              call: calls[i],
+              onOpen: () {
+                final callId = calls[i]['callId'];
+                if (callId == null) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString())),
+                );
+              },
+              onCallBack: (video) => _callBack(calls[i], video: video),
+            ),
+            if (i < calls.length - 1) Divider(color: AppColors.border, height: 1, indent: 76),
+          ],
+        ],
+      );
     }
-    return ListView.separated(
-      itemCount: calls.length,
-      separatorBuilder: (_, __) => const Divider(color: AppColors.border, height: 1, indent: 72),
-      itemBuilder: (_, i) => _CallTile(
-        call: calls[i],
-        onTap: () {
-          final callId = calls[i]['id'];
-          if (callId == null) return;
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString())),
-          );
-        },
+    return RefreshIndicator(
+      onRefresh: _loadCalls,
+      color: AppColors.cyan,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 96),
+        children: [if (showFaceToFace) _faceToFaceCard(), content],
       ),
     );
   }
 
-  void _startVoiceCall() {
-    _showDialPad();
+  Future<void> _callBack(Map<String, dynamic> call, {required bool video}) async {
+    final target = (call['remotePhone'] ?? (call['direction'] == 'outgoing' ? call['calleeIdentifier'] : null))?.toString();
+    if (target == null || target.isEmpty) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final callService = context.read<CallService>();
+    try {
+      final session = await callService.startCall(calleeIdentifier: target, callType: video ? 'video' : 'voice');
+      await navigator.push(MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
+      if (mounted) _loadCalls();
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(friendlyCallError(e))));
+    }
   }
 
-  void _startVideoCall() {
-    _showDialPad(video: true);
-  }
-
-  void _showDialPad({bool video = false}) {
+  void _showNewCall() {
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => _DialPad(video: video),
-    );
+      builder: (_) => const _DialPad(),
+    ).then((_) {
+      if (mounted) _loadCalls();
+    });
   }
 
   @override
@@ -163,61 +226,97 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
 
 class _CallTile extends StatelessWidget {
   final Map<String, dynamic> call;
-  final VoidCallback? onTap;
-  const _CallTile({required this.call, this.onTap});
+  final VoidCallback onOpen;
+  final void Function(bool video) onCallBack;
+  const _CallTile({required this.call, required this.onOpen, required this.onCallBack});
 
   @override
   Widget build(BuildContext context) {
-    final missed = call['status'] == 'missed';
-    final number = call['remoteIdentifier'] ?? call['toNumber'] ?? call['fromNumber'] ?? 'Unknown';
-    final time = _formatTime(call['createdAt'] ?? call['startedAt'] ?? '');
-    final type = call['callType'] == 'video' ? 'video' : 'voice';
+    final outcome = call['outcome']?.toString() ?? 'answered';
+    final outgoing = call['direction'] == 'outgoing';
+    final missed = outcome == 'missed';
+    final video = call['callType'] == 'video';
+    final phone = call['remotePhone']?.toString();
+    final name = ContactResolver.instance.nameFor(phone) ?? call['remoteName']?.toString() ?? phone ?? 'Unknown';
+    final IconData directionIcon = missed ? Icons.call_missed : outgoing ? Icons.call_made : Icons.call_received;
+    final Color directionColor = missed || outcome == 'not_answered' ? AppColors.red : AppColors.green;
+    final String label = missed
+        ? 'Missed'
+        : outcome == 'not_answered'
+            ? 'No answer'
+            : outgoing
+                ? 'Outgoing'
+                : 'Incoming';
+    final duration = _formatDuration(call['durationSeconds']);
+    final time = _formatTime(call['createdAt']?.toString() ?? '');
+    final initial = name.trim().isEmpty || name.startsWith('+') || RegExp(r'^\d').hasMatch(name)
+        ? null
+        : name.trim().characters.first.toUpperCase();
+
     return ListTile(
-      onTap: onTap,
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: missed ? AppColors.red.withOpacity(0.1) : AppColors.green.withOpacity(0.1),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          missed ? Icons.call_missed : Icons.call_made,
-          color: missed ? AppColors.red : AppColors.green,
-          size: 20,
-        ),
+      onTap: onOpen,
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      leading: CircleAvatar(
+        radius: 24,
+        backgroundColor: AppColors.cyan.withValues(alpha: 0.12),
+        child: initial != null
+            ? Text(initial, style: TextStyle(color: AppColors.cyan, fontSize: 18, fontWeight: FontWeight.w700))
+            : Icon(Icons.person, color: AppColors.cyan),
       ),
-      title: Text(number, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-      subtitle: Text('${missed ? "missed" : "completed"} · $time', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      title: Text(
+        name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: missed ? AppColors.red : AppColors.ink, fontWeight: FontWeight.w600),
+      ),
+      subtitle: Row(
         children: [
-          Icon(type == 'video' ? Icons.videocam_outlined : Icons.call_outlined, color: AppColors.textMuted, size: 18),
+          Icon(directionIcon, size: 16, color: directionColor),
           const SizedBox(width: 4),
-          const Icon(Icons.chevron_right, color: AppColors.textMuted),
+          Flexible(
+            child: Text(
+              [label, if (duration != null) duration, time].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+            ),
+          ),
         ],
+      ),
+      trailing: IconButton(
+        tooltip: video ? 'Video call back' : 'Call back',
+        icon: Icon(video ? Icons.videocam_outlined : Icons.call_outlined, color: AppColors.cyan),
+        onPressed: () => onCallBack(video),
       ),
     );
   }
 
-  String _formatTime(String raw) {
+  static String? _formatDuration(dynamic raw) {
+    final seconds = raw is num ? raw.toInt() : int.tryParse(raw?.toString() ?? '');
+    if (seconds == null || seconds <= 0) return null;
+    final m = seconds ~/ 60, s = seconds % 60;
+    return m > 0 ? '${m}m ${s.toString().padLeft(2, '0')}s' : '${s}s';
+  }
+
+  static String _formatTime(String raw) {
     if (raw.isEmpty) return '';
-    try {
-      final dt = DateTime.parse(raw).toLocal();
-      final now = DateTime.now();
-      if (dt.day == now.day) return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
-      if (now.difference(dt).inDays == 1) return 'Yesterday';
-      final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return days[dt.weekday - 1];
-    } catch (_) {
-      return '';
-    }
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(dt.year, dt.month, dt.day);
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final clock = '$hour12:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+    final diff = today.difference(day).inDays;
+    if (diff == 0) return clock;
+    if (diff == 1) return 'Yesterday';
+    if (diff < 7) return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
+    return '${dt.day}/${dt.month}/${dt.year % 100}';
   }
 }
 
 class _DialPad extends StatefulWidget {
-  final bool video;
-  const _DialPad({this.video = false});
+  const _DialPad();
 
   @override
   State<_DialPad> createState() => _DialPadState();
@@ -281,7 +380,7 @@ class _DialPadState extends State<_DialPad> {
     return null;
   }
 
-  Future<void> _call() async {
+  Future<void> _call({required bool video}) async {
     if (_calling) return;
     final error = _validate();
     if (error != null) {
@@ -300,7 +399,7 @@ class _DialPadState extends State<_DialPad> {
     try {
       final session = await callService.startCall(
         calleeIdentifier: _digits,
-        callType: widget.video ? 'video' : 'voice',
+        callType: video ? 'video' : 'voice',
       );
       navigator.pop();
       navigator.push(MaterialPageRoute(
@@ -325,15 +424,15 @@ class _DialPadState extends State<_DialPad> {
             Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.close, color: AppColors.textMuted),
+                  icon: Icon(Icons.close, color: AppColors.textMuted),
                   tooltip: 'Close',
                   onPressed: _calling ? null : () => Navigator.of(context).maybePop(),
                 ),
                 Expanded(
                   child: Text(
-                    widget.video ? 'New video call' : 'New voice call',
+                    'New call',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                 ),
                 const SizedBox(width: 48), // balances the close icon so the title stays centered
@@ -354,7 +453,7 @@ class _DialPadState extends State<_DialPad> {
                   GestureDetector(
                     onTap: _delete,
                     onLongPress: _clear,
-                    child: const Padding(
+                    child: Padding(
                       padding: EdgeInsets.only(left: 10),
                       child: Icon(Icons.backspace_outlined, color: AppColors.textMuted, size: 20),
                     ),
@@ -372,24 +471,51 @@ class _DialPadState extends State<_DialPad> {
                 children: row.map((d) => _DialButton(digit: d, onTap: () => _press(d))).toList(),
               ),
             const SizedBox(height: 20),
-            GestureDetector(
-              onTap: _call,
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: widget.video ? AppColors.blue : AppColors.cyan, shape: BoxShape.circle),
-                child: _calling
-                    ? const SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(strokeWidth: 2.5, color: AppColors.background),
-                      )
-                    : Icon(widget.video ? Icons.videocam : Icons.call, color: AppColors.background, size: 30),
+            if (_calling)
+              Padding(
+                padding: EdgeInsets.all(18),
+                child: SizedBox(width: 32, height: 32, child: CircularProgressIndicator(strokeWidth: 3, color: AppColors.cyan)),
+              )
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _CallButton(icon: Icons.call, label: 'Voice', color: AppColors.cyan, onTap: () => _call(video: false)),
+                  _CallButton(icon: Icons.videocam, label: 'Video', color: AppColors.blue, onTap: () => _call(video: true)),
+                ],
               ),
-            ),
             const SizedBox(height: 4),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CallButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onTap;
+  const _CallButton({required this.icon, required this.label, required this.color, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: color,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: Padding(padding: const EdgeInsets.all(18), child: Icon(icon, color: AppColors.onAccent, size: 30)),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(label, style: TextStyle(color: AppColors.textSecondary, fontSize: 14, fontWeight: FontWeight.w600)),
+      ],
     );
   }
 }
@@ -401,15 +527,20 @@ class _DialButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: Text(digit, style: const TextStyle(color: AppColors.ink, fontSize: 24, fontWeight: FontWeight.w500)),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+      child: Material(
+        color: AppColors.surfaceElevated,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 72,
+            height: 72,
+            child: Center(child: Text(digit, style: TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w500))),
+          ),
+        ),
       ),
     );
   }

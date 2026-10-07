@@ -52,19 +52,19 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        title: const Text('Unblock this contact?', style: TextStyle(color: AppColors.ink)),
-        content: const Text(
+        title: Text('Unblock this contact?', style: TextStyle(color: AppColors.ink)),
+        content: Text(
           'They will be able to call and message you again.',
           style: TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            child: Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Unblock', style: TextStyle(color: AppColors.cyan)),
+            child: Text('Unblock', style: TextStyle(color: AppColors.cyan)),
           ),
         ],
       ),
@@ -108,7 +108,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
         ],
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+          ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
           : _error != null
               ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
               : _blocked.isEmpty
@@ -116,7 +116,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
                   : ListView.separated(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       itemCount: _blocked.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.surfaceElevated),
+                      separatorBuilder: (_, __) => Divider(height: 1, color: AppColors.surfaceElevated),
                       itemBuilder: (_, i) {
                         final c = _blocked[i];
                         final avatarUrl = c['avatarUrl'] as String?;
@@ -126,18 +126,18 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
                             radius: 22,
                             backgroundColor: AppColors.surfaceElevated,
                             backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-                            child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.textMuted) : null,
+                            child: avatarUrl == null ? Icon(Icons.person, color: AppColors.textMuted) : null,
                           ),
                           title: Text(
                             c['username']?.toString() ?? 'Unknown user',
-                            style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 15),
+                            style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 15),
                           ),
                           subtitle: c['phone'] != null
-                              ? Text(c['phone'].toString(), style: const TextStyle(color: AppColors.textMuted, fontSize: 12.5))
+                              ? Text(c['phone'].toString(), style: TextStyle(color: AppColors.textMuted, fontSize: 12.5))
                               : null,
                           trailing: TextButton(
                             onPressed: () => _confirmUnblock(c),
-                            child: const Text('Unblock', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600)),
+                            child: Text('Unblock', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600)),
                           ),
                         );
                       },
@@ -155,13 +155,13 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
             Container(
               width: 72,
               height: 72,
-              decoration: const BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
-              child: const Icon(Icons.block_outlined, color: AppColors.textMuted, size: 32),
+              decoration: BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
+              child: Icon(Icons.block_outlined, color: AppColors.textMuted, size: 32),
             ),
             const SizedBox(height: 20),
-            const Text('No blocked contacts', style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
+            Text('No blocked contacts', style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               "People you block won't be able to call or message you.",
               textAlign: TextAlign.center,
               style: TextStyle(color: AppColors.textMuted, fontSize: 13.5, height: 1.4),
@@ -173,7 +173,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
               label: const Text('Block Contact'),
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppColors.cyan,
-                side: const BorderSide(color: AppColors.cyan),
+                side: BorderSide(color: AppColors.cyan),
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
             ),
@@ -232,15 +232,15 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surfaceElevated,
-        title: const Text('Block this contact?', style: TextStyle(color: AppColors.ink)),
-        content: const Text(
+        title: Text('Block this contact?', style: TextStyle(color: AppColors.ink)),
+        content: Text(
           "They won't be able to call or message you on NeuraTalk.",
           style: TextStyle(color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            child: Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
@@ -285,11 +285,11 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
               controller: _searchCtrl,
               autofocus: true,
               onChanged: _onChanged,
-              style: const TextStyle(color: AppColors.ink),
+              style: TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Search by username, email, or phone',
-                hintStyle: const TextStyle(color: AppColors.textMuted),
-                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                hintStyle: TextStyle(color: AppColors.textMuted),
+                prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
@@ -297,7 +297,7 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
             ),
           ),
           if (_loading)
-            const Padding(padding: EdgeInsets.only(top: 24), child: CircularProgressIndicator(color: AppColors.cyan)),
+            Padding(padding: EdgeInsets.only(top: 24), child: CircularProgressIndicator(color: AppColors.cyan)),
           Expanded(
             child: ListView.builder(
               itemCount: _results.length,
@@ -308,10 +308,10 @@ class _BlockContactSearchScreenState extends State<_BlockContactSearchScreen> {
                   leading: CircleAvatar(
                     backgroundColor: AppColors.surfaceElevated,
                     backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-                    child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.textMuted) : null,
+                    child: avatarUrl == null ? Icon(Icons.person, color: AppColors.textMuted) : null,
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                  subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                  subtitle: Text(u['identifier']?.toString() ?? '', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: _blocking
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red))
                       : const Icon(Icons.block_outlined, color: AppColors.red),

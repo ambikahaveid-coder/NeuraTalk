@@ -4,6 +4,10 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/group_chat_provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/api_service.dart';
+import '../services/media_store.dart';
+import '../widgets/attachment_picker.dart';
+import '../widgets/chat_attachments.dart';
 import 'group_info_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
@@ -19,6 +23,10 @@ class GroupConversationScreen extends StatefulWidget {
 class _GroupConversationScreenState extends State<GroupConversationScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  // Current upload ("Sending 2 of 3 · photo.jpg").
+  String? _uploadLabel;
+  double _uploadProgress = 0;
+  UploadCancelToken? _uploadCancel;
 
   @override
   void initState() {
@@ -48,6 +56,37 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _msgCtrl.clear();
     context.read<GroupChatProvider>().sendMessage(widget.groupId, text);
     _scrollToBottom();
+  }
+
+  Future<void> _attach() async {
+    if (_uploadLabel != null) return;
+    final files = await AttachmentPicker.show(context);
+    for (var i = 0; i < files.length; i++) {
+      if (!mounted) return;
+      final (file, name) = files[i];
+      setState(() {
+        _uploadLabel = files.length > 1 ? 'Sending ${i + 1} of ${files.length} · $name' : name;
+        _uploadProgress = 0;
+        _uploadCancel = UploadCancelToken();
+      });
+      try {
+        await context.read<GroupChatProvider>().sendAttachment(widget.groupId, file, name, cancelToken: _uploadCancel,
+            onProgress: (p) {
+          if (mounted) setState(() => _uploadProgress = p);
+        });
+        _scrollToBottom();
+      } catch (_) {
+        if (mounted) {
+          final cancelled = _uploadCancel?.cancelled == true;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(cancelled ? 'Upload cancelled.' : 'Could not send "$name". Check your internet and try again.'),
+          ));
+        }
+        break;
+      } finally {
+        if (mounted) setState(() => _uploadLabel = null);
+      }
+    }
   }
 
   bool get _selfIsAdmin {
@@ -86,8 +125,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: const Text('Copy', style: TextStyle(color: AppColors.ink)),
+              leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+              title: Text('Copy', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _copyMessage(message);
@@ -124,8 +163,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(groupName, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
-              Text('${members.length} member${members.length == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+              Text(groupName, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+              Text('${members.length} member${members.length == 1 ? '' : 's'}', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
             ],
           ),
         ),
@@ -141,11 +180,11 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
         children: [
           Expanded(
             child: provider.loadingMessages
-                ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+                ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                 : provider.messagesError != null
                     ? Center(child: Text(provider.messagesError!, style: const TextStyle(color: AppColors.red)))
                     : provider.messages.isEmpty
-                        ? const Center(child: Text('No messages yet — say hello 👋', style: TextStyle(color: AppColors.textMuted)))
+                        ? Center(child: Text('No messages yet — say hello 👋', style: TextStyle(color: AppColors.textMuted)))
                         : ListView.builder(
                             controller: _scrollCtrl,
                             padding: const EdgeInsets.all(16),
@@ -161,6 +200,26 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                             },
                           ),
           ),
+          if (_uploadLabel != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 8, 2),
+              child: Row(children: [
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(_uploadLabel!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    LinearProgressIndicator(value: _uploadProgress > 0 ? _uploadProgress : null, minHeight: 4,
+                        borderRadius: BorderRadius.circular(2)),
+                  ]),
+                ),
+                IconButton(
+                  tooltip: 'Cancel upload',
+                  icon: Icon(Icons.close, color: AppColors.textMuted),
+                  onPressed: () => _uploadCancel?.cancel(),
+                ),
+              ]),
+            ),
           _inputBar(),
         ],
       ),
@@ -173,11 +232,16 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
       color: AppColors.backgroundMid,
       child: Row(
         children: [
+          IconButton(
+            tooltip: 'Attach photo, video or file',
+            icon: Icon(Icons.attach_file, color: AppColors.textMuted),
+            onPressed: _uploadLabel != null ? null : _attach,
+          ),
           Expanded(
             child: TextField(
               controller: _msgCtrl,
-              style: const TextStyle(color: AppColors.ink),
-              decoration: const InputDecoration(
+              style: TextStyle(color: AppColors.ink),
+              decoration: InputDecoration(
                 hintText: 'Message...',
                 hintStyle: TextStyle(color: AppColors.textMuted),
                 border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)), borderSide: BorderSide.none),
@@ -193,8 +257,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             onTap: _send,
             child: Container(
               padding: const EdgeInsets.all(14),
-              decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-              child: const Icon(Icons.send, color: AppColors.background, size: 20),
+              decoration: BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
+              child: Icon(Icons.send, color: AppColors.background, size: 20),
             ),
           ),
         ],
@@ -209,13 +273,26 @@ class _GroupMessageBubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   const _GroupMessageBubble({required this.message, required this.isOwn, this.onLongPress});
 
+  static String _clock(dynamic raw) {
+    final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
+    if (dt == null) return '';
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    return '$hour12:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final content = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
     final senderName = (message['sender'] as Map<String, dynamic>?)?['username']?.toString();
+    final messageType = message['messageType']?.toString() ?? 'text';
+    final attachmentUrl = message['attachmentUrl']?.toString();
+    final attachmentTitle = message['attachmentTitle']?.toString();
+    final attachmentSize = (message['attachmentSize'] as num?)?.toInt();
+    final attachmentMime = message['attachmentMime']?.toString();
     final showingTranslated = message['originalLanguage'] != null &&
         message['displayContent'] != null &&
         message['displayContent'] != message['originalContent'];
+    final fg = AppColors.textPrimary;
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
@@ -226,7 +303,7 @@ class _GroupMessageBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         decoration: BoxDecoration(
-          color: isOwn ? AppColors.cyan : AppColors.surfaceElevated,
+          color: isOwn ? AppColors.blueTint : AppColors.surfaceElevated,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(18),
             topRight: const Radius.circular(18),
@@ -241,20 +318,52 @@ class _GroupMessageBubble extends StatelessWidget {
             if (!isOwn && senderName != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 2),
-                child: Text(senderName, style: const TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w700)),
+                child: Text(senderName, style: TextStyle(color: AppColors.cyan, fontSize: 13, fontWeight: FontWeight.w700)),
               ),
-            Text(content, style: TextStyle(color: isOwn ? AppColors.background : AppColors.textPrimary, fontSize: 14, height: 1.4)),
+            if (attachmentUrl != null && messageType == 'attachment')
+              ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
+            else if (attachmentUrl != null && messageType == 'file' && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
+              ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)
+            else if (attachmentUrl != null && messageType == 'file')
+              ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
+            else
+              Text(content, style: TextStyle(color: fg, fontSize: 16, height: 1.35)),
             if (showingTranslated) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Translated · original: ${message['originalContent']}',
-                style: TextStyle(color: (isOwn ? AppColors.background : AppColors.textPrimary).withOpacity(0.6), fontSize: 10, fontStyle: FontStyle.italic),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.only(top: 6),
+                decoration: BoxDecoration(border: Border(top: BorderSide(color: fg.withValues(alpha: 0.18)))),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(Icons.translate, size: 13, color: fg.withValues(alpha: 0.7)),
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text('${message['originalContent']}', style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 13, height: 1.3)),
+                    ),
+                  ],
+                ),
               ),
             ],
-            if (message['_pending'] == true) ...[
-              const SizedBox(height: 4),
-              const Text('Sending…', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-            ],
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              widthFactor: 1,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_clock(message['createdAt']), style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 11.5)),
+                  if (isOwn && message['_pending'] == true) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.schedule, size: 14, color: fg.withValues(alpha: 0.7), semanticLabel: 'sending'),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

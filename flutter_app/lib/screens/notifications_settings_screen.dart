@@ -42,18 +42,17 @@ class _NotificationsSettingsScreenState extends State<NotificationsSettingsScree
           SwitchListTile(
             value: enabled,
             onChanged: _saving ? null : _toggle,
-            activeColor: AppColors.cyan,
-            title: const Text('Message notifications', style: TextStyle(color: AppColors.ink)),
-            subtitle: const Text(
+            title: Text('Message notifications', style: TextStyle(color: AppColors.ink)),
+            subtitle: Text(
               'Get notified about new chat messages when the app is closed or in the background.',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Text(
               'Call notifications always ring, regardless of this setting.',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
             ),
           ),
         ],

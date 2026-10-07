@@ -79,9 +79,9 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Billing & Wallet')),
+      appBar: AppBar(title: const Text('Subscription')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+          ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
           : RefreshIndicator(
               onRefresh: _load,
               color: AppColors.cyan,
@@ -93,7 +93,7 @@ class _WalletScreenState extends State<WalletScreen> {
                   children: [
                     _walletCard(),
                     const SizedBox(height: 24),
-                    const Text('Plans', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+                    Text('Plans', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 12),
                     if (_plansError != null)
                       _errorCard(_plansError!, _load)
@@ -115,7 +115,7 @@ class _WalletScreenState extends State<WalletScreen> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.red.withOpacity(0.4)),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -124,14 +124,14 @@ class _WalletScreenState extends State<WalletScreen> {
             children: [
               const Icon(Icons.error_outline, color: AppColors.red, size: 20),
               const SizedBox(width: 8),
-              Expanded(child: Text(message, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13))),
+              Expanded(child: Text(message, style: TextStyle(color: AppColors.textSecondary, fontSize: 13))),
             ],
           ),
           const SizedBox(height: 12),
           OutlinedButton(
             onPressed: onRetry,
             style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: AppColors.cyan),
+              side: BorderSide(color: AppColors.cyan),
               foregroundColor: AppColors.cyan,
             ),
             child: const Text('Retry'),
@@ -147,26 +147,24 @@ class _WalletScreenState extends State<WalletScreen> {
     }
 
     final balance = _wallet?['balancePaise'] != null ? (_wallet!['balancePaise'] as num) / 100 : 0.0;
-    final minutes = _wallet?['remainingMinutes'] ?? 0;
+    // Server sends minutesRemaining (server/billing-routes.ts); remainingMinutes was never set.
+    final minutes = _wallet?['minutesRemaining'] ?? _wallet?['remainingMinutes'] ?? 0;
+    final planName = (_wallet?['subscription'] as Map<String, dynamic>?)?['planName']?.toString();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.teal, AppColors.cyanDark],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        gradient: AppColors.brandGradient,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Wallet Balance', style: TextStyle(color: AppColors.onAccent, fontSize: 14)),
+          Text(planName ?? 'No active plan', style: const TextStyle(color: AppColors.onAccent, fontSize: 15, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.onAccent, fontSize: 36, fontWeight: FontWeight.w800)),
+          Text('$minutes minutes left', style: const TextStyle(color: AppColors.onAccent, fontSize: 34, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text('$minutes minutes remaining', style: const TextStyle(color: AppColors.onAccent, fontSize: 14)),
+          Text('Wallet balance ₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.onAccent, fontSize: 14)),
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: () => _openCheckout(context),
@@ -175,7 +173,7 @@ class _WalletScreenState extends State<WalletScreen> {
               foregroundColor: AppColors.teal,
               minimumSize: const Size(140, 44),
             ),
-            child: const Text('Add Credits', style: TextStyle(fontWeight: FontWeight.w700)),
+            child: const Text('Add minutes', style: TextStyle(fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -193,7 +191,7 @@ class _EmptyState extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       alignment: Alignment.center,
-      child: Text(message, style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
+      child: Text(message, style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
     );
   }
 }
@@ -224,20 +222,20 @@ class _PlanCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(name, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
-              Text(price, style: const TextStyle(color: AppColors.cyan, fontSize: 18, fontWeight: FontWeight.w800)),
+              Text(name, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
+              Text(price, style: TextStyle(color: AppColors.cyan, fontSize: 18, fontWeight: FontWeight.w800)),
             ],
           ),
           const SizedBox(height: 4),
-          Text('$minutes minutes included', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          Text('$minutes minutes included', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
           if (features.isNotEmpty) ...[
             const SizedBox(height: 12),
             ...features.take(3).map((f) => Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(children: [
-                const Icon(Icons.check_circle_outline, color: AppColors.cyan, size: 14),
+                Icon(Icons.check_circle_outline, color: AppColors.cyan, size: 14),
                 const SizedBox(width: 8),
-                Text(f, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                Text(f, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ]),
             )),
           ],
@@ -247,7 +245,7 @@ class _PlanCard extends StatelessWidget {
             child: OutlinedButton(
               onPressed: onChoose,
               style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppColors.cyan),
+                side: BorderSide(color: AppColors.cyan),
                 foregroundColor: AppColors.cyan,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),

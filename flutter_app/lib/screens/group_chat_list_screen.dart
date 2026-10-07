@@ -31,7 +31,7 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
         title: const Text('Groups'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.group_add_outlined, color: AppColors.cyan),
+            icon: Icon(Icons.group_add_outlined, color: AppColors.cyan),
             tooltip: 'New group',
             onPressed: () async {
               await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
@@ -44,7 +44,7 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
         onRefresh: provider.loadGroups,
         color: AppColors.cyan,
         child: provider.loadingGroups && provider.groups.isEmpty
-            ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+            ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
             : provider.groupsError != null
                 ? Center(child: Text(provider.groupsError!, style: const TextStyle(color: AppColors.red)))
                 : provider.groups.isEmpty
@@ -70,12 +70,12 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(color: AppColors.cyan.withOpacity(0.1), shape: BoxShape.circle),
-                  child: const Icon(Icons.groups_outlined, color: AppColors.cyan, size: 40),
+                  child: Icon(Icons.groups_outlined, color: AppColors.cyan, size: 40),
                 ),
                 const SizedBox(height: 20),
-                const Text('No groups yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('No groups yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
-                const Text('Create a group to chat with multiple people at once', style: TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center),
+                Text('Create a group to chat with multiple people at once', style: TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
                   onPressed: () async {
@@ -96,13 +96,13 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
   Widget _groupTile(Map<String, dynamic> group) {
     final memberCount = (group['members'] as List?)?.length ?? 0;
     return ListTile(
-      leading: const CircleAvatar(
+      leading: CircleAvatar(
         radius: 24,
         backgroundColor: AppColors.cyan,
         child: Icon(Icons.groups, color: AppColors.background),
       ),
-      title: Text(group['name']?.toString() ?? 'Group', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-      subtitle: Text('$memberCount member${memberCount == 1 ? '' : 's'}', style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
+      title: Text(group['name']?.toString() ?? 'Group', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+      subtitle: Text('$memberCount member${memberCount == 1 ? '' : 's'}', style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupConversationScreen(groupId: group['id'] as int))),
     );
   }

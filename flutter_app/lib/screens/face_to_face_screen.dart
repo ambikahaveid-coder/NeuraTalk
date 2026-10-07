@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:record/record.dart';
@@ -12,6 +13,7 @@ import 'package:record/record.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/languages.dart';
 
 /// Two people, one phone: each taps their side and speaks; the phone shows
 /// and speaks the translation. Streams 16 kHz PCM to /ws/face-to-face and
@@ -337,19 +339,30 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
     final picked = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (_) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final l in _languages)
-              ListTile(
-                title: Text(l['name']?.toString() ?? ''),
-                trailing: (side == _Side.me ? _myLanguage : _theirLanguage) == l['code']
-                    ? const Icon(Icons.check, color: AppColors.cyan)
-                    : null,
-                onTap: () => Navigator.pop(context, l['code']?.toString()),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(side == _Side.me ? 'You speak' : 'They speak',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               ),
-          ],
+              for (final l in _languages)
+                ListTile(
+                  leading: Text(Languages.of(l['code']?.toString()).flag, style: const TextStyle(fontSize: 22)),
+                  title: Text(l['name']?.toString() ?? ''),
+                  subtitle: Text(Languages.of(l['code']?.toString()).native),
+                  trailing: (side == _Side.me ? _myLanguage : _theirLanguage) == l['code']
+                      ? Icon(Icons.check_circle, color: AppColors.cyan)
+                      : null,
+                  onTap: () => Navigator.pop(context, l['code']?.toString()),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -360,55 +373,195 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.backgroundMid,
-      appBar: AppBar(title: const Text('Face to face')),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text('Voice Translator'), centerTitle: true),
       body: SafeArea(
         child: Column(
           children: [
-            _languageBar(),
+            _speakerToggle(),
             if (_error != null)
               Container(
                 width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppColors.red.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
                 child: Text(_error!, style: const TextStyle(color: AppColors.red)),
               ),
-            Expanded(child: _conversation()),
-            _statusLine(),
-            _sideButtons(),
+            Expanded(child: _lines.isEmpty ? _bigMic() : _conversation()),
+            if (_lines.isNotEmpty) _smallMicRow(),
+            _languageBar(),
           ],
         ),
       ),
     );
   }
 
-  Widget _languageBar() {
-    Widget chip(_Side side) {
-      final code = side == _Side.me ? _myLanguage : _theirLanguage;
+  /// Who is speaking now (brand mockup 11's segmented control).
+  Widget _speakerToggle() {
+    Widget seg(_Side side) {
+      final selected = (_active ?? _Side.me) == side;
+      final lang = Languages.of(side == _Side.me ? _myLanguage : _theirLanguage);
       return Expanded(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: () => _pickLanguage(side),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        child: GestureDetector(
+          onTap: _connecting
+              ? null
+              : () {
+                  if (_active != null && _active != side) {
+                    _selectSide(side);
+                  } else if (_active == null) {
+                    setState(() => _preferredSide = side);
+                  }
+                },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
+              color: (_active ?? _preferredSide) == side ? AppColors.cyan : Colors.transparent,
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(side == _Side.me ? 'You speak' : 'They speak',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                const SizedBox(height: 2),
-                Text(_languageName(code),
-                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-              ],
+            child: Text(
+              side == _Side.me ? 'Me · ${lang.name}' : 'Them · ${lang.name}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: (_active ?? _preferredSide) == side ? AppColors.onAccent : AppColors.textSecondary,
+                fontSize: 14.5,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: AppColors.surfaceElevated, borderRadius: BorderRadius.circular(14)),
+      child: Row(children: [seg(_Side.me), seg(_Side.them)]),
+    );
+  }
+
+  _Side _preferredSide = _Side.me;
+
+  String get _statusText {
+    if (_connecting) return 'Connecting…';
+    if (_playing) return 'Speaking the translation…';
+    if (_active == _Side.me) return 'Listening in ${_languageName(_myLanguage)}… tap to stop';
+    if (_active == _Side.them) return 'Listening in ${_languageName(_theirLanguage)}… tap to stop';
+    return 'Tap to Speak';
+  }
+
+  void _toggleMic() {
+    if (_connecting) return;
+    if (_active != null) {
+      _selectSide(_active!);
+    } else {
+      _selectSide(_preferredSide);
+    }
+  }
+
+  Widget _bigMic() {
+    final listening = _active != null;
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: _toggleMic,
+          child: Container(
+            width: 250,
+            height: 250,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: AppColors.cyan.withValues(alpha: listening ? 0.10 : 0.06)),
+            alignment: Alignment.center,
+            child: Container(
+              width: 190,
+              height: 190,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: AppColors.cyan.withValues(alpha: listening ? 0.18 : 0.10)),
+              alignment: Alignment.center,
+              child: Container(
+                width: 130,
+                height: 130,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: listening
+                      ? const LinearGradient(colors: [Color(0xFFE11D48), Color(0xFFF43F5E)])
+                      : AppColors.brandGradient,
+                  boxShadow: [BoxShadow(color: AppColors.cyan.withValues(alpha: 0.35), blurRadius: 30, offset: const Offset(0, 10))],
+                ),
+                child: _connecting
+                    ? const Padding(padding: EdgeInsets.all(44), child: CircularProgressIndicator(color: AppColors.onAccent, strokeWidth: 3))
+                    : Icon(listening ? Icons.stop_rounded : Icons.mic, color: AppColors.onAccent, size: 58,
+                        semanticLabel: listening ? 'Stop' : 'Speak'),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Text(_statusText, textAlign: TextAlign.center, style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Text(
+            listening ? 'Speak naturally. The phone will say it in the other language.' : 'Choose who is speaking above, then tap the mic.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.4),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _smallMicRow() {
+    final listening = _active != null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(_statusText, style: TextStyle(color: AppColors.textSecondary, fontSize: 15))),
+          Material(
+            shape: const CircleBorder(),
+            color: listening ? AppColors.red : AppColors.cyan,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _toggleMic,
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: _connecting
+                    ? const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(color: AppColors.onAccent, strokeWidth: 2.5))
+                    : Icon(listening ? Icons.stop_rounded : Icons.mic, color: AppColors.onAccent, size: 30),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "🇮🇳 Telugu ⌄  ⇄  🇬🇧 English ⌄" (brand mockup 11).
+  Widget _languageBar() {
+    Widget pill(_Side side) {
+      final lang = Languages.of(side == _Side.me ? _myLanguage : _theirLanguage);
+      return Expanded(
+        child: Material(
+          color: AppColors.surface,
+          shape: StadiumBorder(side: BorderSide(color: AppColors.border)),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: _active != null ? null : () => _pickLanguage(side),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(lang.flag, style: const TextStyle(fontSize: 18)),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(lang.name, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppColors.ink, fontSize: 15, fontWeight: FontWeight.w600)),
+                  ),
+                  Icon(Icons.keyboard_arrow_down, color: AppColors.textMuted, size: 20),
+                ],
+              ),
             ),
           ),
         ),
@@ -416,10 +569,10 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
       child: Row(
         children: [
-          chip(_Side.me),
+          pill(_Side.me),
           IconButton(
             tooltip: 'Swap languages',
             onPressed: _active != null
@@ -429,27 +582,15 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
                       _myLanguage = _theirLanguage;
                       _theirLanguage = t;
                     }),
-            icon: const Icon(Icons.swap_horiz, color: AppColors.cyan),
+            icon: Icon(Icons.swap_horiz, color: AppColors.cyan),
           ),
-          chip(_Side.them),
+          pill(_Side.them),
         ],
       ),
     );
   }
 
   Widget _conversation() {
-    if (_lines.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Text(
-            'Tap your side and speak.\nThe phone will say it in the other language.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16, color: AppColors.textSecondary, height: 1.4),
-          ),
-        ),
-      );
-    }
     return ListView.builder(
       reverse: true,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -465,87 +606,25 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
             margin: const EdgeInsets.symmetric(vertical: 6),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: mine ? AppColors.cyan : AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: mine ? null : Border.all(color: AppColors.border),
+              color: mine ? AppColors.blueTint : AppColors.surfaceElevated,
+              borderRadius: BorderRadius.circular(18),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text(mine ? 'Me' : 'Them', style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
                 if (line.translated.isNotEmpty)
-                  Text(line.translated,
-                      style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w600,
-                          height: 1.3,
-                          color: mine ? AppColors.onAccent : AppColors.textPrimary)),
+                  Text(line.translated, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.3, color: AppColors.textPrimary)),
                 if (original.isNotEmpty) ...[
                   if (line.translated.isNotEmpty) const SizedBox(height: 6),
-                  Text(original,
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: mine ? AppColors.onAccent.withValues(alpha: 0.85) : AppColors.textSecondary)),
+                  Text(original, style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
                 ],
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _statusLine() {
-    final String text;
-    if (_connecting) {
-      text = 'Connecting…';
-    } else if (_playing) {
-      text = 'Speaking the translation…';
-    } else if (_active == _Side.me) {
-      text = 'Listening to you in ${_languageName(_myLanguage)}';
-    } else if (_active == _Side.them) {
-      text = 'Listening to them in ${_languageName(_theirLanguage)}';
-    } else {
-      text = '';
-    }
-    return SizedBox(
-      height: 28,
-      child: Center(child: Text(text, style: const TextStyle(color: AppColors.textSecondary))),
-    );
-  }
-
-  Widget _sideButtons() {
-    Widget button(_Side side) {
-      final active = _active == side;
-      final language = _languageName(side == _Side.me ? _myLanguage : _theirLanguage);
-      return Expanded(
-        child: SizedBox(
-          height: 96,
-          child: FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: active ? AppColors.cyan : AppColors.surface,
-              foregroundColor: active ? AppColors.onAccent : AppColors.textPrimary,
-              side: BorderSide(color: active ? AppColors.cyan : AppColors.borderBright),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            ),
-            onPressed: _connecting ? null : () => _selectSide(side),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(active ? Icons.mic : Icons.mic_none, size: 30),
-                const SizedBox(height: 6),
-                Text(side == _Side.me ? 'Me · $language' : 'Them · $language',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-      child: Row(children: [button(_Side.me), const SizedBox(width: 12), button(_Side.them)]),
     );
   }
 }

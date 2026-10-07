@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 import '../providers/personal_chat_provider.dart';
 import '../providers/auth_provider.dart';
-import '../services/api_service.dart';
 import 'conversation_screen.dart';
 import 'user_discovery_screen.dart';
 import 'chat_screen.dart';
@@ -38,12 +38,14 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     try {
       final dt = DateTime.parse(raw.toString()).toLocal();
       final now = DateTime.now();
-      if (dt.year == now.year && dt.month == now.month && dt.day == now.day) {
-        return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      final diff = DateTime(now.year, now.month, now.day).difference(DateTime(dt.year, dt.month, dt.day)).inDays;
+      if (diff == 0) {
+        final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+        return '$hour12:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
       }
-      if (now.difference(dt).inDays == 1) return 'Yesterday';
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      return days[dt.weekday - 1];
+      if (diff == 1) return 'Yesterday';
+      if (diff < 7) return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
+      return '${dt.day}/${dt.month}/${dt.year % 100}';
     } catch (_) {
       return '';
     }
@@ -77,7 +79,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           children: [
             ListTile(
               leading: Icon(isPinned ? Icons.push_pin : Icons.push_pin_outlined, color: AppColors.cyan),
-              title: Text(isPinned ? 'Unpin' : 'Pin', style: const TextStyle(color: AppColors.ink)),
+              title: Text(isPinned ? 'Unpin' : 'Pin', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, pinned: !isPinned);
@@ -85,7 +87,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
             ),
             ListTile(
               leading: Icon(isMuted ? Icons.notifications_off : Icons.notifications_off_outlined, color: AppColors.cyan),
-              title: Text(isMuted ? 'Unmute' : 'Mute', style: const TextStyle(color: AppColors.ink)),
+              title: Text(isMuted ? 'Unmute' : 'Mute', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, muted: !isMuted);
@@ -93,7 +95,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
             ),
             ListTile(
               leading: Icon(isArchived ? Icons.unarchive_outlined : Icons.archive_outlined, color: AppColors.cyan),
-              title: Text(isArchived ? 'Unarchive' : 'Archive', style: const TextStyle(color: AppColors.ink)),
+              title: Text(isArchived ? 'Unarchive' : 'Archive', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 context.read<PersonalChatProvider>().updateThreadState(threadId, archived: !isArchived);
@@ -113,52 +115,63 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(_showArchived ? 'Archived' : 'Chat'),
+        title: Text(_showArchived ? 'Archived' : 'Chats'),
         leading: _showArchived
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _showArchived = false))
             : null,
         actions: [
           if (!_showArchived) ...[
             IconButton(
-              icon: const Icon(Icons.archive_outlined, color: AppColors.cyan),
-              tooltip: 'Archived',
-              onPressed: () => setState(() => _showArchived = true),
-            ),
-            IconButton(
-              icon: const Icon(Icons.auto_awesome, color: AppColors.cyan),
+              icon: Icon(Icons.auto_awesome, color: AppColors.cyan),
               tooltip: 'NEURA AI',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
             ),
             IconButton(
-              icon: const Icon(Icons.contacts_outlined, color: AppColors.cyan),
-              tooltip: 'Contacts',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen())),
-            ),
-            IconButton(
-              icon: const Icon(Icons.groups_outlined, color: AppColors.cyan),
+              icon: Icon(Icons.groups_outlined, color: AppColors.cyan),
               tooltip: 'Groups',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GroupChatListScreen())),
             ),
-            IconButton(
-              icon: const Icon(Icons.person_add_alt_1, color: AppColors.cyan),
-              tooltip: 'New chat',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              icon: Icon(Icons.more_vert, color: AppColors.textSecondary),
+              onSelected: (v) {
+                if (v == 'contacts') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen()));
+                } else if (v == 'archived') {
+                  setState(() => _showArchived = true);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'contacts', child: ListTile(leading: Icon(Icons.contacts_outlined), title: Text('Contacts'), contentPadding: EdgeInsets.zero)),
+                PopupMenuItem(value: 'archived', child: ListTile(leading: Icon(Icons.archive_outlined), title: Text('Archived chats'), contentPadding: EdgeInsets.zero)),
+              ],
             ),
           ],
         ],
       ),
+      floatingActionButton: _showArchived
+          ? null
+          : FloatingActionButton.extended(
+              heroTag: 'new-chat',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
+              backgroundColor: AppColors.cyan,
+              foregroundColor: AppColors.onAccent,
+              icon: const Icon(Icons.chat_outlined),
+              label: const Text('New chat', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
       body: RefreshIndicator(
         onRefresh: provider.loadThreads,
         color: AppColors.cyan,
         child: provider.loadingThreads && provider.threads.isEmpty
-            ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+            ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
             : provider.threadsError != null
                 ? Center(child: Text(provider.threadsError!, style: const TextStyle(color: AppColors.red)))
                 : visible.isEmpty
                     ? (_showArchived
-                        ? const Center(child: Text('No archived chats', style: TextStyle(color: AppColors.textMuted)))
+                        ? Center(child: Text('No archived chats', style: TextStyle(color: AppColors.textMuted)))
                         : _emptyState())
                     : ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 96),
                         itemCount: visible.length,
                         itemBuilder: (_, i) => _threadTile(visible[i]),
                       ),
@@ -178,13 +191,13 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               children: [
                 Container(
                   padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(color: AppColors.cyan.withOpacity(0.1), shape: BoxShape.circle),
-                  child: const Icon(Icons.forum_outlined, color: AppColors.cyan, size: 40),
+                  decoration: BoxDecoration(color: AppColors.cyan.withValues(alpha: 0.1), shape: BoxShape.circle),
+                  child: Icon(Icons.forum_outlined, color: AppColors.cyan, size: 40),
                 ),
                 const SizedBox(height: 20),
-                const Text('No conversations yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+                Text('No conversations yet', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
-                const Text('Find someone on NeuraTalk to start chatting', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                Text('Find someone on NeuraTalk to start chatting', style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
                   onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
@@ -207,12 +220,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     final isMuted = thread['isMuted'] == true;
 
     return ListTile(
-      leading: CircleAvatar(
-        radius: 24,
-        backgroundColor: AppColors.cyan.withOpacity(0.15),
-        backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-        child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
-      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: NtAvatar(name: peer['displayName']?.toString() ?? '', avatarUrl: avatarUrl, size: 50),
       title: Row(
         children: [
           Flexible(
@@ -222,27 +231,34 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          if (isPinned) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.push_pin, size: 13, color: AppColors.textMuted)),
-          if (isMuted) const Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.notifications_off, size: 13, color: AppColors.textMuted)),
+          if (isPinned) Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.push_pin, size: 13, color: AppColors.textMuted)),
+          if (isMuted) Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.notifications_off, size: 13, color: AppColors.textMuted)),
         ],
       ),
-      subtitle: Text(
+      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 2),
+          child: LanguagePairChip(mine: thread['viewerLanguage']?.toString(), theirs: thread['peerLanguage']?.toString(), compact: true),
+        ),
+        Text(
         thread['lastMessagePreview']?.toString() ?? 'Say hello 👋',
-        style: TextStyle(color: unread > 0 ? AppColors.textPrimary : AppColors.textMuted, fontSize: 13),
+        style: TextStyle(color: unread > 0 ? AppColors.textPrimary : AppColors.textSecondary, fontSize: 14.5),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
+      ]),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Text(_formatTime(thread['lastMessageAt']), style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+          Text(_formatTime(thread['lastMessageAt']), style: TextStyle(color: unread > 0 ? AppColors.cyan : AppColors.textMuted, fontSize: 12, fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.w400)),
           if (unread > 0) ...[
             const SizedBox(height: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-              child: Text('$unread', style: const TextStyle(color: AppColors.background, fontSize: 11, fontWeight: FontWeight.w700)),
+              constraints: const BoxConstraints(minWidth: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: isMuted ? AppColors.textMuted : AppColors.cyan, borderRadius: BorderRadius.circular(10)),
+              child: Text(unread > 99 ? '99+' : '$unread', textAlign: TextAlign.center, style: const TextStyle(color: AppColors.onAccent, fontSize: 11, fontWeight: FontWeight.w700)),
             ),
           ],
         ],

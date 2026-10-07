@@ -110,6 +110,8 @@ class PersonalChatProvider extends ChangeNotifier {
     String messageType = 'text',
     String? attachmentUrl,
     String? attachmentTitle,
+    int? attachmentSize,
+    String? attachmentMime,
     int? replyToId,
   }) async {
     final clientMessageId = '${DateTime.now().microsecondsSinceEpoch}';
@@ -123,6 +125,8 @@ class PersonalChatProvider extends ChangeNotifier {
       'messageType': messageType,
       'attachmentUrl': attachmentUrl,
       'attachmentTitle': attachmentTitle,
+      'attachmentSize': attachmentSize,
+      'attachmentMime': attachmentMime,
       'replyToId': replyToId,
       'deliveryStatus': 'sending',
       'createdAt': DateTime.now().toIso8601String(),
@@ -137,6 +141,8 @@ class PersonalChatProvider extends ChangeNotifier {
         'messageType': messageType,
         if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
         if (attachmentTitle != null) 'attachmentTitle': attachmentTitle,
+        if (attachmentSize != null) 'attachmentSize': attachmentSize,
+        if (attachmentMime != null) 'attachmentMime': attachmentMime,
         if (replyToId != null) 'replyToId': replyToId,
       });
       final saved = res['message'] as Map<String, dynamic>;
@@ -169,6 +175,8 @@ class PersonalChatProvider extends ChangeNotifier {
         'messageType': failedMessage['messageType'] ?? 'text',
         if (failedMessage['attachmentUrl'] != null) 'attachmentUrl': failedMessage['attachmentUrl'],
         if (failedMessage['attachmentTitle'] != null) 'attachmentTitle': failedMessage['attachmentTitle'],
+        if (failedMessage['attachmentSize'] != null) 'attachmentSize': failedMessage['attachmentSize'],
+        if (failedMessage['attachmentMime'] != null) 'attachmentMime': failedMessage['attachmentMime'],
       });
       final saved = res['message'] as Map<String, dynamic>;
       final i2 = messages.indexWhere((m) => m['clientMessageId'] == failedMessage['clientMessageId']);

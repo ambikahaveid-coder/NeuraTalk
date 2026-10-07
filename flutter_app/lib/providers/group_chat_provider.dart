@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
+import '../services/media_store.dart';
 
 /// Real group chat state — wired to server/group-chats.ts. That backend has
 /// no SSE stream (unlike personal-chat-routes.ts), so new messages arrive
@@ -118,6 +120,32 @@ class GroupChatProvider extends ChangeNotifier {
       await ApiService.post('/api/group-chats/$groupId/messages', {
         'content': content,
         'messageType': 'text',
+      });
+    } finally {
+      await _fetchMessages(groupId);
+    }
+  }
+
+  /// Uploads a photo/video/file and posts it to the group (see MediaStore).
+  Future<void> sendAttachment(
+    int groupId,
+    File file,
+    String name, {
+    void Function(double progress)? onProgress,
+    UploadCancelToken? cancelToken,
+  }) async {
+    final size = await file.length();
+    final mime = MediaStore.contentTypeFor(name);
+    final kind = MediaStore.kindOf(name);
+    final objectPath = await MediaStore.upload(file, name, onProgress: onProgress, cancelToken: cancelToken);
+    try {
+      await ApiService.post('/api/group-chats/$groupId/messages', {
+        'content': kind == MediaKind.image ? 'Photo' : (kind == MediaKind.video ? 'Video' : name),
+        'messageType': kind == MediaKind.image ? 'attachment' : 'file',
+        'attachmentUrl': objectPath,
+        'attachmentTitle': name,
+        'attachmentSize': size,
+        'attachmentMime': mime,
       });
     } finally {
       await _fetchMessages(groupId);

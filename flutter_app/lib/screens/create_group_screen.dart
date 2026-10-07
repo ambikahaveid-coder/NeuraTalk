@@ -110,8 +110,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           TextButton(
             onPressed: _creating ? null : _create,
             child: _creating
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
-                : const Text('Create', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w700)),
+                ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Text('Create', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -121,10 +121,10 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _nameCtrl,
-              style: const TextStyle(color: AppColors.ink),
+              style: TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Group name',
-                hintStyle: const TextStyle(color: AppColors.textMuted),
+                hintStyle: TextStyle(color: AppColors.textMuted),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
@@ -151,8 +151,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         children: [
                           CircleAvatar(
                             radius: 22,
-                            backgroundColor: AppColors.cyan.withOpacity(0.15),
-                            child: const Icon(Icons.person, color: AppColors.cyan),
+                            backgroundColor: AppColors.cyan.withValues(alpha: 0.15),
+                            child: Icon(Icons.person, color: AppColors.cyan),
                           ),
                           Positioned(
                             right: 0,
@@ -169,7 +169,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                         width: 56,
                         child: Text(
                           u['displayName']?.toString() ?? '',
-                          style: const TextStyle(color: AppColors.textMuted, fontSize: 10),
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           textAlign: TextAlign.center,
@@ -185,18 +185,18 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             child: TextField(
               controller: _searchCtrl,
               onChanged: _onSearchChanged,
-              style: const TextStyle(color: AppColors.ink),
+              style: TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Add members by username, email, or phone',
-                hintStyle: const TextStyle(color: AppColors.textMuted),
-                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                hintStyle: TextStyle(color: AppColors.textMuted),
+                prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
               ),
             ),
           ),
-          if (_searching) const Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator(color: AppColors.cyan)),
+          if (_searching) Padding(padding: EdgeInsets.only(top: 16), child: CircularProgressIndicator(color: AppColors.cyan)),
           Expanded(
             child: ListView.builder(
               itemCount: _results.length,
@@ -205,11 +205,11 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                 final isSelected = _selected.containsKey(u['id']);
                 return ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: AppColors.cyan.withOpacity(0.15),
-                    child: const Icon(Icons.person, color: AppColors.cyan),
+                    backgroundColor: AppColors.cyan.withValues(alpha: 0.15),
+                    child: Icon(Icons.person, color: AppColors.cyan),
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink)),
-                  subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: TextStyle(color: AppColors.ink)),
+                  subtitle: Text(u['identifier']?.toString() ?? '', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   trailing: Icon(isSelected ? Icons.check_circle : Icons.add_circle_outline, color: AppColors.cyan),
                   onTap: () => _toggleSelect(u),
                 );

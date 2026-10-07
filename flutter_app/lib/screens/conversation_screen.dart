@@ -14,13 +14,18 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/media_store.dart';
+import '../widgets/chat_attachments.dart';
+import '../widgets/nt_ui.dart';
+import '../services/speech_service.dart';
+import 'language_preferences_screen.dart';
+import '../utils/languages.dart';
 import '../providers/auth_provider.dart';
 import '../providers/personal_chat_provider.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
 import '../services/contact_resolver.dart';
 import 'call_screen.dart';
-import 'media_viewer_screen.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -107,7 +112,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Report user', style: TextStyle(color: AppColors.ink)),
+          title: Text('Report user', style: TextStyle(color: AppColors.ink)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,17 +121,17 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 value: selected,
                 dropdownColor: AppColors.surface,
                 isExpanded: true,
-                items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(color: AppColors.ink)))).toList(),
+                items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: TextStyle(color: AppColors.ink)))).toList(),
                 onChanged: (v) => setDialogState(() => selected = v ?? selected),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: descCtrl,
                 maxLines: 3,
-                style: const TextStyle(color: AppColors.ink),
+                style: TextStyle(color: AppColors.ink),
                 decoration: InputDecoration(
                   hintText: 'What happened? (optional)',
-                  hintStyle: const TextStyle(color: AppColors.textMuted),
+                  hintStyle: TextStyle(color: AppColors.textMuted),
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
@@ -136,7 +141,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit', style: TextStyle(color: AppColors.cyan))),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text('Submit', style: TextStyle(color: AppColors.cyan))),
           ],
         ),
       ),
@@ -239,16 +244,16 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.reply, color: AppColors.cyan),
-              title: const Text('Reply', style: TextStyle(color: AppColors.ink)),
+              leading: Icon(Icons.reply, color: AppColors.cyan),
+              title: Text('Reply', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _startReply(message);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: const Text('Copy', style: TextStyle(color: AppColors.ink)),
+              leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+              title: Text('Copy', style: TextStyle(color: AppColors.ink)),
               onTap: () {
                 Navigator.pop(sheetContext);
                 _copyMessage(message);
@@ -274,8 +279,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Clear chat?', style: TextStyle(color: AppColors.ink)),
-        content: const Text(
+        title: Text('Clear chat?', style: TextStyle(color: AppColors.ink)),
+        content: Text(
           'This removes all messages from your view. The other person will still see them.',
           style: TextStyle(color: AppColors.textSecondary),
         ),
@@ -309,20 +314,20 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
           backgroundColor: AppColors.surface,
-          title: const Text('Disappearing messages', style: TextStyle(color: AppColors.ink)),
+          title: Text('Disappearing messages', style: TextStyle(color: AppColors.ink)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: _disappearingOptions.entries.map((entry) => RadioListTile<int>(
               value: entry.key,
               groupValue: selected,
               activeColor: AppColors.cyan,
-              title: Text(entry.value, style: const TextStyle(color: AppColors.ink)),
+              title: Text(entry.value, style: TextStyle(color: AppColors.ink)),
               onChanged: (v) => setDialogState(() => selected = v ?? selected),
             )).toList(),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-            TextButton(onPressed: () => Navigator.pop(dialogContext, selected), child: const Text('Save', style: TextStyle(color: AppColors.cyan))),
+            TextButton(onPressed: () => Navigator.pop(dialogContext, selected), child: Text('Save', style: TextStyle(color: AppColors.cyan))),
           ],
         ),
       ),
@@ -347,58 +352,54 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     }
   }
 
-  // Mirrors server/ai_integrations/object_storage/routes.ts's allow-list --
-  // kept in sync manually since there's no shared schema for it. Anything
-  // not in this map is rejected client-side before a wasted round trip.
-  static const _contentTypeByExtension = {
-    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp', 'gif': 'image/gif',
-    'pdf': 'application/pdf', 'csv': 'text/csv', 'txt': 'text/plain',
-    'wav': 'audio/wav', 'mp3': 'audio/mpeg', 'aac': 'audio/aac', 'm4a': 'audio/mp4',
-    'mp4': 'video/mp4', 'mov': 'video/quicktime', 'webm': 'video/webm', '3gp': 'video/3gpp',
-    'doc': 'application/msword',
-    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'xls': 'application/vnd.ms-excel',
-    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'ppt': 'application/vnd.ms-powerpoint',
-    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'zip': 'application/zip',
-  };
-  static const _maxUploadBytes = 100 * 1024 * 1024;
+  // Attachments: see MediaStore for file types, size limit and blocked types.
+  static const _maxGalleryItems = 10;
 
   void _showAttachMenu() {
+    Widget item(IconData icon, String label, Color color, VoidCallback onTap) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          Navigator.pop(context);
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                child: Icon(icon, color: AppColors.onAccent, size: 26),
+              ),
+              const SizedBox(height: 8),
+              Text(label, style: TextStyle(color: AppColors.ink, fontSize: 13.5, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+      );
+    }
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      showDragHandle: true,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_outlined, color: AppColors.cyan),
-              title: const Text('Photo', style: TextStyle(color: AppColors.ink)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _pickAndSendImage();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.insert_drive_file_outlined, color: AppColors.cyan),
-              title: const Text('Document / File', style: TextStyle(color: AppColors.ink)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _pickAndSendFile();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.location_on_outlined, color: AppColors.cyan),
-              title: const Text('Current Location', style: TextStyle(color: AppColors.ink)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _shareCurrentLocation();
-              },
-            ),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: GridView.count(
+            crossAxisCount: 3,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              item(Icons.photo_library, 'Gallery', const Color(0xFF7C3AED), _pickFromGallery),
+              item(Icons.photo_camera, 'Camera', const Color(0xFFDB2777), () => _capture(video: false)),
+              item(Icons.videocam, 'Video', const Color(0xFFEA580C), () => _capture(video: true)),
+              item(Icons.insert_drive_file, 'Document', const Color(0xFF2563EB), _pickDocuments),
+              item(Icons.location_on, 'Location', const Color(0xFF16A34A), _shareCurrentLocation),
+            ],
+          ),
         ),
       ),
     );
@@ -454,153 +455,127 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     }
   }
 
-  Future<void> _pickAndSendImage() async {
-    // image_picker returning null is ambiguous by itself -- could mean the
-    // user backed out of the gallery, or that Android silently refused
-    // because photo access isn't granted. Previously this just returned
-    // with no feedback either way, which looks identical to "nothing
-    // happened" from a real permission denial -- check status explicitly so
-    // a real denial gets a real message instead of silence.
-    final photosStatus = await Permission.photos.status;
-    if (photosStatus.isPermanentlyDenied) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Photo access is disabled for NeuraTalk. Enable it in system Settings > Apps > NeuraTalk > Permissions.')),
-        );
-      }
-      return;
-    }
-    XFile? picked;
-    try {
-      picked = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 1600, imageQuality: 82);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open photos ($e).')),
-        );
-      }
-      return;
-    }
-    if (picked == null) return;
-    final bytes = await File(picked.path).readAsBytes();
-    final ext = picked.path.split('.').last.toLowerCase();
-    final contentType = switch (ext) { 'png' => 'image/png', 'webp' => 'image/webp', _ => 'image/jpeg' };
-    await _uploadAndSend(
-      bytes: bytes,
-      fileName: 'chat-image.$ext',
-      contentType: contentType,
-      messageType: 'attachment',
-      displayTitle: 'Photo',
-    );
+  void _toast(String text) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> _pickAndSendFile() async {
+  /// Photos and videos from the gallery, up to 10 at once. Sent as the original
+  /// files, so GIFs stay animated and photos keep full quality.
+  Future<void> _pickFromGallery() async {
+    final photosStatus = await Permission.photos.status;
+    if (photosStatus.isPermanentlyDenied) {
+      _toast('Photo access is turned off for NeuraTalk. Turn it on in Settings > Apps > NeuraTalk > Permissions.');
+      return;
+    }
+    List<XFile> picked;
+    try {
+      picked = await ImagePicker().pickMultipleMedia(limit: _maxGalleryItems);
+    } catch (e) {
+      _toast('Could not open your gallery.');
+      return;
+    }
+    if (picked.isEmpty) return;
+    if (picked.length > _maxGalleryItems) {
+      _toast('Sending the first $_maxGalleryItems items.');
+      picked = picked.take(_maxGalleryItems).toList();
+    }
+    await _sendFiles([for (final x in picked) (File(x.path), _nameOf(x))]);
+  }
+
+  /// A new photo or video from the camera.
+  Future<void> _capture({required bool video}) async {
+    XFile? shot;
+    try {
+      shot = video
+          ? await ImagePicker().pickVideo(source: ImageSource.camera, maxDuration: const Duration(minutes: 5))
+          : await ImagePicker().pickImage(source: ImageSource.camera, imageQuality: 88, maxWidth: 2560);
+    } catch (e) {
+      _toast('Could not open the camera. Check that NeuraTalk is allowed to use it.');
+      return;
+    }
+    if (shot == null) return;
+    await _sendFiles([(File(shot.path), _nameOf(shot))]);
+  }
+
+  /// Any documents: PDF, Word, Excel, PowerPoint, ZIP, music, anything else.
+  Future<void> _pickDocuments() async {
     FilePickerResult? result;
     try {
-      result = await FilePicker.platform.pickFiles(withData: false);
+      result = await FilePicker.platform.pickFiles(allowMultiple: true, withData: false);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open files ($e).')),
-        );
-      }
+      _toast('Could not open your files.');
       return;
     }
     if (result == null || result.files.isEmpty) return;
-    final picked = result.files.first;
-    final path = picked.path;
-    if (path == null) return;
-
-    final sizeBytes = await File(path).length();
-    if (sizeBytes == 0) return;
-    if (sizeBytes > _maxUploadBytes) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('That file is too large (max ${_maxUploadBytes ~/ (1024 * 1024)}MB).')),
-        );
-      }
-      return;
-    }
-
-    final ext = (picked.extension ?? path.split('.').last).toLowerCase();
-    final contentType = _contentTypeByExtension[ext];
-    if (contentType == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("This file type isn't supported.")),
-        );
-      }
-      return;
-    }
-
-    final bytes = await File(path).readAsBytes();
-    await _uploadAndSend(
-      bytes: bytes,
-      fileName: picked.name,
-      contentType: contentType,
-      messageType: contentType.startsWith('image/') ? 'attachment' : 'file',
-    );
+    await _sendFiles([
+      for (final f in result.files.take(_maxGalleryItems))
+        if (f.path != null) (File(f.path!), f.name),
+    ]);
   }
 
-  /// Shared upload path for images and general files -- real progress
-  /// (not an indeterminate spinner), cancellable, and offers a Retry action
-  /// on failure without the user having to re-pick the file.
-  Future<void> _uploadAndSend({
-    required List<int> bytes,
-    required String fileName,
-    required String contentType,
-    required String messageType,
-    String? displayTitle,
-  }) async {
+  String _nameOf(XFile x) {
+    final name = x.name.isNotEmpty ? x.name : x.path.split(Platform.pathSeparator).last;
+    return name.contains('.') ? name : '$name.jpg';
+  }
+
+  /// Checks then sends each file in order, showing "2 of 5".
+  Future<void> _sendFiles(List<(File, String)> files) async {
+    final ok = <(File, String, int)>[];
+    for (final (file, name) in files) {
+      if (MediaStore.isBlocked(name)) {
+        _toast('"$name" can\'t be sent: apps and scripts are blocked for safety.');
+        continue;
+      }
+      final size = await file.length();
+      if (size == 0) continue;
+      if (size > MediaStore.maxUploadBytes) {
+        _toast('"$name" is ${MediaStore.formatSize(size)}. The limit is ${MediaStore.formatSize(MediaStore.maxUploadBytes)}.');
+        continue;
+      }
+      ok.add((file, name, size));
+    }
+    for (var i = 0; i < ok.length; i++) {
+      if (!mounted) return;
+      final (file, name, size) = ok[i];
+      final sent = await _uploadAndSend(file, name, size, position: ok.length > 1 ? '${i + 1} of ${ok.length}' : null);
+      if (!sent) break;
+    }
+  }
+
+  /// Uploads one file with real progress (cancellable) and sends it. Offers Retry on failure.
+  Future<bool> _uploadAndSend(File file, String name, int size, {String? position}) async {
+    final mime = MediaStore.contentTypeFor(name);
+    final kind = MediaStore.kindOf(name);
     setState(() {
       _uploading = true;
       _uploadProgress = 0;
-      _uploadFileName = fileName;
+      _uploadFileName = position == null ? name : 'Sending $position · $name';
       _uploadCancelToken = UploadCancelToken();
     });
     try {
-      final uploadInfo = await ApiService.post('/api/uploads/request-url', {
-        'name': fileName,
-        'size': bytes.length,
-        'contentType': contentType,
+      final objectPath = await MediaStore.upload(file, name, cancelToken: _uploadCancelToken, onProgress: (p) {
+        if (mounted) setState(() => _uploadProgress = p);
       });
-      await ApiService.putBytesWithProgress(
-        uploadInfo['uploadURL'] as String,
-        bytes,
-        contentType,
-        onProgress: (p) {
-          if (mounted) setState(() => _uploadProgress = p);
-        },
-        cancelToken: _uploadCancelToken,
-      );
-      final objectPath = uploadInfo['objectPath'] as String;
-      if (!mounted) return;
+      if (!mounted) return false;
       await context.read<PersonalChatProvider>().sendMessage(
             _threadId,
-            displayTitle ?? fileName,
-            messageType: messageType,
+            kind == MediaKind.image ? 'Photo' : (kind == MediaKind.video ? 'Video' : name),
+            messageType: kind == MediaKind.image ? 'attachment' : 'file',
             attachmentUrl: objectPath,
-            attachmentTitle: fileName,
+            attachmentTitle: name,
+            attachmentSize: size,
+            attachmentMime: mime,
           );
       _scrollToBottom();
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       final wasCancelled = _uploadCancelToken?.cancelled == true;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(wasCancelled ? 'Upload cancelled.' : 'Could not send "$fileName". Please try again.'),
-        action: wasCancelled
-            ? null
-            : SnackBarAction(
-                label: 'Retry',
-                onPressed: () => _uploadAndSend(
-                  bytes: bytes,
-                  fileName: fileName,
-                  contentType: contentType,
-                  messageType: messageType,
-                  displayTitle: displayTitle,
-                ),
-              ),
+        content: Text(wasCancelled ? 'Upload cancelled.' : 'Could not send "$name". Check your internet and try again.'),
+        action: wasCancelled ? null : SnackBarAction(label: 'Retry', onPressed: () => _uploadAndSend(file, name, size)),
       ));
+      return false;
     } finally {
       if (mounted) {
         setState(() {
@@ -661,14 +636,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
 
     setState(() => _uploading = true);
     try {
-      final bytes = await File(path).readAsBytes();
-      final uploadInfo = await ApiService.post('/api/uploads/request-url', {
-        'name': 'voice-note.m4a',
-        'size': bytes.length,
-        'contentType': 'audio/mp4',
-      });
-      await ApiService.putBytes(uploadInfo['uploadURL'] as String, bytes, 'audio/mp4');
-      final objectPath = uploadInfo['objectPath'] as String;
+      final voiceFile = File(path);
+      final objectPath = await MediaStore.upload(voiceFile, 'voice-note.m4a');
+      final voiceSize = await voiceFile.length();
       if (!mounted) return;
       final seconds = duration.inSeconds.clamp(1, 3599);
       await context.read<PersonalChatProvider>().sendMessage(
@@ -677,6 +647,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             messageType: 'voice_note',
             attachmentUrl: objectPath,
             attachmentTitle: '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
+            attachmentSize: voiceSize,
+            attachmentMime: 'audio/mp4',
           );
       _scrollToBottom();
     } catch (e) {
@@ -707,6 +679,37 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     } finally {
       if (mounted) setState(() => _calling = false);
     }
+  }
+
+  String? _myLanguage(PersonalChatProvider p) =>
+      (p.activeThread?['viewerLanguage'] ?? widget.thread['viewerLanguage'] ?? context.read<AuthProvider>().user?['preferredLanguage'])
+          ?.toString();
+  String? _peerLanguage(PersonalChatProvider p) => (p.activeThread?['peerLanguage'] ?? widget.thread['peerLanguage'])?.toString();
+
+  /// "🇮🇳 Telugu ⇄ 🇬🇧 English · ● Live translation". Tapping my language changes it;
+  /// the other person always picks their own.
+  Widget _languageBar(PersonalChatProvider provider) {
+    final mine = _myLanguage(provider);
+    final theirs = _peerLanguage(provider);
+    if (mine == null || theirs == null) return const SizedBox.shrink();
+    final same = Languages.of(mine).code == Languages.of(theirs).code;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      decoration: BoxDecoration(color: AppColors.background, border: Border(bottom: BorderSide(color: AppColors.border))),
+      child: Row(children: [
+        LanguagePairChip(
+          mine: mine,
+          theirs: theirs,
+          onTapMine: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const LanguagePreferencesScreen()));
+            if (mounted) context.read<PersonalChatProvider>().openThread(_threadId);
+          },
+        ),
+        const Spacer(),
+        LiveBadge(on: !same, label: same ? 'Same language' : 'Live translation'),
+      ]),
+    );
   }
 
   String _presenceLabel(PersonalChatProvider p) {
@@ -741,20 +744,15 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         titleSpacing: 0,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.cyan.withOpacity(0.15),
-              backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-              child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan, size: 18) : null,
-            ),
+            NtAvatar(name: displayName, avatarUrl: avatarUrl, size: 40, online: provider.peerRecentlyActive),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(displayName, style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
-                  Text(_presenceLabel(provider), style: TextStyle(color: provider.peerTyping ? AppColors.cyan : AppColors.textMuted, fontSize: 11)),
+                  Text(displayName, style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+                  Text(_presenceLabel(provider), style: TextStyle(color: provider.peerTyping ? AppColors.cyan : AppColors.textSecondary, fontSize: 12.5)),
                 ],
               ),
             ),
@@ -770,18 +768,20 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           // doesn't require the server response to appear.
           IconButton(
             icon: _calling
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
-                : const Icon(Icons.call_outlined),
+                ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Icon(Icons.call_outlined, color: AppColors.cyan),
+            tooltip: 'Voice call',
             onPressed: _calling ? null : () => _startCall(video: false),
           ),
           IconButton(
             icon: _calling
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
-                : const Icon(Icons.videocam_outlined),
+                ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Icon(Icons.videocam_outlined, color: AppColors.cyan),
+            tooltip: 'Video call',
             onPressed: _calling ? null : () => _startCall(video: true),
           ),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: AppColors.textSecondary),
+            icon: Icon(Icons.more_vert, color: AppColors.textSecondary),
             color: AppColors.surface,
             onSelected: (value) {
               switch (value) {
@@ -800,8 +800,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
-              const PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(
                 value: 'block',
                 child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.ink : AppColors.red)),
@@ -813,13 +813,14 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       ),
       body: Column(
         children: [
+          _languageBar(provider),
           Expanded(
             child: provider.loadingMessages
-                ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
+                ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                 : provider.messagesError != null
                     ? Center(child: Text(provider.messagesError!, style: const TextStyle(color: AppColors.red)))
                     : provider.messages.isEmpty
-                        ? const Center(child: Text('Say hello 👋', style: TextStyle(color: AppColors.textMuted)))
+                        ? Center(child: Text('Say hello 👋', style: TextStyle(color: AppColors.textMuted)))
                         : ListView.builder(
                             controller: _scrollCtrl,
                             padding: const EdgeInsets.all(16),
@@ -829,11 +830,13 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                               onRetry: () => context.read<PersonalChatProvider>().retryMessage(_threadId, provider.messages[i]),
                               onLongPress: () => _showMessageActions(provider.messages[i]),
                               repliedMessage: _findMessageById(_asMessageId(provider.messages[i]['replyToId'])),
+                              peerLanguage: _peerLanguage(provider),
+                              myLanguage: _myLanguage(provider),
                             ),
                           ),
           ),
           if (provider.peerTyping)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Align(alignment: Alignment.centerLeft, child: Text('typing…', style: TextStyle(color: AppColors.cyan, fontSize: 12))),
             ),
@@ -849,7 +852,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                         Text(
                           _uploadFileName ?? 'Uploading…',
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
                         ),
                         const SizedBox(height: 4),
                         ClipRRect(
@@ -865,9 +868,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text('${(_uploadProgress * 100).toInt()}%', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  Text('${(_uploadProgress * 100).toInt()}%', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                   IconButton(
-                    icon: const Icon(Icons.close, color: AppColors.textMuted, size: 18),
+                    icon: Icon(Icons.close, color: AppColors.textMuted, size: 18),
                     onPressed: () => _uploadCancelToken?.cancel(),
                     tooltip: 'Cancel upload',
                   ),
@@ -883,7 +886,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               color: AppColors.backgroundMid,
               child: Text(
                 'You blocked this user. Unblock to send messages.',
-                style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
             )
@@ -922,13 +925,13 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Replying to', style: TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w700)),
-                Text(text, style: const TextStyle(color: AppColors.textSecondary, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text('Replying to', style: TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w700)),
+                Text(text, style: TextStyle(color: AppColors.textSecondary, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: AppColors.textMuted, size: 18),
+            icon: Icon(Icons.close, color: AppColors.textMuted, size: 18),
             onPressed: () => setState(() => _replyingTo = null),
           ),
         ],
@@ -944,10 +947,10 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         children: [
           const Icon(Icons.mic, color: AppColors.red, size: 18),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Recording… tap the mic button to send', style: TextStyle(color: AppColors.textPrimary, fontSize: 13))),
+          Expanded(child: Text('Recording… tap the mic button to send', style: TextStyle(color: AppColors.textPrimary, fontSize: 13))),
           TextButton(
             onPressed: () => _stopRecordingAndSend(cancel: true),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            child: Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
           ),
         ],
       ),
@@ -956,36 +959,65 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
 
   Widget _inputBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      color: AppColors.backgroundMid,
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        border: Border(top: BorderSide(color: AppColors.border)),
+      ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          IconButton(
-            icon: Icon(_showEmoji ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppColors.textMuted),
-            onPressed: _toggleEmoji,
-          ),
-          IconButton(
-            icon: const Icon(Icons.attach_file, color: AppColors.textMuted),
-            onPressed: _uploading ? null : _showAttachMenu,
-          ),
           Expanded(
-            child: TextField(
-              controller: _msgCtrl,
-              focusNode: _focusNode,
-              style: const TextStyle(color: AppColors.ink),
-              onTap: () {
-                if (_showEmoji) setState(() => _showEmoji = false);
-              },
-              onChanged: (text) => context.read<PersonalChatProvider>().onTextChanged(_threadId, text),
-              decoration: const InputDecoration(
-                hintText: 'Message...',
-                hintStyle: TextStyle(color: AppColors.textMuted),
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: AppColors.surface,
-                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.backgroundMid,
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: AppColors.border),
               ),
-              onSubmitted: (_) => _send(),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  IconButton(
+                    tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
+                    icon: Icon(_showEmoji ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppColors.textMuted),
+                    onPressed: _toggleEmoji,
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _msgCtrl,
+                      focusNode: _focusNode,
+                      minLines: 1,
+                      maxLines: 5,
+                      style: TextStyle(color: AppColors.ink, fontSize: 16),
+                      onTap: () {
+                        if (_showEmoji) setState(() => _showEmoji = false);
+                      },
+                      onChanged: (text) => context.read<PersonalChatProvider>().onTextChanged(_threadId, text),
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: TextStyle(color: AppColors.textMuted),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Attach',
+                    icon: Icon(Icons.attach_file, color: AppColors.textMuted),
+                    onPressed: _uploading ? null : _showAttachMenu,
+                  ),
+                  IconButton(
+                    tooltip: 'Photo',
+                    icon: Icon(Icons.photo_camera_outlined, color: AppColors.textMuted),
+                    onPressed: _uploading ? null : () => _capture(video: false),
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(width: 8),
@@ -1000,12 +1032,14 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                         ? null
                         : (_recording ? () => _stopRecordingAndSend(cancel: false) : _startRecording),
                 child: Container(
-                  padding: const EdgeInsets.all(14),
+                  width: 50,
+                  height: 50,
                   decoration: BoxDecoration(color: _recording ? AppColors.red : AppColors.cyan, shape: BoxShape.circle),
                   child: Icon(
                     hasText ? Icons.send : (_recording ? Icons.stop : Icons.mic),
-                    color: AppColors.background,
-                    size: 20,
+                    color: AppColors.onAccent,
+                    size: 22,
+                    semanticLabel: hasText ? 'Send' : (_recording ? 'Stop recording' : 'Record voice message'),
                   ),
                 ),
               );
@@ -1022,7 +1056,17 @@ class _PersonalMessageBubble extends StatefulWidget {
   final VoidCallback onRetry;
   final VoidCallback? onLongPress;
   final Map<String, dynamic>? repliedMessage;
-  const _PersonalMessageBubble({required this.message, required this.onRetry, this.onLongPress, this.repliedMessage});
+  /// The other person's language (for "They read …" under my own messages).
+  final String? peerLanguage;
+  final String? myLanguage;
+  const _PersonalMessageBubble({
+    required this.message,
+    required this.onRetry,
+    this.onLongPress,
+    this.repliedMessage,
+    this.peerLanguage,
+    this.myLanguage,
+  });
 
   @override
   State<_PersonalMessageBubble> createState() => _PersonalMessageBubbleState();
@@ -1046,7 +1090,9 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     }
     setState(() => _playing = true);
     try {
-      await _player.play(UrlSource('${ApiService.baseUrl}$attachmentUrl'));
+      // Attachments are private, so download with the session first (cached after the first play).
+      final file = await MediaStore.download(attachmentUrl, 'voice-${attachmentUrl.split('/').last}.m4a');
+      await _player.play(DeviceFileSource(file.path));
       _player.onPlayerComplete.first.then((_) {
         if (mounted) setState(() => _playing = false);
       });
@@ -1055,226 +1101,250 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     }
   }
 
-  bool _downloading = false;
+  static String _clock(dynamic raw) {
+    final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
+    if (dt == null) return '';
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    return '$hour12:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+  }
 
-  /// Downloads the attachment through the app's own authenticated API
-  /// (attachments are ACL-gated, not publicly fetchable) then hands it to
-  /// the OS share sheet, whose "Save to Files"/"Save to device" action is
-  /// the standard modern equivalent of a downloads-folder save on Android
-  /// without needing broad storage permissions.
-  Future<void> _downloadAndSaveFile(String attachmentUrl, String fileName) async {
-    if (_downloading) return;
-    setState(() => _downloading = true);
-    try {
-      final bytes = await ApiService.getBytes(attachmentUrl);
-      final dir = await getTemporaryDirectory();
-      final safeName = fileName.isEmpty ? 'file' : fileName;
-      final file = File('${dir.path}/$safeName');
-      await file.writeAsBytes(bytes);
-      await Share.shareXFiles([XFile(file.path)], text: safeName);
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not download this file.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _downloading = false);
+  /// Main text + the other-language version underneath, and what "Listen" reads.
+  ({String primary, String? secondary, String? secondaryLabel, String listenText, String listenLang}) _texts() {
+    final m = widget.message;
+    final isOwn = m['isOwn'] == true;
+    final original = m['originalContent']?.toString() ?? '';
+    final originalLang = m['originalLanguage']?.toString() ?? widget.myLanguage ?? 'en';
+    if (!isOwn) {
+      final shown = m['displayContent']?.toString() ?? original;
+      final translated = m['showingTranslated'] == true && shown != original;
+      return (
+        primary: shown,
+        secondary: translated ? original : null,
+        secondaryLabel: translated ? 'Original · ${Languages.name(originalLang)}' : null,
+        listenText: shown,
+        listenLang: translated ? (m['displayLanguage']?.toString() ?? widget.myLanguage ?? originalLang) : originalLang,
+      );
     }
+    final peer = widget.peerLanguage;
+    final translations = (m['translations'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final theirs = peer != null && peer != originalLang ? translations[peer]?.toString() : null;
+    final hasTheirs = theirs != null && theirs.trim().isNotEmpty && theirs != original;
+    return (
+      primary: original,
+      secondary: hasTheirs ? theirs : null,
+      secondaryLabel: hasTheirs ? 'They read · ${Languages.name(peer)}' : null,
+      listenText: hasTheirs ? theirs : original,
+      listenLang: hasTheirs ? peer! : originalLang,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final message = widget.message;
-    final onRetry = widget.onRetry;
     final isOwn = message['isOwn'] == true;
     final status = message['deliveryStatus']?.toString();
-    final showingTranslated = message['showingTranslated'] == true;
-    final content = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
     final messageType = message['messageType']?.toString() ?? 'text';
     final attachmentUrl = message['attachmentUrl']?.toString();
     final attachmentTitle = message['attachmentTitle']?.toString();
-    final bubbleFg = isOwn ? AppColors.background : AppColors.textPrimary;
+    final attachmentSize = (message['attachmentSize'] as num?)?.toInt();
+    final attachmentMime = message['attachmentMime']?.toString();
+    final isDeleted = message['isDeleted'] == true;
+    final isVoice = messageType == 'voice_note' && attachmentUrl != null;
+    final hasText = !isDeleted && (messageType == 'text' || (isVoice && message['voiceTranscribed'] == true));
+    final texts = _texts();
+    final fg = AppColors.textPrimary;
+    final isMedia = (messageType == 'attachment' || messageType == 'file') && attachmentUrl != null;
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: widget.onLongPress,
         child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: messageType == 'attachment' && attachmentUrl != null
-            ? const EdgeInsets.all(4)
-            : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isOwn ? AppColors.cyan : AppColors.surfaceElevated,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(isOwn ? 18 : 4),
-            bottomRight: Radius.circular(isOwn ? 4 : 18),
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: isMedia ? const EdgeInsets.all(4) : const EdgeInsets.fromLTRB(14, 10, 14, 8),
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
+          decoration: BoxDecoration(
+            color: isOwn ? AppColors.blueTint : AppColors.surface,
+            border: isOwn ? null : Border.all(color: AppColors.border),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(18),
+              topRight: const Radius.circular(18),
+              bottomLeft: Radius.circular(isOwn ? 18 : 6),
+              bottomRight: Radius.circular(isOwn ? 6 : 18),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.repliedMessage != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: fg.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border(left: BorderSide(color: AppColors.cyan, width: 3)),
+                  ),
+                  child: Text(
+                    widget.repliedMessage!['displayContent']?.toString() ?? widget.repliedMessage!['originalContent']?.toString() ?? '',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              if (messageType == 'attachment' && attachmentUrl != null)
+                ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
+              else if (messageType == 'file' && attachmentUrl != null && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
+                ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)
+              else if (messageType == 'file' && attachmentUrl != null)
+                ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
+              else if (messageType == 'location' && attachmentUrl != null)
+                _location(attachmentUrl, attachmentTitle)
+              else if (isVoice)
+                _voicePlayer(attachmentUrl, attachmentTitle),
+              if (isDeleted)
+                Text('This message was deleted', style: TextStyle(color: AppColors.textMuted, fontSize: 15, fontStyle: FontStyle.italic)),
+              if (hasText) ...[
+                if (isVoice) const SizedBox(height: 8),
+                Text(texts.primary, style: TextStyle(color: fg, fontSize: 16, height: 1.35)),
+                if (texts.secondary != null) ...[
+                  const SizedBox(height: 6),
+                  Text(texts.secondaryLabel!, style: TextStyle(color: AppColors.cyan, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+                  const SizedBox(height: 2),
+                  Text(texts.secondary!, style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.35)),
+                ],
+              ],
+              if (isMedia) const SizedBox(height: 4),
+              Padding(
+                padding: isMedia ? const EdgeInsets.symmetric(horizontal: 8) : EdgeInsets.zero,
+                child: _footer(isOwn, status, hasText ? texts : null),
+              ),
+            ],
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.repliedMessage != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: bubbleFg.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border(left: BorderSide(color: bubbleFg.withOpacity(0.5), width: 3)),
-                ),
-                child: Text(
-                  widget.repliedMessage!['displayContent']?.toString() ?? widget.repliedMessage!['originalContent']?.toString() ?? '',
-                  style: TextStyle(color: bubbleFg.withOpacity(0.75), fontSize: 12),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            if (messageType == 'attachment' && attachmentUrl != null)
-              GestureDetector(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MediaViewerScreen(imageUrl: '${ApiService.baseUrl}$attachmentUrl'))),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.network(
-                    '${ApiService.baseUrl}$attachmentUrl',
-                    fit: BoxFit.cover,
-                    width: 220,
-                    height: 220,
-                    loadingBuilder: (ctx, child, progress) => progress == null
-                        ? child
-                        : const SizedBox(width: 220, height: 220, child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))),
-                    errorBuilder: (ctx, err, st) => const SizedBox(width: 220, height: 120, child: Center(child: Icon(Icons.broken_image, color: AppColors.textMuted))),
-                  ),
-                ),
-              )
-            else if (messageType == 'file' && attachmentUrl != null)
-              GestureDetector(
-                onTap: () async {
-                  final url = Uri.parse('${ApiService.baseUrl}$attachmentUrl');
-                  final opened = await launchUrl(url, mode: LaunchMode.externalApplication).catchError((_) => false);
-                  if (!opened && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not open this file.')),
-                    );
-                  }
-                },
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: bubbleFg.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.insert_drive_file_outlined, color: bubbleFg, size: 28),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          attachmentTitle ?? 'File',
-                          style: TextStyle(color: bubbleFg, fontSize: 13),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => _downloadAndSaveFile(attachmentUrl, attachmentTitle ?? 'file'),
-                        child: _downloading
-                            ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: bubbleFg))
-                            : Icon(Icons.download_outlined, color: bubbleFg, size: 20),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (messageType == 'location' && attachmentUrl != null)
-              GestureDetector(
-                onTap: () async {
-                  final coords = attachmentUrl.replaceFirst('geo:', '');
-                  final url = Uri.parse('https://www.google.com/maps?q=$coords');
-                  final opened = await launchUrl(url, mode: LaunchMode.externalApplication).catchError((_) => false);
-                  if (!opened && mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Could not open maps.')),
-                    );
-                  }
-                },
-                child: Container(
-                  width: 220,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: bubbleFg.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.location_on, color: bubbleFg, size: 32),
-                      const SizedBox(height: 8),
-                      Text(attachmentTitle ?? 'Location', style: TextStyle(color: bubbleFg, fontSize: 13, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text('Tap to open in Maps', style: TextStyle(color: bubbleFg.withOpacity(0.65), fontSize: 11)),
-                    ],
-                  ),
-                ),
-              )
-            else if (messageType == 'voice_note' && attachmentUrl != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GestureDetector(
-                      onTap: () => _toggleVoicePlayback(attachmentUrl),
-                      child: Icon(_playing ? Icons.pause_circle_filled : Icons.play_circle_fill, color: bubbleFg, size: 32),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(attachmentTitle ?? 'Voice note', style: TextStyle(color: bubbleFg, fontSize: 13)),
-                  ],
-                ),
-              )
-            else
-              Text(content, style: TextStyle(color: bubbleFg, fontSize: 14, height: 1.4)),
-            if (showingTranslated) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Translated · original: ${message['originalContent']}',
-                style: TextStyle(color: (isOwn ? AppColors.background : AppColors.textPrimary).withOpacity(0.6), fontSize: 10, fontStyle: FontStyle.italic),
-              ),
-            ],
-            if (isOwn && status == 'failed') ...[
-              const SizedBox(height: 4),
-              GestureDetector(
-                onTap: onRetry,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.error_outline, size: 12, color: AppColors.red),
-                    SizedBox(width: 4),
-                    Text('Failed — tap to retry', style: TextStyle(color: AppColors.red, fontSize: 10)),
-                  ],
-                ),
-              ),
-            ] else if (isOwn && status == 'sending') ...[
-              const SizedBox(height: 4),
-              const Text('Sending…', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-            ] else if (isOwn && status == 'seen') ...[
-              const SizedBox(height: 4),
-              const Text('Seen', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-            ] else if (isOwn && status == 'delivered') ...[
-              const SizedBox(height: 4),
-              const Text('Delivered', style: TextStyle(color: AppColors.textMuted, fontSize: 10)),
-            ],
-          ],
+      ),
+    );
+  }
+
+  Widget _footer(bool isOwn, String? status, ({String primary, String? secondary, String? secondaryLabel, String listenText, String listenLang})? texts) {
+    if (isOwn && status == 'failed') {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: InkWell(
+          onTap: widget.onRetry,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.error_outline, size: 15, color: AppColors.red),
+            const SizedBox(width: 4),
+            Text('Not sent · Tap to retry', style: TextStyle(color: AppColors.red, fontSize: 12.5, fontWeight: FontWeight.w600)),
+          ]),
         ),
+      );
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (texts != null) _ListenButton(text: texts.listenText, language: texts.listenLang),
+      if (texts != null) const SizedBox(width: 8),
+      Text(_clock(widget.message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+      if (isOwn && status != null) ...[
+        const SizedBox(width: 4),
+        Icon(
+          status == 'sending' ? Icons.schedule : status == 'sent' ? Icons.done : Icons.done_all,
+          size: 15,
+          color: status == 'seen' ? AppColors.cyan : AppColors.textMuted,
+          semanticLabel: status,
+        ),
+      ],
+    ]);
+  }
+
+  Widget _voicePlayer(String attachmentUrl, String? duration) {
+    const bars = <double>[6, 12, 18, 10, 22, 14, 8, 20, 26, 16, 10, 22, 12, 8, 18, 24, 12, 16, 8, 14];
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Material(
+        color: AppColors.cyan,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () => _toggleVoicePlayback(attachmentUrl),
+          child: SizedBox(
+            width: 42,
+            height: 42,
+            child: Icon(_playing ? Icons.pause : Icons.play_arrow, color: AppColors.onAccent, size: 26,
+                semanticLabel: _playing ? 'Pause voice message' : 'Play voice message'),
+          ),
         ),
       ),
+      const SizedBox(width: 10),
+      for (final h in bars)
+        Container(
+          width: 3,
+          height: h,
+          margin: const EdgeInsets.symmetric(horizontal: 1.2),
+          decoration: BoxDecoration(
+            color: (_playing ? AppColors.cyan : AppColors.textMuted).withValues(alpha: 0.75),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      const SizedBox(width: 10),
+      Text(duration ?? '', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+    ]);
+  }
+
+  Widget _location(String attachmentUrl, String? title) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () async {
+        final coords = attachmentUrl.replaceFirst('geo:', '');
+        final opened = await launchUrl(Uri.parse('https://www.google.com/maps?q=$coords'), mode: LaunchMode.externalApplication)
+            .catchError((_) => false);
+        if (!opened && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open maps.')));
+        }
+      },
+      child: Container(
+        width: 230,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: AppColors.green.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
+        child: Row(children: [
+          const Icon(Icons.location_on, color: AppColors.green, size: 30),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text(title ?? 'Location', style: TextStyle(color: AppColors.ink, fontSize: 14.5, fontWeight: FontWeight.w600)),
+              Text('Open in Maps', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// 🔊 Reads the message aloud (the translated version when there is one).
+class _ListenButton extends StatelessWidget {
+  final String text;
+  final String language;
+  const _ListenButton({required this.text, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SpeechService.instance,
+      builder: (_, __) {
+        final speech = SpeechService.instance;
+        final active = speech.activeKey == SpeechService.keyFor(text, language);
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => speech.toggle(text, language),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: active && speech.loading
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Icon(active ? Icons.stop_circle_outlined : Icons.volume_up_outlined, size: 18, color: AppColors.cyan,
+                    semanticLabel: active ? 'Stop' : 'Listen in ${Languages.name(language)}'),
+          ),
+        );
+      },
     );
   }
 }

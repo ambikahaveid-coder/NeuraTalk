@@ -170,19 +170,19 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
               Container(
                 width: 120,
                 height: 120,
-                decoration: const BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: AppColors.surfaceElevated, shape: BoxShape.circle),
                 alignment: Alignment.center,
                 child: Text(
                   displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                  style: const TextStyle(color: AppColors.cyan, fontSize: 44, fontWeight: FontWeight.w700),
+                  style: TextStyle(color: AppColors.cyan, fontSize: 44, fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(height: 24),
-              Text(displayName, style: const TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w700)),
+              Text(displayName, style: TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               Text(
                 session.isVideo ? 'Incoming video call' : 'Incoming voice call',
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 15),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 15),
               ),
               const Spacer(flex: 3),
               Padding(
@@ -234,7 +234,7 @@ class _ActionButton extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+        Text(label, style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
       ],
     );
   }

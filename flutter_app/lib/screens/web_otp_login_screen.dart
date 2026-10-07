@@ -8,7 +8,6 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
-import 'main_shell.dart';
 
 /// Phone-OTP login through the website's Firebase flow, shown in-app.
 ///
@@ -90,10 +89,8 @@ class _WebOtpLoginScreenState extends State<WebOtpLoginScreen> {
       final user = data['user'] is Map<String, dynamic> ? data['user'] as Map<String, dynamic> : null;
       await context.read<AuthProvider>().completeWebLogin(token, user);
       if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const MainShell()),
-        (_) => false,
-      );
+      // Signed in: close this page; the app root (main.dart) now shows the home screen.
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (_) {
       _completing = false;
       if (mounted) {
@@ -123,7 +120,7 @@ class _WebOtpLoginScreenState extends State<WebOtpLoginScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_loadError!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.ink, fontSize: 18)),
+                    Text(_loadError!, textAlign: TextAlign.center, style: TextStyle(color: AppColors.ink, fontSize: 18)),
                     const SizedBox(height: 16),
                     ElevatedButton(
                       onPressed: () {

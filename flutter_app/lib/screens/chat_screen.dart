@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
-import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/brand_logo.dart';
 
+/// NEURA AI assistant (brand mockup 07).
+///
+/// Server API (server/ai_integrations/chat/routes.ts):
+///   POST /api/conversations                → { id, title }
+///   POST /api/conversations/:id/messages   → SSE stream of { content } chunks, then { done }
+///   GET  /api/conversations                → past conversations
+///   GET  /api/conversations/:id            → { ..., messages }
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
 
@@ -11,213 +17,346 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
+class _Action {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final String prompt;
+  const _Action(this.icon, this.color, this.title, this.subtitle, this.prompt);
+}
+
+const _actions = [
+  _Action(Icons.translate, Color(0xFF1E66F5), 'Translate', 'Into any of 20 languages', 'Translate this into Telugu: '),
+  _Action(Icons.reply, Color(0xFF16A34A), 'Draft a reply', 'Paste a message, get a good answer', 'Write a short, polite reply to this message: '),
+  _Action(Icons.tune, Color(0xFF7C3AED), 'Rewrite or change tone', 'More polite, formal or friendly', 'Rewrite this to sound polite and professional: '),
+  _Action(Icons.lightbulb_outline, Color(0xFFEA580C), 'Explain a message', 'What does it really mean?', 'Explain what this message means, in simple words: '),
+  _Action(Icons.short_text, Color(0xFF0891B2), 'Summarize', 'Long text in 3 points', 'Summarize this in 3 short points: '),
+];
+
+const _suggestions = [
+  'Write a polite leave request to my manager in Hindi',
+  'How do I say "the payment is done" in Tamil?',
+  'Make this sound friendlier: Send the report today.',
+];
+
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  List<Map<String, dynamic>> _messages = [];
-  List<Map<String, dynamic>> _conversations = [];
-  bool _loading = true;
-  Map<String, dynamic>? _activeConversation;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadConversations();
-  }
-
-  Future<void> _loadConversations() async {
-    try {
-      final data = await ApiService.get('/api/conversations') as List;
-      setState(() {
-        _conversations = data.cast<Map<String, dynamic>>();
-        _loading = false;
-      });
-    } catch (_) {
-      setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _sendMessage() async {
-    final text = _msgCtrl.text.trim();
-    if (text.isEmpty || _activeConversation == null) return;
-    _msgCtrl.clear();
-    final tempMsg = {'content': text, 'role': 'user', 'createdAt': DateTime.now().toIso8601String()};
-    setState(() => _messages.add(tempMsg));
-    _scrollToBottom();
-    try {
-      final res = await ApiService.post('/api/ai/chat', {
-        'message': text,
-        'conversationId': _activeConversation!['id'],
-      }) as Map<String, dynamic>;
-      setState(() => _messages.add(res['message'] as Map<String, dynamic>? ?? {'content': res['reply'], 'role': 'assistant'}));
-      _scrollToBottom();
-    } catch (_) {}
-  }
+  final _focus = FocusNode();
+  final List<Map<String, String>> _messages = [];
+  int? _conversationId;
+  bool _sending = false;
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
-        _scrollCtrl.animateTo(_scrollCtrl.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+        _scrollCtrl.animateTo(_scrollCtrl.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
       }
     });
   }
 
+  Future<void> _send([String? preset]) async {
+    final text = (preset ?? _msgCtrl.text).trim();
+    if (text.isEmpty || _sending) return;
+    _msgCtrl.clear();
+    setState(() {
+      _sending = true;
+      _messages.add({'role': 'user', 'content': text});
+      _messages.add({'role': 'assistant', 'content': ''});
+    });
+    _scrollToBottom();
+    try {
+      _conversationId ??= ((await ApiService.post('/api/conversations', {'title': text.length > 40 ? '${text.substring(0, 40)}…' : text}))['id'] as num).toInt();
+      await for (final chunk in ApiService.postStream('/api/conversations/$_conversationId/messages', {'content': text})) {
+        if (!mounted) return;
+        setState(() => _messages.last['content'] = '${_messages.last['content']}$chunk');
+        _scrollToBottom();
+      }
+      if (mounted && (_messages.last['content'] ?? '').isEmpty) {
+        setState(() => _messages.last['content'] = 'Sorry, I could not answer that. Please try again.');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _messages.last['content'] = 'Could not reach NEURA AI. Check your internet connection and try again.';
+          _messages.last['error'] = 'true';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _usePrompt(String prompt) {
+    _msgCtrl.text = prompt;
+    _msgCtrl.selection = TextSelection.collapsed(offset: prompt.length);
+    _focus.requestFocus();
+  }
+
+  Future<void> _showHistory() async {
+    List<Map<String, dynamic>> conversations = [];
+    try {
+      conversations = (await ApiService.get('/api/conversations') as List).cast<Map<String, dynamic>>();
+    } catch (_) {}
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: conversations.isEmpty
+            ? Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('No earlier chats yet.', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                    child: Text('Earlier chats', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                  for (final c in conversations)
+                    ListTile(
+                      leading: Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
+                      title: Text(c['title']?.toString() ?? 'Chat', maxLines: 1, overflow: TextOverflow.ellipsis),
+                      onTap: () => Navigator.pop(context, c),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (picked == null) return;
+    try {
+      final data = await ApiService.get('/api/conversations/${picked['id']}') as Map<String, dynamic>;
+      final msgs = (data['messages'] as List? ?? const []).cast<Map<String, dynamic>>();
+      setState(() {
+        _conversationId = (picked['id'] as num).toInt();
+        _messages
+          ..clear()
+          ..addAll(msgs.map((m) => {'role': m['role'].toString(), 'content': m['content']?.toString() ?? ''}));
+      });
+      _scrollToBottom();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open that chat.')));
+    }
+  }
+
+  void _newChat() => setState(() {
+        _messages.clear();
+        _conversationId = null;
+      });
+
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AuthProvider>().user;
-    if (_activeConversation == null) {
-      return _conversationList(user);
-    }
-    return _chatView();
-  }
-
-  Widget _conversationList(Map<String, dynamic>? user) {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('NeuraTalk AI'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add, color: AppColors.cyan),
-            onPressed: () => _startNewChat(user),
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
-          : _conversations.isEmpty
-              ? _emptyState(user)
-              : ListView.builder(
-                  itemCount: _conversations.length,
-                  itemBuilder: (_, i) {
-                    final c = _conversations[i];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: AppColors.cyan.withOpacity(0.15),
-                        child: const Icon(Icons.chat_bubble_outline, color: AppColors.cyan, size: 20),
-                      ),
-                      title: Text(c['title'] ?? 'Conversation', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
-                      subtitle: Text(c['lastMessage'] ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
-                      onTap: () => _openConversation(c),
-                    );
-                  },
-                ),
-    );
-  }
-
-  Widget _emptyState(Map<String, dynamic>? user) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: AppColors.cyan.withOpacity(0.1),
-              shape: BoxShape.circle,
+        titleSpacing: 0,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const NeuraMark(height: 24),
+            const SizedBox(width: 8),
+            Text.rich(
+              TextSpan(children: [
+                TextSpan(text: 'Neura', style: TextStyle(color: AppColors.ink)),
+                TextSpan(text: 'Talk Assistant', style: TextStyle(color: AppColors.cyan)),
+              ]),
+              style: Theme.of(context).appBarTheme.titleTextStyle,
             ),
-            child: const Icon(Icons.auto_awesome, color: AppColors.cyan, size: 40),
-          ),
-          const SizedBox(height: 20),
-          Text('Hello${user != null ? ", ${user['username'] ?? 'there'}" : ""}!', style: const TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          const Text('Start a conversation with NeuraTalk AI', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-          const SizedBox(height: 32),
-          ElevatedButton.icon(
-            onPressed: () => _startNewChat(user),
-            icon: const Icon(Icons.add),
-            label: const Text('New Conversation'),
-            style: ElevatedButton.styleFrom(minimumSize: const Size(200, 50)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _startNewChat(Map<String, dynamic>? user) {
-    setState(() => _activeConversation = {'id': null, 'title': 'New Chat'});
-  }
-
-  void _openConversation(Map<String, dynamic> conv) {
-    setState(() {
-      _activeConversation = conv;
-      _messages = [];
-    });
-    _loadMessages(conv['id']?.toString() ?? '');
-  }
-
-  Future<void> _loadMessages(String convId) async {
-    try {
-      final data = await ApiService.get('/api/conversations/$convId/messages') as List;
-      setState(() => _messages = data.cast<Map<String, dynamic>>());
-      _scrollToBottom();
-    } catch (_) {}
-  }
-
-  Widget _chatView() {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
-          onPressed: () => setState(() { _activeConversation = null; _messages = []; }),
+          ],
         ),
-        title: Text(_activeConversation?['title'] ?? 'Chat', style: const TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+        actions: [
+          if (_messages.isNotEmpty) IconButton(tooltip: 'New chat', icon: const Icon(Icons.add_comment_outlined), onPressed: _newChat),
+          IconButton(tooltip: 'Earlier chats', icon: const Icon(Icons.history), onPressed: _showHistory),
+        ],
       ),
       body: Column(
         children: [
-          Expanded(
-            child: _messages.isEmpty
-                ? const Center(child: Text('Send a message to start', style: TextStyle(color: AppColors.textMuted)))
-                : ListView.builder(
-                    controller: _scrollCtrl,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (_, i) => _MessageBubble(message: _messages[i]),
-                  ),
-          ),
+          Expanded(child: _messages.isEmpty ? _welcome() : _thread()),
           _inputBar(),
         ],
       ),
     );
   }
 
-  Widget _inputBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      color: AppColors.backgroundMid,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _msgCtrl,
-              style: const TextStyle(color: AppColors.ink),
-              decoration: const InputDecoration(
-                hintText: 'Message NeuraTalk AI...',
-                hintStyle: TextStyle(color: AppColors.textMuted),
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: AppColors.surface,
-                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+  Widget _welcome() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      children: [
+        Text('What do you want to say?', style: TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 16),
+        for (final a in _actions)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Material(
+              color: AppColors.surface,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: AppColors.border)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => _usePrompt(a.prompt),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(color: a.color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+                        child: Icon(a.icon, color: a.color),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(a.title, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 2),
+                            Text(a.subtitle, style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: AppColors.textMuted),
+                    ],
+                  ),
+                ),
               ),
-              onSubmitted: (_) => _sendMessage(),
             ),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.mic_none, color: AppColors.textMuted),
-            onPressed: () {},
-          ),
-          GestureDetector(
-            onTap: _sendMessage,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: const BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-              child: const Icon(Icons.send, color: AppColors.background, size: 20),
+        const SizedBox(height: 12),
+        for (final s in _suggestions)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              // A wrapping pill (ActionChip clips long text at the screen edge).
+              child: Material(
+                color: AppColors.backgroundMid,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: AppColors.border)),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => _send(s),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    child: Text(s, style: TextStyle(color: AppColors.textPrimary, fontSize: 14, height: 1.3)),
+                  ),
+                ),
+              ),
             ),
           ),
-        ],
+      ],
+    );
+  }
+
+  Widget _thread() {
+    return ListView.builder(
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.all(16),
+      itemCount: _messages.length,
+      itemBuilder: (_, i) {
+        final m = _messages[i];
+        final isUser = m['role'] == 'user';
+        final text = m['content'] ?? '';
+        final waiting = !isUser && text.isEmpty;
+        return Align(
+          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isUser) ...[
+                const Padding(padding: EdgeInsets.only(top: 6), child: NeuraMark(height: 18)),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                  constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+                  decoration: BoxDecoration(
+                    color: isUser ? AppColors.blueTint : AppColors.surfaceElevated,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(18),
+                      topRight: const Radius.circular(18),
+                      bottomLeft: Radius.circular(isUser ? 18 : 4),
+                      bottomRight: Radius.circular(isUser ? 4 : 18),
+                    ),
+                  ),
+                  child: waiting
+                      ? SizedBox(
+                          width: 36,
+                          height: 18,
+                          child: Center(child: LinearProgressIndicator(minHeight: 3, color: AppColors.cyan, backgroundColor: AppColors.border)),
+                        )
+                      : SelectableText(
+                          text,
+                          style: TextStyle(
+                            color: m['error'] == 'true' ? AppColors.red : AppColors.textPrimary,
+                            fontSize: 16,
+                            height: 1.4,
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _inputBar() {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _msgCtrl,
+                focusNode: _focus,
+                minLines: 1,
+                maxLines: 5,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _send(),
+                decoration: InputDecoration(
+                  hintText: 'Ask anything...',
+                  filled: true,
+                  fillColor: AppColors.backgroundMid,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: BorderSide(color: AppColors.border)),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: BorderSide(color: AppColors.border)),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(26), borderSide: BorderSide(color: AppColors.cyan, width: 1.5)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Material(
+              color: AppColors.cyan,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _sending ? null : () => _send(),
+                child: SizedBox(
+                  width: 50,
+                  height: 50,
+                  child: _sending
+                      ? const Padding(
+                          padding: EdgeInsets.all(14),
+                          child: CircularProgressIndicator(strokeWidth: 2.4, color: AppColors.onAccent),
+                        )
+                      : const Icon(Icons.arrow_upward, color: AppColors.onAccent, semanticLabel: 'Send'),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -226,37 +365,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _focus.dispose();
     super.dispose();
-  }
-}
-
-class _MessageBubble extends StatelessWidget {
-  final Map<String, dynamic> message;
-  const _MessageBubble({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    final isUser = message['role'] == 'user';
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isUser ? AppColors.cyan : AppColors.surface,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(isUser ? 18 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 18),
-          ),
-        ),
-        child: Text(
-          message['content']?.toString() ?? '',
-          style: TextStyle(color: isUser ? AppColors.background : AppColors.textPrimary, fontSize: 14, height: 1.5),
-        ),
-      ),
-    );
   }
 }

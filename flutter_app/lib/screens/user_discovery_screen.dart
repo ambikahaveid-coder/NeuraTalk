@@ -93,18 +93,18 @@ class _UserDiscoveryScreenState extends State<UserDiscoveryScreen> {
               controller: _searchCtrl,
               autofocus: true,
               onChanged: _onChanged,
-              style: const TextStyle(color: AppColors.ink),
+              style: TextStyle(color: AppColors.ink),
               decoration: InputDecoration(
                 hintText: 'Search by username, email, or phone',
-                hintStyle: const TextStyle(color: AppColors.textMuted),
-                prefixIcon: const Icon(Icons.search, color: AppColors.textMuted),
+                hintStyle: TextStyle(color: AppColors.textMuted),
+                prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
                 filled: true,
                 fillColor: AppColors.surface,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
               ),
             ),
           ),
-          if (_loading) const Padding(
+          if (_loading) Padding(
             padding: EdgeInsets.only(top: 24),
             child: CircularProgressIndicator(color: AppColors.cyan),
           ),
@@ -113,7 +113,7 @@ class _UserDiscoveryScreenState extends State<UserDiscoveryScreen> {
             child: Text(_error!, style: const TextStyle(color: AppColors.red)),
           ),
           if (!_loading && _error == null && _searchCtrl.text.trim().length >= 2 && _results.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.only(top: 24),
               child: Text('No users found.', style: TextStyle(color: AppColors.textMuted)),
             ),
@@ -127,11 +127,11 @@ class _UserDiscoveryScreenState extends State<UserDiscoveryScreen> {
                   leading: CircleAvatar(
                     backgroundColor: AppColors.cyan.withOpacity(0.15),
                     backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-                    child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
+                    child: avatarUrl == null ? Icon(Icons.person, color: AppColors.cyan) : null,
                   ),
-                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                  subtitle: Text(u['identifier']?.toString() ?? '', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                  trailing: _starting ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)) : const Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
+                  title: Text(u['displayName']?.toString() ?? 'Unknown user', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                  subtitle: Text(u['identifier']?.toString() ?? '', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  trailing: _starting ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)) : Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
                   onTap: () => _startChat(u),
                 );
               },

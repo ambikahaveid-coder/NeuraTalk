@@ -72,8 +72,8 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
       context: context,
       builder: (_) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: const Text('Delete transcript?', style: TextStyle(color: AppColors.textPrimary)),
-        content: const Text('This permanently deletes the transcript for this call. This cannot be undone.',
+        title: Text('Delete transcript?', style: TextStyle(color: AppColors.textPrimary)),
+        content: Text('This permanently deletes the transcript for this call. This cannot be undone.',
             style: TextStyle(color: AppColors.textSecondary)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -123,7 +123,7 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
 
   Widget _buildBody() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: AppColors.cyan));
+      return Center(child: CircularProgressIndicator(color: AppColors.cyan));
     }
     if (_error != null) {
       return Center(
@@ -132,7 +132,7 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
           children: [
             const Icon(Icons.error_outline, color: AppColors.red, size: 40),
             const SizedBox(height: 12),
-            Text(_error!, style: const TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
+            Text(_error!, style: TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
             const SizedBox(height: 16),
             ElevatedButton(onPressed: _load, child: const Text('Retry')),
           ],
@@ -140,7 +140,7 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
       );
     }
     if (_segments.isEmpty) {
-      return const Center(
+      return Center(
         child: Text('No transcript available for this call', style: TextStyle(color: AppColors.textMuted)),
       );
     }
@@ -162,7 +162,7 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
   Widget _exportBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: AppColors.backgroundMid,
         border: Border(top: BorderSide(color: AppColors.border, width: 0.5)),
       ),
@@ -182,9 +182,9 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
     return TextButton.icon(
       onPressed: _exportingFormat == null ? () => _export(format) : null,
       icon: busy
-          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
-          : const Icon(Icons.ios_share, color: AppColors.cyan, size: 18),
-      label: Text(label, style: const TextStyle(color: AppColors.cyan)),
+          ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+          : Icon(Icons.ios_share, color: AppColors.cyan, size: 18),
+      label: Text(label, style: TextStyle(color: AppColors.cyan)),
     );
   }
 }
@@ -208,16 +208,16 @@ class _SegmentTile extends StatelessWidget {
           Row(
             children: [
               if (segment.speakerIdentity != null)
-                Text(segment.speakerIdentity!, style: const TextStyle(color: AppColors.textMuted, fontSize: 11, fontWeight: FontWeight.w600)),
+                Text(segment.speakerIdentity!, style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w600)),
               const Spacer(),
               if (segment.createdAt != null)
-                Text(_formatTime(segment.createdAt!), style: const TextStyle(color: AppColors.textMuted, fontSize: 11)),
+                Text(_formatTime(segment.createdAt!), style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 6),
-          Text(segment.originalText, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          Text(segment.originalText, style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
           const SizedBox(height: 4),
-          Text(segment.translatedText, style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
+          Text(segment.translatedText, style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
         ],
       ),
     );

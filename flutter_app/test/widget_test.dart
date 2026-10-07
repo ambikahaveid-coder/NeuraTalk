@@ -4,33 +4,32 @@ import 'package:neuratalk/screens/login_screen.dart';
 import 'package:neuratalk/theme/app_theme.dart';
 
 void main() {
-  group('LoginScreen — account type step', () {
-    testWidgets('shows Get Started with Personal/Business choices, defaulting to Personal', (tester) async {
-      await tester.pumpWidget(MaterialApp(theme: AppTheme.dark, home: const LoginScreen()));
+  group('LoginScreen — phone step', () {
+    testWidgets('opens directly on the phone number step', (tester) async {
+      await tester.pumpWidget(MaterialApp(theme: AppTheme.light, home: const LoginScreen()));
 
-      expect(find.text('Get Started'), findsOneWidget);
-      expect(find.text('Personal'), findsOneWidget);
-      expect(find.text('Business'), findsOneWidget);
-      expect(find.text('Continue →'), findsOneWidget);
+      expect(find.text('Welcome'), findsOneWidget);
+      expect(find.text('Continue'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
     });
 
-    testWidgets('tapping Continue advances to the phone entry step', (tester) async {
-      await tester.pumpWidget(MaterialApp(theme: AppTheme.dark, home: const LoginScreen()));
+    testWidgets('rejects a number that is not 10 digits without calling the server', (tester) async {
+      await tester.pumpWidget(MaterialApp(theme: AppTheme.light, home: const LoginScreen()));
 
-      await tester.tap(find.text('Continue →'));
+      await tester.enterText(find.byType(TextField), '12345');
+      await tester.tap(find.text('Continue'));
       await tester.pump();
 
-      // The account-type choices are gone once past that step.
-      expect(find.text('Get Started'), findsNothing);
+      expect(find.text('Enter a valid 10-digit mobile number'), findsOneWidget);
     });
 
-    testWidgets('tapping Business selects it without crashing', (tester) async {
-      await tester.pumpWidget(MaterialApp(theme: AppTheme.dark, home: const LoginScreen()));
+    testWidgets('asks for a number when the field is empty', (tester) async {
+      await tester.pumpWidget(MaterialApp(theme: AppTheme.light, home: const LoginScreen()));
 
-      await tester.tap(find.text('Business'));
+      await tester.tap(find.text('Continue'));
       await tester.pump();
 
-      expect(find.text('Business'), findsOneWidget);
+      expect(find.text('Enter your phone number'), findsOneWidget);
     });
   });
 }

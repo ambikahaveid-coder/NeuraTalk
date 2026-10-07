@@ -90,6 +90,44 @@ class ApiService {
     return _parse(res);
   }
 
+  /// POSTs JSON to a Server-Sent Events endpoint and yields each `content`
+  /// chunk as it arrives (e.g. /api/conversations/:id/messages, which streams
+  /// the AI reply as `data: {"content": "..."}` lines ending with `{"done": true}`).
+  static Stream<String> postStream(String path, Map<String, dynamic> body) async* {
+    final client = http.Client();
+    try {
+      final request = http.Request('POST', Uri.parse('$baseUrl$path'))
+        ..headers.addAll({..._headers, 'Accept': 'text/event-stream'})
+        ..body = jsonEncode(body);
+      final res = await client.send(request).timeout(const Duration(seconds: 30));
+      if (res.statusCode >= 400) {
+        final text = await res.stream.bytesToString();
+        String message = 'Request failed';
+        try {
+          final data = jsonDecode(text);
+          message = (data is Map ? (data['message'] ?? data['error']) : null) ?? message;
+        } catch (_) {}
+        throw ApiException(message, res.statusCode);
+      }
+      await for (final line in res.stream.transform(utf8.decoder).transform(const LineSplitter())) {
+        if (!line.startsWith('data:')) continue;
+        final payload = line.substring(5).trim();
+        if (payload.isEmpty) continue;
+        try {
+          final data = jsonDecode(payload);
+          if (data is! Map) continue;
+          if (data['done'] == true) return;
+          final content = data['content'];
+          if (content is String && content.isNotEmpty) yield content;
+        } catch (_) {
+          // Ignore malformed keep-alive lines.
+        }
+      }
+    } finally {
+      client.close();
+    }
+  }
+
   /// For endpoints that return a binary body (e.g. transcript exports)
   /// rather than JSON — [get]/[_parse] always `jsonDecode`s, which would
   /// throw on a PDF/DOCX payload.

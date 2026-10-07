@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/call_service.dart';
 import 'conversation_screen.dart';
 import 'call_screen.dart';
+import 'user_discovery_screen.dart';
 
 /// Privacy-preserving contacts sync: reads the device address book locally,
 /// sends ONLY phone numbers to the server (never names/photos/emails --
@@ -49,7 +50,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
       _permissionDenied = false;
     });
 
-    final granted = await FlutterContacts.requestPermission(readonly: true);
+    bool granted;
+    try {
+      granted = await FlutterContacts.requestPermission(readonly: true);
+    } catch (_) {
+      granted = false;
+    }
     if (!granted) {
       if (mounted) setState(() { _loading = false; _permissionDenied = true; });
       return;
@@ -140,36 +146,167 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
+  int _tab = 0; // 0 All, 1 On NeuraTalk, 2 Invite
+  String _query = '';
+
+  static const _avatarColors = [Color(0xFF1E66F5), Color(0xFF16A34A), Color(0xFFEA580C), Color(0xFF6D4AFF), Color(0xFF0EA5E9), Color(0xFFDB2777)];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Contacts')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.cyan))
-          : _permissionDenied
-              ? _permissionDeniedState()
-              : RefreshIndicator(
-                  onRefresh: _sync,
-                  color: AppColors.cyan,
-                  child: ListView(
-                    children: [
-                      if (_neuraTalkContacts.isNotEmpty) ...[
-                        _sectionHeader('NeuraTalk Contacts'),
-                        ..._neuraTalkContacts.map(_neuraTalkTile),
-                      ],
-                      if (_otherContacts.isNotEmpty) ...[
-                        _sectionHeader('Invite to NeuraTalk'),
-                        ..._otherContacts.map(_inviteTile),
-                      ],
-                      if (_neuraTalkContacts.isEmpty && _otherContacts.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(32),
-                          child: Center(child: Text('No contacts with phone numbers found.', style: TextStyle(color: AppColors.textMuted))),
-                        ),
-                    ],
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'contacts-add',
+        tooltip: 'Find people on NeuraTalk',
+        backgroundColor: AppColors.cyan,
+        foregroundColor: AppColors.onAccent,
+        shape: const CircleBorder(),
+        elevation: 3,
+        focusElevation: 3,
+        hoverElevation: 3,
+        highlightElevation: 3,
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
+        child: const Icon(Icons.add, size: 28),
+      ),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('Contacts', style: TextStyle(color: AppColors.ink, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
                   ),
+                  IconButton(
+                    tooltip: 'Refresh',
+                    icon: Icon(Icons.sync, color: AppColors.textSecondary),
+                    onPressed: _loading ? null : _sync,
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  for (final (i, label) in const [(0, 'All'), (1, 'On NeuraTalk'), (2, 'Invite')])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(label),
+                        selected: _tab == i,
+                        showCheckmark: false,
+                        onSelected: (_) => setState(() => _tab = i),
+                        labelStyle: TextStyle(
+                          color: _tab == i ? AppColors.cyan : AppColors.textSecondary,
+                          fontWeight: _tab == i ? FontWeight.w700 : FontWeight.w500,
+                          fontSize: 14,
+                        ),
+                        backgroundColor: AppColors.background,
+                        selectedColor: AppColors.blueTint,
+                        side: BorderSide(color: _tab == i ? AppColors.blueTint : AppColors.border),
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: TextField(
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                  hintText: 'Search contacts...',
+                  contentPadding: EdgeInsets.symmetric(vertical: 14),
                 ),
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
+                  : _permissionDenied
+                      ? _permissionDeniedState()
+                      : RefreshIndicator(onRefresh: _sync, color: AppColors.cyan, child: _list()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _list() {
+    final q = _query.trim().toLowerCase();
+    bool match(String name, String extra) => q.isEmpty || name.toLowerCase().contains(q) || extra.contains(q);
+
+    // One sorted list of entries: NeuraTalk users first in "All" is not how address books work,
+    // so everything is sorted A–Z and NeuraTalk users are marked.
+    final entries = <(String, Map<String, dynamic>?, Contact?)>[];
+    if (_tab != 2) {
+      for (final m in _neuraTalkContacts) {
+        final name = m['localName']?.toString() ?? m['username']?.toString() ?? 'NeuraTalk user';
+        if (match(name, m['phone']?.toString() ?? '')) entries.add((name, m, null));
+      }
+    }
+    if (_tab != 1) {
+      for (final c in _otherContacts) {
+        final phone = c.phones.isNotEmpty ? c.phones.first.number : '';
+        if (match(c.displayName, phone)) entries.add((c.displayName, null, c));
+      }
+    }
+    entries.sort((a, b) => a.$1.toLowerCase().compareTo(b.$1.toLowerCase()));
+
+    if (entries.isEmpty) {
+      return ListView(children: [
+        Padding(
+          padding: const EdgeInsets.all(40),
+          child: Center(
+            child: Text(
+              q.isNotEmpty
+                  ? 'No contacts match "$_query"'
+                  : _tab == 1
+                      ? 'None of your contacts use NeuraTalk yet. Invite them!'
+                      : 'No contacts with phone numbers found.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textMuted, fontSize: 15),
+            ),
+          ),
+        ),
+      ]);
+    }
+
+    final children = <Widget>[];
+    String? letter;
+    for (final e in entries) {
+      final first = e.$1.isEmpty ? '#' : e.$1.characters.first.toUpperCase();
+      final l = RegExp(r'[A-Z]').hasMatch(first) ? first : '#';
+      if (l != letter) {
+        letter = l;
+        children.add(Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          child: Text(l, style: TextStyle(color: AppColors.textMuted, fontSize: 14, fontWeight: FontWeight.w700)),
+        ));
+      }
+      children.add(e.$2 != null ? _neuraTalkTile(e.$2!, e.$1) : _inviteTile(e.$3!));
+    }
+    children.add(const SizedBox(height: 96));
+    return ListView(children: children);
+  }
+
+  Widget _avatar(String name, {String? avatarUrl}) {
+    final initial = name.isNotEmpty && RegExp(r'[A-Za-z]').hasMatch(name.characters.first) ? name.characters.first.toUpperCase() : null;
+    final color = _avatarColors[name.hashCode.abs() % _avatarColors.length];
+    return CircleAvatar(
+      radius: 24,
+      backgroundColor: color.withValues(alpha: 0.14),
+      backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
+      child: avatarUrl == null
+          ? (initial != null
+              ? Text(initial, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w700))
+              : Icon(Icons.person, color: color))
+          : null,
     );
   }
 
@@ -180,57 +317,57 @@ class _ContactsScreenState extends State<ContactsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.contacts_outlined, color: AppColors.textMuted, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'NeuraTalk uses your contacts only to find people you know who already use the app. Only phone numbers are sent — never names or photos.',
-              style: TextStyle(color: AppColors.textSecondary),
-              textAlign: TextAlign.center,
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(color: AppColors.blueTint, shape: BoxShape.circle),
+              child: Icon(Icons.contacts_outlined, color: AppColors.cyan, size: 40),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(onPressed: _sync, child: const Text('Allow Contacts Access')),
+            Text('Find friends on NeuraTalk', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text(
+              'We only check phone numbers to show who already uses NeuraTalk. Names and photos never leave your phone.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.4),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(onPressed: _sync, child: const Text('Allow contacts access')),
           ],
         ),
       ),
     );
   }
 
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(title, style: const TextStyle(color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w700)),
-    );
-  }
-
-  Widget _neuraTalkTile(Map<String, dynamic> match) {
-    final avatarUrl = match['avatarUrl'] as String?;
-    final name = match['localName']?.toString() ?? match['username']?.toString() ?? 'NeuraTalk user';
+  Widget _neuraTalkTile(Map<String, dynamic> match, String name) {
     final isCallingThis = _callingContactId == match['id'];
     final anyCallInFlight = _callingContactId != null;
     return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: AppColors.cyan.withOpacity(0.15),
-        backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-        child: avatarUrl == null ? const Icon(Icons.person, color: AppColors.cyan) : null,
-      ),
-      title: Text(name, style: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-      subtitle: Text('@${match['username']}', style: const TextStyle(color: AppColors.textMuted, fontSize: 12)),
+      contentPadding: const EdgeInsets.fromLTRB(20, 2, 8, 2),
+      leading: _avatar(name, avatarUrl: match['avatarUrl'] as String?),
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+      subtitle: Row(children: [
+        Icon(Icons.verified, color: AppColors.cyan, size: 14),
+        SizedBox(width: 4),
+        Text('On NeuraTalk', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+      ]),
       onTap: () => _openChat(match),
       trailing: isCallingThis
-          ? const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 12),
+          ? Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
               child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)),
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.call_outlined, color: AppColors.cyan),
+                  tooltip: 'Call',
+                  icon: Icon(Icons.call_outlined, color: AppColors.cyan),
                   onPressed: anyCallInFlight ? null : () => _call(match, video: false),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.videocam_outlined, color: AppColors.cyan),
-                  onPressed: anyCallInFlight ? null : () => _call(match, video: true),
+                  tooltip: 'Message',
+                  icon: Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
+                  onPressed: () => _openChat(match),
                 ),
               ],
             ),
@@ -239,13 +376,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _inviteTile(Contact contact) {
     return ListTile(
-      leading: const CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person_outline, color: AppColors.textMuted)),
-      title: Text(contact.displayName, style: const TextStyle(color: AppColors.ink)),
-      trailing: TextButton(
+      contentPadding: const EdgeInsets.fromLTRB(20, 2, 12, 2),
+      leading: _avatar(contact.displayName),
+      title: Text(contact.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+      subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : '',
+          style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+      trailing: OutlinedButton(
         onPressed: () => Share.share(
-          "Let's chat on NeuraTalk — real-time translated voice & video calls. https://neuratalk.in",
+          "Let's talk on NeuraTalk: calls and chat translated live into your language. https://neuratalk.in",
         ),
-        child: const Text('Invite', style: TextStyle(color: AppColors.cyan)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.cyan,
+          side: BorderSide(color: AppColors.cyan),
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          minimumSize: const Size(0, 36),
+        ),
+        child: const Text('Invite'),
       ),
     );
   }

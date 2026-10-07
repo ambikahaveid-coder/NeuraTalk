@@ -22,17 +22,17 @@ class PrivacyScreen extends StatelessWidget {
             decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
             child: ListTile(
               leading: const Icon(Icons.block_outlined, color: AppColors.red),
-              title: const Text('Blocked Contacts', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-              subtitle: const Text(
+              title: Text('Blocked Contacts', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+              subtitle: Text(
                 "People you've blocked can't call or message you",
                 style: TextStyle(color: AppColors.textMuted, fontSize: 12.5),
               ),
-              trailing: const Icon(Icons.chevron_right, color: AppColors.textMuted),
+              trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedContactsScreen())),
             ),
           ),
           const SizedBox(height: 20),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 4),
             child: Text(
               'More privacy controls -- like last-seen visibility and read receipts -- are on the way.',
