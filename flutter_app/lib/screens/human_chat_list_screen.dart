@@ -23,6 +23,7 @@ class HumanChatListScreen extends StatefulWidget {
 
 class _HumanChatListScreenState extends State<HumanChatListScreen> {
   bool _showArchived = false;
+  String _query = '';
 
   @override
   void initState() {
@@ -52,7 +53,13 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
   }
 
   List<Map<String, dynamic>> _visibleThreads(PersonalChatProvider provider) {
-    final filtered = provider.threads.where((t) => (t['isArchived'] == true) == _showArchived).toList();
+    final q = _query.trim().toLowerCase();
+    final filtered = provider.threads.where((t) {
+      if ((t['isArchived'] == true) != _showArchived) return false;
+      if (q.isEmpty) return true;
+      final peer = (t['peer'] as Map?) ?? const {};
+      return '${peer['displayName'] ?? ''} ${peer['phone'] ?? ''} ${t['lastMessagePreview'] ?? ''}'.toLowerCase().contains(q);
+    }).toList();
     filtered.sort((a, b) {
       final aPinned = a['isPinned'] == true;
       final bPinned = b['isPinned'] == true;
@@ -165,15 +172,36 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
         child: provider.loadingThreads && provider.threads.isEmpty
             ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
             : provider.threadsError != null
-                ? Center(child: Text(provider.threadsError!, style: const TextStyle(color: AppColors.red)))
-                : visible.isEmpty
-                    ? (_showArchived
-                        ? Center(child: Text('No archived chats', style: TextStyle(color: AppColors.textMuted)))
-                        : _emptyState())
-                    : ListView.builder(
+                ? ListView(children: [
+                    NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load your chats", message: provider.threadsError!, error: true,
+                        actionLabel: 'Try again', onAction: provider.loadThreads),
+                  ])
+                : provider.threads.isEmpty && !_showArchived
+                    ? _emptyState()
+                    : ListView(
                         padding: const EdgeInsets.only(bottom: 96),
-                        itemCount: visible.length,
-                        itemBuilder: (_, i) => _threadTile(visible[i]),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                            child: TextField(
+                              onChanged: (v) => setState(() => _query = v),
+                              decoration: InputDecoration(
+                                hintText: 'Search chats',
+                                prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                          if (visible.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Center(
+                                child: Text(_showArchived && _query.isEmpty ? 'No archived chats' : 'No chats match "$_query"',
+                                    style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
+                              ),
+                            ),
+                          for (final t in visible) _threadTile(t),
+                        ],
                       ),
       ),
     );

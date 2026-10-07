@@ -143,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Text('Welcome', style: TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w800)),
         const SizedBox(height: 6),
-        Text('Enter your mobile number. We\'ll send you a 6-digit code.',
+        Text('We\'ll text a login code to this number.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.4)),
         const SizedBox(height: 24),
         TextField(
@@ -156,8 +156,17 @@ class _LoginScreenState extends State<LoginScreen> {
           style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
             hintText: '98765 43210',
-            prefixText: '+91 ',
-            prefixIcon: Icon(Icons.phone_outlined, color: AppColors.cyan),
+            // Always visible (prefixText only shows once the field is focused).
+            prefixIcon: Padding(
+              padding: const EdgeInsets.only(left: 14, right: 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Text('🇮🇳', style: TextStyle(fontSize: 18)),
+                const SizedBox(width: 6),
+                Text('+91', style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 10),
+                Container(width: 1, height: 22, color: AppColors.borderBright),
+              ]),
+            ),
           ),
           onSubmitted: (_) => _continue(),
         ),

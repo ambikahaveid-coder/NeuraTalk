@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 
-/// Real microphone permission status -- Android has no in-app selectable
-/// input device for a normal (non-system) app, so this screen shows the
-/// actual OS permission state and lets the user fix it, rather than a fake
-/// "input device" picker that wouldn't do anything.
+/// Shows the real OS microphone permission and lets the user fix it.
+/// Android has no in-app input-device picker for normal apps, so there's
+/// no fake one here.
 class MicrophoneSettingsScreen extends StatefulWidget {
   const MicrophoneSettingsScreen({super.key});
 
@@ -51,49 +51,57 @@ class _MicrophoneSettingsScreenState extends State<MicrophoneSettingsScreen> wit
       case PermissionStatus.denied:
         return 'Not allowed';
       case PermissionStatus.permanentlyDenied:
-        return 'Blocked — enable it in system settings';
+        return 'Blocked. Turn it on in phone settings';
       case PermissionStatus.restricted:
         return 'Restricted';
       default:
-        return 'Unknown';
+        return 'Checking...';
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final granted = _status == PermissionStatus.granted;
+    final blocked = _status == PermissionStatus.permanentlyDenied;
+    final tint = _status == null ? AppColors.textMuted : (granted ? AppColors.green : AppColors.red);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Microphone Settings')),
+      appBar: AppBar(title: const Text('Microphone')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(NtSpace.l),
         children: [
-          ListTile(
-            leading: Icon(granted ? Icons.mic : Icons.mic_off, color: granted ? AppColors.green : AppColors.red),
-            title: Text('Microphone access', style: TextStyle(color: AppColors.ink)),
-            subtitle: Text(_label(_status), style: TextStyle(color: AppColors.textMuted)),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Required for voice calls, video calls, and voice messages. NeuraTalk always uses your device\'s default microphone — there is no separate in-app selection on Android.',
-              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (!granted)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _status == PermissionStatus.permanentlyDenied ? openAppSettings : _request,
-                style: ElevatedButton.styleFrom(backgroundColor: AppColors.cyan, padding: const EdgeInsets.symmetric(vertical: 14)),
-                child: Text(
-                  _status == PermissionStatus.permanentlyDenied ? 'Open App Settings' : 'Allow Microphone',
-                  style: TextStyle(color: AppColors.background, fontWeight: FontWeight.w700),
-                ),
+          NtCard(
+            padding: const EdgeInsets.all(NtSpace.l),
+            child: Row(children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(color: tint.withValues(alpha: 0.14), shape: BoxShape.circle),
+                child: Icon(granted ? Icons.mic : Icons.mic_off, color: tint),
               ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Microphone access', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
+                  const SizedBox(height: 2),
+                  Text(_label(_status), style: TextStyle(color: tint, fontSize: 14, fontWeight: FontWeight.w600)),
+                ]),
+              ),
+            ]),
+          ),
+          if (!granted && _status != null) ...[
+            const SizedBox(height: NtSpace.l),
+            ElevatedButton(
+              onPressed: blocked ? openAppSettings : _request,
+              child: Text(blocked ? 'Open phone settings' : 'Allow microphone'),
             ),
+          ],
+          const SizedBox(height: NtSpace.xxl),
+          const NtInfoCard(
+            icon: Icons.info_outline,
+            title: 'Why NeuraTalk needs it',
+            body: "For voice and video calls, voice messages and face-to-face translation. NeuraTalk uses your phone's default microphone or a connected headset.",
+          ),
         ],
       ),
     );

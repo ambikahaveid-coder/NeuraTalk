@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 import 'microphone_settings_screen.dart';
 
-/// Real calls hub. The audio-processing and call-waiting behavior described
-/// here are always-on (call_screen.dart / smart-router.ts) -- shown as
-/// status info rather than toggles, since there's no per-user override for
-/// them and a switch that always does the same thing either way isn't a
-/// real setting.
+/// Calls hub. Audio processing and call waiting are always on
+/// (call_screen.dart / smart-router.ts), so they're shown as information,
+/// not as switches that wouldn't change anything.
 class CallsSettingsScreen extends StatelessWidget {
   const CallsSettingsScreen({super.key});
 
@@ -14,55 +13,37 @@ class CallsSettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Calls & Calling')),
+      appBar: AppBar(title: const Text('Calls')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(NtSpace.l),
         children: [
-          Container(
-            decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
+          NtCard(
             child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               leading: Icon(Icons.mic_outlined, color: AppColors.cyan),
-              title: Text('Microphone', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-              subtitle: Text('Permission status and access', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+              title: Text('Microphone', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
+              subtitle: Text('Check or allow microphone access', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
               trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MicrophoneSettingsScreen())),
             ),
           ),
-          const SizedBox(height: 16),
-          _statusCard(
+          const NtSectionHeader('Always on', inset: true),
+          const NtInfoCard(
             icon: Icons.graphic_eq,
-            title: 'Audio processing',
-            body: 'Echo cancellation, noise suppression, and automatic volume leveling are on for every call -- there\'s nothing to configure.',
+            title: 'Clear audio',
+            body: 'Echo cancellation, noise suppression and automatic volume are on for every call. Nothing to set up.',
           ),
-          const SizedBox(height: 12),
-          _statusCard(
+          const SizedBox(height: NtSpace.m),
+          const NtInfoCard(
+            icon: Icons.translate,
+            title: 'Live translation',
+            body: 'Each person hears the other in their own language. You can change yours during a call with the Language button.',
+          ),
+          const SizedBox(height: NtSpace.m),
+          const NtInfoCard(
             icon: Icons.call_split,
             title: 'Call waiting',
-            body: "If you're already on a call and someone else calls you, you'll get a prompt to end your current call and accept, or reject the new one.",
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _statusCard({required IconData icon, required String title, required String body}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppColors.textSecondary, size: 22),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 14)),
-                const SizedBox(height: 4),
-                Text(body, style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, height: 1.4)),
-              ],
-            ),
+            body: "If someone calls while you're on a call, you can end the current call and answer, or decline the new one.",
           ),
         ],
       ),

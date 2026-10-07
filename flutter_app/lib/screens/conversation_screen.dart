@@ -17,7 +17,6 @@ import '../theme/app_theme.dart';
 import '../services/media_store.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
-import '../services/speech_service.dart';
 import 'language_preferences_screen.dart';
 import '../utils/languages.dart';
 import '../providers/auth_provider.dart';
@@ -57,11 +56,14 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   Map<String, dynamic> get _peer => (widget.thread['peer'] as Map<String, dynamic>?) ?? const {};
   int? get _peerId => _peer['id'] as int?;
 
+  late final PersonalChatProvider _chats;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final provider = context.read<PersonalChatProvider>();
+    _chats = provider;
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.openThread(_threadId).then((_) => _scrollToBottom());
     _loadBlockStatus();
@@ -172,7 +174,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    context.read<PersonalChatProvider>().closeThread();
+    // context is no longer safe to use here; use the reference saved in initState.
+    _chats.closeThread();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
@@ -415,7 +418,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text('Location permission is required to share your location.'),
           action: permission == LocationPermission.deniedForever
-              ? SnackBarAction(label: 'Open Settings', onPressed: Geolocator.openAppSettings)
+              ? SnackBarAction(label: 'Open settings', onPressed: Geolocator.openAppSettings)
               : null,
         ));
       }
@@ -1242,7 +1245,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
       );
     }
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      if (texts != null) _ListenButton(text: texts.listenText, language: texts.listenLang),
+      if (texts != null) NtListenButton(text: texts.listenText, language: texts.listenLang),
       if (texts != null) const SizedBox(width: 8),
       Text(_clock(widget.message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
       if (isOwn && status != null) ...[
@@ -1316,35 +1319,6 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
           ),
         ]),
       ),
-    );
-  }
-}
-
-/// 🔊 Reads the message aloud (the translated version when there is one).
-class _ListenButton extends StatelessWidget {
-  final String text;
-  final String language;
-  const _ListenButton({required this.text, required this.language});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: SpeechService.instance,
-      builder: (_, __) {
-        final speech = SpeechService.instance;
-        final active = speech.activeKey == SpeechService.keyFor(text, language);
-        return InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => speech.toggle(text, language),
-          child: Padding(
-            padding: const EdgeInsets.all(2),
-            child: active && speech.loading
-                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
-                : Icon(active ? Icons.stop_circle_outlined : Icons.volume_up_outlined, size: 18, color: AppColors.cyan,
-                    semanticLabel: active ? 'Stop' : 'Listen in ${Languages.name(language)}'),
-          ),
-        );
-      },
     );
   }
 }

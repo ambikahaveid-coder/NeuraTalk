@@ -6,10 +6,17 @@ import '../theme/app_theme.dart';
 import '../models/transcript.dart';
 import '../services/transcript_service.dart';
 import '../services/api_service.dart';
+import '../services/contact_resolver.dart';
+import '../providers/auth_provider.dart';
+import '../utils/languages.dart';
+import '../widgets/nt_ui.dart';
+import 'package:provider/provider.dart';
 
 class TranscriptDetailScreen extends StatefulWidget {
   final String callId;
-  const TranscriptDetailScreen({super.key, required this.callId});
+  /// The call-history row, when opened from a list: name, type, time, duration.
+  final Map<String, dynamic>? call;
+  const TranscriptDetailScreen({super.key, required this.callId, this.call});
 
   @override
   State<TranscriptDetailScreen> createState() => _TranscriptDetailScreenState();
@@ -140,23 +147,94 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
       );
     }
     if (_segments.isEmpty) {
-      return Center(
-        child: Text('No transcript available for this call', style: TextStyle(color: AppColors.textMuted)),
-      );
+      return ListView(children: [
+        if (widget.call != null) Padding(padding: const EdgeInsets.all(16), child: _header()),
+        const NtEmptyState(
+          icon: Icons.subtitles_off_outlined,
+          title: 'No transcript for this call',
+          message: 'Transcripts are saved when live translation runs during a call. Missed or very short calls have none.',
+        ),
+      ]);
     }
+    final myId = context.read<AuthProvider>().user?['id']?.toString();
+    final peer = _peerName();
     return Column(
       children: [
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: _segments.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) => _SegmentTile(segment: _segments[i]),
+            itemCount: _segments.length + 1,
+            separatorBuilder: (_, i) => SizedBox(height: i == 0 ? 20 : 12),
+            itemBuilder: (_, i) {
+              if (i == 0) return _header();
+              final seg = _segments[i - 1];
+              final mine = myId != null && seg.speakerIdentity == myId;
+              return _SegmentTile(segment: seg, speaker: mine ? 'You' : peer, mine: mine);
+            },
           ),
         ),
         _exportBar(),
       ],
     );
+  }
+
+  String _peerName() {
+    final c = widget.call;
+    final phone = c?['remotePhone']?.toString();
+    return ContactResolver.instance.nameFor(phone) ?? c?['remoteName']?.toString() ?? phone ?? 'Other person';
+  }
+
+  /// Who, when, how long and which languages, above the lines.
+  Widget _header() {
+    final c = widget.call;
+    final video = c?['callType'] == 'video';
+    final when = _formatDate(c?['createdAt']?.toString());
+    final secs = (c?['durationSeconds'] as num?)?.toInt();
+    final duration = secs == null || secs <= 0 ? null : (secs < 60 ? '$secs sec' : '${secs ~/ 60} min ${secs % 60} sec');
+    final langs = <String>{
+      for (final s in _segments) ...[
+        if (s.originalLanguage != null) s.originalLanguage!.split('-').first,
+        if (s.translatedLanguage != null) s.translatedLanguage!.split('-').first,
+      ]
+    }.toList();
+    return NtCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(children: [
+        NtAvatar(name: c == null ? '' : _peerName(), size: 52),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(c == null ? 'Call transcript' : _peerName(),
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 3),
+            Row(children: [
+              Icon(video ? Icons.videocam_outlined : Icons.call_outlined, size: 15, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text([video ? 'Video call' : 'Voice call', if (duration != null) duration].join(' · '),
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+              ),
+            ]),
+            if (when != null) ...[
+              const SizedBox(height: 2),
+              Text(when, style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+            ],
+            if (langs.length >= 2) ...[
+              const SizedBox(height: 8),
+              LanguagePairChip(mine: langs[0], theirs: langs[1], compact: true),
+            ],
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  static String? _formatDate(String? raw) {
+    final dt = DateTime.tryParse(raw ?? '')?.toLocal();
+    if (dt == null) return null;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    return '${dt.day} ${months[dt.month - 1]}, $h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 
   Widget _exportBar() {
@@ -169,9 +247,10 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _exportButton('txt', 'TXT'),
+          Text('Share as', style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          _exportButton('txt', 'Text'),
           _exportButton('pdf', 'PDF'),
-          _exportButton('docx', 'DOCX'),
+          _exportButton('docx', 'Word'),
         ],
       ),
     );
@@ -191,44 +270,56 @@ class _TranscriptDetailScreenState extends State<TranscriptDetailScreen> {
 
 class _SegmentTile extends StatelessWidget {
   final TranscriptSegment segment;
-  const _SegmentTile({required this.segment});
+  final String speaker;
+  final bool mine;
+  const _SegmentTile({required this.segment, required this.speaker, required this.mine});
 
   @override
   Widget build(BuildContext context) {
+    final fromLang = segment.originalLanguage?.split('-').first;
+    final toLang = segment.translatedLanguage?.split('-').first;
+    final hasTranslation = segment.translatedText.isNotEmpty && segment.translatedText != segment.originalText;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: mine ? AppColors.blueTint : AppColors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.border),
+        border: mine ? null : Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              if (segment.speakerIdentity != null)
-                Text(segment.speakerIdentity!, style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w600)),
+              Text(speaker, style: TextStyle(color: mine ? AppColors.cyan : AppColors.ink, fontSize: 13.5, fontWeight: FontWeight.w700)),
               const Spacer(),
               if (segment.createdAt != null)
-                Text(_formatTime(segment.createdAt!), style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                Text(_formatTime(segment.createdAt!), style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(segment.originalText, style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-          const SizedBox(height: 4),
-          Text(segment.translatedText, style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          if (fromLang != null)
+            Text('Said · ${Languages.name(fromLang)}',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+          Text(segment.originalText,
+              style: TextStyle(
+                  color: hasTranslation ? AppColors.textSecondary : AppColors.ink, fontSize: hasTranslation ? 14.5 : 16, height: 1.4)),
+          if (hasTranslation) ...[
+            const SizedBox(height: 8),
+            if (toLang != null)
+              Text('Heard · ${Languages.name(toLang)}',
+                  style: TextStyle(color: AppColors.cyan, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+            Text(segment.translatedText, style: TextStyle(color: AppColors.ink, fontSize: 16, height: 1.4, fontWeight: FontWeight.w500)),
+          ],
         ],
       ),
     );
   }
 
   String _formatTime(String raw) {
-    try {
-      final dt = DateTime.parse(raw).toLocal();
-      return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return '';
-    }
+    final dt = DateTime.tryParse(raw)?.toLocal();
+    if (dt == null) return '';
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
 }

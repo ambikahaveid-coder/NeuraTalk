@@ -20,6 +20,8 @@ class GroupChatProvider extends ChangeNotifier {
   Timer? _pollTimer;
 
   Future<void> loadGroups() async {
+    // Screens start loading from initState; never notify listeners while a frame is building.
+    await Future<void>.microtask(() {});
     loadingGroups = true;
     groupsError = null;
     notifyListeners();
@@ -66,6 +68,8 @@ class GroupChatProvider extends ChangeNotifier {
   }
 
   Future<void> openGroup(int groupId) async {
+    // Screens start loading from initState; never notify listeners while a frame is building.
+    await Future<void>.microtask(() {});
     loadingMessages = true;
     messagesError = null;
     messages = [];

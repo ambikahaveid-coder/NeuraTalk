@@ -249,7 +249,7 @@ class _PlanCard extends StatelessWidget {
                 foregroundColor: AppColors.cyan,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Choose Plan'),
+              child: const Text('Choose plan'),
             ),
           ),
         ],

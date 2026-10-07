@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 import '../providers/group_chat_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -185,41 +186,65 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     final members = (_group?['members'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Group Info')),
+      appBar: AppBar(title: const Text('Group info')),
       body: _loading
           ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
           : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: AppColors.red)))
+              ? NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load this group", message: _error!, error: true)
               : ListView(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   children: [
+                    // Group header: big avatar, name, member count.
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                      child: Text(
-                        _group?['name']?.toString() ?? 'Group',
-                        style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700),
-                      ),
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                      child: Column(children: [
+                        NtAvatar(name: _group?['name']?.toString() ?? 'Group', size: 88),
+                        const SizedBox(height: 12),
+                        Text(_group?['name']?.toString() ?? 'Group', textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Text('Group · ${members.length} member${members.length == 1 ? '' : 's'}',
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 14.5)),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(color: AppColors.blueTint, borderRadius: BorderRadius.circular(12)),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.translate, size: 16, color: AppColors.cyan),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text('Each member reads messages in their own language',
+                                  style: TextStyle(color: AppColors.cyan, fontSize: 13, fontWeight: FontWeight.w600)),
+                            ),
+                          ]),
+                        ),
+                      ]),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                      child: Text('${members.length} member${members.length == 1 ? '' : 's'}', style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-                    ),
+                    NtSectionHeader('${members.length} member${members.length == 1 ? '' : 's'}'),
                     if (_selfCanAddMembers)
                       ListTile(
-                        leading: CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person_add_outlined, color: AppColors.cyan)),
-                        title: Text('Add member', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                        leading: CircleAvatar(radius: 22, backgroundColor: AppColors.blueTint, child: Icon(Icons.person_add_outlined, color: AppColors.cyan)),
+                        title: Text('Add member', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w700)),
                         onTap: _openAddMember,
                       ),
-                    Divider(height: 1, color: AppColors.surfaceElevated),
                     ...members.map((m) {
                       final user = m['user'] as Map?;
                       final username = user?['username']?.toString() ?? 'Unknown user';
                       final role = m['role']?.toString() ?? 'member';
                       final isSelf = m['userId'] == _selfId;
                       return ListTile(
-                        leading: CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person, color: AppColors.textMuted)),
-                        title: Text(isSelf ? '$username (You)' : username, style: TextStyle(color: AppColors.ink)),
-                        subtitle: role != 'member' ? Text(role[0].toUpperCase() + role.substring(1), style: TextStyle(color: AppColors.cyan, fontSize: 12)) : null,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                        leading: NtAvatar(name: username, size: 44),
+                        title: Text(isSelf ? '$username (You)' : username, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                        trailing: role != 'member'
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: AppColors.blueTint, borderRadius: BorderRadius.circular(8)),
+                                child: Text(role[0].toUpperCase() + role.substring(1),
+                                    style: TextStyle(color: AppColors.cyan, fontSize: 12.5, fontWeight: FontWeight.w700)),
+                              )
+                            : null,
                         onTap: () => _showMemberActions(m),
                       );
                     }),
@@ -296,7 +321,7 @@ class _AddGroupMemberScreenState extends State<_AddGroupMemberScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Add Member')),
+      appBar: AppBar(title: const Text('Add member')),
       body: Column(
         children: [
           Padding(
@@ -323,9 +348,9 @@ class _AddGroupMemberScreenState extends State<_AddGroupMemberScreen> {
               itemBuilder: (_, i) {
                 final u = _results[i];
                 return ListTile(
-                  leading: CircleAvatar(backgroundColor: AppColors.surfaceElevated, child: Icon(Icons.person, color: AppColors.textMuted)),
+                  leading: NtAvatar(name: u['displayName']?.toString() ?? '', size: 44),
                   title: Text(u['displayName']?.toString() ?? 'Unknown user', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                  subtitle: Text(u['identifier']?.toString() ?? '', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  subtitle: Text(u['identifier']?.toString() ?? '', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
                   trailing: _adding
                       ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
                       : Icon(Icons.add_circle_outline, color: AppColors.cyan),

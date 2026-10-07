@@ -891,7 +891,7 @@ class _RemotePlaceholder extends StatelessWidget {
             ),
             if (showOpenSettings) ...[
               const SizedBox(height: 12),
-              TextButton(onPressed: openAppSettings, child: const Text('Open Settings', style: TextStyle(color: AppColors.tealLight))),
+              TextButton(onPressed: openAppSettings, child: const Text('Open settings', style: TextStyle(color: AppColors.tealLight))),
             ],
           ] else
             Text(statusLabel ?? (connecting ? 'Connecting…' : 'Connected'), style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 16)),

@@ -28,6 +28,8 @@ class PersonalChatProvider extends ChangeNotifier {
   bool _iAmTyping = false;
 
   Future<void> loadThreads() async {
+    // Screens start loading from initState; never notify listeners while a frame is building.
+    await Future<void>.microtask(() {});
     loadingThreads = true;
     threadsError = null;
     notifyListeners();
@@ -55,6 +57,8 @@ class PersonalChatProvider extends ChangeNotifier {
   }
 
   Future<void> openThread(int threadId) async {
+    // Screens start loading from initState; never notify listeners while a frame is building.
+    await Future<void>.microtask(() {});
     loadingMessages = true;
     messagesError = null;
     messages = [];

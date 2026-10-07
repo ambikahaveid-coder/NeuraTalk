@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 import '../services/api_service.dart';
 import '../services/call_service.dart';
 import 'call_screen.dart';
@@ -44,7 +45,7 @@ class _TeamsScreenState extends State<TeamsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Team Calls')),
+      appBar: AppBar(title: const Text('Team calls')),
       body: _loading
           ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
           : _teams.isEmpty
@@ -59,19 +60,10 @@ class _TeamsScreenState extends State<TeamsScreen> {
 
   Widget _emptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: AppColors.cyan.withOpacity(0.1), shape: BoxShape.circle),
-            child: Icon(Icons.group_outlined, color: AppColors.cyan, size: 40),
-          ),
-          const SizedBox(height: 20),
-          Text('No Teams Yet', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Text('Teams will appear here once your\nadmin sets them up', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
-        ],
+      child: const NtEmptyState(
+        icon: Icons.group_outlined,
+        title: 'No teams yet',
+        message: 'Teams appear here once your admin sets them up on the NeuraTalk business dashboard.',
       ),
     );
   }
@@ -100,15 +92,7 @@ class _TeamCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.teal.withOpacity(0.3),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(Icons.group, color: AppColors.cyan, size: 24),
-              ),
+              NtAvatar(name: name.toString(), size: 48),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -117,8 +101,8 @@ class _TeamCard extends StatelessWidget {
                     Text(name, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 2),
                     Text(
-                      '$members Members${aiEnabled ? ' · Live Translator Enabled' : ''}',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                      '$members member${members == 1 ? '' : 's'}${aiEnabled ? ' · Live translation on' : ''}',
+                      style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
                     ),
                   ],
                 ),
@@ -130,7 +114,7 @@ class _TeamCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _CallButton(
-                  label: 'Group Voice',
+                  label: 'Voice call',
                   icon: Icons.call,
                   onTap: () => _startCall(context, 'voice', team),
                   filled: true,
@@ -139,7 +123,7 @@ class _TeamCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: _CallButton(
-                  label: 'Group Video',
+                  label: 'Video call',
                   icon: Icons.videocam,
                   onTap: () => _startCall(context, 'video', team),
                   filled: false,

@@ -5,6 +5,8 @@ import '../models/transcript.dart';
 import '../services/transcript_service.dart';
 import '../services/api_service.dart';
 import 'transcript_detail_screen.dart';
+import '../services/contact_resolver.dart';
+import '../widgets/nt_ui.dart';
 
 class TranscriptHistoryScreen extends StatefulWidget {
   const TranscriptHistoryScreen({super.key});
@@ -27,6 +29,8 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
   int _total = 0;
   int _offset = 0;
   String _query = '';
+  /// Call-history rows by callId, so tiles and the detail header can show who/when.
+  final Map<String, Map<String, dynamic>> _calls = {};
 
   @override
   void initState() {
@@ -77,12 +81,17 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
       if (!mounted) return;
       setState(() {
         var i = 0;
+        _calls.clear();
+        for (final c in list.cast<Map<String, dynamic>>()) {
+          if (c['callId'] != null) _calls[c['callId'].toString()] = c;
+        }
         _results = list.cast<Map<String, dynamic>>().map((c) {
+          final phone = c['remotePhone']?.toString();
           final outcome = c['outcome']?.toString();
           return TranscriptSearchResult(
             id: i++,
             callId: c['callId']?.toString(),
-            originalText: c['remoteName']?.toString() ?? c['remotePhone']?.toString() ?? 'Unknown',
+            originalText: ContactResolver.instance.nameFor(phone) ?? c['remoteName']?.toString() ?? phone ?? 'Unknown',
             translatedText: outcome == 'missed'
                 ? 'Missed call'
                 : outcome == 'not_answered'
@@ -98,7 +107,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e is ApiException ? e.message : 'Failed to load call history. Please try again.';
+        _error = e is ApiException ? e.message : "Couldn't load your calls. Check your connection and try again.";
         _loading = false;
       });
     }
@@ -126,7 +135,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e is ApiException ? e.message : 'Search failed. Please try again.';
+        _error = e is ApiException ? e.message : "Couldn't search right now. Try again.";
         _loading = false;
         _loadingMore = false;
       });
@@ -143,7 +152,7 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
     if (result.callId == null) return;
     final deleted = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: result.callId!)),
+      MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: result.callId!, call: _calls[result.callId])),
     );
     if (deleted == true) {
       if (_query.length >= 2) {
@@ -166,9 +175,9 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
             child: TextField(
               controller: _controller,
               onChanged: _onSearchChanged,
-              style: TextStyle(color: AppColors.textPrimary),
+              style: TextStyle(color: AppColors.ink, fontSize: 16),
               decoration: InputDecoration(
-                hintText: 'Search transcripts…',
+                hintText: 'Search words said in your calls',
                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
               ),
             ),
@@ -180,75 +189,114 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
   }
 
   Widget _buildBody() {
+    final searching = _query.length >= 2;
     if (_loading) {
       return Center(child: CircularProgressIndicator(color: AppColors.cyan));
     }
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, color: AppColors.red, size: 40),
-            const SizedBox(height: 12),
-            Text(_error!, style: TextStyle(color: AppColors.textSecondary), textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => _query.length >= 2 ? _runSearch(reset: true) : _loadCallHistoryAsTranscripts(),
-              child: const Text('Retry'),
-            ),
-          ],
-        ),
+      return NtEmptyState(
+        icon: Icons.wifi_off,
+        title: "Couldn't load transcripts",
+        message: _error!,
+        error: true,
+        actionLabel: 'Try again',
+        onAction: () => searching ? _runSearch(reset: true) : _loadCallHistoryAsTranscripts(),
       );
     }
     if (_results.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.description_outlined, color: AppColors.textMuted, size: 48),
-            const SizedBox(height: 12),
-            Text(
-              _query.length >= 2 ? 'No transcripts match "$_query"' : 'No calls yet',
-              style: TextStyle(color: AppColors.textMuted),
-            ),
-          ],
-        ),
-      );
+      return searching
+          ? NtEmptyState(
+              icon: Icons.search_off,
+              title: 'Nothing found for "$_query"',
+              message: 'Try another word. Search looks through what was said in your translated calls.',
+            )
+          : const NtEmptyState(
+              icon: Icons.subtitles_outlined,
+              title: 'No call transcripts yet',
+              message: 'After a translated call, you can read what was said here, in both languages, and share it.',
+            );
     }
     return ListView.separated(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(top: 4, bottom: 24),
       itemCount: _results.length + (_loadingMore ? 1 : 0),
-      separatorBuilder: (_, __) => Divider(color: AppColors.border, height: 1, indent: 16, endIndent: 16),
+      separatorBuilder: (_, __) => Divider(color: AppColors.border, height: 1, indent: searching ? 20 : 80),
       itemBuilder: (_, i) {
         if (i >= _results.length) {
           return Padding(
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             child: Center(child: CircularProgressIndicator(color: AppColors.cyan, strokeWidth: 2)),
           );
         }
         final result = _results[i];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: AppColors.surfaceElevated,
-            child: Icon(Icons.description_outlined, color: AppColors.cyan, size: 20),
-          ),
-          title: Text(
-            result.originalText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            result.translatedText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
-          ),
-          trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
-          onTap: () => _openTranscript(result),
-        );
+        return searching ? _searchTile(result) : _callTile(result);
       },
     );
+  }
+
+  Widget _callTile(TranscriptSearchResult result) {
+    final call = _calls[result.callId];
+    final missed = result.translatedText == 'Missed call' || result.translatedText == 'Not answered';
+    final video = call?['callType'] == 'video';
+    final name = result.originalText;
+    final looksLikeNumber = name.startsWith('+') || RegExp(r'^\d').hasMatch(name);
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 4, 12, 4),
+      leading: NtAvatar(name: looksLikeNumber ? '' : name, size: 48),
+      title: Text(name,
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+      subtitle: Row(children: [
+        Icon(missed ? Icons.call_missed : (video ? Icons.videocam_outlined : Icons.call_outlined),
+            size: 15, color: missed ? AppColors.red : AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text([result.translatedText, if (_when(result.createdAt) != null) _when(result.createdAt)!].join(' · '),
+              maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+        ),
+      ]),
+      trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
+      onTap: () => _openTranscript(result),
+    );
+  }
+
+  Widget _searchTile(TranscriptSearchResult result) {
+    return InkWell(
+      onTap: () => _openTranscript(result),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(width: 3, height: 40, margin: const EdgeInsets.only(top: 2, right: 14), color: AppColors.cyan),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(result.translatedText,
+                  maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontSize: 15.5, height: 1.35)),
+              if (result.originalText.isNotEmpty && result.originalText != result.translatedText) ...[
+                const SizedBox(height: 3),
+                Text(result.originalText,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+              ],
+              if (_when(result.createdAt) != null) ...[
+                const SizedBox(height: 4),
+                Text(_when(result.createdAt)!, style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+              ],
+            ]),
+          ),
+          Icon(Icons.chevron_right, color: AppColors.textMuted),
+        ]),
+      ),
+    );
+  }
+
+  /// "Today, 4:12 PM" · "Yesterday, 9:03 AM" · "3 Oct, 6:40 PM"
+  static String? _when(String? raw) {
+    final dt = DateTime.tryParse(raw ?? '')?.toLocal();
+    if (dt == null) return null;
+    final now = DateTime.now();
+    final days = DateTime(now.year, now.month, now.day).difference(DateTime(dt.year, dt.month, dt.day)).inDays;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final time = '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+    final day = days == 0 ? 'Today' : days == 1 ? 'Yesterday' : '${dt.day} ${months[dt.month - 1]}';
+    return '$day, $time';
   }
 }

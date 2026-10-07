@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/languages.dart';
+import '../services/speech_service.dart';
 
 /// NeuraTalk design system building blocks, shared by every screen.
 ///
@@ -171,16 +172,101 @@ class NtSectionHeader extends StatelessWidget {
   final String title;
   final String? action;
   final VoidCallback? onAction;
-  const NtSectionHeader(this.title, {super.key, this.action, this.onAction});
+  /// Set [inset] when the header sits inside an already padded list.
+  final bool inset;
+  const NtSectionHeader(this.title, {super.key, this.action, this.onAction, this.inset = false});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(NtSpace.xl, NtSpace.xxl, NtSpace.s, NtSpace.s),
+      padding: EdgeInsets.fromLTRB(inset ? NtSpace.xs : NtSpace.xl, NtSpace.xxl, NtSpace.s, NtSpace.s),
       child: Row(children: [
         Expanded(child: Text(title, style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700))),
         if (action != null) TextButton(onPressed: onAction, child: Text(action!)),
       ]),
+    );
+  }
+}
+
+/// Settings card: surface, hairline border, radius 14. Wrap ListTiles in it.
+class NtCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? padding;
+  const NtCard({super.key, required this.child, this.padding});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Read-only "how it works" card for behaviour that is always on.
+class NtInfoCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  final Color? color;
+  const NtInfoCard({super.key, required this.icon, required this.title, required this.body, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final tint = color ?? AppColors.cyan;
+    return NtCard(
+      padding: const EdgeInsets.all(NtSpace.l),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(color: tint.withValues(alpha: AppColors.isDark ? 0.22 : 0.12), borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: tint, size: 20),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 15.5)),
+            const SizedBox(height: 4),
+            Text(body, style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.45)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+/// 🔊 Reads a message aloud in [language] (the translated version when there is one).
+class NtListenButton extends StatelessWidget {
+  final String text;
+  final String language;
+  const NtListenButton({super.key, required this.text, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SpeechService.instance,
+      builder: (_, __) {
+        final speech = SpeechService.instance;
+        final active = speech.activeKey == SpeechService.keyFor(text, language);
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => speech.toggle(text, language),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: active && speech.loading
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
+                : Icon(active ? Icons.stop_circle_outlined : Icons.volume_up_outlined, size: 18, color: AppColors.cyan,
+                    semanticLabel: active ? 'Stop' : 'Listen in ${Languages.name(language)}'),
+          ),
+        );
+      },
     );
   }
 }

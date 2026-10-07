@@ -8,6 +8,7 @@ import 'transcript_history_screen.dart';
 import 'face_to_face_screen.dart';
 import 'transcript_detail_screen.dart';
 import '../services/contact_resolver.dart';
+import '../widgets/nt_ui.dart';
 
 class CallsScreen extends StatefulWidget {
   const CallsScreen({super.key});
@@ -169,7 +170,7 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
                 if (callId == null) return;
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString())),
+                  MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString(), call: calls[i])),
                 );
               },
               onCallBack: (video) => _callBack(calls[i], video: video),
@@ -256,13 +257,7 @@ class _CallTile extends StatelessWidget {
     return ListTile(
       onTap: onOpen,
       contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
-      leading: CircleAvatar(
-        radius: 24,
-        backgroundColor: AppColors.cyan.withValues(alpha: 0.12),
-        child: initial != null
-            ? Text(initial, style: TextStyle(color: AppColors.cyan, fontSize: 18, fontWeight: FontWeight.w700))
-            : Icon(Icons.person, color: AppColors.cyan),
-      ),
+      leading: NtAvatar(name: initial == null ? '' : name, size: 48),
       title: Text(
         name,
         maxLines: 1,

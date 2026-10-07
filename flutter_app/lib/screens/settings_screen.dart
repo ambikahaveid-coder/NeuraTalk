@@ -10,7 +10,7 @@ import 'notifications_settings_screen.dart';
 import 'language_preferences_screen.dart';
 import 'translation_settings_screen.dart';
 import 'calls_settings_screen.dart';
-import 'blocked_contacts_screen.dart';
+import 'privacy_screen.dart';
 import 'teams_screen.dart';
 import 'wallet_screen.dart';
 
@@ -41,16 +41,16 @@ class SettingsScreen extends StatelessWidget {
     final rows = <_Row>[
       _Row(Icons.person_outline, 'Account', 'Profile, plan and minutes', () => _go(context, const ProfileScreen())),
       _Row(Icons.language, 'Languages', 'You speak ${lang.name}', () => _go(context, const LanguagePreferencesScreen())),
-      _Row(Icons.translate, 'Translation Settings', 'Auto-translate chats and calls', () => _go(context, const TranslationSettingsScreen())),
+      _Row(Icons.translate, 'Translation', 'Auto-translate chats and calls', () => _go(context, const TranslationSettingsScreen())),
       _Row(Icons.workspace_premium_outlined, 'Subscription', 'Plans and minutes', () => _go(context, const WalletScreen())),
       _Row(Icons.dark_mode_outlined, 'Appearance', _appearanceLabel(context.watch<ThemeController>().mode), () => _pickAppearance(context)),
       _Row(Icons.notifications_none, 'Notifications', 'Messages and calls', () => _go(context, const NotificationsSettingsScreen())),
-      _Row(Icons.call_outlined, 'Calls', 'Microphone access', () => _go(context, const CallsSettingsScreen())),
-      _Row(Icons.shield_outlined, 'Privacy & Security', 'Blocked contacts', () => _go(context, const BlockedContactsScreen())),
-      _Row(Icons.record_voice_over_outlined, 'Voice Clone', 'Translated calls in your own voice', () => _openWebPage(context, '/settings/voice-clone')),
+      _Row(Icons.call_outlined, 'Calls', 'Microphone and call audio', () => _go(context, const CallsSettingsScreen())),
+      _Row(Icons.shield_outlined, 'Privacy', 'Blocked contacts and your data', () => _go(context, const PrivacyScreen())),
+      _Row(Icons.record_voice_over_outlined, 'Voice clone', 'Translated calls in your own voice', () => _openWebPage(context, '/settings/voice-clone')),
       if (isBusiness(user)) _Row(Icons.groups_outlined, 'Teams', 'Your organisation\'s teams', () => _go(context, const TeamsScreen())),
-      _Row(Icons.help_outline, 'Help & Support', 'FAQs, contact us', () => _openWebPage(context, '/help')),
-      _Row(Icons.description_outlined, 'Terms & Privacy Policy', 'How we handle your data', () => _openWebPage(context, '/privacy')),
+      _Row(Icons.help_outline, 'Help and support', 'FAQs, contact us', () => _openWebPage(context, '/help')),
+      _Row(Icons.description_outlined, 'Terms and privacy policy', 'How we handle your data', () => _openWebPage(context, '/privacy')),
     ];
 
     return Scaffold(

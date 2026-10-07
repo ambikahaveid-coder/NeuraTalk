@@ -116,7 +116,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       Text(hasName ? username : 'Add your name', maxLines: 1, overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(color: AppColors.onAccent, fontSize: 22, fontWeight: FontWeight.w700)),
                                       const SizedBox(height: 2),
-                                      Text(business ? 'Business Account' : 'Personal Account',
+                                      Text(business ? 'Business account' : 'Personal account',
                                           style: const TextStyle(color: Color(0xCCFFFFFF), fontSize: 14)),
                                       if (contact.isNotEmpty)
                                         Text(contact, style: const TextStyle(color: Color(0x99FFFFFF), fontSize: 13.5)),
@@ -146,7 +146,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     children: [
                       _row(Icons.workspace_premium_outlined, 'Manage Subscription', () => _go(const WalletScreen())),
                       const Divider(height: 1, indent: 60),
-                      _row(Icons.edit_outlined, hasName ? 'Edit Profile' : 'Add Name & Photo', () => _go(const EditProfileScreen())),
+                      _row(Icons.edit_outlined, hasName ? 'Edit profile' : 'Add your name and photo', () => _go(const EditProfileScreen())),
                       const Divider(height: 1, indent: 60),
                       _row(Icons.history, 'Call History & Transcripts', () => _go(const TranscriptHistoryScreen())),
                       const Divider(height: 1, indent: 60),

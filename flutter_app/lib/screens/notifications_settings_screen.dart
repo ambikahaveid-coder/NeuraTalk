@@ -3,10 +3,10 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/nt_ui.dart';
 
-/// Real toggle -- PATCH /api/auth/me { pushNotificationsEnabled }. Gates
-/// server/firebase-admin.ts:sendPushNotification (message pushes only;
-/// call alerts always ring regardless of this setting).
+/// PATCH /api/auth/me { pushNotificationsEnabled }. Gates message pushes in
+/// server/firebase-admin.ts:sendPushNotification; call alerts always ring.
 class NotificationsSettingsScreen extends StatefulWidget {
   const NotificationsSettingsScreen({super.key});
 
@@ -23,7 +23,7 @@ class _NotificationsSettingsScreenState extends State<NotificationsSettingsScree
       await ApiService.patch('/api/auth/me', {'pushNotificationsEnabled': value});
       if (mounted) await context.read<AuthProvider>().fetchProfile();
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update this setting.')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't save. Check your connection and try again.")));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -38,22 +38,24 @@ class _NotificationsSettingsScreenState extends State<NotificationsSettingsScree
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Notifications')),
       body: ListView(
+        padding: const EdgeInsets.all(NtSpace.l),
         children: [
-          SwitchListTile(
-            value: enabled,
-            onChanged: _saving ? null : _toggle,
-            title: Text('Message notifications', style: TextStyle(color: AppColors.ink)),
-            subtitle: Text(
-              'Get notified about new chat messages when the app is closed or in the background.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+          NtCard(
+            child: SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              value: enabled,
+              onChanged: _saving ? null : _toggle,
+              secondary: Icon(Icons.chat_bubble_outline, color: AppColors.cyan),
+              title: Text('Message notifications', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
+              subtitle: Text('New chat and group messages when the app is closed',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
             ),
           ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              'Call notifications always ring, regardless of this setting.',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-            ),
+          const SizedBox(height: NtSpace.m),
+          const NtInfoCard(
+            icon: Icons.ring_volume_outlined,
+            title: 'Calls always ring',
+            body: 'So you never miss a call, incoming calls ring even when message notifications are off.',
           ),
         ],
       ),

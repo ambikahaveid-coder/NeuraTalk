@@ -8,6 +8,8 @@ import '../services/api_service.dart';
 import '../services/media_store.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/chat_attachments.dart';
+import '../widgets/nt_ui.dart';
+import '../utils/languages.dart';
 import 'group_info_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
@@ -31,12 +33,16 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   @override
   void initState() {
     super.initState();
-    context.read<GroupChatProvider>().openGroup(widget.groupId).then((_) => _scrollToBottom());
+    _groups = context.read<GroupChatProvider>();
+    _groups.openGroup(widget.groupId).then((_) => _scrollToBottom());
   }
+
+  late final GroupChatProvider _groups;
 
   @override
   void dispose() {
-    context.read<GroupChatProvider>().closeGroup();
+    // context is no longer safe to use here; use the reference saved in initState.
+    _groups.closeGroup();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -150,51 +156,75 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<GroupChatProvider>();
-    final selfId = context.read<AuthProvider>().user?['id'];
+    final me = context.read<AuthProvider>().user;
+    final selfId = me?['id'];
+    final myLanguage = me?['preferredLanguage']?.toString() ?? 'en';
     final groupName = provider.activeGroup?['name']?.toString() ?? 'Group';
     final members = (provider.activeGroup?['members'] as List?) ?? const [];
+    void openInfo() => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId)));
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.backgroundMid,
       appBar: AppBar(
+        titleSpacing: 0,
         title: InkWell(
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId))),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(groupName, style: TextStyle(color: AppColors.ink, fontSize: 16, fontWeight: FontWeight.w600)),
-              Text('${members.length} member${members.length == 1 ? '' : 's'}', style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
-            ],
-          ),
+          onTap: openInfo,
+          child: Row(children: [
+            NtAvatar(name: groupName, size: 40),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Text(groupName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700)),
+                Text('${members.length} member${members.length == 1 ? '' : 's'} · tap for info',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+              ]),
+            ),
+          ]),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.group_outlined),
-            tooltip: 'Group Info',
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId))),
-          ),
+          IconButton(icon: const Icon(Icons.info_outline), tooltip: 'Group info', onPressed: openInfo),
         ],
       ),
       body: Column(
         children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            decoration: BoxDecoration(color: AppColors.background, border: Border(bottom: BorderSide(color: AppColors.border))),
+            child: Row(children: [
+              Text(Languages.of(myLanguage).flag, style: const TextStyle(fontSize: 15)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('You read in ${Languages.name(myLanguage)} · others in theirs',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+              ),
+              const LiveBadge(label: 'Live'),
+            ]),
+          ),
           Expanded(
             child: provider.loadingMessages
                 ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                 : provider.messagesError != null
-                    ? Center(child: Text(provider.messagesError!, style: const TextStyle(color: AppColors.red)))
+                    ? NtEmptyState(icon: Icons.wifi_off, title: 'Couldn\'t load messages', message: provider.messagesError!, error: true)
                     : provider.messages.isEmpty
-                        ? Center(child: Text('No messages yet — say hello 👋', style: TextStyle(color: AppColors.textMuted)))
+                        ? const NtEmptyState(
+                            icon: Icons.forum_outlined,
+                            title: 'Say hello to the group',
+                            message: 'Write in your language. Everyone reads it in theirs.')
                         : ListView.builder(
                             controller: _scrollCtrl,
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                             itemCount: provider.messages.length,
                             itemBuilder: (_, i) {
                               final msg = provider.messages[i];
                               final isOwn = msg['senderId'] == selfId || msg['senderId'] == -1;
+                              final prev = i > 0 ? provider.messages[i - 1] : null;
                               return _GroupMessageBubble(
                                 message: msg,
                                 isOwn: isOwn,
+                                myLanguage: myLanguage,
+                                showSender: !isOwn && prev?['senderId'] != msg['senderId'],
                                 onLongPress: msg['_pending'] == true ? null : () => _showMessageActions(msg, isOwn),
                               );
                             },
@@ -226,42 +256,61 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     );
   }
 
+  /// Same composer as one-to-one chat: field with attach inside, round send button.
   Widget _inputBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      color: AppColors.backgroundMid,
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: 'Attach photo, video or file',
-            icon: Icon(Icons.attach_file, color: AppColors.textMuted),
-            onPressed: _uploadLabel != null ? null : _attach,
-          ),
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+        decoration: BoxDecoration(color: AppColors.background, border: Border(top: BorderSide(color: AppColors.border))),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Expanded(
-            child: TextField(
-              controller: _msgCtrl,
-              style: TextStyle(color: AppColors.ink),
-              decoration: InputDecoration(
-                hintText: 'Message...',
-                hintStyle: TextStyle(color: AppColors.textMuted),
-                border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)), borderSide: BorderSide.none),
-                filled: true,
-                fillColor: AppColors.surface,
-                contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: AppColors.backgroundMid,
+                borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: AppColors.border),
               ),
-              onSubmitted: (_) => _send(),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
+                    controller: _msgCtrl,
+                    minLines: 1,
+                    maxLines: 5,
+                    style: TextStyle(color: AppColors.ink, fontSize: 16),
+                    decoration: InputDecoration(
+                      hintText: 'Message the group...',
+                      hintStyle: TextStyle(color: AppColors.textMuted),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Attach photo, video or file',
+                  icon: Icon(Icons.attach_file, color: AppColors.textMuted),
+                  onPressed: _uploadLabel != null ? null : _attach,
+                ),
+              ]),
             ),
           ),
           const SizedBox(width: 8),
-          GestureDetector(
-            onTap: _send,
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: AppColors.cyan, shape: BoxShape.circle),
-              child: Icon(Icons.send, color: AppColors.background, size: 20),
+          Material(
+            color: AppColors.cyan,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _send,
+              child: const SizedBox(width: 50, height: 50, child: Icon(Icons.send, color: AppColors.onAccent, size: 22, semanticLabel: 'Send')),
             ),
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -270,8 +319,10 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
 class _GroupMessageBubble extends StatelessWidget {
   final Map<String, dynamic> message;
   final bool isOwn;
+  final bool showSender;
+  final String myLanguage;
   final VoidCallback? onLongPress;
-  const _GroupMessageBubble({required this.message, required this.isOwn, this.onLongPress});
+  const _GroupMessageBubble({required this.message, required this.isOwn, required this.myLanguage, this.showSender = false, this.onLongPress});
 
   static String _clock(dynamic raw) {
     final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
@@ -282,92 +333,91 @@ class _GroupMessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = message['displayContent']?.toString() ?? message['originalContent']?.toString() ?? '';
-    final senderName = (message['sender'] as Map<String, dynamic>?)?['username']?.toString();
+    final original = message['originalContent']?.toString() ?? '';
+    final shown = message['displayContent']?.toString() ?? original;
+    final originalLang = message['originalLanguage']?.toString() ?? myLanguage;
+    final translated = !isOwn && shown != original && message['originalLanguage'] != null;
+    final senderName = (message['sender'] as Map<String, dynamic>?)?['username']?.toString() ?? 'Member';
     final messageType = message['messageType']?.toString() ?? 'text';
     final attachmentUrl = message['attachmentUrl']?.toString();
     final attachmentTitle = message['attachmentTitle']?.toString();
     final attachmentSize = (message['attachmentSize'] as num?)?.toInt();
     final attachmentMime = message['attachmentMime']?.toString();
-    final showingTranslated = message['originalLanguage'] != null &&
-        message['displayContent'] != null &&
-        message['displayContent'] != message['originalContent'];
-    final fg = AppColors.textPrimary;
+    final isMedia = attachmentUrl != null && (messageType == 'attachment' || messageType == 'file');
+    final pending = message['_pending'] == true;
+
+    final bubble = Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: isMedia ? const EdgeInsets.all(4) : const EdgeInsets.fromLTRB(14, 10, 14, 8),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.74),
+      decoration: BoxDecoration(
+        color: isOwn ? AppColors.blueTint : AppColors.surface,
+        border: isOwn ? null : Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(isOwn ? 18 : 6),
+          bottomRight: Radius.circular(isOwn ? 6 : 18),
+        ),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        if (showSender)
+          Padding(
+            padding: EdgeInsets.fromLTRB(isMedia ? 8 : 0, isMedia ? 4 : 0, 0, 3),
+            child: Text(senderName, style: TextStyle(color: _senderColor(senderName), fontSize: 13, fontWeight: FontWeight.w700)),
+          ),
+        if (attachmentUrl != null && messageType == 'attachment')
+          ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
+        else if (attachmentUrl != null && messageType == 'file' && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
+          ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)
+        else if (attachmentUrl != null && messageType == 'file')
+          ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
+        else ...[
+          Text(shown, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.35)),
+          if (translated) ...[
+            const SizedBox(height: 6),
+            Text('Original · ${Languages.name(originalLang)}',
+                style: TextStyle(color: AppColors.cyan, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+            const SizedBox(height: 2),
+            Text(original, style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.35)),
+          ],
+        ],
+        const SizedBox(height: 4),
+        Padding(
+          padding: isMedia ? const EdgeInsets.fromLTRB(8, 0, 8, 4) : EdgeInsets.zero,
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (!isMedia && shown.isNotEmpty) ...[
+              NtListenButton(text: shown, language: translated ? myLanguage : originalLang),
+              const SizedBox(width: 8),
+            ],
+            Text(_clock(message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+            if (isOwn && pending) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.schedule, size: 14, color: AppColors.textMuted, semanticLabel: 'Sending'),
+            ],
+          ]),
+        ),
+      ]),
+    );
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
-      onLongPress: onLongPress,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-        decoration: BoxDecoration(
-          color: isOwn ? AppColors.blueTint : AppColors.surfaceElevated,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(isOwn ? 18 : 4),
-            bottomRight: Radius.circular(isOwn ? 4 : 18),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!isOwn && senderName != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(senderName, style: TextStyle(color: AppColors.cyan, fontSize: 13, fontWeight: FontWeight.w700)),
-              ),
-            if (attachmentUrl != null && messageType == 'attachment')
-              ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
-            else if (attachmentUrl != null && messageType == 'file' && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
-              ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)
-            else if (attachmentUrl != null && messageType == 'file')
-              ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
-            else
-              Text(content, style: TextStyle(color: fg, fontSize: 16, height: 1.35)),
-            if (showingTranslated) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.only(top: 6),
-                decoration: BoxDecoration(border: Border(top: BorderSide(color: fg.withValues(alpha: 0.18)))),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Icon(Icons.translate, size: 13, color: fg.withValues(alpha: 0.7)),
-                    ),
-                    const SizedBox(width: 5),
-                    Flexible(
-                      child: Text('${message['originalContent']}', style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 13, height: 1.3)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerRight,
-              widthFactor: 1,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_clock(message['createdAt']), style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 11.5)),
-                  if (isOwn && message['_pending'] == true) ...[
-                    const SizedBox(width: 4),
-                    Icon(Icons.schedule, size: 14, color: fg.withValues(alpha: 0.7), semanticLabel: 'sending'),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+        onLongPress: onLongPress,
+        child: isOwn
+            ? bubble
+            : Row(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                // Avatar only on the first message of a run, like the sender name.
+                SizedBox(width: 34, child: showSender ? NtAvatar(name: senderName, size: 30) : null),
+                const SizedBox(width: 4),
+                Flexible(child: bubble),
+              ]),
       ),
     );
+  }
+
+  static Color _senderColor(String name) {
+    const palette = [Color(0xFF1E66F5), Color(0xFF16A34A), Color(0xFFEA580C), Color(0xFF7C3AED), Color(0xFF0891B2), Color(0xFFDB2777)];
+    return palette[name.trim().hashCode.abs() % palette.length];
   }
 }

@@ -374,7 +374,7 @@ class _FaceToFaceScreenState extends State<FaceToFaceScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Voice Translator'), centerTitle: true),
+      appBar: AppBar(title: const Text('Face to face'), centerTitle: true),
       body: SafeArea(
         child: Column(
           children: [
