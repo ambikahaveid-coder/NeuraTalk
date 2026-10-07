@@ -7,6 +7,11 @@
  * this page, the user verifies here, and the resulting NeuraTalk session token
  * is handed to the app through the `NeuraTalkApp` JavaScript channel (an
  * in-process bridge — the token is never put in a URL).
+ *
+ * `?mode=bridge`: no visible UI. The app keeps this page hidden, the page
+ * sends the SMS with the invisible reCAPTCHA, and the user types the code in
+ * the app's own OTP screen; the app calls `window.neuratalkVerify(code)`.
+ * Messages to the app: ready, codeSent, error, verifyError, login.
  */
 import { useEffect, useRef, useState } from "react";
 import type { ConfirmationResult } from "firebase/auth";
@@ -23,6 +28,8 @@ import { LogoWithIcon } from "@/components/Logo";
 declare global {
   interface Window {
     NeuraTalkApp?: { postMessage: (message: string) => void };
+    neuratalkVerify?: (code: string) => void;
+    neuratalkResend?: () => void;
   }
 }
 
@@ -32,6 +39,7 @@ function postToApp(message: Record<string, unknown>) {
 
 export default function AppLogin() {
   const params = new URLSearchParams(window.location.search);
+  const bridge = params.get("mode") === "bridge";
   const initialDigits = (params.get("phone") || "").replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "").slice(-10);
 
   const [digits, setDigits] = useState(initialDigits);
@@ -49,6 +57,11 @@ export default function AppLogin() {
     if (initialDigits.length === 10 && !autoSent.current) {
       autoSent.current = true;
       void sendCode();
+    }
+    if (bridge) {
+      window.neuratalkVerify = (otp: string) => { void verifyCode(otp); };
+      window.neuratalkResend = () => { void sendCode(); };
+      postToApp({ type: "ready" });
     }
     return () => {
       try { clearRecaptcha(); } catch { /* already cleared */ }
@@ -68,17 +81,22 @@ export default function AppLogin() {
       if (!result) throw new Error("Phone login is not available right now.");
       confirmation.current = result;
       setStep("code");
+      postToApp({ type: "codeSent" });
     } catch (err) {
-      setError(getFirebasePhoneAuthErrorMessage(err));
+      const message = getFirebasePhoneAuthErrorMessage(err);
+      setError(message);
+      postToApp({ type: "error", message });
     } finally {
       setBusy(false);
     }
   }
 
-  async function verifyCode() {
-    const otp = code.replace(/\D/g, "");
+  async function verifyCode(fromApp?: string) {
+    const otp = (fromApp ?? code).replace(/\D/g, "");
     if (otp.length !== 6 || !confirmation.current) {
-      setError("Enter the 6-digit code from the SMS.");
+      const message = confirmation.current ? "Enter the 6-digit code from the SMS." : "The code hasn't been sent yet. Please wait a moment.";
+      setError(message);
+      postToApp({ type: "verifyError", message });
       return;
     }
     setBusy(true);
@@ -99,13 +117,13 @@ export default function AppLogin() {
       postToApp({ type: "login", token: data.token, user: data.user ?? null });
     } catch (err) {
       const code = typeof err === "object" && err && "code" in err ? String((err as { code?: unknown }).code) : "";
-      setError(
-        code === "auth/invalid-verification-code"
-          ? "Wrong code. Please check the SMS and try again."
-          : code === "auth/code-expired"
-            ? "The code expired. Please request a new one."
-            : err instanceof Error && !code ? err.message : getFirebasePhoneAuthErrorMessage(err),
-      );
+      const message = code === "auth/invalid-verification-code"
+        ? "Wrong code. Please check the SMS and try again."
+        : code === "auth/code-expired"
+          ? "The code expired. Please request a new one."
+          : err instanceof Error && !code ? err.message : getFirebasePhoneAuthErrorMessage(err);
+      setError(message);
+      postToApp({ type: "verifyError", message });
     } finally {
       setBusy(false);
     }
@@ -113,6 +131,16 @@ export default function AppLogin() {
 
   const input = "w-full rounded-xl border-2 border-slate-600 bg-slate-900 px-4 py-4 text-2xl text-white tracking-wider outline-none focus:border-[#4F8DFF]";
   const button = "w-full rounded-xl bg-[#1E66F5] py-4 text-xl font-bold text-white disabled:opacity-50";
+
+  if (bridge) {
+    // Nothing to see: the app shows its own screens. Only a reCAPTCHA
+    // challenge (rare) renders here, and the app reveals the page for it.
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div id="app-login-recaptcha" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 px-5 py-10 text-white">
@@ -153,7 +181,7 @@ export default function AppLogin() {
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 placeholder="------"
               />
-              <button className={button} disabled={busy} onClick={verifyCode}>
+              <button className={button} disabled={busy} onClick={() => verifyCode()}>
                 {busy ? "Verifying…" : "Verify & Login"}
               </button>
               <button
