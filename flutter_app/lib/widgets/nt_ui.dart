@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/languages.dart';
@@ -270,3 +271,47 @@ class NtListenButton extends StatelessWidget {
     );
   }
 }
+
+/// True for a message that is just 1-3 emojis (shown big, without a bubble).
+bool isEmojiOnly(String text) {
+  final t = text.replaceAll(RegExp(r'\s'), '');
+  if (t.isEmpty) return false;
+  final clusters = t.characters.toList();
+  if (clusters.length > 3) return false;
+  final emoji = RegExp(r'^(\p{Extended_Pictographic}|\p{Regional_Indicator})', unicode: true);
+  return clusters.every((c) => emoji.hasMatch(c) && !RegExp(r'^[0-9#*]').hasMatch(c));
+}
+
+/// Emoji keyboard styled to match the app in light and dark.
+Config ntEmojiConfig() => Config(
+      height: 300,
+      emojiViewConfig: EmojiViewConfig(
+        columns: 8,
+        emojiSizeMax: 30,
+        backgroundColor: AppColors.background,
+        recentsLimit: 32,
+        verticalSpacing: 2,
+        horizontalSpacing: 2,
+        gridPadding: const EdgeInsets.symmetric(horizontal: 8),
+        noRecents: Text('Emojis you use will show up here', style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
+      ),
+      skinToneConfig: SkinToneConfig(dialogBackgroundColor: AppColors.surface, indicatorColor: AppColors.textMuted),
+      categoryViewConfig: CategoryViewConfig(
+        backgroundColor: AppColors.background,
+        indicatorColor: AppColors.cyan,
+        iconColor: AppColors.textMuted,
+        iconColorSelected: AppColors.cyan,
+        backspaceColor: AppColors.cyan,
+        dividerColor: AppColors.border,
+      ),
+      bottomActionBarConfig: BottomActionBarConfig(
+        backgroundColor: AppColors.background,
+        buttonColor: AppColors.background,
+        buttonIconColor: AppColors.textMuted,
+      ),
+      searchViewConfig: SearchViewConfig(
+        backgroundColor: AppColors.background,
+        buttonIconColor: AppColors.textMuted,
+        hintText: 'Search emoji',
+      ),
+    );

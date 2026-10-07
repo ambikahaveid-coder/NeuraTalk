@@ -8,6 +8,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
+import '../widgets/location_share.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
@@ -372,10 +373,13 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                child: Icon(icon, color: AppColors.onAccent, size: 26),
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: AppColors.isDark ? 0.22 : 0.12),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Icon(icon, color: color, size: 28),
               ),
               const SizedBox(height: 8),
               Text(label, style: TextStyle(color: AppColors.ink, fontSize: 13.5, fontWeight: FontWeight.w500)),
@@ -409,53 +413,17 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 
   Future<void> _shareCurrentLocation() async {
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Location permission is required to share your location.'),
-          action: permission == LocationPermission.deniedForever
-              ? SnackBarAction(label: 'Open settings', onPressed: Geolocator.openAppSettings)
-              : null,
-        ));
-      }
-      return;
-    }
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Turn on location services to share your location.')),
-        );
-      }
-      return;
-    }
-
-    setState(() => _uploading = true);
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
+    final provider = context.read<PersonalChatProvider>();
+    await showShareLocationSheet(context, onSend: (lat, lng, address) async {
+      await provider.sendMessage(
+        _threadId,
+        address ?? 'Location',
+        messageType: 'location',
+        attachmentUrl: 'geo:$lat,$lng',
+        attachmentTitle: address ?? 'Shared location',
       );
-      if (!mounted) return;
-      await context.read<PersonalChatProvider>().sendMessage(
-            _threadId,
-            'Location',
-            messageType: 'location',
-            attachmentUrl: 'geo:${position.latitude},${position.longitude}',
-            attachmentTitle: 'My Location',
-          );
       _scrollToBottom();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not get your location. Please try again.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
+    });
   }
 
   void _toast(String text) {
@@ -897,14 +865,12 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             _inputBar(),
           if (_showEmoji)
             SizedBox(
-              height: 280,
+              height: 300,
               child: EmojiPicker(
-                onEmojiSelected: (category, emoji) {
-                  _msgCtrl.text += emoji.emoji;
-                  _msgCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _msgCtrl.text.length));
-                  context.read<PersonalChatProvider>().onTextChanged(_threadId, _msgCtrl.text);
-                },
-                config: const Config(),
+                textEditingController: _msgCtrl,
+                onEmojiSelected: (_, __) => context.read<PersonalChatProvider>().onTextChanged(_threadId, _msgCtrl.text),
+                onBackspacePressed: () => context.read<PersonalChatProvider>().onTextChanged(_threadId, _msgCtrl.text),
+                config: ntEmojiConfig(),
               ),
             ),
         ],
@@ -1156,7 +1122,58 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     final hasText = !isDeleted && (messageType == 'text' || (isVoice && message['voiceTranscribed'] == true));
     final texts = _texts();
     final fg = AppColors.textPrimary;
-    final isMedia = (messageType == 'attachment' || messageType == 'file') && attachmentUrl != null;
+    final isMedia = (messageType == 'attachment' || messageType == 'file' || messageType == 'location') && attachmentUrl != null;
+    final isPhoto = messageType == 'attachment' && attachmentUrl != null && !isDeleted;
+    // 1-3 emojis on their own are shown big, without a bubble (like WhatsApp).
+    final jumbo = messageType == 'text' && !isDeleted && widget.repliedMessage == null && isEmojiOnly(texts.primary);
+
+    if (jumbo || isPhoto) {
+      final time = Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(_clock(message['createdAt']), style: TextStyle(color: jumbo ? AppColors.textMuted : Colors.white, fontSize: 11.5)),
+        if (isOwn && status != null) ...[
+          const SizedBox(width: 3),
+          Icon(status == 'sending' ? Icons.schedule : status == 'sent' ? Icons.done : Icons.done_all,
+              size: 15, color: status == 'seen' ? (jumbo ? AppColors.cyan : const Color(0xFF8FD3FF)) : (jumbo ? AppColors.textMuted : Colors.white)),
+        ],
+      ]);
+      return Align(
+        alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: widget.onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: jumbo
+                ? Column(crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+                    Text(texts.primary, style: const TextStyle(fontSize: 44, height: 1.15)),
+                    if (isOwn && status == 'failed') _footer(isOwn, status, null) else time,
+                  ])
+                : Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: isOwn ? AppColors.blueTint : AppColors.surface,
+                      borderRadius: BorderRadius.circular(17),
+                      border: isOwn ? null : Border.all(color: AppColors.border),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                      Stack(children: [
+                        ChatImageAttachment(objectPath: attachmentUrl!, name: attachmentTitle ?? 'photo.jpg'),
+                        Positioned(
+                          right: 8,
+                          bottom: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.45), borderRadius: BorderRadius.circular(10)),
+                            child: time,
+                          ),
+                        ),
+                      ]),
+                      if (isOwn && status == 'failed') Padding(padding: const EdgeInsets.fromLTRB(8, 0, 8, 4), child: _footer(isOwn, status, null)),
+                    ]),
+                  ),
+          ),
+        ),
+      );
+    }
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
@@ -1203,7 +1220,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
               else if (messageType == 'file' && attachmentUrl != null)
                 ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
               else if (messageType == 'location' && attachmentUrl != null)
-                _location(attachmentUrl, attachmentTitle)
+                ChatLocationAttachment(geo: attachmentUrl, title: attachmentTitle)
               else if (isVoice)
                 _voicePlayer(attachmentUrl, attachmentTitle),
               if (isDeleted)
@@ -1291,34 +1308,5 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
       const SizedBox(width: 10),
       Text(duration ?? '', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
     ]);
-  }
-
-  Widget _location(String attachmentUrl, String? title) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: () async {
-        final coords = attachmentUrl.replaceFirst('geo:', '');
-        final opened = await launchUrl(Uri.parse('https://www.google.com/maps?q=$coords'), mode: LaunchMode.externalApplication)
-            .catchError((_) => false);
-        if (!opened && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open maps.')));
-        }
-      },
-      child: Container(
-        width: 230,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: AppColors.green.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
-        child: Row(children: [
-          const Icon(Icons.location_on, color: AppColors.green, size: 30),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text(title ?? 'Location', style: TextStyle(color: AppColors.ink, fontSize: 14.5, fontWeight: FontWeight.w600)),
-              Text('Open in Maps', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
-            ]),
-          ),
-        ]),
-      ),
-    );
   }
 }

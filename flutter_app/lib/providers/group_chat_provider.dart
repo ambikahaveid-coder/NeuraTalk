@@ -156,6 +156,20 @@ class GroupChatProvider extends ChangeNotifier {
     }
   }
 
+  /// Shares a place as "geo:lat,lng" with its short address as the title.
+  Future<void> sendLocation(int groupId, double lat, double lng, String? address) async {
+    try {
+      await ApiService.post('/api/group-chats/$groupId/messages', {
+        'content': address ?? 'Location',
+        'messageType': 'location',
+        'attachmentUrl': 'geo:${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}',
+        'attachmentTitle': address ?? 'Shared location',
+      });
+    } finally {
+      await _fetchMessages(groupId);
+    }
+  }
+
   Future<void> deleteMessage(int groupId, int messageId) async {
     await ApiService.delete('/api/group-chats/$groupId/messages/$messageId');
     messages.removeWhere((m) => m['id'] == messageId);

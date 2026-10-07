@@ -16,11 +16,9 @@ import 'group_chat_list_screen.dart';
 import 'language_preferences_screen.dart';
 import 'user_discovery_screen.dart';
 
-/// Home: answers "who can I talk to, and how?" in one glance.
-///
-/// Hierarchy: one primary action (start a translated conversation), three
-/// secondary ways to talk, then the people you talked to recently with their
-/// language pair and one-tap call.
+/// Home: calm and quick. A search bar to reach anyone, one row of ways to
+/// talk, then your recent people. Translation status is a quiet line, not a
+/// banner: it is always on, so it doesn't need to shout.
 class HomeScreen extends StatefulWidget {
   /// Switches the bottom-nav tab (1 Chats, 2 Calls, 3 Contacts, 4 More).
   final ValueChanged<int> onOpenTab;
@@ -114,32 +112,25 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.fromLTRB(NtSpace.xl, NtSpace.xl, NtSpace.xl, 0),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(firstName != null ? '$_greeting, $firstName' : _greeting,
-                      style: TextStyle(color: AppColors.ink, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
-                  const SizedBox(height: 4),
-                  Text('Speak ${myLang.name}. We\'ll handle the rest.',
-                      style: TextStyle(color: AppColors.textSecondary, fontSize: 15)),
+                      style: TextStyle(color: AppColors.ink, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                  const SizedBox(height: 6),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _push(const LanguagePreferencesScreen()),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
+                      Text('Everything is translated into ${myLang.name}',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 14.5)),
+                    ]),
+                  ),
                 ]),
               ),
-              Padding(padding: const EdgeInsets.fromLTRB(NtSpace.l, NtSpace.xl, NtSpace.l, 0), child: _hero(myLang)),
-              Padding(padding: const EdgeInsets.fromLTRB(NtSpace.l, NtSpace.m, NtSpace.l, 0), child: _secondaryActions()),
-              NtSectionHeader('Recent conversations', action: recent.isEmpty ? null : 'View all', onAction: () => widget.onOpenTab(1)),
+              Padding(padding: const EdgeInsets.fromLTRB(NtSpace.l, NtSpace.xl, NtSpace.l, 0), child: _searchBar()),
+              Padding(padding: const EdgeInsets.fromLTRB(NtSpace.s, NtSpace.xl, NtSpace.s, 0), child: _quickActions()),
+              NtSectionHeader(recent.isEmpty ? 'How it works' : 'Recent', action: recent.isEmpty ? null : 'View all', onAction: () => widget.onOpenTab(1)),
               if (recent.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: NtSpace.l),
-                  child: _card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(NtSpace.l),
-                      child: Row(children: [
-                        Icon(Icons.forum_outlined, color: AppColors.cyan, size: 28),
-                        const SizedBox(width: NtSpace.m),
-                        Expanded(
-                          child: Text('Your conversations will appear here, with each person\'s language.',
-                              style: TextStyle(color: AppColors.textSecondary, fontSize: 14.5, height: 1.4)),
-                        ),
-                      ]),
-                    ),
-                  ),
-                )
+                Padding(padding: const EdgeInsets.symmetric(horizontal: NtSpace.l), child: _howItWorks(myLang))
               else
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: NtSpace.l),
@@ -159,81 +150,96 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// The one primary action.
-  Widget _hero(LanguageInfo myLang) {
-    const deep = Color(0xFF1846C9);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(NtSpace.xl, NtSpace.xl, NtSpace.xl, NtSpace.l),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [AppColors.cyan, deep]),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const LiveBadge(onDark: true, label: 'Live translation on'),
-        const SizedBox(height: NtSpace.m),
-        const Text('Talk to anyone,\nin their language',
-            style: TextStyle(color: AppColors.onAccent, fontSize: 24, fontWeight: FontWeight.w800, height: 1.2, letterSpacing: -0.3)),
-        const SizedBox(height: NtSpace.s),
-        Text('You speak ${myLang.name}. They hear and read their own language, on calls and in chat.',
-            style: const TextStyle(color: Color(0xE6FFFFFF), fontSize: 14.5, height: 1.4)),
-        const SizedBox(height: NtSpace.l),
-        Row(children: [
-          Expanded(
-            child: ElevatedButton.icon(
-              onPressed: () => _push(const UserDiscoveryScreen()),
-              icon: const Icon(Icons.add_comment_outlined, size: 20),
-              label: const Text('Start a conversation'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.onAccent,
-                foregroundColor: deep,
-                minimumSize: const Size(0, 50),
-                textStyle: const TextStyle(fontFamily: 'Inter', fontSize: 15.5, fontWeight: FontWeight.w700),
-              ),
+  /// Looks like search, because that's what people expect: find a person, start talking.
+  Widget _searchBar() {
+    return Material(
+      color: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: AppColors.border)),
+      child: InkWell(
+        customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        onTap: () => _push(const UserDiscoveryScreen()),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 15, 16, 15),
+          child: Row(children: [
+            Icon(Icons.search, color: AppColors.textMuted),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Search people or a phone number',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 15.5)),
             ),
-          ),
-          const SizedBox(width: NtSpace.s),
-          IconButton.filled(
-            tooltip: 'Call a number',
-            onPressed: () => widget.onOpenTab(2),
-            style: IconButton.styleFrom(backgroundColor: const Color(0x33FFFFFF), fixedSize: const Size(50, 50)),
-            icon: const Icon(Icons.dialpad, color: AppColors.onAccent),
-          ),
-        ]),
-      ]),
+            Icon(Icons.add_comment_outlined, color: AppColors.cyan, size: 22),
+          ]),
+        ),
+      ),
     );
   }
 
-  /// Secondary ways to talk: smaller, one row.
-  Widget _secondaryActions() {
-    Widget tile(IconData icon, String label, String hint, Color color, VoidCallback onTap) => Expanded(
-          child: _card(
-            child: InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: NtSpace.s, vertical: NtSpace.m),
-                child: Column(children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(color: color.withValues(alpha: AppColors.isDark ? 0.22 : 0.12), shape: BoxShape.circle),
-                    child: Icon(icon, color: color, size: 21),
+  /// Ways to talk, as one row of round buttons (like a payments app: big
+  /// targets, one word each, easy for everyone).
+  Widget _quickActions() {
+    Widget action(IconData icon, String label, Color color, VoidCallback onTap) => Expanded(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: AppColors.isDark ? 0.22 : 0.11),
+                    borderRadius: BorderRadius.circular(18),
                   ),
-                  const SizedBox(height: NtSpace.s),
-                  Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: AppColors.ink, fontSize: 13.5, fontWeight: FontWeight.w700)),
-                  Text(hint, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
-                ]),
-              ),
+                  child: Icon(icon, color: color, size: 25),
+                ),
+                const SizedBox(height: 8),
+                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.ink, fontSize: 12.5, fontWeight: FontWeight.w600)),
+              ]),
             ),
           ),
         );
     return Row(children: [
-      tile(Icons.record_voice_over, 'Face to face', 'One phone', AppColors.orange, () => _push(const FaceToFaceScreen())),
-      const SizedBox(width: NtSpace.s),
-      tile(Icons.groups, 'Groups', 'Many languages', AppColors.purple, () => _push(const GroupChatListScreen())),
-      const SizedBox(width: NtSpace.s),
-      tile(Icons.auto_awesome, 'Assistant', 'Write & translate', const Color(0xFF0891B2), () => _push(const ChatScreen())),
+      action(Icons.chat_bubble_outline, 'New chat', AppColors.cyan, () => _push(const UserDiscoveryScreen())),
+      action(Icons.call_outlined, 'Call', AppColors.green, () => widget.onOpenTab(2)),
+      action(Icons.record_voice_over_outlined, 'In person', AppColors.orange, () => _push(const FaceToFaceScreen())),
+      action(Icons.groups_outlined, 'Groups', AppColors.purple, () => _push(const GroupChatListScreen())),
+      action(Icons.auto_awesome_outlined, 'Assistant', const Color(0xFF0891B2), () => _push(const ChatScreen())),
     ]);
+  }
+
+  /// First-run guide: three honest steps, no marketing.
+  Widget _howItWorks(LanguageInfo myLang) {
+    Widget step(int n, String title, String body) => Padding(
+          padding: const EdgeInsets.fromLTRB(NtSpace.l, NtSpace.m, NtSpace.l, NtSpace.m),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Container(
+              width: 28,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: AppColors.cyan.withValues(alpha: 0.12), shape: BoxShape.circle),
+              child: Text('$n', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w800, fontSize: 13.5)),
+            ),
+            const SizedBox(width: NtSpace.m),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: TextStyle(color: AppColors.ink, fontSize: 15, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text(body, style: TextStyle(color: AppColors.textSecondary, fontSize: 14, height: 1.4)),
+              ]),
+            ),
+          ]),
+        );
+    return _card(
+      child: Column(children: [
+        step(1, 'You speak ${myLang.name}', 'Type, talk or send voice notes in your own language.'),
+        Divider(height: 1, indent: 56, color: AppColors.border),
+        step(2, 'They get their language', 'Chats, calls and voice notes reach them already translated.'),
+        Divider(height: 1, indent: 56, color: AppColors.border),
+        step(3, 'Start with anyone', 'Search a name or number above, or invite a friend.'),
+      ]),
+    );
   }
 
   static String _when(dynamic raw) {

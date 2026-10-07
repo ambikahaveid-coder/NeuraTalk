@@ -11,7 +11,8 @@ import '../theme/app_theme.dart';
 class AttachmentPicker {
   static const maxItems = 10;
 
-  static Future<List<(File, String)>> show(BuildContext context) async {
+  /// [onLocation] adds a Location tile; it runs instead of picking files.
+  static Future<List<(File, String)>> show(BuildContext context, {VoidCallback? onLocation}) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -23,10 +24,13 @@ class AttachmentPicker {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-                    child: Icon(icon, color: AppColors.onAccent, size: 26),
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: AppColors.isDark ? 0.22 : 0.12),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Icon(icon, color: color, size: 28),
                   ),
                   const SizedBox(height: 8),
                   Text(label, style: TextStyle(color: AppColors.ink, fontSize: 13.5, fontWeight: FontWeight.w500)),
@@ -37,7 +41,7 @@ class AttachmentPicker {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: GridView.count(
-              crossAxisCount: 4,
+              crossAxisCount: 3,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               children: [
@@ -45,6 +49,7 @@ class AttachmentPicker {
                 item('camera', Icons.photo_camera, 'Camera', const Color(0xFFDB2777)),
                 item('video', Icons.videocam, 'Video', const Color(0xFFEA580C)),
                 item('document', Icons.insert_drive_file, 'Document', const Color(0xFF2563EB)),
+                if (onLocation != null) item('location', Icons.location_on, 'Location', const Color(0xFF16A34A)),
               ],
             ),
           ),
@@ -52,6 +57,10 @@ class AttachmentPicker {
       },
     );
     if (choice == null || !context.mounted) return const [];
+    if (choice == 'location') {
+      onLocation?.call();
+      return const [];
+    }
 
     List<(File, String)> picked = const [];
     try {

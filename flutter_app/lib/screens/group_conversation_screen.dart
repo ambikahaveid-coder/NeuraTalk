@@ -6,7 +6,9 @@ import '../providers/group_chat_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/media_store.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../widgets/attachment_picker.dart';
+import '../widgets/location_share.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
 import '../utils/languages.dart';
@@ -25,6 +27,8 @@ class GroupConversationScreen extends StatefulWidget {
 class _GroupConversationScreenState extends State<GroupConversationScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  final _focusNode = FocusNode();
+  bool _showEmoji = false;
   // Current upload ("Sending 2 of 3 · photo.jpg").
   String? _uploadLabel;
   double _uploadProgress = 0;
@@ -45,6 +49,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _groups.closeGroup();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -64,9 +69,27 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _scrollToBottom();
   }
 
+  Future<void> _shareLocation() async {
+    final provider = context.read<GroupChatProvider>();
+    await showShareLocationSheet(context, onSend: (lat, lng, address) async {
+      await provider.sendLocation(widget.groupId, lat, lng, address);
+      _scrollToBottom();
+    });
+  }
+
+  void _toggleEmoji() {
+    if (_showEmoji) {
+      setState(() => _showEmoji = false);
+      _focusNode.requestFocus();
+    } else {
+      _focusNode.unfocus();
+      setState(() => _showEmoji = true);
+    }
+  }
+
   Future<void> _attach() async {
     if (_uploadLabel != null) return;
-    final files = await AttachmentPicker.show(context);
+    final files = await AttachmentPicker.show(context, onLocation: _shareLocation);
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
       final (file, name) = files[i];
@@ -163,7 +186,12 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     final members = (provider.activeGroup?['members'] as List?) ?? const [];
     void openInfo() => Navigator.push(context, MaterialPageRoute(builder: (_) => GroupInfoScreen(groupId: widget.groupId)));
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_showEmoji,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _showEmoji) setState(() => _showEmoji = false);
+      },
+      child: Scaffold(
       backgroundColor: AppColors.backgroundMid,
       appBar: AppBar(
         titleSpacing: 0,
@@ -251,8 +279,14 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
               ]),
             ),
           _inputBar(),
+          if (_showEmoji)
+            SizedBox(
+              height: 300,
+              child: EmojiPicker(textEditingController: _msgCtrl, config: ntEmojiConfig()),
+            ),
         ],
       ),
+    ),
     );
   }
 
@@ -272,10 +306,18 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                 border: Border.all(color: AppColors.border),
               ),
               child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                const SizedBox(width: 16),
+                IconButton(
+                  tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
+                  icon: Icon(_showEmoji ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppColors.textMuted),
+                  onPressed: _toggleEmoji,
+                ),
                 Expanded(
                   child: TextField(
                     controller: _msgCtrl,
+                    focusNode: _focusNode,
+                    onTap: () {
+                      if (_showEmoji) setState(() => _showEmoji = false);
+                    },
                     minLines: 1,
                     maxLines: 5,
                     style: TextStyle(color: AppColors.ink, fontSize: 16),
@@ -343,7 +385,25 @@ class _GroupMessageBubble extends StatelessWidget {
     final attachmentTitle = message['attachmentTitle']?.toString();
     final attachmentSize = (message['attachmentSize'] as num?)?.toInt();
     final attachmentMime = message['attachmentMime']?.toString();
-    final isMedia = attachmentUrl != null && (messageType == 'attachment' || messageType == 'file');
+    final isMedia = attachmentUrl != null && (messageType == 'attachment' || messageType == 'file' || messageType == 'location');
+    final jumbo = !isMedia && messageType == 'text' && isEmojiOnly(shown);
+    if (jumbo) {
+      return Align(
+        alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(isOwn ? 0 : 38, 4, 0, 4),
+            child: Column(crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+              if (showSender)
+                Text(senderName, style: TextStyle(color: _senderColor(senderName), fontSize: 13, fontWeight: FontWeight.w700)),
+              Text(shown, style: const TextStyle(fontSize: 44, height: 1.15)),
+              Text(_clock(message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+            ]),
+          ),
+        ),
+      );
+    }
     final pending = message['_pending'] == true;
 
     final bubble = Container(
@@ -366,7 +426,9 @@ class _GroupMessageBubble extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(isMedia ? 8 : 0, isMedia ? 4 : 0, 0, 3),
             child: Text(senderName, style: TextStyle(color: _senderColor(senderName), fontSize: 13, fontWeight: FontWeight.w700)),
           ),
-        if (attachmentUrl != null && messageType == 'attachment')
+        if (attachmentUrl != null && messageType == 'location')
+          ChatLocationAttachment(geo: attachmentUrl, title: message['attachmentTitle']?.toString())
+        else if (attachmentUrl != null && messageType == 'attachment')
           ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
         else if (attachmentUrl != null && messageType == 'file' && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
           ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)

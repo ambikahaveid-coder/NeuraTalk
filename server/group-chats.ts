@@ -31,6 +31,7 @@ async function finalizeGroupAttachment(senderId: number, groupId: number, object
 function groupMessagePreview(messageType: string, content: string, title?: string): string {
   if (messageType === "attachment") return "📷 Photo";
   if (messageType === "voice_note") return "🎤 Voice message";
+  if (messageType === "location") return "📍 Location";
   if (messageType === "file") {
     const name = title || content || "File";
     return /\.(mp4|mov|webm|3gp|mkv|avi|mpeg|m4v)$/i.test(name) ? "🎥 Video" : `📄 ${name}`;
@@ -451,14 +452,17 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     const groupId = parseInt(req.params.groupId);
     const { messageType, originalLanguage, replyToId, attachmentUrl, attachmentTitle, attachmentSize, attachmentMime } = req.body;
     const isAttachment = GROUP_ATTACHMENT_TYPES.has(messageType) && typeof attachmentUrl === "string";
+    // A shared location is just coordinates ("geo:lat,lng"), never a stored file.
+    const isLocation = messageType === "location" && typeof attachmentUrl === "string"
+      && /^geo:-?\d{1,2}(\.\d{1,10})?,-?\d{1,3}(\.\d{1,10})?$/.test(attachmentUrl);
     const content: string = typeof req.body.content === "string" && req.body.content.trim()
       ? req.body.content
-      : (isAttachment ? (typeof attachmentTitle === "string" ? attachmentTitle : "Attachment") : "");
+      : (isAttachment || isLocation ? (typeof attachmentTitle === "string" && attachmentTitle.trim() ? attachmentTitle : "Location") : "");
     
     if (!content) {
       return res.status(400).json({ error: "Content required" });
     }
-    if (messageType && messageType !== "text" && !isAttachment) {
+    if (messageType && messageType !== "text" && !isAttachment && !isLocation) {
       return res.status(400).json({ error: "Unsupported message type" });
     }
     
@@ -499,7 +503,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
 
     const translations: Record<string, string> = {};
     // File names and captions of photos/videos/files are not translated.
-    if (!groupTranslationConsentDenied && !isAttachment) {
+    if (!groupTranslationConsentDenied && !isAttachment && !isLocation) {
       for (const targetLang of targetLanguages) {
         if (targetLang !== detectedLang) {
           translations[targetLang] = await translateText(content, detectedLang, targetLang);
@@ -515,7 +519,9 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       originalLanguage: detectedLang,
       translations,
       replyToId: replyToId || null,
-      metadata: isAttachment
+      metadata: isLocation
+        ? { attachmentUrl, attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null }
+        : isAttachment
         ? {
             attachmentUrl,
             attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null,
