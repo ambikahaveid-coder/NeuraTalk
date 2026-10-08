@@ -38,7 +38,7 @@ export async function setupVite(server: Server, app: Express) {
     const url = req.originalUrl;
 
     // Don't serve HTML for API or WebSocket routes
-    if (url.startsWith("/api") || url.startsWith("/ws")) {
+    if (/^\/(api|ws)(\/|\?|$)/.test(url)) {
       return res.status(404).json({ error: "Not found", path: url });
     }
 

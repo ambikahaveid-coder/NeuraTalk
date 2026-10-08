@@ -92,6 +92,7 @@ import { CookieConsent } from "@/components/CookieConsent";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
 import { MobileNav } from "@/components/MobileNav";
 import { UpdatePrompt } from "@/components/UpdatePrompt";
+import { PageTitle } from "@/components/PageTitle";
 
 const legacyMeetingTransportEnabled = (import.meta.env.VITE_ENABLE_LEGACY_MEETING_TRANSPORT || "").toLowerCase() === "true";
 
@@ -533,6 +534,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
+          <PageTitle />
           <Router />
           <Toaster />
           <CookieConsent />

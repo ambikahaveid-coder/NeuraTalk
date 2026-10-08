@@ -105,6 +105,7 @@ export function CookieConsent() {
                   variant="ghost"
                   size="icon"
                   onClick={handleRejectAll}
+                  aria-label="Close"
                   className="flex-shrink-0"
                   data-testid="button-cookie-close"
                 >
@@ -144,6 +145,7 @@ export function CookieConsent() {
                   variant="ghost"
                   size="icon"
                   onClick={() => setShowSettings(false)}
+                  aria-label="Close settings"
                 >
                   <X className="w-4 h-4" />
                 </Button>

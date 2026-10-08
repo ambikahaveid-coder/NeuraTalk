@@ -150,7 +150,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   // 'unsafe-eval' is required in production: Firebase Phone Auth reCAPTCHA invisible
   // verifier uses eval() internally (Firebase SDK limitation — cannot be avoided).
   // Removing unsafe-eval causes auth/internal-error on OTP send.
-  const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
+  // apis.google.com: Firebase Auth loads its iframe helper (gapi) from there on mobile browsers.
+  const scriptSrc = "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com https://apis.google.com https://www.gstatic.com https://www.google.com https://recaptcha.net https://recaptchaenterprise.googleapis.com";
 
   const cspDirectives = [
     "default-src 'self'",
