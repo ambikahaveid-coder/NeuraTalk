@@ -3,6 +3,7 @@ import { db } from "./db";
 import { organizations, callTelemetry } from "@shared/schema";
 import { eq, gte } from "drizzle-orm";
 import { requireRole, requireAuth } from "./role-middleware";
+import { translatorHealth } from "./translator-health";
 
 const router = Router();
 
@@ -54,15 +55,16 @@ async function getSystemStatus(): Promise<SystemStatus> {
     });
   }
 
+  // This handler answering is the API check.
   services.push({
     name: "API",
     status: "operational" as const,
-    latency: 10,
   });
 
+  // From real translator-bot starts, not a fixed "operational".
   services.push({
-    name: "WebRTC Signaling",
-    status: "operational" as const,
+    name: "Call Translation",
+    ...translatorHealth(),
   });
 
   services.push({
@@ -74,12 +76,14 @@ async function getSystemStatus(): Promise<SystemStatus> {
   services.push({
     name: "Payment Gateway",
     status: process.env.RAZORPAY_KEY_ID ? "operational" as const : "degraded" as const,
-    message: process.env.RAZORPAY_KEY_ID ? undefined : "Not configured",
+    message: process.env.RAZORPAY_KEY_ID ? undefined : "Online payments not enabled yet",
   });
 
-  const overallStatus = services.some(s => s.status === "outage") 
+  // Payments being switched off is a business decision, not a service fault.
+  const core = services.filter(s => s.name !== "Payment Gateway");
+  const overallStatus = core.some(s => s.status === "outage") 
     ? "outage" 
-    : services.some(s => s.status === "degraded") 
+    : core.some(s => s.status === "degraded") 
       ? "degraded" 
       : "operational";
 

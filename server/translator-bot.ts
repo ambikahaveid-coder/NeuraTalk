@@ -86,6 +86,7 @@ import {
   ultraTranslate,
 } from "./ultra-pipeline";
 import { shouldEmitStreamingPartial, streamTranslationTokens } from "./token-streaming-translation";
+import { recordTranslatorStart } from "./translator-health";
 const BOT_DEFAULT_IDENTITY = "neuratalk-translator";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TARGET_LATENCY_MS, 800);
@@ -245,10 +246,13 @@ export async function startBotWorker(callId: string, botToken: string): Promise<
     await worker.start();
     logger.info("TranslatorBot", `[translator-diag] worker.start RESOLVED`, { callId });
     session.status = "active";
+    recordTranslatorStart(true);
     logger.info("TranslatorBot", `translator bot active for ${callId}`);
   } catch (error) {
     // Only forget our own session: a retry may already have replaced it.
     if (activeSessions.get(callId) === session) activeSessions.delete(callId);
+    // A call that ended while the bot was still joining is not a fault.
+    if (!String(error).includes("STOPPED_DURING_STARTUP")) recordTranslatorStart(false);
     logger.error("TranslatorBot", `translator bot failed for ${callId}: ${String(error)}`);
     throw error;
   }
