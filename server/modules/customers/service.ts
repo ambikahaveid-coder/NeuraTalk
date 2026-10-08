@@ -20,7 +20,7 @@ import {
   type CustomerStatus,
   type CustomerConsentChannel,
 } from "@shared/schema";
-import { eq, and, desc, or, ilike } from "drizzle-orm";
+import { eq, and, desc, or, ilike, sql } from "drizzle-orm";
 import { normalizePhoneForIndia } from "@shared/phone";
 import { normalizeEmail } from "@shared/email";
 import { createAuditLog, AUDIT_ACTION_CUSTOMER } from "./audit";
@@ -177,7 +177,7 @@ export async function findOrCreateCustomerByLinkedUser(
     status: CUSTOMER_STATUS.ACTIVE,
     source: CUSTOMER_SOURCE.MANUAL,
     createdBy: userId,
-  }).onConflictDoNothing({ target: [customers.businessId, customers.linkedUserId] }).returning();
+  }).onConflictDoNothing({ target: [customers.businessId, customers.linkedUserId], where: sql`${customers.linkedUserId} IS NOT NULL` }).returning(); // partial index: same predicate required
 
   if (inserted.length === 0) {
     const [existingAfterConflict] = await dbClient.select().from(customers)

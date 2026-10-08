@@ -12,7 +12,7 @@ import {
   type InsertCallParticipant,
   type BridgedCallWithDetails
 } from "@shared/schema";
-import { eq, desc, and, or, isNull } from "drizzle-orm";
+import { eq, desc, and, or, isNull, sql } from "drizzle-orm";
 import { detectEmotion } from "../../emotion-engine";
 import { speechToText, textToSpeech } from "../../ai_integrations/audio/client";
 import { createStreamingCall } from "./streaming";
@@ -675,7 +675,7 @@ export async function addParticipant(
     userId: options.userId,
     role: options.role || "participant",
     language: options.language || "auto",
-  }).onConflictDoNothing({ target: [callParticipants.callId, callParticipants.phoneNumber] }).returning();
+  }).onConflictDoNothing({ target: [callParticipants.callId, callParticipants.phoneNumber], where: sql`${callParticipants.leftAt} IS NULL` }).returning(); // partial index: same predicate required
 
   if (inserted.length === 0) {
     const [existingActive] = await db.select().from(callParticipants)

@@ -26,7 +26,7 @@ import {
   MESSAGE_EVENT_TYPE,
   type MessagingParticipantType,
 } from "@shared/schema";
-import { eq, and, isNull, desc, ne, inArray } from "drizzle-orm";
+import { eq, and, isNull, desc, ne, inArray, sql } from "drizzle-orm";
 import { findOrCreateCustomerByLinkedUser } from "../customers/service";
 import { createAuditLog } from "../../audit";
 import { AUDIT_ACTION } from "@shared/schema";
@@ -158,7 +158,11 @@ async function createBusinessConversationTx(
     // genuine message-send must never fail just because of this race.
     .onConflictDoNothing(
       input.customerId !== undefined
-        ? { target: [businessConversations.businessId, businessConversations.customerId] }
+        // The unique index is partial (customer_id IS NOT NULL); Postgres only
+        // matches ON CONFLICT to a partial index when the same predicate is
+        // given, otherwise every first send to a customer failed with
+        // "no unique or exclusion constraint matching the ON CONFLICT".
+        ? { target: [businessConversations.businessId, businessConversations.customerId], where: sql`${businessConversations.customerId} IS NOT NULL` }
         : undefined,
     )
     .returning();
