@@ -14,7 +14,7 @@ import { Express, Request, Response } from "express";
 import { z } from "zod";
 import { db } from "./db";
 import { users, organizations, subscriptions, billingPlans, callBillingRecords } from "@shared/schema";
-import { eq, and, or, desc, asc, like, sql, count } from "drizzle-orm";
+import { eq, and, or, desc, asc, like, ilike, sql, count, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "./role-middleware";
 import { logger } from "./observability";
 import { AuditHelpers } from "./audit";
@@ -52,6 +52,76 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+type AdminCallFilter = {
+  days?: number;
+  status?: string;
+  search?: string;
+  userId?: number;
+  page?: number;
+  limit?: number;
+};
+
+/**
+ * Calls as admins need to see them, joined from the persisted call row
+ * (bridged_calls), its billing record and both people. A call counts as
+ * answered when it connected, missed when it ended without connecting.
+ */
+async function listAdminCalls(filter: AdminCallFilter) {
+  const limit = filter.limit ?? 50;
+  const offset = ((filter.page ?? 1) - 1) * limit;
+  const where: ReturnType<typeof sql>[] = [];
+  if (filter.days) where.push(sql`b.created_at >= NOW() - make_interval(days => ${filter.days})`);
+  if (filter.userId) where.push(sql`(b.caller_user_id = ${filter.userId} OR b.receiver_user_id = ${filter.userId})`);
+  if (filter.status === "answered") where.push(sql`(b.connected_at IS NOT NULL OR COALESCE(c.voice_seconds, 0) + COALESCE(c.video_seconds, 0) > 0)`);
+  if (filter.status === "missed") where.push(sql`b.connected_at IS NULL AND COALESCE(c.voice_seconds, 0) + COALESCE(c.video_seconds, 0) = 0 AND b.ended_at IS NOT NULL AND b.status <> 'failed'`);
+  if (filter.status === "failed") where.push(sql`b.status = 'failed'`);
+  if (filter.status === "active") where.push(sql`b.ended_at IS NULL`);
+  if (filter.search) {
+    const term = `%${filter.search}%`;
+    where.push(sql`(b.caller_number ILIKE ${term} OR b.receiver_number ILIKE ${term} OR b.call_sid ILIKE ${term}
+      OR cu.phone ILIKE ${term} OR ru.phone ILIKE ${term} OR cu.display_name ILIKE ${term} OR ru.display_name ILIKE ${term})`);
+  }
+  const whereSql = where.length ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``;
+  const from = sql`
+    FROM bridged_calls b
+    LEFT JOIN users cu ON cu.id = b.caller_user_id
+    LEFT JOIN users ru ON ru.id = b.receiver_user_id
+    LEFT JOIN call_billing_records c ON c.call_id = b.call_sid
+    ${whereSql}`;
+
+  const rows = (await db.execute(sql`
+    SELECT b.call_sid AS "callId", b.created_at AS "createdAt", b.connected_at AS "connectedAt", b.ended_at AS "endedAt",
+      b.status, COALESCE(b.metadata->>'callType', c.call_type, 'voice') AS "callType",
+      COALESCE(b.metadata->>'joinMethod', c.join_method) AS "joinMethod",
+      b.caller_user_id AS "callerId", COALESCE(NULLIF(cu.display_name, ''), cu.username) AS "callerName", COALESCE(cu.phone, b.caller_number) AS "callerPhone", b.caller_language AS "callerLanguage",
+      b.receiver_user_id AS "receiverId", COALESCE(NULLIF(ru.display_name, ''), ru.username) AS "receiverName", COALESCE(ru.phone, b.receiver_number) AS "receiverPhone", b.receiver_language AS "receiverLanguage",
+      GREATEST(COALESCE(c.voice_seconds, 0), COALESCE(c.video_seconds, 0),
+        CASE WHEN b.connected_at IS NOT NULL AND b.ended_at IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (b.ended_at - b.connected_at))::int ELSE 0 END) AS "durationSeconds",
+      COALESCE(c.translation_seconds, 0) AS "translationSeconds",
+      COALESCE(c.included_free_seconds_used, 0) AS "freeSecondsUsed",
+      COALESCE(c.total_cost_paise, 0) AS "costPaise",
+      c.status AS "billingStatus"
+    ${from}
+    ORDER BY b.created_at DESC
+    LIMIT ${limit} OFFSET ${offset}`) as any).rows;
+
+  const [summary] = (await db.execute(sql`
+    SELECT COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE (b.connected_at IS NOT NULL OR COALESCE(c.voice_seconds, 0) + COALESCE(c.video_seconds, 0) > 0))::int AS answered,
+      COUNT(*) FILTER (WHERE b.connected_at IS NULL AND COALESCE(c.voice_seconds, 0) + COALESCE(c.video_seconds, 0) = 0 AND b.ended_at IS NOT NULL AND b.status <> 'failed')::int AS missed,
+      COUNT(*) FILTER (WHERE b.status = 'failed')::int AS failed,
+      COUNT(*) FILTER (WHERE b.ended_at IS NULL)::int AS active,
+      COUNT(*) FILTER (WHERE COALESCE(c.translation_seconds, 0) > 0)::int AS translated,
+      COALESCE(ROUND(AVG(GREATEST(COALESCE(c.voice_seconds, 0), COALESCE(c.video_seconds, 0),
+          CASE WHEN b.connected_at IS NOT NULL AND b.ended_at IS NOT NULL THEN EXTRACT(EPOCH FROM (b.ended_at - b.connected_at)) ELSE 0 END))
+        FILTER (WHERE b.connected_at IS NOT NULL OR COALESCE(c.voice_seconds, 0) + COALESCE(c.video_seconds, 0) > 0)), 0)::int AS "avgDurationSeconds",
+      COALESCE(SUM(c.total_cost_paise), 0)::int AS "costPaise"
+    ${from}`) as any).rows;
+
+  return { rows, summary, total: summary?.total ?? 0 };
+}
+
 export function registerAdminUserRoutes(app: Express) {
   
   /**
@@ -65,23 +135,46 @@ export function registerAdminUserRoutes(app: Express) {
       const role = req.query.role as string;
       const offset = (page - 1) * limit;
 
+      // Everything support needs at a glance: who they are, their language,
+      // what they have left to spend, and whether they actually use the app.
       let query = db.select({
         id: users.id,
         email: users.email,
         phone: users.phone,
         username: users.username,
+        displayName: users.displayName,
         role: users.role,
         organizationId: users.organizationId,
+        preferredLanguage: users.preferredLanguage,
+        isActive: users.isActive,
+        lastLoginAt: users.lastLoginAt,
         createdAt: users.createdAt,
+        minutesRemaining: sql<number | null>`(
+          SELECT s.minutes_remaining FROM subscriptions s
+          WHERE s.user_id = "users"."id" AND s.status = 'active'
+          ORDER BY s.end_date DESC LIMIT 1)`,
+        planName: sql<string | null>`(
+          SELECT p.name FROM subscriptions s JOIN billing_plans p ON p.id = s.plan_id
+          WHERE s.user_id = "users"."id" AND s.status = 'active'
+          ORDER BY s.end_date DESC LIMIT 1)`,
+        callCount: sql<number>`(
+          SELECT COUNT(*)::int FROM bridged_calls b
+          WHERE b.caller_user_id = "users"."id" OR b.receiver_user_id = "users"."id")`,
+        lastCallAt: sql<string | null>`(
+          SELECT MAX(b.created_at) FROM bridged_calls b
+          WHERE b.caller_user_id = "users"."id" OR b.receiver_user_id = "users"."id")`,
       }).from(users);
 
       const conditions = [];
-      
+
       if (search) {
+        // Phone numbers are stored as +91XXXXXXXXXX; let "8125557378" match.
+        const term = `%${search.trim()}%`;
         conditions.push(or(
-          like(users.email, `%${search}%`),
-          like(users.phone, `%${search}%`),
-          like(users.username, `%${search}%`)
+          ilike(users.email, term),
+          like(users.phone, term),
+          ilike(users.username, term),
+          ilike(users.displayName, term),
         ));
       }
       
@@ -358,7 +451,8 @@ export function registerAdminUserRoutes(app: Express) {
         activeSubscriptions: activeSubCount.count,
         newUsersThisMonth: newUsersThisMonth.count,
         revenue: Math.round(Number(callStats?.revenuePaise ?? 0) / 100),
-        calls: Number(callStats?.calls ?? 0),
+        // Counted like the Call Logs page (one row per call), not billing rows.
+        calls: Number((await listAdminCalls({ limit: 1 })).summary?.total ?? callStats?.calls ?? 0),
       });
     } catch (err) {
       logger.error("AdminUsers", "Failed to fetch stats", err as Error);
@@ -417,25 +511,17 @@ export function registerAdminUserRoutes(app: Express) {
         });
       }
 
+      // Revenue is money actually received, not the list price of every
+      // subscription ever created (free trials included).
       const revenueResult = await db.execute(
-        sql`SELECT COALESCE(SUM(bp.price_in_paise), 0) as total FROM subscriptions s LEFT JOIN billing_plans bp ON s.plan_id = bp.id`
+        sql`SELECT COALESCE(SUM(amount), 0) AS total FROM payment_transactions WHERE status IN ('completed', 'partially_refunded')`
       );
       const totalRevenueRaw = Number((revenueResult as any).rows[0]?.total || 0);
 
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - days);
-      const [callSummary] = await db
-        .select({
-          totalCalls: count(),
-          failedCalls: sql<number>`COUNT(*) FILTER (WHERE ${callBillingRecords.status} = 'failed')`,
-          avgDurationSeconds: sql<number>`COALESCE(AVG(${callBillingRecords.voiceSeconds} + ${callBillingRecords.videoSeconds}), 0)`,
-        })
-        .from(callBillingRecords)
-        .where(sql`${callBillingRecords.createdAt} >= ${windowStart}`);
-
-      const totalCalls = Number(callSummary?.totalCalls ?? 0);
-      const failedCalls = Number(callSummary?.failedCalls ?? 0);
-      const successRate = totalCalls > 0 ? Math.round(((totalCalls - failedCalls) / totalCalls) * 1000) / 10 : 100;
+      // Same source as the Call Logs page, so the numbers agree.
+      const { summary: callSummary } = await listAdminCalls({ days, limit: 1 });
+      const totalCalls = Number(callSummary?.total ?? 0);
+      const successRate = totalCalls > 0 ? Math.round((Number(callSummary.answered) / totalCalls) * 1000) / 10 : 0;
 
       res.json({
         success: true,
@@ -445,6 +531,7 @@ export function registerAdminUserRoutes(app: Express) {
           dailySignups,
           totalRevenue: Math.round(totalRevenueRaw / 100),
           avgCallDuration: Math.round(Number(callSummary?.avgDurationSeconds ?? 0)),
+          totalCalls,
           successRate,
         },
       });
@@ -694,6 +781,70 @@ export function registerAdminUserRoutes(app: Express) {
     } catch (err) {
       logger.error("AdminUsers", "Failed to grant minutes", err as Error);
       res.status(500).json({ success: false, message: "Failed to grant minutes" });
+    }
+  });
+
+  /**
+   * One user's full picture for support: profile, every subscription,
+   * recent calls (with the other person, languages, duration, charge) and
+   * the minutes admins have granted them.
+   */
+  app.get("/api/admin/users/:id/overview", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      if (!Number.isFinite(userId)) return res.status(400).json({ success: false, message: "Invalid user id" });
+
+      const [user] = await db.select({
+        id: users.id, username: users.username, displayName: users.displayName, email: users.email,
+        phone: users.phone, role: users.role, isActive: users.isActive, preferredLanguage: users.preferredLanguage,
+        translationEnabled: users.translationEnabled, organizationId: users.organizationId,
+        lastLoginAt: users.lastLoginAt, createdAt: users.createdAt,
+      }).from(users).where(eq(users.id, userId));
+      if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+      const subs = await db.select({
+        id: subscriptions.id, status: subscriptions.status, planName: billingPlans.name,
+        minutesRemaining: subscriptions.minutesRemaining, minutesUsed: subscriptions.minutesUsed,
+        startDate: subscriptions.startDate, endDate: subscriptions.endDate,
+      }).from(subscriptions)
+        .leftJoin(billingPlans, eq(billingPlans.id, subscriptions.planId))
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.endDate));
+
+      const calls = await listAdminCalls({ userId, limit: 20 });
+
+      const grants = (await db.execute(sql`
+        SELECT a.created_at, a.user_id AS admin_id, u.phone AS admin_phone, u.email AS admin_email,
+               a.new_value->'value'->>'minutesGranted' AS minutes,
+               a.new_value->'value'->>'reason' AS reason
+        FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.metadata->>'key' = 'user_minutes_granted'
+          AND a.new_value->'value'->>'targetUserId' = ${String(userId)}
+        ORDER BY a.created_at DESC LIMIT 20`) as any).rows;
+
+      res.json({ success: true, data: { user, subscriptions: subs, calls: calls.rows, grants } });
+    } catch (err) {
+      logger.error("AdminUsers", "Failed to load user overview", err as Error);
+      res.status(500).json({ success: false, message: "Failed to load user" });
+    }
+  });
+
+  /**
+   * Every call on the platform, newest first: who called whom, in which
+   * languages, whether it was answered, how long it lasted and what it cost.
+   */
+  app.get("/api/admin/calls", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 365);
+      const status = String(req.query.status || "all");
+      const search = String(req.query.search || "").trim();
+      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
+      const result = await listAdminCalls({ days, status, search, page, limit });
+      res.json({ success: true, data: result.rows, summary: result.summary, pagination: { page, limit, total: result.total } });
+    } catch (err) {
+      logger.error("AdminUsers", "Failed to list calls", err as Error);
+      res.status(500).json({ success: false, message: "Failed to list calls" });
     }
   });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -29,7 +29,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
+import { formatDuration, languageName, CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
 import { LogoWithIcon } from "@/components/Logo";
 
 type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations";
@@ -250,12 +250,12 @@ function OverviewSection() {
           icon={<Building2 className="w-5 h-5" />}
         />
         <StatCard
-          title="Active Users"
+          title="Users"
           value={stats?.users || 0}
           icon={<Users className="w-5 h-5" />}
         />
         <StatCard
-          title="Monthly Revenue"
+          title="Call revenue (all time)"
           value={`₹${(stats?.revenue || 0).toLocaleString()}`}
           icon={<DollarSign className="w-5 h-5" />}
         />
@@ -1068,6 +1068,131 @@ function CompaniesSection() {
   );
 }
 
+/** A readable line for an audit entry; grants of minutes say who got what. */
+function describeAuditLog(log: any): string {
+  const value = log.newValue?.value;
+  if (log.metadata?.key === "user_minutes_granted" && value) {
+    return `Added ${value.minutesGranted} minutes to user #${value.targetUserId}${value.reason ? ` — ${value.reason}` : ""}`;
+  }
+  if (log.metadata?.key === "active_call_lock_cleared" && value) {
+    return `Cleared stuck call for user #${value.targetUserId}`;
+  }
+  return String(log.action || "").replace(/_/g, " ").toUpperCase();
+}
+
+/** Everything about one user that support needs, in one place. */
+function UserDetailDialog({ userId, onClose, onGrant }: { userId: number | null; onClose: () => void; onGrant: (user: any) => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["/api/admin/users", userId, "overview"],
+    enabled: userId != null,
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/users/${userId}/overview`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Could not load user");
+      return (await res.json()).data;
+    },
+  });
+  const u = data?.user;
+  const active = (data?.subscriptions ?? []).find((s: any) => s.status === "active");
+  const fact = (label: string, value: ReactNode) => (
+    <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-sm font-medium break-words">{value}</p></div>
+  );
+
+  return (
+    <Dialog open={userId != null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{u?.displayName || u?.phone || u?.email || `User #${userId}`}</DialogTitle>
+          <DialogDescription>User #{userId}{u?.role ? ` · ${u.role}` : ""}</DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin" /></div>
+        ) : isError || !u ? (
+          <p className="text-sm text-destructive py-6">Could not load this user.</p>
+        ) : (
+          <div className="space-y-6" data-testid="user-detail">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {fact("Phone", u.phone || "—")}
+              {fact("Email", u.email || "—")}
+              {fact("Language", languageName(u.preferredLanguage))}
+              {fact("Translation", u.translationEnabled === false ? "Off" : "On")}
+              {fact("Joined", u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—")}
+              {fact("Last login", u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "Never")}
+              {fact("Account", u.isActive === false ? "Disabled" : "Active")}
+              {fact("Minutes left", active ? `${active.minutesRemaining ?? 0}` : "No active plan")}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-semibold text-sm">Plans</h4>
+                <Button size="sm" variant="outline" onClick={() => onGrant(u)}><Plus className="w-4 h-4 mr-1" />Add minutes</Button>
+              </div>
+              {(data.subscriptions ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No plan yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-xs text-muted-foreground border-b">
+                    <th className="py-1.5 pr-2 font-medium">Plan</th><th className="py-1.5 pr-2 font-medium">Status</th>
+                    <th className="py-1.5 pr-2 font-medium text-right">Left</th><th className="py-1.5 pr-2 font-medium text-right">Used</th>
+                    <th className="py-1.5 font-medium text-right">Valid until</th>
+                  </tr></thead>
+                  <tbody>{data.subscriptions.map((s: any) => (
+                    <tr key={s.id} className="border-b last:border-0">
+                      <td className="py-1.5 pr-2">{s.planName || "—"}</td>
+                      <td className="py-1.5 pr-2 capitalize">{s.status}</td>
+                      <td className="py-1.5 pr-2 text-right">{s.minutesRemaining ?? 0} min</td>
+                      <td className="py-1.5 pr-2 text-right">{s.minutesUsed ?? 0} min</td>
+                      <td className="py-1.5 text-right">{s.endDate ? new Date(s.endDate).toLocaleDateString() : "—"}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )}
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-sm mb-2">Minutes added by admins</h4>
+              {(data.grants ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">None.</p>
+              ) : (
+                <ul className="text-sm space-y-1">{data.grants.map((g: any, i: number) => (
+                  <li key={i}>+{g.minutes} min · {g.reason || "no reason"} · {g.admin_email || g.admin_phone || `admin #${g.admin_id}`} · {new Date(g.created_at).toLocaleString()}</li>
+                ))}</ul>
+              )}
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-sm mb-2">Recent calls</h4>
+              {(data.calls ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No calls yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-xs text-muted-foreground border-b">
+                    <th className="py-1.5 pr-2 font-medium">When</th><th className="py-1.5 pr-2 font-medium">With</th>
+                    <th className="py-1.5 pr-2 font-medium">Languages</th><th className="py-1.5 pr-2 font-medium text-right">Duration</th>
+                    <th className="py-1.5 font-medium text-right">Translated</th>
+                  </tr></thead>
+                  <tbody>{data.calls.map((c: any) => {
+                    const outgoing = c.callerId === u.id;
+                    const other = c.joinMethod === "conference" ? "Group call" : outgoing ? (c.receiverName || c.receiverPhone) : (c.callerName || c.callerPhone);
+                    return (
+                      <tr key={c.callId} className="border-b last:border-0">
+                        <td className="py-1.5 pr-2 whitespace-nowrap">{new Date(c.createdAt).toLocaleString()}</td>
+                        <td className="py-1.5 pr-2">{outgoing ? "→ " : "← "}{other || "—"}</td>
+                        <td className="py-1.5 pr-2 whitespace-nowrap">{languageName(c.callerLanguage)} → {languageName(c.receiverLanguage)}</td>
+                        <td className="py-1.5 pr-2 text-right">{c.durationSeconds > 0 ? formatDuration(c.durationSeconds) : "Missed"}</td>
+                        <td className="py-1.5 text-right">{c.translationSeconds > 0 ? formatDuration(c.translationSeconds) : "—"}</td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function UsersSection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1077,6 +1202,7 @@ function UsersSection() {
   const [editingUser, setEditingUser] = useState<any>(null);
   const [deletingUser, setDeletingUser] = useState<any>(null);
   const [grantingUser, setGrantingUser] = useState<any>(null);
+  const [viewingUserId, setViewingUserId] = useState<number | null>(null);
   const [grant, setGrant] = useState({ minutes: "100", reason: "" });
   const [newUser, setNewUser] = useState({ email: "", phone: "", role: "consumer", username: "" });
 
@@ -1192,6 +1318,7 @@ function UsersSection() {
     onSuccess: (body: any) => {
       setGrantingUser(null);
       setGrant({ minutes: "100", reason: "" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Minutes added", description: `Now ${body.data?.minutesRemaining ?? "?"} minutes left` });
     },
     onError: (err: any) => {
@@ -1338,19 +1465,31 @@ function UsersSection() {
           ) : users.length > 0 ? (
             <div className="space-y-2">
               {users.map((user: any) => (
-                <div key={user.id} className="flex items-center justify-between p-4 rounded-lg border hover:bg-accent/5">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <div key={user.id} className="flex items-center justify-between gap-4 p-4 rounded-lg border hover:bg-accent/5">
+                  <button
+                    type="button"
+                    className="flex items-center gap-4 min-w-0 text-left flex-1"
+                    onClick={() => setViewingUserId(user.id)}
+                    data-testid={`button-view-user-${user.id}`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Users className="w-5 h-5 text-primary" />
                     </div>
-                    <div>
-                      <p className="font-medium">{user.email || user.phone || `User #${user.id}`}</p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{user.username || "No username"}</span>
-                        <span>ID: {user.id}</span>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">
+                        {user.displayName || user.email || user.phone || `User #${user.id}`}
+                        {user.isActive === false && <span className="ml-2 text-xs text-destructive">(disabled)</span>}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        <span>{user.phone || user.email || "—"}</span>
+                        <span>ID {user.id}</span>
+                        <span>{languageName(user.preferredLanguage)}</span>
+                        <span>{user.minutesRemaining != null ? `${user.minutesRemaining} min left` : "No plan"}{user.planName ? ` · ${user.planName}` : ""}</span>
+                        <span>{user.callCount ?? 0} calls</span>
+                        <span>Last login {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : "never"}</span>
                       </div>
                     </div>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-3">
                     <Badge variant={roleColors[user.role] as any || "secondary"}>
                       {user.role}
@@ -1467,6 +1606,8 @@ function UsersSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UserDetailDialog userId={viewingUserId} onClose={() => setViewingUserId(null)} onGrant={(u) => { setViewingUserId(null); setGrantingUser(u); }} />
 
       <Dialog open={!!grantingUser} onOpenChange={() => setGrantingUser(null)}>
         <DialogContent>
@@ -2488,14 +2629,14 @@ function AnalyticsSection() {
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-green-500">{data?.avgCallDuration || 0}m</p>
-            <p className="text-sm text-muted-foreground">Avg Call Duration</p>
+            <p className="text-3xl font-bold text-green-500">{formatDuration(data?.avgCallDuration)}</p>
+            <p className="text-sm text-muted-foreground">Avg answered call</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6 text-center">
-            <p className="text-3xl font-bold text-blue-500">{data?.successRate || 0}%</p>
-            <p className="text-sm text-muted-foreground">Success Rate</p>
+            <p className="text-3xl font-bold text-blue-500">{data?.successRate ?? 0}%</p>
+            <p className="text-sm text-muted-foreground">Calls answered</p>
           </CardContent>
         </Card>
         <Card>
@@ -3427,11 +3568,11 @@ function AuditSection() {
                     {actionIcons[log.action] || <Activity className="w-4 h-4" />}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-sm">{log.action.replace(/_/g, ' ').toUpperCase()}</p>
+                    <p className="font-medium text-sm">{describeAuditLog(log)}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span>{log.userName || log.userEmail || `User #${log.userId}`}</span>
                       <span>-</span>
-                      <span>{log.entityType}{log.entityId ? ` #${log.entityId}` : ''}</span>
+                      <span>{log.metadata?.key || log.entityType}{log.entityId ? ` #${log.entityId}` : ''}</span>
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">

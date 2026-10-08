@@ -27,9 +27,118 @@ import {
 // ============================================================================
 // CALL LOGS SECTION
 // ============================================================================
+/** 96 -> "1m 36s", 3725 -> "1h 2m". */
+export function formatDuration(totalSeconds: number | null | undefined): string {
+  const s = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  if (s < 60) return `${s}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+}
+
+const LANG_SHORT: Record<string, string> = {
+  en: "English", te: "Telugu", hi: "Hindi", ta: "Tamil", kn: "Kannada", ml: "Malayalam", mr: "Marathi",
+  bn: "Bengali", gu: "Gujarati", pa: "Punjabi", ur: "Urdu", es: "Spanish", fr: "French", de: "German",
+  ar: "Arabic", ja: "Japanese", ko: "Korean", zh: "Chinese", pt: "Portuguese", ru: "Russian",
+};
+export const languageName = (code?: string | null) =>
+  !code || code === "auto" ? "Auto" : LANG_SHORT[code.toLowerCase().split("-")[0]] || code;
+
+function callOutcome(c: any): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } {
+  if (c.status === "failed") return { label: "Failed", variant: "destructive" };
+  if (!c.endedAt) return { label: "Live", variant: "default" };
+  return c.durationSeconds > 0 || c.connectedAt ? { label: "Answered", variant: "secondary" } : { label: "Missed", variant: "outline" };
+}
+
+function personLabel(name?: string | null, phone?: string | null) {
+  return name && name !== phone ? `${name} · ${phone ?? ""}` : phone || "—";
+}
+
+/** Every call, newest first, with the people, languages, outcome and charge. */
+function CallListTable({ days, status, search }: { days: number; status: string; search: string }) {
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/admin/calls", days, status, search, page],
+    queryFn: async () => {
+      const params = new URLSearchParams({ days: String(days), status, page: String(page), limit: "25" });
+      if (search.trim()) params.set("search", search.trim());
+      const res = await fetch(`/api/admin/calls?${params}`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Could not load calls");
+      return res.json();
+    },
+    refetchInterval: 30_000,
+  });
+  const rows: any[] = data?.data ?? [];
+  const total = data?.pagination?.total ?? 0;
+  const pages = Math.max(1, Math.ceil(total / 25));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2"><PhoneCall className="w-4 h-4" />All calls</CardTitle>
+        <CardDescription>{total} call{total === 1 ? "" : "s"} in this period. Newest first.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin" /></div>
+        ) : rows.length === 0 ? (
+          <p className="text-center text-sm text-muted-foreground py-8">No calls match these filters.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b">
+                  <th className="py-2 pr-3 font-medium">When</th>
+                  <th className="py-2 pr-3 font-medium">From</th>
+                  <th className="py-2 pr-3 font-medium">To</th>
+                  <th className="py-2 pr-3 font-medium">Languages</th>
+                  <th className="py-2 pr-3 font-medium">Type</th>
+                  <th className="py-2 pr-3 font-medium">Outcome</th>
+                  <th className="py-2 pr-3 font-medium text-right">Duration</th>
+                  <th className="py-2 pr-3 font-medium text-right">Translated</th>
+                  <th className="py-2 font-medium text-right">Charged</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((c) => {
+                  const outcome = callOutcome(c);
+                  return (
+                    <tr key={c.callId} className="border-b last:border-0 align-top" data-testid={`call-row-${c.callId}`}>
+                      <td className="py-2 pr-3 whitespace-nowrap">{new Date(c.createdAt).toLocaleString()}</td>
+                      <td className="py-2 pr-3">{personLabel(c.callerName, c.callerPhone)}</td>
+                      <td className="py-2 pr-3">{c.joinMethod === "conference" ? "Group call" : personLabel(c.receiverName, c.receiverPhone)}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap">{languageName(c.callerLanguage)} → {languageName(c.receiverLanguage)}</td>
+                      <td className="py-2 pr-3 capitalize">{c.callType}{c.joinMethod === "app_to_pstn" ? " · phone" : ""}</td>
+                      <td className="py-2 pr-3"><Badge variant={outcome.variant}>{outcome.label}</Badge></td>
+                      <td className="py-2 pr-3 text-right whitespace-nowrap">{formatDuration(c.durationSeconds)}</td>
+                      <td className="py-2 pr-3 text-right whitespace-nowrap">{c.translationSeconds > 0 ? formatDuration(c.translationSeconds) : "—"}</td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        {c.costPaise > 0 ? `₹${(c.costPaise / 100).toFixed(2)}` : c.freeSecondsUsed > 0 ? `${formatDuration(c.freeSecondsUsed)} free` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {pages > 1 && (
+          <div className="flex items-center justify-end gap-2 pt-4">
+            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
+            <span className="text-xs text-muted-foreground">Page {page} of {pages}</span>
+            <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function CallLogsSection() {
   const [dateRange, setDateRange] = useState("7d");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const days = dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90;
 
   const { data: metricsData, isLoading } = useQuery({
     queryKey: ["/api/admin/call-metrics"],
@@ -43,32 +152,20 @@ export function CallLogsSection() {
     },
   });
 
-  const { data: callsData } = useQuery({
-    queryKey: ["/api/admin/analytics", "calls", dateRange],
+  // Summary for the whole period (not just the page shown below).
+  const { data: summaryData } = useQuery({
+    queryKey: ["/api/admin/calls", "summary", days],
     queryFn: async () => {
-      const token = getAuthToken();
-      const res = await fetch(`/api/admin/analytics?days=${dateRange === "7d" ? 7 : dateRange === "30d" ? 30 : 90}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`/api/admin/calls?days=${days}&limit=1`, {
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
       });
       if (!res.ok) return null;
       return res.json();
     },
+    refetchInterval: 30_000,
   });
-
-  // Active-call count has no dedicated admin endpoint -- the billing
-  // overview already computes it for the Billing section, so reuse it
-  // rather than showing a permanently-zero placeholder.
-  const { data: billingOverview } = useQuery({
-    queryKey: ["/api/admin/billing/overview"],
-    queryFn: async () => {
-      const token = getAuthToken();
-      const res = await fetch("/api/admin/billing/overview", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return null;
-      return res.json();
-    },
-  });
+  const summary = summaryData?.summary ?? {};
+  const answerRate = summary.total ? Math.round((summary.answered / summary.total) * 100) : null;
 
   const metrics = metricsData?.data || metricsData || {};
 
@@ -82,39 +179,58 @@ export function CallLogsSection() {
             <Button key={r} size="sm" variant={dateRange === r ? "default" : "outline"} onClick={() => setDateRange(r)}>{r === "7d" ? "7 Days" : r === "30d" ? "30 Days" : "90 Days"}</Button>
           ))}
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Calls</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="failed">Failed</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Phone, name or call ID"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 w-56"
+              data-testid="input-search-calls"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All calls</SelectItem>
+              <SelectItem value="answered">Answered</SelectItem>
+              <SelectItem value="missed">Missed</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="active">Live now</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-primary">{callsData?.data?.totalCalls ?? 0}</p>
-          <p className="text-sm text-muted-foreground">Total Calls</p>
+          <p className="text-3xl font-bold text-primary" data-testid="stat-total-calls">{summary.total ?? 0}</p>
+          <p className="text-sm text-muted-foreground">Total calls</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-green-500">{billingOverview?.data?.activeCalls ?? 0}</p>
-          <p className="text-sm text-muted-foreground">Active Now</p>
+          <p className="text-3xl font-bold text-green-500">{summary.answered ?? 0}</p>
+          <p className="text-sm text-muted-foreground">Answered{answerRate !== null ? ` (${answerRate}%)` : ""}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-blue-500">{callsData?.data?.avgCallDuration ?? 0}m</p>
-          <p className="text-sm text-muted-foreground">Avg Duration</p>
+          <p className="text-3xl font-bold text-amber-500">{summary.missed ?? 0}</p>
+          <p className="text-sm text-muted-foreground">Missed</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-purple-500">{callsData?.data?.successRate ?? 0}%</p>
-          <p className="text-sm text-muted-foreground">Success Rate</p>
+          <p className="text-3xl font-bold text-blue-500" data-testid="stat-avg-duration">{formatDuration(summary.avgDurationSeconds)}</p>
+          <p className="text-sm text-muted-foreground">Avg answered call</p>
         </CardContent></Card>
         <Card><CardContent className="pt-6 text-center">
-          <p className="text-3xl font-bold text-amber-500">{metrics.total?.p50 ?? 0}ms</p>
-          <p className="text-sm text-muted-foreground">Avg Latency (p50)</p>
+          <p className="text-3xl font-bold text-purple-500">{summary.translated ?? 0}</p>
+          <p className="text-sm text-muted-foreground">With translation</p>
+        </CardContent></Card>
+        <Card><CardContent className="pt-6 text-center">
+          <p className="text-3xl font-bold text-cyan-500">₹{((summary.costPaise ?? 0) / 100).toFixed(2)}</p>
+          <p className="text-sm text-muted-foreground">Charged</p>
         </CardContent></Card>
       </div>
+
+      <CallListTable key={`${days}-${statusFilter}-${search}`} days={days} status={statusFilter} search={search} />
 
       <Card>
         <CardHeader>

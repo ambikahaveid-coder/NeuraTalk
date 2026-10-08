@@ -289,6 +289,12 @@ async function resolvePurchase(input: PaymentOrderRequest): Promise<ResolvedPurc
       throw new Error("ORGANIZATION_REQUIRED");
     }
 
+    // ₹0 plans (free trial, "Enterprise / unlimited") are granted by the
+    // platform or sales, never self-checked-out.
+    if (!plan.priceInPaise || plan.priceInPaise <= 0) {
+      throw new Error("PLAN_NOT_PURCHASABLE");
+    }
+
     const gstPercentage = plan.gstPercentage ?? 0;
     const taxPaise = Math.round((plan.priceInPaise * gstPercentage) / 100);
     const amountPaise = plan.priceInPaise + taxPaise;

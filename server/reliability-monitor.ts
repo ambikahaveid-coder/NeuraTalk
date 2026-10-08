@@ -8,9 +8,13 @@
  * not a second alerting mechanism.
  */
 import os from "os";
+import v8 from "v8";
 import { logger } from "./observability";
 
-const MEMORY_ALERT_THRESHOLD_RATIO = Number(process.env.MEMORY_ALERT_THRESHOLD_RATIO ?? "0.90"); // heapUsed/heapTotal
+// heapUsed / V8 heap limit. heapUsed/heapTotal sat near 90% all the time
+// (V8 grows heapTotal just ahead of use), so it alerted every minute while
+// the process used ~200 MB of a 2 GB task.
+const MEMORY_ALERT_THRESHOLD_RATIO = Number(process.env.MEMORY_ALERT_THRESHOLD_RATIO ?? "0.85");
 const CPU_ALERT_THRESHOLD_PCT = Number(process.env.CPU_ALERT_THRESHOLD_PCT ?? "85");
 const SAMPLE_INTERVAL_MS = 15_000;
 const ALERT_COOLDOWN_MS = 60_000; // don't spam an alert every 15s while sustained
@@ -36,13 +40,15 @@ function sample(): void {
   currentCpuPercent = elapsedMs > 0 ? Math.min(100, (consumedMs / (elapsedMs * cores)) * 100) : 0;
 
   const mem = process.memoryUsage();
-  const heapRatio = mem.heapTotal > 0 ? mem.heapUsed / mem.heapTotal : 0;
+  const heapLimit = v8.getHeapStatistics().heap_size_limit;
+  const heapRatio = heapLimit > 0 ? mem.heapUsed / heapLimit : 0;
 
   if (heapRatio >= MEMORY_ALERT_THRESHOLD_RATIO && now - lastMemoryAlertAt > ALERT_COOLDOWN_MS) {
     lastMemoryAlertAt = now;
-    logger.error("ReliabilityMonitor", `High memory usage: heap ${(heapRatio * 100).toFixed(1)}% of allocated`, undefined, {
+    logger.error("ReliabilityMonitor", `High memory usage: heap ${(heapRatio * 100).toFixed(1)}% of limit`, undefined, {
       heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
       heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+      heapLimitMb: Math.round(heapLimit / 1024 / 1024),
       rssMb: Math.round(mem.rss / 1024 / 1024),
     });
   }

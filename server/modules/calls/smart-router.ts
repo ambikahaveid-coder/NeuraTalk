@@ -875,7 +875,9 @@ export async function updateSmartCallStatus(
       status: nextState,
       billingActivatedAt: current.billingActivatedAt ?? null,
       lastProviderEventAt: providerEvent ? nowIso : current.lastProviderEventAt ?? null,
-      connectedAt: nextState === SMART_CALL_STATE.ACTIVE
+      // App-to-app calls stop at ANSWERED (billing starts there too), so
+      // only stamping ACTIVE left every such call looking unanswered, 0 s long.
+      connectedAt: nextState === SMART_CALL_STATE.ACTIVE || nextState === SMART_CALL_STATE.ANSWERED
         ? current.connectedAt || nowIso
         : current.connectedAt ?? null,
       endedAt: isTerminalSmartCallState(nextState) ? current.endedAt || nowIso : null,

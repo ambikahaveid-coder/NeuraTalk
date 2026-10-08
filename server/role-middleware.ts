@@ -313,6 +313,10 @@ export async function createSession(
       expiresAt,
     });
 
+    // Every login path ends here; admins rely on this to see who is active.
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId))
+      .catch((error) => logger.warn("Session", `Could not record last login for user ${userId}: ${String(error)}`));
+
     logger.debug("Session", `Session created for user ${userId}`);
     return token;
   } catch (error) {

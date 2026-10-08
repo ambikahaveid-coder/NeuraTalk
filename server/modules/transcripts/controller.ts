@@ -197,6 +197,11 @@ export async function adminExport(req: Request, res: Response) {
 /** Lists org members' current retention preference — visibility for admins. */
 export async function getRetentionSettings(req: Request, res: Response) {
   try {
+    // A platform super admin has no organization: show the platform default
+    // instead of a 403 that left the Transcripts page half empty.
+    if (req.user?.role === "super_admin" && !(req.user as any).organizationId) {
+      return res.json({ orgDefault: "platform default: 30 days", members: [] });
+    }
     const orgId = requireOrgAdmin(req, res);
     if (!orgId) return;
 
@@ -267,6 +272,16 @@ const TRANSCRIPT_AUDIT_ENTITY_TYPES = ["transcript", "transcript_export", "org_t
  */
 export async function getTranscriptAuditLog(req: Request, res: Response) {
   try {
+    // Platform super admin (no organization): every transcript access.
+    if (req.user?.role === "super_admin" && !(req.user as any).organizationId) {
+      const perType = await Promise.all(
+        TRANSCRIPT_AUDIT_ENTITY_TYPES.map((entityType) => getAuditLogs({ entityType, limit: 200 })),
+      );
+      const logs = perType.flatMap((page) => page.logs)
+        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+        .slice(0, 100);
+      return res.json({ logs });
+    }
     const orgId = requireOrgAdmin(req, res);
     if (!orgId) return;
 
