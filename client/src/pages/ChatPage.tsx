@@ -177,7 +177,8 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
-  const myLanguage = "en";
+  // The signed-in person's own language (was hard-coded to English).
+  const myLanguage = String((user as { preferredLanguage?: string | null } | null)?.preferredLanguage || "en").toLowerCase();
   const { state: recorderState, startRecording, stopRecording } = useVoiceRecorder();
 
   const { uploadFile, isUploading: isUploadingAttachment, progress: uploadProgress } = useUpload({

@@ -3,6 +3,11 @@ import { z } from "zod";
 import * as service from "./service";
 import type { AuthenticatedUser } from "../../role-middleware";
 
+/** The signed-in account isn't part of a company (e.g. a platform admin). */
+class NoOrganizationError extends Error {
+  constructor() { super("This account is not part of an organization."); }
+}
+
 function user(req: Request): AuthenticatedUser {
   return (req as any).user as AuthenticatedUser;
 }
@@ -10,7 +15,7 @@ function user(req: Request): AuthenticatedUser {
 function orgId(req: Request): number {
   const u = user(req);
   const id = (u as any).organizationId as number | null;
-  if (!id) throw new Error("No organization");
+  if (!id) throw new NoOrganizationError();
   return id;
 }
 
@@ -29,7 +34,7 @@ export async function getOverview(req: Request, res: Response) {
     const data = await service.getHubOverview(orgId(req));
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -51,7 +56,7 @@ export async function listNumbers(req: Request, res: Response) {
     const numbers = await service.listEnterpriseNumbers(orgId(req));
     res.json({ success: true, data: numbers });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -90,7 +95,7 @@ export async function deleteNumber(req: Request, res: Response) {
     if (!deleted) return res.status(404).json({ success: false, error: "Not found" });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -146,7 +151,7 @@ export async function listSip(req: Request, res: Response) {
     const data = await service.listSipIntegrations(orgId(req));
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -181,7 +186,7 @@ export async function deleteSip(req: Request, res: Response) {
     if (!deleted) return res.status(404).json({ success: false, error: "Not found" });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -203,7 +208,7 @@ export async function listLanguageRules(req: Request, res: Response) {
     const data = await service.listLanguageRules(orgId(req), numId);
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -225,7 +230,7 @@ export async function deleteLanguageRule(req: Request, res: Response) {
     if (!deleted) return res.status(404).json({ success: false, error: "Not found" });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -251,7 +256,7 @@ export async function getAiConfig(req: Request, res: Response) {
     const data = await service.getAiConfiguration(numberId, orgId(req));
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -285,7 +290,7 @@ export async function listExotel(req: Request, res: Response) {
     const data = await service.listExotelConfigs(orgId(req));
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -320,7 +325,7 @@ export async function deleteExotel(req: Request, res: Response) {
     if (!deleted) return res.status(404).json({ success: false, error: "Not found" });
     res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -330,7 +335,7 @@ export async function getExotelLiveSessions(req: Request, res: Response) {
     const data = getActiveSessionsForOrg(orgId(req));
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }
 
@@ -342,6 +347,6 @@ export async function getAuditLogs(req: Request, res: Response) {
     const data = await service.listIntegrationAuditLogs(orgId(req), limit);
     res.json({ success: true, data });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err instanceof NoOrganizationError ? 400 : 500).json({ success: false, error: err.message });
   }
 }

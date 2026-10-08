@@ -728,8 +728,11 @@ async function finishMessageInBackground(job: {
         voiceTranscribed = true;
       }
     }
+    // Always detect from the text itself. A client's language hint is only a
+    // tie-breaker: the website used to tag every message "en", which made
+    // Telugu messages look like English and skipped their translation.
     const originalLanguage = normalizeLanguage(
-      job.languageHint || await detectLanguage(content, [job.viewerLanguage, job.peerLanguage]),
+      await detectLanguage(content, [job.viewerLanguage, job.languageHint ?? "", job.peerLanguage].filter(Boolean)),
     );
     const translations: Record<string, string> = {};
     if (isText && job.translationAllowed) {
@@ -826,7 +829,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
     const translationAllowed = senderRow?.translationEnabled !== false && !translationConsentDenied;
     // Best guess until detection finishes: people mostly write their own language.
-    const originalLanguage = normalizeLanguage(input.originalLanguage || context.viewerLanguage);
+    const originalLanguage = normalizeLanguage(context.viewerLanguage);
     const needsBackgroundWork = isVoiceNote || (isTextMessage && translationAllowed);
 
     const expiresAt = thread.disappearingSeconds

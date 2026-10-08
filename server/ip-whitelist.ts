@@ -240,6 +240,9 @@ router.get("/api/organization/ip-whitelist/status", requireRole("company_admin",
     }
 
     const orgId = organizationId || parseInt(req.query.organizationId as string);
+    if (!Number.isFinite(orgId)) {
+      return res.status(400).json({ error: "Choose an organization (organizationId)." });
+    }
 
     const [org] = await db.select().from(organizations).where(eq(organizations.id, orgId));
     
