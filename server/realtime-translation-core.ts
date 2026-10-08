@@ -523,3 +523,95 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(String(value || ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
+
+/**
+ * Languages ElevenLabs can speak in real time (eleven_turbo_v2_5, ~0.25 s to
+ * first audio). Telugu, Kannada, Malayalam, Bengali, Marathi etc. are only in
+ * eleven_v3, which takes 1.7-6 s: too slow for a live call, so those keep the
+ * standard voice.
+ */
+export const ELEVENLABS_REALTIME_LANGUAGES = new Set([
+  "en", "ja", "zh", "de", "hi", "fr", "ko", "pt", "it", "es", "id", "nl", "tr", "fil", "pl", "sv",
+  "bg", "ro", "ar", "cs", "el", "fi", "hr", "ms", "sk", "da", "ta", "uk", "ru", "hu", "no", "vi",
+]);
+
+export function canSpeakInClonedVoice(language: string): boolean {
+  return ELEVENLABS_REALTIME_LANGUAGES.has(language.trim().toLowerCase().split(/[-_]/)[0]);
+}
+
+/** Same 20 ms 16 kHz PCM frames as streamAzureTtsFrames, in a cloned ElevenLabs voice. */
+export async function* streamElevenLabsTtsFrames(
+  text: string,
+  language: string,
+  voiceId: string,
+  signal: AbortSignal,
+  opts: { onFirstByte?: () => void; onResponseHeaders?: (latencyMs: number) => void } = {},
+): AsyncGenerator<Int16Array> {
+  const key = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY;
+  if (!key) throw new Error("ELEVENLABS_API_KEY not configured");
+  const lang = language.trim().toLowerCase().split(/[-_]/)[0];
+  const requestStartNs = nowHrNs();
+  const response = await undiciFetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_16000&optimize_streaming_latency=3`,
+    {
+      method: "POST",
+      headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/pcm" },
+      body: JSON.stringify({ text, model_id: "eleven_turbo_v2_5", language_code: lang }),
+      signal,
+    },
+  );
+  opts.onResponseHeaders?.(Number(elapsedMsFrom(requestStartNs).toFixed(3)));
+  if (!response.ok) {
+    throw new Error(`ElevenLabs TTS ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("ElevenLabs TTS did not return a readable body");
+  let carry = Buffer.alloc(0);
+  let sawFirstByte = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value || value.length === 0) continue;
+    if (!sawFirstByte) {
+      sawFirstByte = true;
+      opts.onFirstByte?.();
+    }
+    carry = Buffer.concat([carry, Buffer.from(value)]);
+    let offset = 0;
+    while (carry.length - offset >= PCM_FRAME_BYTES) {
+      yield bytesToInt16Frame(carry.subarray(offset, offset + PCM_FRAME_BYTES));
+      offset += PCM_FRAME_BYTES;
+    }
+    carry = carry.subarray(offset);
+  }
+  if (carry.length >= 2) {
+    const padded = Buffer.alloc(Math.ceil(carry.length / PCM_FRAME_BYTES) * PCM_FRAME_BYTES);
+    carry.copy(padded);
+    for (let offset = 0; offset < padded.length; offset += PCM_FRAME_BYTES) {
+      yield bytesToInt16Frame(padded.subarray(offset, offset + PCM_FRAME_BYTES));
+    }
+  }
+}
+
+/**
+ * A brand-new cloned voice took ~3 s for its first sentence and ~0.3 s after.
+ * Called when a call starts: a tiny request so the first real sentence is fast.
+ */
+export async function warmElevenLabsVoice(voiceId: string): Promise<void> {
+  const key = process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY;
+  if (!key) return;
+  try {
+    const response = await undiciFetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_16000&optimize_streaming_latency=3`,
+      {
+        method: "POST",
+        headers: { "xi-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Hi.", model_id: "eleven_turbo_v2_5" }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    await response.arrayBuffer();
+  } catch {
+    // Best effort only.
+  }
+}

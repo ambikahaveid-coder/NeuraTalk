@@ -56,6 +56,9 @@ import {
   normalizeSpaces,
   normalizeTranscript,
   streamAzureTtsFrames,
+  streamElevenLabsTtsFrames,
+  warmElevenLabsVoice,
+  canSpeakInClonedVoice,
   wordCount,
 } from "./realtime-translation-core";
 import {
@@ -164,6 +167,8 @@ interface SpeakerPipeline {
   lastMediaHeartbeatAt?: number;
   lastBargeInAt?: number;
   reconnectStartedAt?: number;
+  /** ElevenLabs voice id of this speaker's approved cloned voice, if any. */
+  clonedVoiceId?: string | null;
   /** Cached answer to "does anyone listening need this speaker translated?" */
   needsTranslation?: boolean;
   needsTranslationCheckedAt?: number;
@@ -675,6 +680,17 @@ class LiveKitRealtimeTranslatorBot {
     };
 
     this.speakerPipelines.set(participant.identity, pipeline);
+    // Their own (approved) cloned voice, used when translating what they say.
+    void import("./cloned-voice")
+      .then(({ lookupClonedVoiceId }) => lookupClonedVoiceId(participant.identity))
+      .then((voiceId) => {
+        pipeline.clonedVoiceId = voiceId;
+        if (voiceId) {
+          logger.info("TranslatorBot", `[${this.callId}] ${participant.identity}: translations will use their cloned voice`);
+          void warmElevenLabsVoice(voiceId);
+        }
+      })
+      .catch(() => undefined);
     await setParticipantLanguagePreference(this.callId, participant.identity, preferredLanguage).catch(() => undefined);
     return pipeline;
   }
@@ -1236,20 +1252,23 @@ class LiveKitRealtimeTranslatorBot {
     }, TTS_READY_TIMEOUT_MS);
 
     try {
-      const speakerGender = (this.speakerPipelines.get(channel.sourceIdentity) ?? pipeline).voiceGender.resolve();
-      for await (const frame of streamAzureTtsFrames(
-        text,
-        targetLanguage,
-        channel.ttsAbort.signal,
-        {
+      const speakerPipeline = this.speakerPipelines.get(channel.sourceIdentity) ?? pipeline;
+      const speakerGender = speakerPipeline.voiceGender.resolve();
+      // The speaker's own cloned voice when they have one and ElevenLabs can
+      // speak this language in real time; otherwise (or if it fails before
+      // any audio) the standard voice, so the listener always hears it.
+      const clonedVoiceId = speakerPipeline.clonedVoiceId && canSpeakInClonedVoice(targetLanguage) ? speakerPipeline.clonedVoiceId : null;
+      let ttsProvider = clonedVoiceId ? "elevenlabs-tts" : "azure-tts";
+      const ttsSignal = channel.ttsAbort.signal;
+      const ttsOptions = {
           gender: speakerGender,
-          onResponseHeaders: (latencyMs) => {
+          onResponseHeaders: (latencyMs: number) => {
             trace?.addObservedNetworkLatency("azure_tts_headers", latencyMs);
           },
           onFirstByte: () => {
             firstByteObserved = true;
             const firstAudioAt = Date.now();
-            trace?.addProvider("azure-tts");
+            trace?.addProvider(ttsProvider);
             trace?.mark("first_audio_frame");
             if (pipeline.turn && !pipeline.turn.ttsLogged && pipeline.turn.ttsStartedAt) {
               pipeline.turn.ttsLogged = true;
@@ -1281,8 +1300,19 @@ class LiveKitRealtimeTranslatorBot {
           },
           emotion: pipeline.latestEmotion,
           userAgent: "NeuraTalk/TranslatorBot",
-        },
-      )) {
+      };
+      const frames = clonedVoiceId
+        ? withFallbackVoice(
+            () => streamElevenLabsTtsFrames(text, targetLanguage, clonedVoiceId, ttsSignal, ttsOptions),
+            () => streamAzureTtsFrames(text, targetLanguage, ttsSignal, ttsOptions),
+            (error) => {
+              ttsProvider = "azure-tts";
+              trace?.markFallback(`cloned_voice_failed:${String(error).slice(0, 80)}`);
+              logger.warn("TranslatorBot", `[${this.callId}] cloned voice unavailable for ${channel.key}, using standard voice: ${String(error)}`);
+            },
+          )
+        : streamAzureTtsFrames(text, targetLanguage, ttsSignal, ttsOptions);
+      for await (const frame of frames) {
         if (this.closed || generation !== channel.speechGeneration) break;
         await channel.audioSource.captureFrame(new AudioFrame(frame, PCM_SAMPLE_RATE, PCM_CHANNELS, frame.length));
         if (!playbackMarked) {
@@ -1730,6 +1760,26 @@ function parseVoiceGender(value: unknown): VoiceGender | null {
 
 function readParticipantMetadata(participant: Participant): Record<string, unknown> {
   return safeJsonParse<Record<string, unknown>>(participant.metadata) || {};
+}
+
+/** Play the first voice; if it fails before any audio, play the second instead. */
+async function* withFallbackVoice(
+  primary: () => AsyncGenerator<Int16Array>,
+  fallback: () => AsyncGenerator<Int16Array>,
+  onFallback: (error: unknown) => void,
+): AsyncGenerator<Int16Array> {
+  let yielded = false;
+  try {
+    for await (const frame of primary()) {
+      yielded = true;
+      yield frame;
+    }
+    return;
+  } catch (error) {
+    if (yielded) throw error;
+    onFallback(error);
+  }
+  yield* fallback();
 }
 
 function isBotParticipant(participant: Participant): boolean {
