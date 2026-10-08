@@ -49,8 +49,12 @@ WORKDIR /app
 # ffmpeg is a real runtime dependency (server/ai_integrations/audio/client.ts,
 # server/lip-sync.ts); wget is needed for the HEALTHCHECK below -- neither
 # ships in the slim base image.
+#
+# ca-certificates: Node bundles its own CA list, but the LiveKit native
+# binding (Rust) reads the system store. Without it every translator-bot
+# join failed with "failed to retrieve region info: error sending request".
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg wget \
+  && apt-get install -y --no-install-recommends ca-certificates ffmpeg wget \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
