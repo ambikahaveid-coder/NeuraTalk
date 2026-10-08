@@ -170,6 +170,9 @@ interface CallRuntimeState {
   lastProcessedAtMs: number;
   hardStopAtMs: number;
   terminationRequestedReason: string | null;
+  // Set when the translator never started: the call keeps running but costs
+  // the caller nothing (see waiveCallSessionCharges).
+  chargesWaived?: boolean;
   features: {
     voice: FeatureCounter;
     video: FeatureCounter;
@@ -322,7 +325,7 @@ function getRemainingPostpaidCapacity(runtime: CallRuntimeState): number {
 }
 
 function getMaxDurationSeconds(runtime: CallRuntimeState): number {
-  if (runtime.estimatedRatePerMinutePaise <= 0) {
+  if (runtime.estimatedRatePerMinutePaise <= 0 || runtime.chargesWaived) {
     return MAX_OPEN_CALL_SECONDS;
   }
 
@@ -752,6 +755,12 @@ async function applySecond(runtime: CallRuntimeState) {
     && runtime.currentDayUsageSeconds >= runtime.config.limits.dailyUsageLimit
   ) {
     throw new Error("DAILY_USAGE_LIMIT_REACHED");
+  }
+
+  if (runtime.chargesWaived) {
+    runtime.currentDayUsageSeconds += 1;
+    runtime.durationSeconds += 1;
+    return;
   }
 
   incrementFeatureSeconds(runtime, 1);
@@ -1290,6 +1299,28 @@ export class BillingEngine {
         ...this.snapshot(runtime),
         activatedAtMs: nowMs,
       };
+    }, { ttlMs: 15_000 });
+  }
+
+  /**
+   * A translated call whose translator never started is not what the caller
+   * paid for. Stop charging it and give back the included minutes it has
+   * already used. Paid wallet debits taken before this point (a few seconds
+   * at most, the bot gives up within ~20 s) are left as they are.
+   */
+  static async waiveCallSessionCharges(sessionId: string, reason: string): Promise<boolean> {
+    requireRedisForBilling("waiveCallSessionCharges");
+    return await withRedisLock(runtimeLockKey(sessionId), async () => {
+      const runtime = await loadRuntimeSession(sessionId);
+      if (!runtime || runtime.chargesWaived) return false;
+      runtime.chargesWaived = true;
+      runtime.freeSecondsRemaining += runtime.includedFreeSecondsUsed;
+      runtime.includedFreeSecondsUsed = 0;
+      runtime.maxDurationSeconds = getMaxDurationSeconds(runtime);
+      await persistRuntimeState(runtime);
+      await persistRuntimeSession(runtime);
+      logger.warn("BillingEngine", `Charges waived for ${sessionId}: ${reason}`);
+      return true;
     }, { ttlMs: 15_000 });
   }
 

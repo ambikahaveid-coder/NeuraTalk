@@ -21,6 +21,15 @@ import { AuditHelpers } from "./audit";
 import { configService } from "./config-service";
 import { normalizePhoneNumber } from "@shared/phone";
 import { getRedisClient } from "./redis";
+import { findFreeTrialPlan } from "./free-trial";
+
+const grantMinutesSchema = z.object({
+  minutes: z.number().int().min(1).max(10_000),
+  reason: z.string().trim().min(3).max(200),
+});
+
+// Granted minutes stay usable for a year, like the free trial.
+const GRANT_VALIDITY_MS = 365 * 24 * 60 * 60 * 1000;
 
 const USER_ROLES = ["consumer", "agent", "company_admin", "investor", "super_admin"] as const;
 
@@ -606,6 +615,85 @@ export function registerAdminUserRoutes(app: Express) {
     } catch (err) {
       logger.error("AdminUsers", "Failed to fetch integrations", err as Error);
       res.status(500).json({ success: false, message: "Failed to fetch integrations" });
+    }
+  });
+
+  /**
+   * Give a user call minutes (support refunds, testing, goodwill). Adds to
+   * the user's latest subscription, reactivating it if it ran out or
+   * expired, or starts one on the free plan. Every grant is audit-logged.
+   */
+  app.post("/api/admin/users/:id/minutes", requireAuth, requireRole("super_admin"), async (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const validation = grantMinutesSchema.safeParse(req.body);
+      if (!Number.isFinite(userId) || !validation.success) {
+        return res.status(400).json({ success: false, message: "Give 1–10000 minutes and a reason" });
+      }
+      const { minutes, reason } = validation.data;
+
+      const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
+      const now = new Date();
+      const [latest] = await db.select().from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.endDate))
+        .limit(1);
+
+      let subscriptionId: number;
+      let minutesBefore = 0;
+      if (latest) {
+        minutesBefore = latest.minutesRemaining ?? 0;
+        const endDate = latest.endDate && new Date(latest.endDate) > now
+          ? new Date(latest.endDate)
+          : new Date(now.getTime() + GRANT_VALIDITY_MS);
+        await db.update(subscriptions)
+          .set({
+            status: "active",
+            endDate,
+            minutesRemaining: sql`COALESCE(${subscriptions.minutesRemaining}, 0) + ${minutes}`,
+            updatedAt: now,
+          })
+          .where(eq(subscriptions.id, latest.id));
+        subscriptionId = latest.id;
+      } else {
+        const plan = await findFreeTrialPlan();
+        if (!plan) {
+          return res.status(409).json({ success: false, message: "No free plan exists to attach the minutes to" });
+        }
+        const [created] = await db.insert(subscriptions).values({
+          userId,
+          planId: plan.id,
+          status: "active",
+          billingModel: "prepaid",
+          startDate: now,
+          endDate: new Date(now.getTime() + GRANT_VALIDITY_MS),
+          minutesUsed: 0,
+          minutesRemaining: minutes,
+          autoRenew: false,
+        }).returning({ id: subscriptions.id });
+        subscriptionId = created.id;
+      }
+
+      const [after] = await db.select({ minutesRemaining: subscriptions.minutesRemaining })
+        .from(subscriptions).where(eq(subscriptions.id, subscriptionId));
+
+      await AuditHelpers.logSettingsChange(req.user!.id, "user_minutes_granted", { minutesRemaining: minutesBefore }, {
+        targetUserId: userId,
+        subscriptionId,
+        minutesGranted: minutes,
+        minutesRemaining: after?.minutesRemaining ?? null,
+        reason,
+      });
+      logger.info("AdminUsers", `Granted ${minutes} minutes to user ${userId} by admin ${req.user!.id}`);
+
+      res.json({ success: true, data: { userId, subscriptionId, minutesGranted: minutes, minutesRemaining: after?.minutesRemaining ?? null } });
+    } catch (err) {
+      logger.error("AdminUsers", "Failed to grant minutes", err as Error);
+      res.status(500).json({ success: false, message: "Failed to grant minutes" });
     }
   });
 

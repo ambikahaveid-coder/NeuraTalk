@@ -1149,6 +1149,10 @@ async function markTranslationUnavailable(callId: string, reason: string): Promi
         translationFailedReason: reason,
       },
     }));
+    // The caller pays for translation; without it the call is free.
+    await BillingEngine.waiveCallSessionCharges(callId, `translation unavailable: ${reason}`).catch((error) => {
+      logger.warn("SmartCallRouter", `Could not waive charges for ${callId}: ${String(error)}`);
+    });
     if (updated) {
       smartCallEvents.emit("translation_unavailable", { callId, reason });
     }

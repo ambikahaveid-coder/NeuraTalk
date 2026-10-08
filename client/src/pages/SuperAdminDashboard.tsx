@@ -1076,6 +1076,8 @@ function UsersSection() {
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [deletingUser, setDeletingUser] = useState<any>(null);
+  const [grantingUser, setGrantingUser] = useState<any>(null);
+  const [grant, setGrant] = useState({ minutes: "100", reason: "" });
   const [newUser, setNewUser] = useState({ email: "", phone: "", role: "consumer", username: "" });
 
   const { data: usersData, isLoading } = useQuery({
@@ -1174,6 +1176,31 @@ function UsersSection() {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const grantMinutesMutation = useMutation({
+    mutationFn: async ({ id, minutes, reason }: { id: number; minutes: number; reason: string }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/users/${id}/minutes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ minutes, reason }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to grant minutes");
+      return body;
+    },
+    onSuccess: (body: any) => {
+      setGrantingUser(null);
+      setGrant({ minutes: "100", reason: "" });
+      toast({ title: "Minutes added", description: `Now ${body.data?.minutesRemaining ?? "?"} minutes left` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const grantMinutes = Number(grant.minutes);
+  const grantValid = Number.isInteger(grantMinutes) && grantMinutes >= 1 && grantMinutes <= 10000 && grant.reason.trim().length >= 3;
 
   const users = usersData?.data || [];
   const total = usersData?.pagination?.total || 0;
@@ -1330,8 +1357,18 @@ function UsersSection() {
                     </Badge>
                     <div className="flex gap-1">
                       <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setGrantingUser(user)}
+                        data-testid={`button-minutes-${user.id}`}
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Minutes
+                      </Button>
+                      <Button
                         size="icon"
                         variant="ghost"
+                        aria-label="Edit user"
                         onClick={() => setEditingUser(user)}
                         data-testid={`button-edit-${user.id}`}
                       >
@@ -1340,6 +1377,7 @@ function UsersSection() {
                       <Button
                         size="icon"
                         variant="ghost"
+                        aria-label="Delete user"
                         onClick={() => setDeletingUser(user)}
                         disabled={user.role === "super_admin"}
                         data-testid={`button-delete-${user.id}`}
@@ -1425,6 +1463,50 @@ function UsersSection() {
             >
               {updateUserMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!grantingUser} onOpenChange={() => setGrantingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add call minutes</DialogTitle>
+            <DialogDescription>
+              For {grantingUser?.email || grantingUser?.phone || `User #${grantingUser?.id}`}. Recorded in the audit log with your reason.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Minutes</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10000}
+                value={grant.minutes}
+                onChange={(e) => setGrant({ ...grant, minutes: e.target.value })}
+                data-testid="input-grant-minutes"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Reason</Label>
+              <Input
+                value={grant.reason}
+                onChange={(e) => setGrant({ ...grant, reason: e.target.value })}
+                placeholder="e.g. refund for calls without translation"
+                data-testid="input-grant-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGrantingUser(null)}>Cancel</Button>
+            <Button
+              onClick={() => grantMinutesMutation.mutate({ id: grantingUser.id, minutes: grantMinutes, reason: grant.reason.trim() })}
+              disabled={!grantValid || grantMinutesMutation.isPending}
+              data-testid="button-confirm-grant"
+            >
+              {grantMinutesMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Add minutes
             </Button>
           </DialogFooter>
         </DialogContent>

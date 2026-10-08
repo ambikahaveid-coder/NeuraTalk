@@ -19,7 +19,7 @@ const FREE_TRIAL_VALIDITY_DAYS = 365;
  * is not safe — prefer the plan named "Free Trial", then the smallest free
  * B2C plan.
  */
-async function findFreeTrialPlan() {
+export async function findFreeTrialPlan() {
   const [named] = await db.select().from(billingPlans)
     .where(and(
       eq(billingPlans.name, "Free Trial"),
