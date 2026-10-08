@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
+import { publicName } from "./user-display";
 import { EventEmitter } from "node:events";
-import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { personalChatMessages, personalChatThreads, userContacts, users } from "@shared/schema";
@@ -387,11 +388,13 @@ router.get("/api/personal-chats/discover", requireAuth, async (req: AuthedReques
     const candidates = await db.select({
       id: users.id,
       username: users.username,
+      displayName: users.displayName,
       email: users.email,
       phone: users.phone,
       avatarUrl: users.avatarUrl,
     }).from(users).where(or(
       ilike(users.username, `%${query}%`),
+      ilike(users.displayName, `%${query}%`),
       ilike(users.email, `%${query}%`),
       eq(users.phone, normalizedPhone),
     ));
@@ -401,7 +404,7 @@ router.get("/api/personal-chats/discover", requireAuth, async (req: AuthedReques
       .slice(0, 10)
       .map((candidate) => ({
         id: candidate.id,
-        displayName: candidate.username || candidate.email || candidate.phone || "Unknown user",
+        displayName: publicName(candidate),
         username: candidate.username,
         email: candidate.email,
         phone: candidate.phone,
@@ -435,6 +438,7 @@ router.get("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: R
     const peers = await db.select({
       id: users.id,
       username: users.username,
+      displayName: users.displayName,
       email: users.email,
       phone: users.phone,
       avatarUrl: users.avatarUrl,
@@ -475,7 +479,7 @@ router.get("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: R
           email: peer?.email || null,
           phone: peer?.phone || null,
           avatarUrl: peer?.avatarUrl || matchingContact?.avatarUrl || null,
-          displayName: matchingContact?.name || peer?.username || peer?.email || peer?.phone || "Unknown user",
+          displayName: matchingContact?.name || publicName(peer),
           contactLanguage: matchingContact?.language || context.peerLanguage,
           identifier: preferredAppIdentifier(peer || {}),
           isFavorite: matchingContact?.isFavorite || false,
@@ -588,7 +592,7 @@ router.post("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: 
           email: recipient.email,
           phone: recipient.phone,
           avatarUrl: recipient.avatarUrl,
-          displayName: peerContact?.name || recipient.username || recipient.email || recipient.phone || "Unknown user",
+          displayName: peerContact?.name || publicName(recipient as { displayName?: string | null; username?: string | null; email?: string | null; phone?: string | null }),
           contactLanguage: peerContact?.language || targetLanguage,
           identifier: preferredAppIdentifier(recipient),
           isFavorite: peerContact?.isFavorite || false,
@@ -626,6 +630,7 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
     const [peer] = await db.select({
       id: users.id,
       username: users.username,
+      displayName: users.displayName,
       email: users.email,
       phone: users.phone,
       avatarUrl: users.avatarUrl,
@@ -679,7 +684,7 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
           email: peer?.email,
           phone: peer?.phone,
           avatarUrl: peer?.avatarUrl || peerContact?.avatarUrl || null,
-          displayName: peerContact?.name || peer?.username || peer?.email || peer?.phone || "Unknown user",
+          displayName: peerContact?.name || publicName(peer),
           contactLanguage: peerContact?.language || context.peerLanguage,
           identifier: preferredAppIdentifier(peer || {}),
           isFavorite: peerContact?.isFavorite || false,
@@ -692,6 +697,76 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
     res.status(500).json({ error: "Failed to load personal chat." });
   }
 });
+
+/**
+ * After a message is delivered: transcribe a voice note, detect the real
+ * language and translate, then update the message and tell both phones
+ * (as a message_created event so every app version refreshes it).
+ */
+async function finishMessageInBackground(job: {
+  messageId: number;
+  threadId: number;
+  viewerId: number;
+  peerUserId: number;
+  viewerLanguage: string;
+  peerLanguage: string;
+  content: string;
+  languageHint?: string | null;
+  voiceAttachmentUrl: string | null;
+  isTextMessage: boolean;
+  translationAllowed: boolean;
+}): Promise<void> {
+  try {
+    let content = job.content;
+    let isText = job.isTextMessage;
+    let voiceTranscribed = false;
+    if (job.voiceAttachmentUrl) {
+      const transcript = await transcribeVoiceNote(job.voiceAttachmentUrl, job.viewerLanguage);
+      if (transcript) {
+        content = transcript.slice(0, 4000);
+        isText = true;
+        voiceTranscribed = true;
+      }
+    }
+    const originalLanguage = normalizeLanguage(
+      job.languageHint || await detectLanguage(content, [job.viewerLanguage, job.peerLanguage]),
+    );
+    const translations: Record<string, string> = {};
+    if (isText && job.translationAllowed) {
+      const targets = [job.peerLanguage, job.viewerLanguage].filter(
+        (lang, i, all) => lang !== originalLanguage && all.indexOf(lang) === i,
+      );
+      const results = await Promise.all(targets.map((lang) => translatePersonalText(content, originalLanguage, lang)));
+      targets.forEach((lang, i) => { translations[lang] = results[i]; });
+    }
+    const [current] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, job.messageId));
+    if (!current || current.isDeleted) return;
+    await db.update(personalChatMessages).set({
+      originalContent: voiceTranscribed ? content : current.originalContent,
+      originalLanguage,
+      translations,
+      metadata: {
+        ...((current.metadata as Record<string, unknown> | null) || {}),
+        voiceTranscribed,
+        translationPending: false,
+      },
+    }).where(eq(personalChatMessages.id, job.messageId));
+    emitPersonalChatEvent([job.viewerId, job.peerUserId], {
+      type: "message_created",
+      update: true,
+      threadId: job.threadId,
+      messageId: job.messageId,
+      senderUserId: job.viewerId,
+    });
+  } catch (error) {
+    console.error("[PersonalChat] background translation failed:", error);
+    // The original message is already delivered; clear the pending flag.
+    await db.update(personalChatMessages)
+      .set({ metadata: sql`coalesce(${personalChatMessages.metadata}, '{}'::jsonb) || '{"translationPending": false}'::jsonb` })
+      .where(eq(personalChatMessages.id, job.messageId))
+      .catch(() => undefined);
+  }
+}
 
 router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatSendLimiter, async (req: AuthedRequest, res: Response) => {
   try {
@@ -737,56 +812,22 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     // something to translate.
     let isTextMessage = !input.messageType || input.messageType === "text";
 
-    // Voice notes: transcribe what was said (in the sender's language) so the
-    // other person can read it and read/hear it translated. If speech-to-text
-    // fails the voice note is still delivered, just without text.
-    let voiceTranscribed = false;
-    if (input.messageType === "voice_note" && input.attachmentUrl) {
-      const transcript = await transcribeVoiceNote(input.attachmentUrl, context.viewerLanguage);
-      if (transcript) {
-        input.content = transcript.slice(0, 4000);
-        isTextMessage = true;
-        voiceTranscribed = true;
-      }
-    }
-
-    const originalLanguage = normalizeLanguage(
-      input.originalLanguage || await detectLanguage(input.content, [context.viewerLanguage, context.peerLanguage]),
-    );
-    // Real wiring for the Translation Settings on/off toggle -- previously
-    // this flag was stored but never read anywhere, so turning it off did
-    // nothing. Skip translating THIS sender's messages when they've opted
-    // out; the recipient's own messages back are unaffected by the
-    // sender's setting.
-    //
-    // P0-4: consentTranslation was written by /api/compliance/consent but
-    // never read anywhere -- translation ran regardless of its value. Now
-    // enforced here, same sender-scoped pattern as translationEnabled.
-    // Opt-out semantics: consentTranslation defaults to false in the schema
-    // and no existing user has ever explicitly set it (nothing read it
-    // before now), so treating unset/default the same as translationEnabled
-    // (only an EXPLICIT false blocks) avoids silently disabling translation
-    // for the entire existing user base on deploy, while making an explicit
-    // revocation actually take effect for the first time.
+    // Speed: the message is stored and delivered first; voice-note
+    // transcription, language detection and translation (1-4 s of AI calls)
+    // run afterwards and update the message (see finishMessageInBackground).
+    // Sending used to wait for all of them.
+    const isVoiceNote = input.messageType === "voice_note" && !!input.attachmentUrl;
     const [senderRow] = await db.select({
       translationEnabled: users.translationEnabled,
       consentTranslation: users.consentTranslation,
       consentTimestamp: users.consentTimestamp,
     }).from(users).where(eq(users.id, viewerId));
+    // Opt-out semantics (P0-4): only an explicit refusal blocks translation.
     const translationConsentDenied = isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
-    const translations: Record<string, string> = {};
-    if (isTextMessage && senderRow?.translationEnabled !== false && !translationConsentDenied) {
-      // Both targets in parallel — this runs before the message is stored and
-      // pushed to the recipient, so sequential calls added directly to
-      // delivery latency.
-      const targets = [context.peerLanguage, context.viewerLanguage].filter(
-        (lang, i, all) => lang !== originalLanguage && all.indexOf(lang) === i,
-      );
-      const results = await Promise.all(
-        targets.map((lang) => translatePersonalText(input.content, originalLanguage, lang)),
-      );
-      targets.forEach((lang, i) => { translations[lang] = results[i]; });
-    }
+    const translationAllowed = senderRow?.translationEnabled !== false && !translationConsentDenied;
+    // Best guess until detection finishes: people mostly write their own language.
+    const originalLanguage = normalizeLanguage(input.originalLanguage || context.viewerLanguage);
+    const needsBackgroundWork = isVoiceNote || (isTextMessage && translationAllowed);
 
     const expiresAt = thread.disappearingSeconds
       ? new Date(Date.now() + thread.disappearingSeconds * 1000)
@@ -798,7 +839,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
       messageType: input.messageType || "text",
       originalContent: input.content,
       originalLanguage,
-      translations,
+      translations: {},
       clientMessageId: input.clientMessageId || null,
       deliveryStatus: "sent",
       replyToId: input.replyToId || null,
@@ -810,7 +851,8 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
         attachmentTitle: input.attachmentTitle || null,
         attachmentSize: input.attachmentSize ?? null,
         attachmentMime: input.attachmentMime || null,
-        voiceTranscribed,
+        voiceTranscribed: false,
+        translationPending: needsBackgroundWork,
         // Lets the client show "not translated -- no consent" instead of
         // silently looking like a same-language message.
         translationSkippedReason: translationConsentDenied ? "consent" : null,
@@ -846,7 +888,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     // Background/terminated-app push -- best-effort, never blocks the send.
     // The SSE event above only reaches a peer with the app open/foregrounded.
     sendPushNotification(context.peerUserId, {
-      title: req.user!.username || "New message",
+      title: publicName(req.user as { displayName?: string | null; username?: string | null }, "New message"),
       body: lastMessagePreview,
       data: { type: "personal_chat_message", threadId: String(threadId) },
     }).catch(() => {});
@@ -854,6 +896,22 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     res.status(201).json({
       message: formatMessage(message, viewerId, context.viewerLanguage),
     });
+
+    if (needsBackgroundWork) {
+      void finishMessageInBackground({
+        messageId: message.id,
+        threadId,
+        viewerId,
+        peerUserId: context.peerUserId,
+        viewerLanguage: context.viewerLanguage,
+        peerLanguage: context.peerLanguage,
+        content: input.content,
+        languageHint: input.originalLanguage,
+        voiceAttachmentUrl: isVoiceNote ? input.attachmentUrl! : null,
+        isTextMessage,
+        translationAllowed,
+      });
+    }
   } catch (error) {
     console.error("[PersonalChat] send failed:", error);
     if (error instanceof z.ZodError) {

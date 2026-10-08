@@ -185,6 +185,8 @@ export const featureFlagsDb = pgTable("feature_flags", {
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
+  // The name people see (profile name). Not unique: two people can both be "Ravi".
+  displayName: text("display_name"),
   password: text("password"), // Optional - OTP users may not have password
   email: text("email"),
   phone: text("phone"), // For OTP auth

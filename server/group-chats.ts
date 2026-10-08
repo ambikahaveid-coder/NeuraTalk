@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { groupChats, groupChatMembers, groupChatMessages, users } from "@shared/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { ObjectStorageService } from "./ai_integrations/object_storage";
 import { ObjectNotFoundError } from "./ai_integrations/object_storage/objectStorage";
 import { getObjectAclPolicy, setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
@@ -317,8 +317,10 @@ router.get("/api/group-chats/:groupId", requireAuth, async (req: Request, res: R
     const memberUsers = memberUserIds.length > 0 
       ? await db.select({
           id: users.id,
-          username: users.username,
+          // Apps show this as the member's name: the profile name when set.
+          username: sql<string>`coalesce(nullif(trim(${users.displayName}), ''), ${users.username})`,
           email: users.email,
+          avatarUrl: users.avatarUrl,
         }).from(users).where(inArray(users.id, memberUserIds))
       : [];
     
@@ -536,7 +538,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       .where(eq(groupChats.id, groupId));
 
     // Background/terminated-app push to every other member -- best-effort.
-    const [senderRow] = await db.select({ username: users.username }).from(users).where(eq(users.id, senderId));
+    const [senderRow] = await db.select({ username: sql<string>`coalesce(nullif(trim(${users.displayName}), ''), ${users.username})` }).from(users).where(eq(users.id, senderId));
     const recipients = members.map((m) => m.userId).filter((id) => id !== senderId);
     for (const recipientId of recipients) {
       sendPushNotification(recipientId, {
@@ -732,7 +734,8 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
     const senders = senderIds.length > 0
       ? await db.select({
           id: users.id,
-          username: users.username,
+          username: sql<string>`coalesce(nullif(trim(${users.displayName}), ''), ${users.username})`,
+          avatarUrl: users.avatarUrl,
         }).from(users).where(inArray(users.id, senderIds))
       : [];
     

@@ -371,6 +371,8 @@ app.use((req, res, next) => {
     await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "user_notifications_created_idx" ON "user_notifications" ("created_at")`);
     // Group chat photos/videos/files (additive, safe to run on every start).
     await _db.execute(_sql`ALTER TABLE "group_chat_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
+    // Profile names are display names, not unique usernames (additive, safe on every start).
+    await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "display_name" text`);
   }, { optional: true });
   let redisOperational = false;
   try {

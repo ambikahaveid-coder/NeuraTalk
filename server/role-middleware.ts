@@ -33,6 +33,8 @@ import { setContextUserId } from "./request-context";
 export interface AuthenticatedUser {
   id: number;
   username: string;
+  /** Profile name people see; not unique. */
+  displayName?: string | null;
   email: string | null;
   phone: string | null;
   avatarUrl: string | null;
@@ -518,6 +520,7 @@ export async function loadUser(
     req.user = {
       id: user.id,
       username: user.username,
+      displayName: (user as { displayName?: string | null }).displayName ?? null,
       email: user.email,
       phone: user.phone,
       avatarUrl: user.avatarUrl,

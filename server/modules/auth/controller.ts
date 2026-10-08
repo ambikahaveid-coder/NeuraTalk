@@ -216,7 +216,11 @@ export async function me(req: Request, res: Response) {
 
     res.json({
       id: req.user.id,
-      username: req.user.username,
+      // Apps show `username` as the person's name, so it carries the profile
+      // name; `handle` is the unique account username.
+      username: req.user.displayName?.trim() || req.user.username,
+      displayName: req.user.displayName?.trim() || null,
+      handle: req.user.username,
       email: req.user.email,
       phone: req.user.phone,
       avatarUrl: req.user.avatarUrl || null,
@@ -239,7 +243,9 @@ export async function me(req: Request, res: Response) {
 }
 
 const updateMeSchema = z.object({
+  // Profile name. Older apps send it as `username`; both set the display name.
   username: z.string().trim().min(1).max(100).optional(),
+  displayName: z.string().trim().min(1).max(100).optional(),
   avatarUrl: z.string().trim().min(1).optional(),
   preferredLanguage: z.string().trim().min(2).max(16).optional(),
   pushNotificationsEnabled: z.boolean().optional(),
@@ -270,7 +276,7 @@ export async function updateMe(req: Request, res: Response) {
     }
 
     const updated = await svc.updateProfile(req.user.id, {
-      username: parsed.data.username,
+      displayName: parsed.data.displayName ?? parsed.data.username,
       avatarUrl,
       preferredLanguage: parsed.data.preferredLanguage,
       pushNotificationsEnabled: parsed.data.pushNotificationsEnabled,
@@ -279,7 +285,9 @@ export async function updateMe(req: Request, res: Response) {
 
     res.json({
       id: updated.id,
-      username: updated.username,
+      username: updated.displayName?.trim() || updated.username,
+      displayName: updated.displayName,
+      handle: updated.username,
       avatarUrl: updated.avatarUrl,
       preferredLanguage: updated.preferredLanguage,
       pushNotificationsEnabled: updated.pushNotificationsEnabled,

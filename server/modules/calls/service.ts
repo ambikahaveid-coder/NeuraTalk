@@ -324,7 +324,7 @@ export async function initiateCall(params: InitiateCallParams): Promise<CallInit
       const requestedCalleeLanguage = params.calleeLanguage?.trim().toLowerCase();
       const calleeToken = await issueAccessToken(result.callId, {
         userId: String(callee.id),
-        displayName: (callee as any).username || String(callee.id),
+        displayName: (callee as any).displayName?.trim() || (callee as any).username || String(callee.id),
         language: (requestedCalleeLanguage && requestedCalleeLanguage !== "auto"
           ? requestedCalleeLanguage
           : (callee as any).preferredLanguage) || "auto",

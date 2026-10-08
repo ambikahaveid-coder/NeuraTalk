@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:provider/provider.dart';
+import '../main.dart' show navigatorKey;
+import 'call_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'callkit_service.dart';
@@ -51,11 +54,19 @@ class PushService {
     FirebaseMessaging.onMessage.listen((message) {
       final data = message.data;
       if (data['type'] == 'incoming_call') {
-        unawaited(CallKitService.showIncomingCall(
-          callId: data['callId'] as String? ?? '',
-          callerName: data['callerName'] as String? ?? 'Unknown',
-          callType: data['callType'] as String? ?? 'voice',
-        ));
+        // App is open: open the full ringing screen right away (like
+        // WhatsApp) instead of a notification. Fall back to the native call
+        // UI only if the app has no screen to show it on.
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          ctx.read<CallService>().pollNow();
+        } else {
+          unawaited(CallKitService.showIncomingCall(
+            callId: data['callId'] as String? ?? '',
+            callerName: data['callerName'] as String? ?? 'Unknown',
+            callType: data['callType'] as String? ?? 'voice',
+          ));
+        }
       }
     });
   }

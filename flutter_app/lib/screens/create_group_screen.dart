@@ -222,6 +222,12 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               decoration: InputDecoration(
                 hintText: 'Search name or phone number',
                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                isDense: true,
+                contentPadding: NtSearch.padding,
+                prefixIconConstraints: NtSearch.iconBox,
+                border: NtSearch.border(AppColors.border),
+                enabledBorder: NtSearch.border(AppColors.border),
+                focusedBorder: NtSearch.border(AppColors.cyan, 1.5),
               ),
             ),
           ),

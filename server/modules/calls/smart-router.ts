@@ -1638,7 +1638,7 @@ async function initiateConferenceLocked(
 
   const hostToken = await issueAccessToken(callId, {
     userId: params.hostId,
-    displayName: (hostUser as any)?.username || params.hostId,
+    displayName: (hostUser as any)?.displayName?.trim() || (hostUser as any)?.username || params.hostId,
     language: hostLanguage,
     translationMode: "voice",
     role: "caller",
@@ -1652,7 +1652,7 @@ async function initiateConferenceLocked(
     await setParticipantLanguagePreference(callId, participantId, language);
     participantTokens[participantId] = await issueAccessToken(callId, {
       userId: participantId,
-      displayName: (user as any)?.username || participantId,
+      displayName: (user as any)?.displayName?.trim() || (user as any)?.username || participantId,
       language,
       translationMode: "voice",
       role: "caller",
@@ -1661,7 +1661,7 @@ async function initiateConferenceLocked(
       callId,
       callerId: params.hostId,
       callType,
-      callerName: params.title || (hostUser as any)?.username,
+      callerName: params.title || (hostUser as any)?.displayName?.trim() || (hostUser as any)?.username,
     });
   }
 

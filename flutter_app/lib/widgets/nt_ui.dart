@@ -315,3 +315,12 @@ Config ntEmojiConfig() => Config(
         hintText: 'Search emoji',
       ),
     );
+
+/// Compact, pill-shaped search fields (44 px, like WhatsApp) instead of the
+/// tall form-field style. Spread into a search field's InputDecoration.
+class NtSearch {
+  static const padding = EdgeInsets.symmetric(vertical: 10);
+  static OutlineInputBorder border(Color color, [double width = 1]) =>
+      OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide(color: color, width: width));
+  static const iconBox = BoxConstraints(minWidth: 42, minHeight: 40);
+}

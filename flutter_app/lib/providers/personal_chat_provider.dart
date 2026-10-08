@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 
 /// Real user-to-user chat state — wired to server/personal-chat-routes.ts.
@@ -21,6 +22,66 @@ class PersonalChatProvider extends ChangeNotifier {
   DateTime? peerLastActiveAt;
   bool peerRecentlyActive = false;
 
+  // ---- On-device copy (like WhatsApp): chats open instantly from the last
+  // saved state, then refresh from the server in the background.
+  static const _threadsCacheKey = 'chat_threads_cache_v1';
+  static String _messagesCacheKey(int threadId) => 'chat_messages_cache_v1_$threadId';
+  static const _translationOffKey = 'chat_translation_off_v1';
+  static const _maxCachedMessages = 60;
+  Set<String> _translationOff = {};
+  bool _prefsLoaded = false;
+
+  Future<SharedPreferences?> _prefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!_prefsLoaded) {
+        _prefsLoaded = true;
+        _translationOff = (prefs.getStringList(_translationOffKey) ?? const []).toSet();
+      }
+      return prefs;
+    } catch (_) {
+      return null; // a broken store must never break chat
+    }
+  }
+
+  Future<void> _saveThreads() async {
+    final prefs = await _prefs();
+    try {
+      await prefs?.setString(_threadsCacheKey, jsonEncode(threads));
+    } catch (_) {}
+  }
+
+  Future<void> _saveMessages(int threadId) async {
+    final prefs = await _prefs();
+    try {
+      final keep = messages.where((m) => m['_pending'] != true && m['deliveryStatus'] != 'sending' && m['deliveryStatus'] != 'failed').toList();
+      final tail = keep.length > _maxCachedMessages ? keep.sublist(keep.length - _maxCachedMessages) : keep;
+      await prefs?.setString(_messagesCacheKey(threadId), jsonEncode({'thread': activeThread, 'messages': tail}));
+    } catch (_) {}
+  }
+
+  /// Signed out: forget the previous person's chats held in memory.
+  void reset() {
+    threads = [];
+    messages = [];
+    activeThread = null;
+    _translationOff = {};
+    _prefsLoaded = false;
+    notifyListeners();
+  }
+
+  /// Translation for this chat: on unless the user turned it off here.
+  bool isTranslationOn(int threadId) => !_translationOff.contains('$threadId');
+
+  Future<void> setTranslationOn(int threadId, bool on) async {
+    on ? _translationOff.remove('$threadId') : _translationOff.add('$threadId');
+    notifyListeners();
+    final prefs = await _prefs();
+    try {
+      await prefs?.setStringList(_translationOffKey, _translationOff.toList());
+    } catch (_) {}
+  }
+
   StreamSubscription<String>? _sseSub;
   http.Client? _sseClient;
   Timer? _presenceTimer;
@@ -30,14 +91,24 @@ class PersonalChatProvider extends ChangeNotifier {
   Future<void> loadThreads() async {
     // Screens start loading from initState; never notify listeners while a frame is building.
     await Future<void>.microtask(() {});
-    loadingThreads = true;
+    if (threads.isEmpty) {
+      final prefs = await _prefs();
+      try {
+        final raw = prefs?.getString(_threadsCacheKey);
+        if (raw != null) threads = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      } catch (_) {}
+    }
+    // Only show a spinner when there is nothing saved to show yet.
+    loadingThreads = threads.isEmpty;
     threadsError = null;
     notifyListeners();
     try {
       final res = await ApiService.get('/api/personal-chats') as Map<String, dynamic>;
       threads = (res['threads'] as List).cast<Map<String, dynamic>>();
+      unawaited(_saveThreads());
     } catch (e) {
-      threadsError = 'Could not load conversations.';
+      // Offline with saved chats: keep showing them instead of an error.
+      if (threads.isEmpty) threadsError = 'Could not load conversations.';
     } finally {
       loadingThreads = false;
       notifyListeners();
@@ -59,21 +130,32 @@ class PersonalChatProvider extends ChangeNotifier {
   Future<void> openThread(int threadId) async {
     // Screens start loading from initState; never notify listeners while a frame is building.
     await Future<void>.microtask(() {});
-    loadingMessages = true;
     messagesError = null;
     messages = [];
     peerTyping = false;
     peerLastActiveAt = null;
+    // Open instantly from the saved copy, then refresh.
+    final prefs = await _prefs();
+    try {
+      final raw = prefs?.getString(_messagesCacheKey(threadId));
+      if (raw != null) {
+        final saved = jsonDecode(raw) as Map<String, dynamic>;
+        activeThread = (saved['thread'] as Map?)?.cast<String, dynamic>() ?? activeThread;
+        messages = (saved['messages'] as List).cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    loadingMessages = messages.isEmpty;
     notifyListeners();
 
     try {
       final res = await ApiService.get('/api/personal-chats/$threadId') as Map<String, dynamic>;
       activeThread = res['thread'] as Map<String, dynamic>?;
       messages = (res['messages'] as List).cast<Map<String, dynamic>>();
+      unawaited(_saveMessages(threadId));
       unawaited(markSeen(threadId));
       _startPresencePolling(threadId);
     } catch (e) {
-      messagesError = 'Could not load this conversation.';
+      if (messages.isEmpty) messagesError = 'Could not load this conversation.';
     } finally {
       loadingMessages = false;
       notifyListeners();
@@ -92,6 +174,7 @@ class PersonalChatProvider extends ChangeNotifier {
       activeThread = res['thread'] as Map<String, dynamic>?;
       messages = (res['messages'] as List).cast<Map<String, dynamic>>();
       notifyListeners();
+      unawaited(_saveMessages(threadId));
       unawaited(markSeen(threadId));
     } catch (_) {
       // Best-effort -- keep showing the last known-good messages.

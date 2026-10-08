@@ -329,7 +329,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
         decoration: BoxDecoration(color: AppColors.background, border: Border(top: BorderSide(color: AppColors.border))),
         child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Expanded(
@@ -363,7 +363,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                       focusedBorder: InputBorder.none,
                       filled: false,
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 11),
                     ),
                     onSubmitted: (_) => _send(),
                   ),
@@ -383,7 +383,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: _send,
-              child: const SizedBox(width: 50, height: 50, child: Icon(Icons.send, color: AppColors.onAccent, size: 22, semanticLabel: 'Send')),
+              child: const SizedBox(width: 44, height: 44, child: Icon(Icons.send, color: AppColors.onAccent, size: 20, semanticLabel: 'Send')),
             ),
           ),
         ]),

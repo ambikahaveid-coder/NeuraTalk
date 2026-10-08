@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
@@ -29,6 +30,8 @@ class IncomingCallScreen extends StatefulWidget {
 
 class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Timer? _expiryTimer;
+  Timer? _vibrateTimer;
+  Timer? _statusTimer;
   bool _busy = false;
 
   // Real P0 bug found from physical-device testing: this screen used
@@ -47,6 +50,24 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   @override
   void initState() {
     super.initState();
+    // Ring like a phone call: the phone's own ringtone (respects silent /
+    // vibrate mode) plus a vibration pulse, until this screen closes.
+    unawaited(FlutterRingtonePlayer().playRingtone(looping: true).catchError((_) {}));
+    unawaited(HapticFeedback.vibrate());
+    _vibrateTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) => HapticFeedback.vibrate());
+    // Stop ringing as soon as the caller hangs up (it used to keep ringing
+    // until the 45 s expiry). In a group call someone else answering is not
+    // a reason to stop ringing for you.
+    _statusTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      try {
+        final status = await widget.callService.getCallStatus(widget.session.callId);
+        final over = {'ended', 'cancelled', 'missed', 'failed', 'completed'}.contains(status) ||
+            (!widget.session.isGroup && (status == 'active' || status == 'answered') && !_busy);
+        if (over && mounted && !_busy) _dismiss();
+      } catch (_) {
+        // Keep ringing on a network blip; the expiry timer still applies.
+      }
+    });
     final expiresAt = widget.session.expiresAt;
     if (expiresAt != null) {
       final remaining = expiresAt.difference(DateTime.now());
@@ -65,7 +86,21 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   /// that flips _allowPop would still read the stale `false` and get
   /// swallowed again, same as the original bug. Waiting a frame first is
   /// what actually makes canPop's new value visible to the pop request.
+  void _stopRinging() {
+    _vibrateTimer?.cancel();
+    _statusTimer?.cancel();
+    unawaited(FlutterRingtonePlayer().stop().catchError((_) {}));
+  }
+
+  @override
+  void dispose() {
+    _stopRinging();
+    _expiryTimer?.cancel();
+    super.dispose();
+  }
+
   void _exitScreen() {
+    _stopRinging();
     _expiryTimer?.cancel();
     if (!mounted) return;
     if (ModalRoute.of(context)?.isCurrent != true) return;
@@ -90,6 +125,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
   Future<void> _accept() async {
     if (_busy) return;
+    _stopRinging();
     setState(() => _busy = true);
     widget.callService.markHandledExternally(widget.session.callId);
     unawaited(CallKitService.endCall(widget.session.callId));
@@ -149,12 +185,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     }
     widget.callService.clearIncomingCall();
     _exitScreen();
-  }
-
-  @override
-  void dispose() {
-    _expiryTimer?.cancel();
-    super.dispose();
   }
 
   @override

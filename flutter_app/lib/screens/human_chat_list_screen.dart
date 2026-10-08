@@ -188,7 +188,12 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                               decoration: InputDecoration(
                                 hintText: 'Search chats',
                                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
-                                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                isDense: true,
+                                contentPadding: NtSearch.padding,
+                                prefixIconConstraints: NtSearch.iconBox,
+                                border: NtSearch.border(AppColors.border),
+                                enabledBorder: NtSearch.border(AppColors.border),
+                                focusedBorder: NtSearch.border(AppColors.cyan, 1.5),
                               ),
                             ),
                           ),

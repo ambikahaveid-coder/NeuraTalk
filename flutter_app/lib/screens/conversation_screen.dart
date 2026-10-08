@@ -662,9 +662,10 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final theirs = _peerLanguage(provider);
     if (mine == null || theirs == null) return const SizedBox.shrink();
     final same = Languages.of(mine).code == Languages.of(theirs).code;
+    final on = provider.isTranslationOn(_threadId);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
       decoration: BoxDecoration(color: AppColors.background, border: Border(bottom: BorderSide(color: AppColors.border))),
       child: Row(children: [
         LanguagePairChip(
@@ -676,7 +677,30 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
           },
         ),
         const Spacer(),
-        LiveBadge(on: !same, label: same ? 'Same language' : 'Live translation'),
+        if (same)
+          const Padding(padding: EdgeInsets.only(right: 8), child: LiveBadge(on: false, label: 'Same language'))
+        else
+          // Translation is automatic; this lets someone read the original
+          // words in this chat (e.g. both understand each other's language).
+          Semantics(
+            label: on ? 'Translation on' : 'Translation off',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => provider.setTranslationOn(_threadId, !on),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 2, 0, 2),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.translate, size: 16, color: on ? AppColors.cyan : AppColors.textMuted),
+                  const SizedBox(width: 4),
+                  Text('Translate', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+                  Transform.scale(
+                    scale: 0.72,
+                    child: Switch(value: on, onChanged: (v) => provider.setTranslationOn(_threadId, v)),
+                  ),
+                ]),
+              ),
+            ),
+          ),
       ]),
     );
   }
@@ -801,6 +825,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                               repliedMessage: _findMessageById(_asMessageId(provider.messages[i]['replyToId'])),
                               peerLanguage: _peerLanguage(provider),
                               myLanguage: _myLanguage(provider),
+                              translationOn: provider.isTranslationOn(_threadId),
                             ),
                           ),
           ),
@@ -926,7 +951,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
 
   Widget _inputBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
       decoration: BoxDecoration(
         color: AppColors.background,
         border: Border(top: BorderSide(color: AppColors.border)),
@@ -945,6 +970,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: _showEmoji ? 'Keyboard' : 'Emoji',
                     icon: Icon(_showEmoji ? Icons.keyboard : Icons.emoji_emotions_outlined, color: AppColors.textMuted),
                     onPressed: _toggleEmoji,
@@ -968,17 +994,19 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                         focusedBorder: InputBorder.none,
                         filled: false,
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(vertical: 11),
                       ),
                       onSubmitted: (_) => _send(),
                     ),
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: 'Attach',
                     icon: Icon(Icons.attach_file, color: AppColors.textMuted),
                     onPressed: _uploading ? null : _showAttachMenu,
                   ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: 'Photo',
                     icon: Icon(Icons.photo_camera_outlined, color: AppColors.textMuted),
                     onPressed: _uploading ? null : () => _capture(video: false),
@@ -999,8 +1027,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                         ? null
                         : (_recording ? () => _stopRecordingAndSend(cancel: false) : _startRecording),
                 child: Container(
-                  width: 50,
-                  height: 50,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(color: _recording ? AppColors.red : AppColors.cyan, shape: BoxShape.circle),
                   child: Icon(
                     hasText ? Icons.send : (_recording ? Icons.stop : Icons.mic),
@@ -1026,6 +1054,8 @@ class _PersonalMessageBubble extends StatefulWidget {
   /// The other person's language (for "They read …" under my own messages).
   final String? peerLanguage;
   final String? myLanguage;
+  /// Off: show exactly what was written, no translation lines.
+  final bool translationOn;
   const _PersonalMessageBubble({
     required this.message,
     required this.onRetry,
@@ -1033,6 +1063,7 @@ class _PersonalMessageBubble extends StatefulWidget {
     this.repliedMessage,
     this.peerLanguage,
     this.myLanguage,
+    this.translationOn = true,
   });
 
   @override
@@ -1081,6 +1112,9 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     final isOwn = m['isOwn'] == true;
     final original = m['originalContent']?.toString() ?? '';
     final originalLang = m['originalLanguage']?.toString() ?? widget.myLanguage ?? 'en';
+    if (!widget.translationOn) {
+      return (primary: original, secondary: null, secondaryLabel: null, listenText: original, listenLang: originalLang);
+    }
     if (!isOwn) {
       final shown = m['displayContent']?.toString() ?? original;
       final translated = m['showingTranslated'] == true && shown != original;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
+import '../widgets/nt_ui.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../utils/languages.dart';
@@ -116,8 +117,13 @@ class _LanguagePreferencesScreenState extends State<LanguagePreferencesScreen> {
                   onChanged: (v) => setState(() => _query = v),
                   decoration: InputDecoration(
                     prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                    isDense: true,
+                    contentPadding: NtSearch.padding,
+                    prefixIconConstraints: NtSearch.iconBox,
+                    border: NtSearch.border(AppColors.border),
+                    enabledBorder: NtSearch.border(AppColors.border),
+                    focusedBorder: NtSearch.border(AppColors.cyan, 1.5),
                     hintText: 'Search languages...',
-                    contentPadding: EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
               ),

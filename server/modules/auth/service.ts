@@ -515,7 +515,7 @@ export async function finalizeAvatarUpload(userId: number, objectPath: string): 
 export async function updateProfile(
   userId: number,
   updates: {
-    username?: string;
+    displayName?: string;
     avatarUrl?: string;
     preferredLanguage?: string;
     pushNotificationsEnabled?: boolean;
@@ -524,13 +524,15 @@ export async function updateProfile(
 ): Promise<{
   id: number;
   username: string;
+  displayName: string | null;
   avatarUrl: string | null;
   preferredLanguage: string | null;
   pushNotificationsEnabled: boolean;
   translationEnabled: boolean;
 }> {
   const setValues: Record<string, unknown> = {};
-  if (updates.username !== undefined) setValues.username = updates.username;
+  // The unique username is never changed here: two people may share a name.
+  if (updates.displayName !== undefined) setValues.displayName = updates.displayName;
   if (updates.avatarUrl !== undefined) setValues.avatarUrl = updates.avatarUrl;
   if (updates.preferredLanguage !== undefined) setValues.preferredLanguage = updates.preferredLanguage;
   if (updates.pushNotificationsEnabled !== undefined) setValues.pushNotificationsEnabled = updates.pushNotificationsEnabled;
@@ -543,6 +545,7 @@ export async function updateProfile(
     .returning({
       id: users.id,
       username: users.username,
+      displayName: users.displayName,
       avatarUrl: users.avatarUrl,
       preferredLanguage: users.preferredLanguage,
       pushNotificationsEnabled: users.pushNotificationsEnabled,

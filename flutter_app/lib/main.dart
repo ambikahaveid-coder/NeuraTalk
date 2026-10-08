@@ -150,6 +150,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
           unawaited(ContactResolver.instance.ensureLoaded());
         } else {
           calls.stopPolling();
+          context.read<PersonalChatProvider>().reset();
         }
       });
       calls.addListener(_onCallServiceChanged);

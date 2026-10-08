@@ -179,6 +179,12 @@ class _TranscriptHistoryScreenState extends State<TranscriptHistoryScreen> {
               decoration: InputDecoration(
                 hintText: 'Search words said in your calls',
                 prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                isDense: true,
+                contentPadding: NtSearch.padding,
+                prefixIconConstraints: NtSearch.iconBox,
+                border: NtSearch.border(AppColors.border),
+                enabledBorder: NtSearch.border(AppColors.border),
+                focusedBorder: NtSearch.border(AppColors.cyan, 1.5),
               ),
             ),
           ),

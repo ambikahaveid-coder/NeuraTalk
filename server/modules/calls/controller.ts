@@ -433,7 +433,7 @@ export async function initiate(req: Request, res: Response) {
 
     const result = await svc.initiateCall({
       callerId: String(user.id),
-      callerUsername: user.username,
+      callerUsername: user.displayName?.trim() || user.username,
       callerNumber: (user as any).phone || "",
       calleeIdentifier: parsed.data.calleeIdentifier,
       callerLanguage: parsed.data.myLanguage,
@@ -449,7 +449,7 @@ export async function initiate(req: Request, res: Response) {
       session: buildUnifiedSessionFromInitiateResponse(result, {
         callerId: String(user.id),
         callerNumber: (user as any).phone || "",
-        callerDisplayName: user.username || null,
+        callerDisplayName: user.displayName?.trim() || user.username || null,
         calleeIdentifier: parsed.data.calleeIdentifier,
         callerLanguage: parsed.data.myLanguage,
         calleeLanguage: parsed.data.theirLanguage,
@@ -529,7 +529,7 @@ export async function conference(req: Request, res: Response) {
     const type = callType === "video" ? "video" : "voice";
     const result = await svc.initiateConference({
       hostId: String(user.id),
-      hostUsername: user.username,
+      hostUsername: user.displayName?.trim() || user.username,
       hostLanguage: hostLanguage || "auto",
       participantIds,
       title,
@@ -576,7 +576,7 @@ export async function groupCall(req: Request, res: Response) {
     const hostLanguage = String(user.preferredLanguage || "auto").toLowerCase();
     const result = await svc.initiateConference({
       hostId: String(user.id),
-      hostUsername: user.username,
+      hostUsername: user.displayName?.trim() || user.username,
       hostLanguage,
       participantIds,
       title: group.name,
@@ -1457,10 +1457,12 @@ export async function callHistory(req: Request, res: Response) {
     for (const r of page) {
       const remote = r.callerId === me ? r.calleeUserId : r.callerId;
       const n = Number(remote);
-      if (remote && Number.isInteger(n)) remoteIds.add(n);
+      // Phone-number calls store the number here (e.g. 918125251546): that is
+      // not a user id, and an out-of-range id used to fail the whole history.
+      if (remote && Number.isInteger(n) && n > 0 && n <= 2_147_483_647) remoteIds.add(n);
     }
     const people = remoteIds.size
-      ? await db.select({ id: users.id, username: users.username, phone: users.phone, avatarUrl: users.avatarUrl }).from(users).where(inArray(users.id, Array.from(remoteIds)))
+      ? await db.select({ id: users.id, username: users.username, displayName: users.displayName, phone: users.phone, avatarUrl: users.avatarUrl }).from(users).where(inArray(users.id, Array.from(remoteIds)))
       : [];
     const byId = new Map(people.map((p) => [String(p.id), p]));
 
@@ -1478,7 +1480,7 @@ export async function callHistory(req: Request, res: Response) {
         direction: outgoing ? "outgoing" : "incoming",
         outcome: answered ? "answered" : outgoing ? "not_answered" : "missed",
         remoteUserId: person ? person.id : null,
-        remoteName: person && person.username && person.username !== person.phone ? person.username : null,
+        remoteName: person?.displayName?.trim() || (person && person.username && person.username !== person.phone ? person.username : null),
         remotePhone: person?.phone ?? (outgoing ? r.calleeIdentifier : null),
         remoteAvatarUrl: person?.avatarUrl ?? null,
         durationSeconds,

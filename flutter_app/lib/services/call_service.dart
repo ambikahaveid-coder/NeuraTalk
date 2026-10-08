@@ -54,7 +54,9 @@ class CallService extends ChangeNotifier {
     if (_polling) return;
     _polling = true;
     _connectivitySub ??= Connectivity().onConnectivityChanged.listen(_onConnectivityChanged);
-    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _pollOnce());
+    // Calls normally arrive by push (instant, see checkNow); this is only a
+    // safety net. Every poll is a server/Redis read, so not every 4 s.
+    _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) => _pollOnce());
     unawaited(_pollOnce());
   }
 

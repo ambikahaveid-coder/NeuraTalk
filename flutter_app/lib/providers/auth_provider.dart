@@ -205,9 +205,25 @@ class AuthProvider extends ChangeNotifier {
       final res = await ApiService.get('/api/auth/me') as Map<String, dynamic>;
       _user = res;
       notifyListeners();
+    } on ApiException catch (e) {
+      // Only an expired/invalid session signs you out. A network blip or a
+      // server hiccup used to log people out at random.
+      if (e.statusCode == 401) await ApiService.clearToken();
     } catch (_) {
-      await ApiService.clearToken();
+      // Offline etc.: keep the session and the last known profile.
     }
+  }
+
+  /// Saved chats on this phone belong to the signed-in person only.
+  static Future<void> _clearSavedChats() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys().toList()) {
+        if (key.startsWith('chat_threads_cache_v1') || key.startsWith('chat_messages_cache_v1_') || key == 'chat_translation_off_v1') {
+          await prefs.remove(key);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> logout() async {
@@ -218,6 +234,7 @@ class AuthProvider extends ChangeNotifier {
       await FirebaseAuth.instance.signOut();
     } catch (_) {}
     await ApiService.clearToken();
+    await _clearSavedChats();
     _user = null;
     notifyListeners();
   }

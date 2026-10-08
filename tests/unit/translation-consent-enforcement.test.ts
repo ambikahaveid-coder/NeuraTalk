@@ -46,21 +46,23 @@ describe("P0-4: consent gate is wired BEFORE any provider call at all three chat
     const path = await import("path");
     const source = fs.readFileSync(path.resolve(__dirname, "../../server/personal-chat-routes.ts"), "utf8");
 
+    // Translation now runs after delivery (finishMessageInBackground), but the
+    // send route still decides, from the consent flag, whether it may run.
     const gateIdx = source.indexOf("const translationConsentDenied = isTranslationConsentDenied(");
-    const firstProviderCallIdx = source.indexOf("translatePersonalText(input.content");
     expect(gateIdx).toBeGreaterThan(-1);
-    expect(firstProviderCallIdx).toBeGreaterThan(-1);
-    expect(gateIdx).toBeLessThan(firstProviderCallIdx);
+    const allowedIdx = source.indexOf("const translationAllowed = ");
+    expect(allowedIdx).toBeGreaterThan(gateIdx);
+    const allowedLine = source.slice(allowedIdx, source.indexOf("\n", allowedIdx));
+    expect(allowedLine).toContain("senderRow?.translationEnabled !== false");
+    expect(allowedLine).toContain("!translationConsentDenied");
+    expect(source).toContain("translationAllowed,");
 
-    // The if-condition guarding the translation block must reference the
-    // consent flag, not just the pre-existing translationEnabled toggle.
-    // (Photos/files skip translation entirely, so the condition may also start with isTextMessage.)
-    const conditionIdx = source.indexOf("senderRow?.translationEnabled !== false");
-    expect(conditionIdx).toBeGreaterThan(-1);
-    const lineStart = source.lastIndexOf("\n", conditionIdx) + 1;
-    const ifLine = source.slice(lineStart, source.indexOf("\n", conditionIdx));
-    expect(ifLine.trim().startsWith("if (")).toBe(true);
-    expect(ifLine).toContain("translationConsentDenied");
+    // The only translatePersonalText call for chat messages sits behind that decision.
+    const providerCallIdx = source.indexOf("translatePersonalText(content");
+    expect(providerCallIdx).toBeGreaterThan(-1);
+    const guardIdx = source.lastIndexOf("if (isText && job.translationAllowed)", providerCallIdx);
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(source.slice(guardIdx, providerCallIdx)).not.toContain("\n  }\n");
   });
 
   it("group-chats.ts gates the TEXT-message translateText loop behind groupTranslationConsentDenied", async () => {
