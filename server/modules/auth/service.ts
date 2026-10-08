@@ -12,7 +12,7 @@ import { verifyFirebaseToken, verifyFirebaseTokenDetailed, isFirebaseAdminConfig
 import { issueWsToken } from "../../signaling-server";
 import { AuditHelpers } from "../../audit";
 import { grantFreeTrialIfEligible } from "../../free-trial";
-import { USER_ROLES, users, billingPlans, subscriptions } from "@shared/schema";
+import { USER_ROLES, users, billingPlans, subscriptions, personalChatThreads, groupChatMembers } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
 import { eq, and, or } from "drizzle-orm";
@@ -551,6 +551,24 @@ export async function updateProfile(
       pushNotificationsEnabled: users.pushNotificationsEnabled,
       translationEnabled: users.translationEnabled,
     });
+
+  // Each chat stores both people's languages when it is created. Without
+  // this, changing your language left every existing chat and group on the
+  // old one ("English → English" after switching to Telugu).
+  if (updates.preferredLanguage !== undefined && updated) {
+    const language = updates.preferredLanguage;
+    await Promise.all([
+      db.update(personalChatThreads)
+        .set({ participantALanguage: language })
+        .where(eq(personalChatThreads.participantAUserId, userId)),
+      db.update(personalChatThreads)
+        .set({ participantBLanguage: language })
+        .where(eq(personalChatThreads.participantBUserId, userId)),
+      db.update(groupChatMembers)
+        .set({ preferredLanguage: language })
+        .where(eq(groupChatMembers.userId, userId)),
+    ]);
+  }
 
   return updated;
 }

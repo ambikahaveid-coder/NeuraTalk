@@ -252,7 +252,15 @@ String friendlyCallError(Object e) {
       return 'Calling mobile numbers is not available right now.';
     case 'BLOCKED':
       return "This call can't be completed.";
+    case 'NO_MINUTES':
+      return 'You have no call minutes left. Recharge to keep calling.';
+    case 'SUBSCRIPTION_EXPIRED':
+      return 'Your plan has expired. Renew it to keep calling.';
+    case 'NO_SUBSCRIPTION':
+      return 'You need a plan to make calls. Choose one in Settings › Plan.';
   }
+  // Any other billing refusal: the server's own sentence explains it.
+  if (e.statusCode == 402 && e.message.isNotEmpty) return e.message;
 
   final reason = e.message.toUpperCase();
   if (reason.contains('BALANCE') || reason.contains('SUBSCRIPTION') || reason.contains('CREDIT_LIMIT') || reason.contains('PAYMENT_REQUIRED')) {
