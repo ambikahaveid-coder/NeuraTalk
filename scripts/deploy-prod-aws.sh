@@ -57,8 +57,8 @@ node -e '
 const fs=require("fs");const td=JSON.parse(fs.readFileSync("td.json","utf8"));
 for (const k of ["taskDefinitionArn","revision","status","requiresAttributes","compatibilities","registeredAt","registeredBy","deregisteredAt"]) delete td[k];
 const c=td.containerDefinitions[0]; c.image=process.argv[1];
-c.environment=(c.environment||[]).filter(e=>e.name!=="ENABLE_STARTUP_SEEDING");
-c.environment.push({name:"ENABLE_STARTUP_SEEDING",value:"true"});
+c.environment=(c.environment||[]).filter(e=>!["ENABLE_STARTUP_SEEDING","APP_BASE_URL"].includes(e.name));
+c.environment.push({name:"ENABLE_STARTUP_SEEDING",value:"true"},{name:"APP_BASE_URL",value:"https://neuratalk.in"});
 fs.writeFileSync("td.json",JSON.stringify(td));' "$IMAGE"
 NEW=$(aws ecs register-task-definition --cli-input-json file://td.json --query taskDefinition.taskDefinitionArn --output text)
 rm -f td.json

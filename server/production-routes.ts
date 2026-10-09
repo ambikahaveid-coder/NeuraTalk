@@ -412,7 +412,6 @@ export function registerProductionRoutes(app: Express): void {
     const checkProviders = async (): Promise<void> => {
       if (!isProd) return;
       const requiredKeys = [
-        "STT_PROVIDER",
         "AZURE_SPEECH_KEY",
         "AZURE_SPEECH_REGION",
         "LIVEKIT_URL",
@@ -455,7 +454,13 @@ export function registerProductionRoutes(app: Express): void {
     // total latency is bounded by the slowest single check, not their sum.
     await Promise.all([checkDatabase(), checkAuthSchema(), checkRedis(), checkProviders(), checkMsg91()]);
 
+    // Feature integrations may be degraded without making the core API unable
+    // to serve traffic; keep their status visible without failing readiness.
+    const coreDependenciesReady = ["database", "authSchema", "redis"].every(
+      (name) => checks[name]?.status === "healthy",
+    );
     const overallHealthy = Object.values(checks).every((c) => c.status === "healthy");
+    const readinessStatus = overallHealthy ? "ready" : coreDependenciesReady ? "degraded" : "not_ready";
 
     // Fire-and-forget — logging this check's result must never add latency
     // to the response the platform's proxy is waiting on.
@@ -466,8 +471,8 @@ export function registerProductionRoutes(app: Express): void {
       details: checks,
     }).catch(() => { /* don't fail the health check if logging fails */ });
 
-    res.status(overallHealthy ? 200 : 503).json({
-      status: overallHealthy ? "ready" : "not_ready",
+    res.status(coreDependenciesReady ? 200 : 503).json({
+      status: readinessStatus,
       checks,
       timestamp: new Date().toISOString(),
     });
