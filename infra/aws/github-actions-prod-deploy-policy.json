@@ -23,7 +23,10 @@
       "Sid": "ReadBuildStatus",
       "Effect": "Allow",
       "Action": "codebuild:BatchGetBuilds",
-      "Resource": "arn:aws:codebuild:ap-south-1:132597215158:build/neuratalk-docker-build:*"
+      "Resource": [
+        "arn:aws:codebuild:ap-south-1:132597215158:project/neuratalk-docker-build",
+        "arn:aws:codebuild:ap-south-1:132597215158:build/neuratalk-docker-build:*"
+      ]
     },
     {
       "Sid": "ReadNeuraTalkImage",
