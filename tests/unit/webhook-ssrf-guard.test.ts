@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
+const dnsLookupMock = vi.hoisted(() => vi.fn());
+vi.mock("dns/promises", () => ({ lookup: dnsLookupMock }));
 vi.mock("../../server/db", () => ({ db: {} }));
 vi.mock("../../server/observability", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -59,5 +61,25 @@ describe("webhook URL SSRF guard", () => {
     // 8.8.8.8 (Google DNS) — a real, public, non-reserved IP used only as
     // a stand-in "this is not a private address" test vector.
     await expect(assertWebhookUrlIsSafe("https://8.8.8.8/hook")).resolves.toBeUndefined();
+  });
+
+  it("rejects a hostname if any DNS answer resolves to a non-public address", async () => {
+    dnsLookupMock.mockReset();
+    dnsLookupMock.mockResolvedValueOnce([
+      { address: "8.8.8.8", family: 4 },
+      { address: "169.254.169.254", family: 4 },
+    ]);
+
+    const { assertWebhookUrlIsSafe } = await import("../../server/modules/webhooks/service");
+    await expect(assertWebhookUrlIsSafe("https://hooks.example/hook"))
+      .rejects.toThrow("WEBHOOK_URL_TARGETS_DISALLOWED_HOST");
+  });
+
+  it("allows a hostname whose resolved addresses are all public", async () => {
+    dnsLookupMock.mockReset();
+    dnsLookupMock.mockResolvedValueOnce([{ address: "8.8.8.8", family: 4 }]);
+
+    const { assertWebhookUrlIsSafe } = await import("../../server/modules/webhooks/service");
+    await expect(assertWebhookUrlIsSafe("https://hooks.example/hook")).resolves.toBeUndefined();
   });
 });

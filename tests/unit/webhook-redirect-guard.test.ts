@@ -1,20 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
- * Regression test for a real, independently-confirmed bug: the webhook
- * delivery fetch() previously had no `redirect: "manual"`, so a webhook
- * endpoint that passed the SSRF safety check at registration time could
- * respond with an HTTP 3xx pointing at an internal/private address, and
- * fetch's default "follow" behavior would silently chase it there — with
- * our signed payload attached — without ever re-validating the redirect
- * target. This test proves a 3xx response is now treated as a delivery
- * failure, not silently followed.
+ * Regression test: webhook delivery must treat a 3xx response as a failure
+ * rather than following it to an unvalidated redirect destination.
  */
 
+const httpsRequestMock = vi.hoisted(() => vi.fn());
 let deliveryUpdateCalls: any[] = [];
 let endpointRows: any[] = [];
 let deliveryRows: any[] = [];
 
+vi.mock("node:https", () => ({ request: httpsRequestMock }));
 vi.mock("../../server/db", () => ({
   db: {
     select: () => ({
@@ -51,13 +47,14 @@ vi.mock("../../server/observability", () => ({
 // an uncontroversial public address regardless of the test environment's
 // actual DNS.
 vi.mock("dns/promises", () => ({
-  lookup: vi.fn(async () => ({ address: "93.184.216.34", family: 4 })),
+  lookup: vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]),
 }));
 
 describe("webhook delivery — redirect guard", () => {
   beforeEach(() => {
     deliveryUpdateCalls = [];
     deliveryRows = [];
+    httpsRequestMock.mockReset();
     endpointRows = [
       {
         id: 1,
@@ -74,19 +71,23 @@ describe("webhook delivery — redirect guard", () => {
   });
 
   it("treats an HTTP 3xx response as a delivery failure instead of following it", async () => {
-    const mockFetch = vi.fn(async () => ({
-      status: 302,
-      ok: false,
-    } as Response));
-    vi.stubGlobal("fetch", mockFetch);
+    httpsRequestMock.mockImplementation((_url, _options, onResponse) => {
+      const request = {
+        on: vi.fn().mockReturnThis(),
+        end: vi.fn(() => onResponse({ statusCode: 302, resume: vi.fn() })),
+      };
+      return request;
+    });
 
     const { dispatchEvent } = await import("../../server/modules/webhooks/service");
     await dispatchEvent(1, "call.ended", { callId: "call_1" });
 
-    // The actual outbound fetch must have been made with redirect: "manual"
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://example.com/hook",
-      expect.objectContaining({ redirect: "manual" }),
+    // Native HTTPS requests do not follow redirects; verify the single
+    // outbound request uses the resolved, pinned destination.
+    expect(httpsRequestMock).toHaveBeenCalledWith(
+      new URL("https://example.com/hook"),
+      expect.objectContaining({ method: "POST", lookup: expect.any(Function) }),
+      expect.any(Function),
     );
 
     // And the delivery must be recorded as failed (not delivered), with a
@@ -95,7 +96,5 @@ describe("webhook delivery — redirect guard", () => {
     expect(failedUpdate).toBeTruthy();
     expect(failedUpdate.lastError).toMatch(/redirect/i);
     expect(failedUpdate.status).not.toBe("delivered");
-
-    vi.unstubAllGlobals();
   });
 });

@@ -1,6 +1,7 @@
 import { randomBytes, createHmac, timingSafeEqual } from "crypto";
 import { lookup as dnsLookup } from "dns/promises";
 import { isIP } from "net";
+import { request as httpsRequest } from "node:https";
 import { eq, and, lte, or, isNull } from "drizzle-orm";
 import { db } from "../../db";
 import {
@@ -32,75 +33,138 @@ export function isValidWebhookEventType(value: string): value is WebhookEventTyp
  * cloud metadata endpoints (169.254.169.254, a classic SSRF target that
  * can leak cloud credentials) or other services on the private network.
  *
- * Checked in two places (registration AND every delivery attempt) because
- * a hostname that resolves to a public IP at registration time can be
- * "rebound" via DNS to a private IP later (DNS rebinding) — checking only
- * once at registration is not sufficient.
+ * DNS answers are checked at registration and every delivery, then pinned
+ * to the HTTPS connection so a later re-resolution cannot rebind to private
+ * infrastructure between validation and the request.
  */
 function isDisallowedIpv4(ip: string): boolean {
   const octets = ip.split(".").map(Number);
-  const [a, b] = octets;
+  const [a, b, c] = octets;
   if (a === 127) return true; // loopback
   if (a === 10) return true; // RFC1918
   if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
   if (a === 192 && b === 168) return true; // RFC1918
   if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata (169.254.169.254)
   if (a === 0) return true; // "this network"
+  if (a === 100 && b >= 64 && b <= 127) return true; // shared address space
+  if (a === 192 && b === 0) return true; // IETF protocol assignments
+  if (a === 192 && b === 88 && c === 99) return true; // deprecated 6to4 relay anycast
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
+  if (a === 198 && b === 51 && c === 100) return true; // documentation
+  if (a === 203 && b === 0 && c === 113) return true; // documentation
+  if (a >= 224) return true; // multicast, reserved, and limited broadcast
+  return false;
+}
+
+function parseIpv6Bytes(address: string): number[] | null {
+  let normalized = address.toLowerCase();
+  if (normalized.includes(".")) {
+    const lastColon = normalized.lastIndexOf(":");
+    const embeddedIpv4 = normalized.slice(lastColon + 1);
+    if (lastColon < 0 || isIP(embeddedIpv4) !== 4) return null;
+    const [a, b, c, d] = embeddedIpv4.split(".").map(Number);
+    normalized = `${normalized.slice(0, lastColon + 1)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+
+  const compressionIndex = normalized.indexOf("::");
+  let groups: string[];
+  if (compressionIndex >= 0) {
+    if (normalized.indexOf("::", compressionIndex + 2) >= 0) return null;
+    const left = normalized.slice(0, compressionIndex).split(":").filter(Boolean);
+    const right = normalized.slice(compressionIndex + 2).split(":").filter(Boolean);
+    const missingGroups = 8 - left.length - right.length;
+    if (missingGroups < 1) return null;
+    groups = [...left, ...Array(missingGroups).fill("0"), ...right];
+  } else {
+    groups = normalized.split(":");
+  }
+
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
+  return groups.flatMap((group) => {
+    const value = Number.parseInt(group, 16);
+    return [value >> 8, value & 0xff];
+  });
+}
+
+function isDisallowedIpv6(ip: string): boolean {
+  const bytes = parseIpv6Bytes(ip);
+  if (!bytes) return true;
+
+  const isUnspecified = bytes.every((byte) => byte === 0);
+  const isLoopback = bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1;
+  if (isUnspecified || isLoopback) return true;
+  if (bytes[0] === 0xff) return true; // multicast
+  if (bytes[0] === 0xfe && (bytes[1] & 0xc0) === 0x80) return true; // link-local
+  if ((bytes[0] & 0xfe) === 0xfc) return true; // unique local (RFC4193)
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) return true; // documentation
+  if (bytes[0] === 0x20 && bytes[1] === 0x02) return true; // 6to4
+  if (bytes[0] === 0x01 && bytes.slice(1, 8).every((byte) => byte === 0)) return true; // discard-only
+
+  const isIpv4Mapped = bytes.slice(0, 10).every((byte) => byte === 0)
+    && bytes[10] === 0xff && bytes[11] === 0xff;
+  const isIpv4Compatible = bytes.slice(0, 12).every((byte) => byte === 0);
+  if (isIpv4Mapped || isIpv4Compatible) {
+    const embeddedIpv4 = bytes.slice(12).join(".");
+    return isDisallowedIpv4(embeddedIpv4);
+  }
+
   return false;
 }
 
 function isDisallowedIp(ip: string): boolean {
   const version = isIP(ip);
-  if (version === 4) {
-    return isDisallowedIpv4(ip);
-  }
-  if (version === 6) {
-    const normalized = ip.toLowerCase();
-    if (normalized === "::1") return true; // loopback
-    if (normalized.startsWith("fe80:") || normalized.startsWith("fe80::")) return true; // link-local
-    if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local (RFC4193)
-
-    // IPv4-mapped IPv6 (::ffff:a.b.c.d) and the less common IPv4-compatible
-    // (::a.b.c.d) forms — without unwrapping these, an attacker can dial an
-    // otherwise-blocked IPv4 private/metadata address (e.g. "::ffff:169.254.169.254")
-    // right past the checks above, since the string-prefix tests only look
-    // at the leading IPv6-specific bytes and never inspect the embedded IPv4.
-    const v4MappedMatch = normalized.match(/^::(ffff:)?(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
-    if (v4MappedMatch) {
-      const embeddedV4 = v4MappedMatch[2];
-      if (isIP(embeddedV4) === 4) return isDisallowedIpv4(embeddedV4);
-    }
-    return false;
-  }
+  if (version === 4) return isDisallowedIpv4(ip);
+  if (version === 6) return isDisallowedIpv6(ip);
   return true; // couldn't parse as an IP at all — reject rather than guess
 }
 
-export async function assertWebhookUrlIsSafe(rawUrl: string): Promise<void> {
+interface SafeWebhookTarget {
+  url: URL;
+  hostname: string;
+  addresses: Array<{ address: string; family: number }> | null;
+}
+
+function normalizeHostname(hostname: string): string {
+  const withoutBrackets = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1)
+    : hostname;
+  return withoutBrackets.toLowerCase().replace(/\.$/, "");
+}
+
+async function resolveSafeWebhookTarget(rawUrl: string): Promise<SafeWebhookTarget> {
   const parsed = new URL(rawUrl);
   if (parsed.protocol !== "https:") {
     throw new Error("WEBHOOK_URL_MUST_BE_HTTPS");
   }
-  const hostname = parsed.hostname.toLowerCase();
+  const hostname = normalizeHostname(parsed.hostname);
   if (hostname === "localhost" || hostname.endsWith(".localhost")) {
     throw new Error("WEBHOOK_URL_TARGETS_DISALLOWED_HOST");
   }
 
   // If the hostname is itself a literal IP, check it directly. Otherwise
-  // resolve it — a public-looking domain can still point at a private IP.
+  // resolve every address — a public-looking domain can still point at a private IP.
   const literalIpVersion = isIP(hostname);
   if (literalIpVersion) {
     if (isDisallowedIp(hostname)) throw new Error("WEBHOOK_URL_TARGETS_DISALLOWED_HOST");
-    return;
+    return { url: parsed, hostname, addresses: null };
   }
 
+  let addresses: Array<{ address: string; family: number }>;
   try {
-    const { address } = await dnsLookup(hostname);
-    if (isDisallowedIp(address)) throw new Error("WEBHOOK_URL_TARGETS_DISALLOWED_HOST");
-  } catch (error) {
-    if (error instanceof Error && error.message === "WEBHOOK_URL_TARGETS_DISALLOWED_HOST") throw error;
+    addresses = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch {
     // DNS resolution failure — treat as unsafe/invalid rather than silently allowing it through.
     throw new Error("WEBHOOK_URL_UNRESOLVABLE");
   }
+  if (addresses.length === 0) throw new Error("WEBHOOK_URL_UNRESOLVABLE");
+  if (addresses.some(({ address }) => isDisallowedIp(address))) {
+    throw new Error("WEBHOOK_URL_TARGETS_DISALLOWED_HOST");
+  }
+  return { url: parsed, hostname, addresses };
+}
+
+export async function assertWebhookUrlIsSafe(rawUrl: string): Promise<void> {
+  await resolveSafeWebhookTarget(rawUrl);
 }
 
 export async function registerWebhookEndpoint(input: {
@@ -252,14 +316,10 @@ async function attemptDelivery(delivery: WebhookDelivery, endpoint: WebhookEndpo
   const rawBody = JSON.stringify(delivery.payload);
   const signature = signWebhookPayload(endpoint.secret, rawBody);
   const attempts = delivery.attempts + 1;
+  let safeTarget: SafeWebhookTarget;
 
   try {
-    // Re-checked on every delivery attempt, not just once at registration —
-    // DNS rebinding means a hostname that resolved to a safe public IP when
-    // the endpoint was registered could resolve to an internal/private IP
-    // by the time this fires (which could be days later, given the retry
-    // backoff schedule).
-    await assertWebhookUrlIsSafe(endpoint.url);
+    safeTarget = await resolveSafeWebhookTarget(endpoint.url);
   } catch (error) {
     await recordFailedAttempt(delivery.id, attempts, null, `Blocked by SSRF guard: ${String(error instanceof Error ? error.message : error)}`);
     return;
@@ -268,49 +328,74 @@ async function attemptDelivery(delivery: WebhookDelivery, endpoint: WebhookEndpo
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
-    let response: Response;
+    let statusCode: number;
     try {
-      response = await fetch(endpoint.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-NeuraTalk-Signature": signature,
-          "X-NeuraTalk-Event": delivery.eventType,
-          "X-NeuraTalk-Delivery-Id": String(delivery.id),
-        },
-        body: rawBody,
-        signal: controller.signal,
-        // CRITICAL for the SSRF guard above to actually mean anything: without
-        // this, a webhook endpoint that passed assertWebhookUrlIsSafe could
-        // respond with a 3xx to an internal/private address, and fetch's
-        // default "follow" behavior would silently chase it there — with our
-        // signed payload — without ever re-validating the redirect target.
-        redirect: "manual",
+      statusCode = await new Promise<number>((resolve, reject) => {
+        const resolvedAddresses = safeTarget.addresses;
+        const lookup = resolvedAddresses ? (hostname: string, options: import("node:dns").LookupOptions, callback: (error: NodeJS.ErrnoException | null, address: string | import("node:dns").LookupAddress[], family?: number) => void) => {
+          if (normalizeHostname(hostname) !== safeTarget.hostname) {
+            const error = Object.assign(new Error("Unexpected webhook hostname lookup"), { code: "ENOTFOUND" });
+            callback(error, "", 0);
+            return;
+          }
+          const requestedFamily = options.family === "IPv4" ? 4
+            : options.family === "IPv6" ? 6
+              : options.family;
+          const matchingAddresses = resolvedAddresses.filter(
+            (address) => !requestedFamily || address.family === requestedFamily,
+          );
+          if (matchingAddresses.length === 0) {
+            const error = Object.assign(new Error("No safe webhook addresses available"), { code: "ENOTFOUND" });
+            callback(error, "", 0);
+            return;
+          }
+          if (options.all) {
+            callback(null, matchingAddresses);
+          } else {
+            callback(null, matchingAddresses[0].address, matchingAddresses[0].family);
+          }
+        } : undefined;
+        const request = httpsRequest(safeTarget.url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-NeuraTalk-Signature": signature,
+            "X-NeuraTalk-Event": delivery.eventType,
+            "X-NeuraTalk-Delivery-Id": String(delivery.id),
+          },
+          signal: controller.signal,
+          lookup,
+        }, (response) => {
+          response.resume();
+          resolve(response.statusCode ?? 0);
+        });
+        request.on("error", reject);
+        request.end(rawBody);
       });
     } finally {
       clearTimeout(timeout);
     }
 
-    if (response.status >= 300 && response.status < 400) {
+    if (statusCode >= 300 && statusCode < 400) {
       await recordFailedAttempt(
-        delivery.id, attempts, response.status,
+        delivery.id, attempts, statusCode,
         "Webhook endpoint returned a redirect — redirects are not followed for security (SSRF protection). Register the final destination URL directly.",
       );
       return;
     }
 
-    if (response.ok) {
+    if (statusCode >= 200 && statusCode < 300) {
       await db.update(webhookDeliveries).set({
         status: WEBHOOK_DELIVERY_STATUS.DELIVERED,
         attempts,
         lastAttemptAt: new Date(),
-        lastResponseCode: response.status,
+        lastResponseCode: statusCode,
         deliveredAt: new Date(),
       }).where(eq(webhookDeliveries.id, delivery.id));
       return;
     }
 
-    await recordFailedAttempt(delivery.id, attempts, response.status, `HTTP ${response.status}`);
+    await recordFailedAttempt(delivery.id, attempts, statusCode, `HTTP ${statusCode}`);
   } catch (error) {
     await recordFailedAttempt(delivery.id, attempts, null, String(error instanceof Error ? error.message : error));
   }
