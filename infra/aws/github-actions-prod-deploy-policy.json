@@ -1,0 +1,78 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploadCodeBuildSource",
+      "Effect": "Allow",
+      "Action": "s3:GetBucketLocation",
+      "Resource": "arn:aws:s3:::neuratalk-codebuild-source-1788367344"
+    },
+    {
+      "Sid": "WriteCodeBuildSourceArchive",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::neuratalk-codebuild-source-1788367344/source/neuratalk-source-*"
+    },
+    {
+      "Sid": "BuildImage",
+      "Effect": "Allow",
+      "Action": "codebuild:StartBuild",
+      "Resource": "arn:aws:codebuild:ap-south-1:132597215158:project/neuratalk-docker-build"
+    },
+    {
+      "Sid": "ReadBuildStatus",
+      "Effect": "Allow",
+      "Action": "codebuild:BatchGetBuilds",
+      "Resource": "arn:aws:codebuild:ap-south-1:132597215158:build/neuratalk-docker-build:*"
+    },
+    {
+      "Sid": "ReadNeuraTalkImage",
+      "Effect": "Allow",
+      "Action": "ecr:DescribeImages",
+      "Resource": "arn:aws:ecr:ap-south-1:132597215158:repository/neuratalk"
+    },
+    {
+      "Sid": "ReadProductionService",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeServices",
+      "Resource": [
+        "arn:aws:ecs:ap-south-1:132597215158:cluster/default",
+        "arn:aws:ecs:ap-south-1:132597215158:service/default/neuratalk-prod"
+      ]
+    },
+    {
+      "Sid": "ReadProductionTaskDefinitions",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTaskDefinition",
+      "Resource": "arn:aws:ecs:ap-south-1:132597215158:task-definition/neuratalk-prod:*"
+    },
+    {
+      "Sid": "RegisterProductionTaskDefinition",
+      "Effect": "Allow",
+      "Action": "ecs:RegisterTaskDefinition",
+      "Resource": "*"
+    },
+    {
+      "Sid": "UpdateProductionService",
+      "Effect": "Allow",
+      "Action": "ecs:UpdateService",
+      "Resource": "arn:aws:ecs:ap-south-1:132597215158:service/default/neuratalk-prod",
+      "Condition": {
+        "ArnEquals": {
+          "ecs:cluster": "arn:aws:ecs:ap-south-1:132597215158:cluster/default"
+        }
+      }
+    },
+    {
+      "Sid": "PassOnlyTaskExecutionRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::132597215158:role/neuratalk-ecsTaskExecutionRole",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

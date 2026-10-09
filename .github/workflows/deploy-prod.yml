@@ -1,0 +1,65 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - neuratalk-clean-release
+  workflow_dispatch:
+
+concurrency:
+  group: neuratalk-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    name: Deploy and smoke-test production
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::132597215158:role/NeuraTalkGitHubProdDeploy
+          aws-region: ap-south-1
+      - name: Deploy to ECS
+        run: bash scripts/deploy-prod-aws.sh
+      - name: Verify production health and build identity
+        env:
+          BASE_URL: https://neuratalk.in
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused "$BASE_URL/api/health" >/dev/null
+          readyz="$(curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused "$BASE_URL/readyz")"
+          build="$(curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-connrefused "$BASE_URL/api/health/build")"
+          READYZ="$readyz" BUILD_IDENTITY="$build" node --input-type=module <<'NODE'
+          const readiness = JSON.parse(process.env.READYZ);
+          const build = JSON.parse(process.env.BUILD_IDENTITY);
+          const requiredChecks = ["database", "authSchema", "redis"];
+
+          if (!["ready", "degraded"].includes(readiness.status) ||
+              requiredChecks.some((name) => readiness.checks?.[name]?.status !== "healthy")) {
+            throw new Error(`Core production readiness failed: ${JSON.stringify(readiness)}`);
+          }
+          if (build.commitSha !== process.env.EXPECTED_COMMIT) {
+            throw new Error(`Production commit mismatch: expected ${process.env.EXPECTED_COMMIT}, got ${build.commitSha}`);
+          }
+          console.log(`Production is ${readiness.status} on ${build.commitSha}`);
+          NODE

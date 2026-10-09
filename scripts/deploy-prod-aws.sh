@@ -6,7 +6,9 @@
 # billing plans / languages (seed is idempotent — it never overwrites rows).
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
-export AWS_PROFILE="${AWS_PROFILE:-neuratalk-deploy}"
+if [[ -z "${AWS_ACCESS_KEY_ID:-}" && -z "${AWS_WEB_IDENTITY_TOKEN_FILE:-}" ]]; then
+  export AWS_PROFILE="${AWS_PROFILE:-neuratalk-deploy}"
+fi
 export AWS_DEFAULT_REGION=ap-south-1
 
 PROJECT=neuratalk-docker-build
