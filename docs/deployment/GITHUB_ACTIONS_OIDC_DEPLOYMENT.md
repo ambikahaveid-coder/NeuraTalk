@@ -9,9 +9,11 @@ The role trust is restricted to this repository and branch in
 [`infra/aws/github-actions-prod-trust-policy.json`](../../infra/aws/github-actions-prod-trust-policy.json).
 Its attached permissions are defined in
 [`infra/aws/github-actions-prod-deploy-policy.json`](../../infra/aws/github-actions-prod-deploy-policy.json)
-and limit service updates to `neuratalk-prod`. The deploy script packages the
-checked-out commit, builds an immutable ECR image through CodeBuild, and rolls
-that image out to ECS.
+limits service updates to `neuratalk-prod`. ECS requires
+`ecs:DescribeTaskDefinition` to use `"Resource": "*"`; the role uses it only to
+read the current task definition before registering the replacement. The
+deploy script packages the checked-out commit, builds an immutable ECR image
+through CodeBuild, and rolls that image out to ECS.
 
 After rollout, the workflow checks `/api/health`, the database/auth-schema/Redis
 readiness checks, and `/api/health/build` against the triggering commit SHA.

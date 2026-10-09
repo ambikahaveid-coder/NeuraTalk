@@ -44,10 +44,10 @@
       ]
     },
     {
-      "Sid": "ReadProductionTaskDefinitions",
+      "Sid": "ReadTaskDefinitionMetadata",
       "Effect": "Allow",
       "Action": "ecs:DescribeTaskDefinition",
-      "Resource": "arn:aws:ecs:ap-south-1:132597215158:task-definition/neuratalk-prod:*"
+      "Resource": "*"
     },
     {
       "Sid": "RegisterProductionTaskDefinition",
