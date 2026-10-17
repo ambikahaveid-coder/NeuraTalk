@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../services/push_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _user;
@@ -227,6 +228,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await PushService.unregisterCurrentDevice();
     try {
       await ApiService.post('/api/auth/logout', {});
     } catch (_) {}

@@ -47,6 +47,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  PushService.startListening();
   CallKitService.startListening();
 
   // Crash reporting — Flutter framework errors and uncaught async errors
@@ -130,6 +131,8 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
       final auth = context.read<AuthProvider>();
       if (auth.isLoggedIn) {
         context.read<CallService>().pollNow();
+        final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
+        if (userId != null) unawaited(PushService.init(userId: userId));
       }
     }
   }
@@ -146,7 +149,8 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         setState(() {});
         if (auth.isLoggedIn) {
           calls.startPolling();
-          unawaited(PushService.init());
+          final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
+          if (userId != null) unawaited(PushService.init(userId: userId));
           unawaited(ContactResolver.instance.ensureLoaded());
         } else {
           calls.stopPolling();
@@ -156,7 +160,8 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
       calls.addListener(_onCallServiceChanged);
       if (auth.isLoggedIn) {
         calls.startPolling();
-        unawaited(PushService.init());
+        final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
+        if (userId != null) unawaited(PushService.init(userId: userId));
         unawaited(ContactResolver.instance.ensureLoaded());
       }
     }

@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from "express";
 import { publicName } from "./user-display";
-import { EventEmitter } from "node:events";
 import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
@@ -16,6 +15,7 @@ import { personalChatSendLimiter } from "./rate-limit";
 import { isTranslationConsentDenied } from "./translation-consent";
 import { transcribeVoiceNote } from "./voice-note-transcript";
 import { translateChatText } from "./translation/chat-translate";
+import { publishPersonalChatEvent, subscribeToPersonalChatEvents } from "./modules/messaging/realtime";
 
 const router = Router();
 
@@ -96,9 +96,6 @@ async function finalizeChatAttachment(senderUserId: number, recipientUserId: num
 const TYPING_TTL_MS = 8_000;
 const typingState = new Map<string, { isTyping: boolean; updatedAt: number }>();
 const activePresence = new Map<number, number>();
-const personalChatBus = new EventEmitter();
-personalChatBus.setMaxListeners(512);
-
 type AuthedRequest = Request & {
   user?: {
     id: number;
@@ -160,18 +157,8 @@ function normalizePair(userA: number, userB: number) {
     : { participantAUserId: userB, participantBUserId: userA };
 }
 
-function personalChatEventKey(userId: number) {
-  return `personal-chat:${userId}`;
-}
-
 function emitPersonalChatEvent(userIds: number[], event: Record<string, unknown>) {
-  for (const userId of Array.from(new Set(userIds))) {
-    personalChatBus.emit(personalChatEventKey(userId), {
-      ...event,
-      userId,
-      emittedAt: new Date().toISOString(),
-    });
-  }
+  publishPersonalChatEvent(userIds, event);
 }
 
 function buildMessagePreview(
@@ -517,11 +504,11 @@ router.get("/api/personal-chats/stream", requireAuth, async (req: AuthedRequest,
     send(payload);
   };
 
-  personalChatBus.on(personalChatEventKey(viewerId), listener);
+  const unsubscribe = subscribeToPersonalChatEvents(viewerId, listener);
 
   req.on("close", () => {
     clearInterval(heartbeat);
-    personalChatBus.off(personalChatEventKey(viewerId), listener);
+    unsubscribe();
     res.end();
   });
 });

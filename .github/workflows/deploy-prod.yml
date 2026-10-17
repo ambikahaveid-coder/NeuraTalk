@@ -5,6 +5,12 @@ on:
     branches:
       - neuratalk-clean-release
   workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: Deploy to production after verification (leave disabled for CI-only validation)
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: neuratalk-production-deploy
@@ -23,10 +29,31 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - name: Test React client
+        run: npm run test:client -- --pool=threads --maxWorkers=1 --testTimeout=15000
       - run: npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.4"
+          channel: stable
+      - name: Install Flutter dependencies
+        working-directory: flutter_app
+        run: flutter pub get
+      - name: Test Flutter app
+        working-directory: flutter_app
+        run: flutter test
+      - name: Build Android debug APK
+        working-directory: flutter_app
+        run: flutter build apk --debug
 
   deploy:
     name: Deploy and smoke-test production
+    if: ${{ github.ref == 'refs/heads/neuratalk-clean-release' && (github.event_name == 'push' || inputs.deploy_production) }}
     needs: verify
     runs-on: ubuntu-latest
     permissions:

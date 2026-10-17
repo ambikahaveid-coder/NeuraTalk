@@ -2,9 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
  * P0-3: group chat previously never checked blocking at all. Fixed via
- * isSenderBlockedInGroup (exported from server/group-chats.ts), called from
- * both group message-creation routes (text + voice) before either inserts a
- * row.
+ * isSenderBlockedInGroup (server/group-chat-blocking.ts), called from both
+ * group message-creation routes (text + voice) before either inserts a row.
  *
  * DIRECTIONAL, not symmetric: uses hasBlockedUser(blockerUserId,
  * blockedUserId) from server/blocking.ts, not the pre-existing isBlocked()
@@ -19,8 +18,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  *
  * These tests exercise the real isSenderBlockedInGroup function with a
  * mocked db (member list) and a controllable directional block-relationship
- * map, so the test proves the actual group-membership-iteration logic and
- * its directionality, not just that hasBlockedUser exists.
+ * map without importing unrelated group-chat route dependencies.
  */
 
 type Member = { userId: number };
@@ -66,7 +64,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     fakeMembers = [{ userId: USER_A }, { userId: USER_B }, { userId: USER_C }];
     recordBlock(USER_A, USER_B); // A is the blocker, B is blocked
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     const blockedForB = await isSenderBlockedInGroup(GROUP_ID, USER_B);
     expect(blockedForB).toBe(true);
   });
@@ -75,7 +73,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     fakeMembers = [{ userId: USER_A }, { userId: USER_B }, { userId: USER_C }];
     recordBlock(USER_A, USER_B);
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     const blockedForA = await isSenderBlockedInGroup(GROUP_ID, USER_A);
     expect(blockedForA).toBe(false);
   });
@@ -84,7 +82,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     fakeMembers = [{ userId: USER_A }, { userId: USER_B }, { userId: USER_C }];
     recordBlock(USER_A, USER_B);
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     const blockedForC = await isSenderBlockedInGroup(GROUP_ID, USER_C);
     expect(blockedForC).toBe(false);
   });
@@ -93,7 +91,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     fakeMembers = [{ userId: USER_A }, { userId: USER_B }];
     recordBlock(USER_B, USER_A); // B blocks A this time (reverse of the other tests)
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     expect(await isSenderBlockedInGroup(GROUP_ID, USER_A)).toBe(true);  // A is blocked by B -> rejected
     expect(await isSenderBlockedInGroup(GROUP_ID, USER_B)).toBe(false); // B did the blocking -> unaffected
   });
@@ -103,7 +101,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     recordBlock(USER_A, USER_B);
     recordBlock(USER_B, USER_A);
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     expect(await isSenderBlockedInGroup(GROUP_ID, USER_A)).toBe(true);
     expect(await isSenderBlockedInGroup(GROUP_ID, USER_B)).toBe(true);
   });
@@ -112,7 +110,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
     fakeMembers = [{ userId: USER_A }, { userId: USER_B }, { userId: USER_C }];
     // no recordBlock calls
 
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     for (const uid of [USER_A, USER_B, USER_C]) {
       expect(await isSenderBlockedInGroup(GROUP_ID, uid)).toBe(false);
     }
@@ -120,7 +118,7 @@ describe("P0-3: isSenderBlockedInGroup (directional -- only the blocked party is
 
   it("does not false-positive on the sender's own membership row (self is skipped, not compared to self)", async () => {
     fakeMembers = [{ userId: USER_A }];
-    const { isSenderBlockedInGroup } = await import("../../server/group-chats");
+    const { isSenderBlockedInGroup } = await import("../../server/group-chat-blocking");
     expect(await isSenderBlockedInGroup(GROUP_ID, USER_A)).toBe(false);
   });
 });

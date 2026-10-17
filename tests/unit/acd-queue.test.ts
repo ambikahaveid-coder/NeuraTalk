@@ -47,6 +47,25 @@ vi.mock("../../server/observability", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("../../server/livekit-service", () => ({
+  issueAccessToken: vi.fn(),
+}));
+
+vi.mock("../../server/modules/calls/smart-router", () => ({
+  getSmartCall: vi.fn(),
+}));
+
+vi.mock("../../server/modules/calls/service", () => ({
+  queueIncomingCall: vi.fn(),
+  initiateCall: vi.fn(),
+  resolveCalleeForTransfer: vi.fn(),
+  endCallById: vi.fn(),
+}));
+
+vi.mock("../../server/storage", () => ({
+  storage: { getUser: vi.fn() },
+}));
+
 describe("ACD queue engine", () => {
   beforeEach(async () => {
     await redisInstance.flushall();

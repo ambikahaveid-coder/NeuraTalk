@@ -1,5 +1,5 @@
 /**
- * P2: Redis-backed real-time transport for canonical business messaging.
+ * Redis-backed real-time transport for business and consumer messaging.
  * See docs/neura-ecosystem (P2 architecture audit, 2026-08-25) for the full
  * investigation this implements. Read that first if extending this file.
  *
@@ -10,23 +10,19 @@
  *
  * WHAT THIS IS NOT:
  * - Not a new authentication system -- callers (the SSE routes) are
- *   responsible for authorizing a subscriber before ever calling
- *   subscribeToBusinessEvents/subscribeToConsumerEvents; this module trusts
- *   whatever businessId/userId it's given.
+ *   responsible for authorizing a subscriber before ever calling a subscribe
+ *   function; this module trusts whatever businessId/userId it's given.
  * - Not a durable delivery guarantee. Redis PUBLISH is fire-and-forget: a
  *   process crash between a successful Postgres COMMIT and the PUBLISH
  *   call below permanently loses that one real-time notification (the
  *   underlying message/assignment change is still safe in Postgres --
  *   only the PUSH of it is lost). The existing 8-second polling in
- *   BusinessChatPage.tsx/BusinessInboxPanel.tsx is the correctness
- *   backstop for exactly this gap and is NOT being removed. Do not
- *   describe this system as "guaranteed real-time delivery" anywhere --
- *   it is "Redis-backed SSE real-time delivery with polling correctness
- *   fallback."
- * - Not a replacement for server/personal-chat-routes.ts's personalChatBus
- *   (that stays in-process, unmodified, out of scope here) or
- *   server/signaling-server.ts (deprecated, explicitly not touched or
- *   extended -- see that file's own header comment).
+ *   client polling/reconnect paths remain the correctness backstop and are
+ *   NOT being removed. Do not describe this system as "guaranteed real-time
+ *   delivery" -- it is "Redis-backed SSE real-time delivery with polling
+ *   correctness fallback."
+ * - This does not replace server/signaling-server.ts (deprecated; see that
+ *   file's own header comment).
  *
  * ARCHITECTURE: exactly one Redis subscriber connection per application
  * process (module-singleton, lazily created on first use), subscribed to a
@@ -43,6 +39,7 @@
  */
 import type { Redis } from "ioredis";
 import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
 import { getRedisClient, getRedisSubscriberClient, isRedisReady } from "../../redis";
 import { logger } from "../../observability";
 
@@ -70,7 +67,17 @@ export type MessagingRealtimeEvent =
       operation: "assign" | "reassign" | "unassign" | "claim" | "release";
     };
 
+type PersonalChatRealtimeEnvelope = {
+  type: "personal-chat.event";
+  originInstanceId: string;
+  userId: number;
+  payload: Record<string, unknown>;
+};
+
+type RedisRealtimeMessage = MessagingRealtimeEvent | PersonalChatRealtimeEnvelope;
+
 const localBus = new EventEmitter();
+localBus.setMaxListeners(512);
 // Fan-out target is "every open SSE connection on this instance for every
 // business/conversation this instance happens to be serving" -- not a
 // per-user cap the way personalChatBus's 512 was sized for 1:1 chat. No
@@ -87,8 +94,33 @@ function consumerKey(userId: number, businessId: number): string {
   return `consumer:${userId}:${businessId}`;
 }
 
+function personalChatKey(userId: number): string {
+  return `personal-chat:${userId}`;
+}
+
+const instanceId = randomUUID();
 let subscriberClient: Redis | null = null;
 let subscriberStarting = false;
+
+function isRedisRealtimeMessage(value: unknown): value is RedisRealtimeMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+
+  if (message.type === "personal-chat.event") {
+    return Number.isSafeInteger(message.userId)
+      && typeof message.originInstanceId === "string"
+      && Boolean(message.payload)
+      && typeof message.payload === "object"
+      && !Array.isArray(message.payload);
+  }
+
+  return (
+    (message.type === "message.created"
+      || message.type === "conversation.created"
+      || message.type === "assignment.changed")
+    && Number.isSafeInteger(message.businessId)
+  );
+}
 
 /**
  * Lazily starts this process's single Redis subscriber. Safe to call many
@@ -105,13 +137,25 @@ function ensureSubscriber(): void {
     const sub = getRedisSubscriberClient();
     sub.on("message", (channel: string, raw: string) => {
       if (channel !== CHANNEL) return;
-      let event: MessagingRealtimeEvent;
+      let event: unknown;
       try {
         event = JSON.parse(raw);
       } catch {
         logger.warn("MessagingRealtime", "Dropped malformed real-time event payload");
         return;
       }
+
+      if (!isRedisRealtimeMessage(event)) {
+        logger.warn("MessagingRealtime", "Dropped invalid real-time event payload");
+        return;
+      }
+      if (event.type === "personal-chat.event") {
+        if (event.originInstanceId !== instanceId) {
+          localBus.emit(personalChatKey(event.userId), event.payload);
+        }
+        return;
+      }
+
       localBus.emit(businessKey(event.businessId), event);
       if (event.type === "message.created" && event.customerUserId != null) {
         localBus.emit(consumerKey(event.customerUserId, event.businessId), event);
@@ -166,6 +210,45 @@ export function publishMessagingEvent(event: MessagingRealtimeEvent): void {
 }
 
 /**
+ * Delivers a personal-chat event locally and, when Redis is available, to
+ * other server instances. The origin marker prevents a Redis echo from
+ * delivering the same event twice to this process's local SSE connections.
+ */
+export function publishPersonalChatEvent(userIds: number[], event: Record<string, unknown>): void {
+  const emittedAt = new Date().toISOString();
+
+  for (const userId of Array.from(new Set(userIds))) {
+    if (!Number.isSafeInteger(userId) || userId <= 0) continue;
+
+    const payload = { ...event, userId, emittedAt };
+    localBus.emit(personalChatKey(userId), payload);
+    if (!isRedisReady()) continue;
+
+    const envelope: PersonalChatRealtimeEnvelope = {
+      type: "personal-chat.event",
+      originInstanceId: instanceId,
+      userId,
+      payload,
+    };
+    try {
+      void getRedisClient().publish(CHANNEL, JSON.stringify(envelope)).catch((error) => {
+        logger.error(
+          "MessagingRealtime",
+          "Failed to publish personal-chat event",
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      });
+    } catch (error) {
+      logger.error(
+        "MessagingRealtime",
+        "Failed to publish personal-chat event",
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  }
+}
+
+/**
  * Subscribes to every real-time event for one business -- the Business
  * Inbox stream's source. Caller (the SSE route) is solely responsible for
  * having already verified the connecting user is authorized for this
@@ -190,6 +273,20 @@ export function subscribeToBusinessEvents(businessId: number, listener: (event: 
 export function subscribeToConsumerEvents(userId: number, businessId: number, listener: (event: MessagingRealtimeEvent) => void): () => void {
   ensureSubscriber();
   const key = consumerKey(userId, businessId);
+  localBus.on(key, listener);
+  return () => localBus.off(key, listener);
+}
+
+/**
+ * Subscribes to personal-chat events for one authenticated user. The caller
+ * must derive userId from the validated session, never from client input.
+ */
+export function subscribeToPersonalChatEvents(
+  userId: number,
+  listener: (event: Record<string, unknown>) => void,
+): () => void {
+  ensureSubscriber();
+  const key = personalChatKey(userId);
   localBus.on(key, listener);
   return () => localBus.off(key, listener);
 }

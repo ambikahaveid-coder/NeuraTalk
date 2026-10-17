@@ -1,7 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Menu, MessageCircleMore, Languages, Send, CheckCheck, Check, Search, UserRound, Phone, Video, Paperclip, Mic } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Menu,
+  MessageCircleMore,
+  Languages,
+  Send,
+  CheckCheck,
+  Check,
+  Search,
+  UserRound,
+  Phone,
+  Video,
+  Paperclip,
+  Mic,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -87,7 +102,15 @@ type PresenceState = {
 };
 
 type PersonalChatRealtimeEvent = {
-  type?: "ready" | "heartbeat" | "thread_created" | "thread_updated" | "message_created" | "messages_delivered" | "messages_seen" | "typing";
+  type?:
+    | "ready"
+    | "heartbeat"
+    | "thread_created"
+    | "thread_updated"
+    | "message_created"
+    | "messages_delivered"
+    | "messages_seen"
+    | "typing";
   threadId?: number;
   deliveredIds?: number[];
   seenCount?: number;
@@ -155,10 +178,7 @@ function reorderThreadsWithPatch(
   if (!existing) return threads;
 
   const nextThread = { ...existing, ...patch };
-  return [
-    nextThread,
-    ...threads.filter((thread) => thread.id !== threadId),
-  ];
+  return [nextThread, ...threads.filter((thread) => thread.id !== threadId)];
 }
 
 export default function ChatPage() {
@@ -166,22 +186,42 @@ export default function ChatPage() {
   const { contacts, isLoading: contactsLoading } = useContacts();
   const { user } = useAuth();
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
+  const [mobileChatView, setMobileChatView] = useState<"list" | "conversation">(
+    "list",
+  );
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
   const [messageInput, setMessageInput] = useState("");
   const [search, setSearch] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [originalVisibleIds, setOriginalVisibleIds] = useState<number[]>([]);
-  const [optimisticMessages, setOptimisticMessages] = useState<Record<number, PendingPersonalThreadMessage[]>>({});
-  const [uploadIntent, setUploadIntent] = useState<"attachment" | "voice_note" | null>(null);
+  const [optimisticMessages, setOptimisticMessages] = useState<
+    Record<number, PendingPersonalThreadMessage[]>
+  >({});
+  const [uploadIntent, setUploadIntent] = useState<
+    "attachment" | "voice_note" | null
+  >(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const lastSeenMarkRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // The signed-in person's own language (was hard-coded to English).
-  const myLanguage = String((user as { preferredLanguage?: string | null } | null)?.preferredLanguage || "en").toLowerCase();
-  const { state: recorderState, startRecording, stopRecording } = useVoiceRecorder();
+  const myLanguage = String(
+    (user as { preferredLanguage?: string | null } | null)?.preferredLanguage ||
+      "en",
+  ).toLowerCase();
+  const {
+    state: recorderState,
+    startRecording,
+    stopRecording,
+  } = useVoiceRecorder();
 
-  const { uploadFile, isUploading: isUploadingAttachment, progress: uploadProgress } = useUpload({
+  const {
+    uploadFile,
+    isUploading: isUploadingAttachment,
+    progress: uploadProgress,
+  } = useUpload({
     onError: () => {
       setUploadIntent(null);
       toast({
@@ -192,7 +232,12 @@ export default function ChatPage() {
     },
   });
 
-  const { data: threadListData, isLoading: loadingThreads } = useQuery<{ threads: PersonalThreadSummary[] }>({
+  const {
+    data: threadListData,
+    isLoading: loadingThreads,
+    isError: threadListError,
+    refetch: retryThreadList,
+  } = useQuery<{ threads: PersonalThreadSummary[] }>({
     queryKey: ["/api/personal-chats"],
     refetchInterval: 4000,
   });
@@ -209,7 +254,10 @@ export default function ChatPage() {
     queryKey: ["/api/personal-chats", selectedThreadId, "presence"],
     enabled: !!selectedThreadId,
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/personal-chats/${selectedThreadId}/presence`);
+      const res = await apiRequest(
+        "GET",
+        `/api/personal-chats/${selectedThreadId}/presence`,
+      );
       return res.json();
     },
     refetchInterval: 2000,
@@ -219,7 +267,10 @@ export default function ChatPage() {
     queryKey: ["/api/personal-chats/discover", search],
     enabled: search.trim().length >= 2,
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/personal-chats/discover?q=${encodeURIComponent(search.trim())}`);
+      const res = await apiRequest(
+        "GET",
+        `/api/personal-chats/discover?q=${encodeURIComponent(search.trim())}`,
+      );
       return res.json();
     },
   });
@@ -231,8 +282,21 @@ export default function ChatPage() {
   }, [selectedThreadId, threads]);
 
   useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedThreadId) return;
-    const incomingMessages = (selectedThread.data?.messages || []).filter((message) => !message.isOwn);
+    const incomingMessages = (selectedThread.data?.messages || []).filter(
+      (message) => !message.isOwn,
+    );
     const newestIncoming = incomingMessages.at(-1);
     if (!newestIncoming) return;
 
@@ -242,7 +306,11 @@ export default function ChatPage() {
     }
 
     lastSeenMarkRef.current = seenMarker;
-    apiRequest("POST", `/api/personal-chats/${selectedThreadId}/seen`, {}).catch(() => undefined);
+    apiRequest(
+      "POST",
+      `/api/personal-chats/${selectedThreadId}/seen`,
+      {},
+    ).catch(() => undefined);
     queryClient.invalidateQueries({ queryKey: ["/api/personal-chats"] });
   }, [selectedThread.data?.messages, selectedThreadId]);
 
@@ -250,17 +318,22 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [selectedThread.data?.messages, optimisticMessages, selectedThreadId]);
 
-  useEffect(() => () => {
-    if (typingTimeoutRef.current) {
-      window.clearTimeout(typingTimeoutRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (typingTimeoutRef.current) {
+        window.clearTimeout(typingTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!selectedThreadId) return;
 
     const refreshActiveThread = () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/personal-chats", selectedThreadId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["/api/personal-chats", selectedThreadId],
+      });
       void queryClient.invalidateQueries({ queryKey: ["/api/personal-chats"] });
     };
 
@@ -293,8 +366,12 @@ export default function ChatPage() {
 
     const refreshActiveThread = (threadId?: number | null) => {
       if (threadId) {
-        void queryClient.invalidateQueries({ queryKey: ["/api/personal-chats", threadId] });
-        void queryClient.invalidateQueries({ queryKey: ["/api/personal-chats", threadId, "presence"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["/api/personal-chats", threadId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["/api/personal-chats", threadId, "presence"],
+        });
       }
     };
 
@@ -309,94 +386,136 @@ export default function ChatPage() {
     };
 
     try {
-      eventSource = new EventSource(`/api/personal-chats/stream?auth=${encodeURIComponent(token)}`);
+      eventSource = new EventSource(
+        `/api/personal-chats/stream?auth=${encodeURIComponent(token)}`,
+      );
       eventSource.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data) as PersonalChatRealtimeEvent;
-          if (!payload?.type || payload.type === "heartbeat" || payload.type === "ready") {
+          if (
+            !payload?.type ||
+            payload.type === "heartbeat" ||
+            payload.type === "ready"
+          ) {
             return;
           }
 
           if (payload.threadId) {
             const threadId = payload.threadId;
-            queryClient.setQueryData<{ threads: PersonalThreadSummary[] }>(["/api/personal-chats"], (current) => {
-              if (!current) return current;
+            queryClient.setQueryData<{ threads: PersonalThreadSummary[] }>(
+              ["/api/personal-chats"],
+              (current) => {
+                if (!current) return current;
 
-              if (payload.type === "message_created") {
-                const existingThread = current.threads.find((thread) => thread.id === threadId);
-                return {
-                  threads: reorderThreadsWithPatch(current.threads, threadId, {
-                    unreadCount: payload.senderUserId && user?.id && payload.senderUserId !== Number(user.id)
-                      ? (existingThread?.unreadCount || 0) + 1
-                      : existingThread?.unreadCount || 0,
-                    lastMessageAt: payload.messageCreatedAt || new Date().toISOString(),
-                    lastMessagePreview: payload.lastMessagePreview || existingThread?.lastMessagePreview || "New message",
-                  }),
-                };
-              }
-
-              if (payload.type === "messages_seen") {
-                return {
-                  threads: current.threads.map((thread) =>
-                    thread.id === payload.threadId
-                      ? { ...thread, unreadCount: 0 }
-                      : thread,
-                  ),
-                };
-              }
-
-              return current;
-            });
-
-            queryClient.setQueryData<PersonalThreadDetail>(["/api/personal-chats", payload.threadId], (current) => {
-              if (!current) return current;
-
-              if (payload.type === "messages_delivered" && payload.deliveredIds?.length) {
-                return {
-                  ...current,
-                  messages: current.messages.map((message) =>
-                    payload.deliveredIds!.includes(message.id) && message.deliveryStatus !== "seen"
-                      ? {
-                          ...message,
-                          deliveryStatus: "delivered",
-                          deliveredAt: message.deliveredAt || new Date().toISOString(),
-                        }
-                      : message,
-                  ),
-                };
-              }
-
-              if (payload.type === "messages_seen" && typeof payload.seenCount === "number" && payload.seenCount > 0) {
-                let remainingToMark = payload.seenCount;
-                const nextMessages = [...current.messages];
-                for (let index = nextMessages.length - 1; index >= 0; index -= 1) {
-                  const message = nextMessages[index];
-                  if (!message.isOwn || remainingToMark <= 0) {
-                    continue;
-                  }
-                  if (message.deliveryStatus === "seen") {
-                    continue;
-                  }
-                  nextMessages[index] = {
-                    ...message,
-                    deliveryStatus: "seen",
-                    deliveredAt: message.deliveredAt || new Date().toISOString(),
-                    seenAt: new Date().toISOString(),
+                if (payload.type === "message_created") {
+                  const existingThread = current.threads.find(
+                    (thread) => thread.id === threadId,
+                  );
+                  return {
+                    threads: reorderThreadsWithPatch(
+                      current.threads,
+                      threadId,
+                      {
+                        unreadCount:
+                          payload.senderUserId &&
+                          user?.id &&
+                          payload.senderUserId !== Number(user.id)
+                            ? (existingThread?.unreadCount || 0) + 1
+                            : existingThread?.unreadCount || 0,
+                        lastMessageAt:
+                          payload.messageCreatedAt || new Date().toISOString(),
+                        lastMessagePreview:
+                          payload.lastMessagePreview ||
+                          existingThread?.lastMessagePreview ||
+                          "New message",
+                      },
+                    ),
                   };
-                  remainingToMark -= 1;
                 }
-                return {
-                  ...current,
-                  messages: nextMessages,
-                };
-              }
 
-              return current;
-            });
+                if (payload.type === "messages_seen") {
+                  return {
+                    threads: current.threads.map((thread) =>
+                      thread.id === payload.threadId
+                        ? { ...thread, unreadCount: 0 }
+                        : thread,
+                    ),
+                  };
+                }
+
+                return current;
+              },
+            );
+
+            queryClient.setQueryData<PersonalThreadDetail>(
+              ["/api/personal-chats", payload.threadId],
+              (current) => {
+                if (!current) return current;
+
+                if (
+                  payload.type === "messages_delivered" &&
+                  payload.deliveredIds?.length
+                ) {
+                  return {
+                    ...current,
+                    messages: current.messages.map((message) =>
+                      payload.deliveredIds!.includes(message.id) &&
+                      message.deliveryStatus !== "seen"
+                        ? {
+                            ...message,
+                            deliveryStatus: "delivered",
+                            deliveredAt:
+                              message.deliveredAt || new Date().toISOString(),
+                          }
+                        : message,
+                    ),
+                  };
+                }
+
+                if (
+                  payload.type === "messages_seen" &&
+                  typeof payload.seenCount === "number" &&
+                  payload.seenCount > 0
+                ) {
+                  let remainingToMark = payload.seenCount;
+                  const nextMessages = [...current.messages];
+                  for (
+                    let index = nextMessages.length - 1;
+                    index >= 0;
+                    index -= 1
+                  ) {
+                    const message = nextMessages[index];
+                    if (!message.isOwn || remainingToMark <= 0) {
+                      continue;
+                    }
+                    if (message.deliveryStatus === "seen") {
+                      continue;
+                    }
+                    nextMessages[index] = {
+                      ...message,
+                      deliveryStatus: "seen",
+                      deliveredAt:
+                        message.deliveredAt || new Date().toISOString(),
+                      seenAt: new Date().toISOString(),
+                    };
+                    remainingToMark -= 1;
+                  }
+                  return {
+                    ...current,
+                    messages: nextMessages,
+                  };
+                }
+
+                return current;
+              },
+            );
           }
 
           refreshThreadList();
-          if (payload.threadId && (!selectedThreadId || payload.threadId === selectedThreadId)) {
+          if (
+            payload.threadId &&
+            (!selectedThreadId || payload.threadId === selectedThreadId)
+          ) {
             refreshActiveThread(payload.threadId);
           } else if (selectedThreadId) {
             refreshActiveThread(selectedThreadId);
@@ -426,7 +545,10 @@ export default function ChatPage() {
   }, [selectedThreadId, user?.id]);
 
   const createThreadMutation = useMutation({
-    mutationFn: async (payload: { identifier: string; targetLanguage?: string | null }) => {
+    mutationFn: async (payload: {
+      identifier: string;
+      targetLanguage?: string | null;
+    }) => {
       const res = await apiRequest("POST", "/api/personal-chats", {
         identifier: payload.identifier,
         sourceLanguage: myLanguage,
@@ -437,11 +559,13 @@ export default function ChatPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/personal-chats"] });
       setSelectedThreadId(data.thread.id);
+      setMobileChatView("conversation");
     },
     onError: () => {
       toast({
         title: "Chat unavailable",
-        description: "This contact is not yet available on Neura Talk for personal chat.",
+        description:
+          "This contact is not yet available on Neura Talk for personal chat.",
         variant: "destructive",
       });
     },
@@ -462,23 +586,37 @@ export default function ChatPage() {
       attachmentTitle?: string | null;
     }) => {
       const clientMessageId = createClientMessageId();
-      const res = await apiRequest("POST", `/api/personal-chats/${threadId}/messages`, {
-        content,
-        originalLanguage: myLanguage,
-        clientMessageId,
-        messageType: messageType || "text",
-        attachmentUrl,
-        attachmentTitle,
-      });
-      const data = await res.json() as { message: PersonalThreadMessage };
+      const res = await apiRequest(
+        "POST",
+        `/api/personal-chats/${threadId}/messages`,
+        {
+          content,
+          originalLanguage: myLanguage,
+          clientMessageId,
+          messageType: messageType || "text",
+          attachmentUrl,
+          attachmentTitle,
+        },
+      );
+      const data = (await res.json()) as { message: PersonalThreadMessage };
       return {
         ...data,
         clientMessageId,
         threadId,
       };
     },
-    onMutate: async ({ threadId, content, messageType, attachmentUrl, attachmentTitle }) => {
-      const lastMessagePreview = buildOptimisticThreadPreview(messageType, content, attachmentTitle);
+    onMutate: async ({
+      threadId,
+      content,
+      messageType,
+      attachmentUrl,
+      attachmentTitle,
+    }) => {
+      const lastMessagePreview = buildOptimisticThreadPreview(
+        messageType,
+        content,
+        attachmentTitle,
+      );
       const optimisticMessage: PendingPersonalThreadMessage = {
         id: -Date.now(),
         senderUserId: Number(user?.id || 0),
@@ -504,15 +642,18 @@ export default function ChatPage() {
         [threadId]: [...(current[threadId] || []), optimisticMessage],
       }));
 
-      queryClient.setQueryData<{ threads: PersonalThreadSummary[] }>(["/api/personal-chats"], (current) => {
-        if (!current) return current;
-        return {
-          threads: reorderThreadsWithPatch(current.threads, threadId, {
-            lastMessagePreview,
-            lastMessageAt: optimisticMessage.createdAt,
-          }),
-        };
-      });
+      queryClient.setQueryData<{ threads: PersonalThreadSummary[] }>(
+        ["/api/personal-chats"],
+        (current) => {
+          if (!current) return current;
+          return {
+            threads: reorderThreadsWithPatch(current.threads, threadId, {
+              lastMessagePreview,
+              lastMessageAt: optimisticMessage.createdAt,
+            }),
+          };
+        },
+      );
 
       return { threadId, optimisticMessageId: optimisticMessage.id };
     },
@@ -521,19 +662,25 @@ export default function ChatPage() {
       if (context?.threadId) {
         setOptimisticMessages((current) => ({
           ...current,
-          [context.threadId]: (current[context.threadId] || []).filter((message) => message.id !== context.optimisticMessageId),
+          [context.threadId]: (current[context.threadId] || []).filter(
+            (message) => message.id !== context.optimisticMessageId,
+          ),
         }));
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["/api/personal-chats"] }),
-        queryClient.invalidateQueries({ queryKey: ["/api/personal-chats", selectedThreadId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["/api/personal-chats", selectedThreadId],
+        }),
       ]);
     },
     onError: (_error, variables, context) => {
       if (context?.threadId) {
         setOptimisticMessages((current) => ({
           ...current,
-          [context.threadId]: (current[context.threadId] || []).filter((message) => message.id !== context.optimisticMessageId),
+          [context.threadId]: (current[context.threadId] || []).filter(
+            (message) => message.id !== context.optimisticMessageId,
+          ),
         }));
       }
       toast({
@@ -547,16 +694,20 @@ export default function ChatPage() {
   const filteredContacts = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return contacts;
-    return contacts.filter((contact) =>
-      contact.name.toLowerCase().includes(query)
-      || contact.identifier.toLowerCase().includes(query)
-      || (contact.language || "").toLowerCase().includes(query),
+    return contacts.filter(
+      (contact) =>
+        contact.name.toLowerCase().includes(query) ||
+        contact.identifier.toLowerCase().includes(query) ||
+        (contact.language || "").toLowerCase().includes(query),
     );
   }, [contacts, search]);
 
   const discoveryResults = discoverQuery.data?.results || [];
 
-  const activeThread = selectedThread.data?.thread || null;
+  const activeThread =
+    selectedThread.data?.thread ||
+    threads.find((thread) => thread.id === selectedThreadId) ||
+    null;
   const serverMessages = selectedThread.data?.messages || [];
   const activeMessages = selectedThreadId
     ? [...serverMessages, ...(optimisticMessages[selectedThreadId] || [])]
@@ -571,17 +722,25 @@ export default function ChatPage() {
   };
 
   const handleSendMessage = async () => {
-    if (!selectedThreadId || !messageInput.trim() || sendMessageMutation.isPending) {
+    if (
+      !selectedThreadId ||
+      !messageInput.trim() ||
+      sendMessageMutation.isPending
+    ) {
       return;
     }
     await sendMessageMutation.mutateAsync({
       threadId: selectedThreadId,
       content: messageInput.trim(),
     });
-    await apiRequest("POST", `/api/personal-chats/${selectedThreadId}/typing`, { isTyping: false }).catch(() => undefined);
+    await apiRequest("POST", `/api/personal-chats/${selectedThreadId}/typing`, {
+      isTyping: false,
+    }).catch(() => undefined);
   };
 
-  const handleAttachmentPick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachmentPick = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!selectedThreadId || !file) return;
@@ -629,7 +788,9 @@ export default function ChatPage() {
       return;
     }
 
-    const file = new File([blob], `voice-note-${Date.now()}.webm`, { type: blob.type || "audio/webm" });
+    const file = new File([blob], `voice-note-${Date.now()}.webm`, {
+      type: blob.type || "audio/webm",
+    });
     setUploadIntent("voice_note");
     const upload = await uploadFile(file);
     if (!upload) {
@@ -647,10 +808,16 @@ export default function ChatPage() {
     setUploadIntent(null);
   };
 
-  const handleOpenContact = async (identifier: string, targetLanguage?: string | null) => {
-    const existing = threads.find((thread) => thread.peer.identifier === identifier);
+  const handleOpenContact = async (
+    identifier: string,
+    targetLanguage?: string | null,
+  ) => {
+    const existing = threads.find(
+      (thread) => thread.peer.identifier === identifier,
+    );
     if (existing) {
       setSelectedThreadId(existing.id);
+      setMobileChatView("conversation");
       return;
     }
     await createThreadMutation.mutateAsync({ identifier, targetLanguage });
@@ -660,14 +827,20 @@ export default function ChatPage() {
     setMessageInput(value);
     if (!selectedThreadId) return;
 
-    await apiRequest("POST", `/api/personal-chats/${selectedThreadId}/typing`, { isTyping: value.trim().length > 0 }).catch(() => undefined);
+    await apiRequest("POST", `/api/personal-chats/${selectedThreadId}/typing`, {
+      isTyping: value.trim().length > 0,
+    }).catch(() => undefined);
 
     if (typingTimeoutRef.current) {
       window.clearTimeout(typingTimeoutRef.current);
     }
 
     typingTimeoutRef.current = window.setTimeout(() => {
-      void apiRequest("POST", `/api/personal-chats/${selectedThreadId}/typing`, { isTyping: false }).catch(() => undefined);
+      void apiRequest(
+        "POST",
+        `/api/personal-chats/${selectedThreadId}/typing`,
+        { isTyping: false },
+      ).catch(() => undefined);
     }, 2500);
   };
 
@@ -685,7 +858,8 @@ export default function ChatPage() {
               variant="ghost"
               size="icon"
               className="md:hidden"
-              onClick={() => setSidebarOpen((open) => !open)}
+              onClick={() => setMobileChatView("list")}
+              aria-label="Back to chats"
               data-testid="button-toggle-sidebar"
             >
               <Menu className="w-5 h-5" />
@@ -694,7 +868,9 @@ export default function ChatPage() {
               <MessageCircleMore className="w-5 h-5 text-primary" />
               <div>
                 <h1 className="text-lg font-semibold">Personal Chat</h1>
-                <p className="text-xs text-muted-foreground">App-to-app multilingual messaging</p>
+                <p className="text-xs text-muted-foreground">
+                  App-to-app multilingual messaging
+                </p>
               </div>
             </div>
           </div>
@@ -703,171 +879,242 @@ export default function ChatPage() {
             Auto-translate both ways
           </Badge>
         </div>
+        {!isOnline && (
+          <p role="status" className="px-4 pb-2 text-xs text-amber-600">
+            You&apos;re offline. Reconnect to send messages and load updates.
+          </p>
+        )}
       </header>
 
       <div className="flex h-[calc(100vh-57px)]">
-        {sidebarOpen ? (
-          <aside className="w-[320px] max-w-full border-r bg-muted/20 flex flex-col">
-            <div className="p-4 border-b space-y-3">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search contacts..."
-                  className="pl-9"
-                  data-testid="input-search-chat-contacts"
-                />
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Messages are stored with original text plus translated copies for the receiver language.
-              </div>
+        <aside
+          className={`w-full md:w-[320px] md:max-w-none max-w-full shrink-0 border-r bg-muted/20 flex flex-col ${
+            mobileChatView === "conversation" ? "hidden md:flex" : "flex"
+          }`}
+          data-testid="personal-chat-sidebar"
+        >
+          <div className="p-4 border-b space-y-3">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search contacts..."
+                className="pl-9"
+                data-testid="input-search-chat-contacts"
+              />
             </div>
+            <div className="text-xs text-muted-foreground">
+              Messages are stored with original text plus translated copies for
+              the receiver language.
+            </div>
+          </div>
 
-            <ScrollArea className="flex-1">
-              <div className="p-3 space-y-4">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 px-2">
-                    Recent Chats
-                  </p>
-                  {loadingThreads ? (
-                    <div className="flex justify-center py-6">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : threads.length === 0 ? (
-                    <Card>
-                      <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                        No personal chats yet. Start with a contact below.
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="space-y-2">
-                      {threads.map((thread) => (
-                        <button
-                          key={thread.id}
-                          onClick={() => setSelectedThreadId(thread.id)}
-                          className={`w-full rounded-xl border px-3 py-3 text-left transition ${
-                            selectedThreadId === thread.id ? "border-primary/40 bg-primary/10" : "border-white/5 bg-background/60 hover:bg-white/5"
-                          }`}
-                          data-testid={`thread-${thread.id}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium truncate">{thread.peer.displayName}</div>
-                            {thread.unreadCount > 0 ? (
-                              <Badge className="h-5 px-2">{thread.unreadCount}</Badge>
+          <ScrollArea className="flex-1">
+            <div className="p-3 space-y-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 px-2">
+                  Recent Chats
+                </p>
+                {loadingThreads ? (
+                  <div
+                    role="status"
+                    aria-label="Loading chats"
+                    className="flex justify-center py-6"
+                  >
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : threadListError && !threadListData ? (
+                  <Card>
+                    <CardContent className="py-6 text-center text-sm">
+                      <p className="text-muted-foreground">
+                        Couldn&apos;t load your chats. Check your connection and
+                        try again.
+                      </p>
+                      <Button
+                        className="mt-3"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void retryThreadList()}
+                      >
+                        Retry
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : threads.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                      No personal chats yet. Start with a contact below.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-2">
+                    {threads.map((thread) => (
+                      <button
+                        key={thread.id}
+                        onClick={() => {
+                          setSelectedThreadId(thread.id);
+                          setMobileChatView("conversation");
+                        }}
+                        className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                          selectedThreadId === thread.id
+                            ? "border-primary/40 bg-primary/10"
+                            : "border-white/5 bg-background/60 hover:bg-white/5"
+                        }`}
+                        data-testid={`thread-${thread.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium truncate">
+                            {thread.peer.displayName}
+                          </div>
+                          {thread.unreadCount > 0 ? (
+                            <Badge className="h-5 px-2">
+                              {thread.unreadCount}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate mt-1">
+                          {thread.lastMessagePreview || "No messages yet"}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground/70 mt-2 flex items-center gap-2">
+                          <span>
+                            {normalizeLanguageLabel(thread.viewerLanguage)}
+                          </span>
+                          <span>to</span>
+                          <span>
+                            {normalizeLanguageLabel(thread.peerLanguage)}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 px-2">
+                  Contacts
+                </p>
+                {contactsLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : filteredContacts.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                      No contacts available for chat.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredContacts.map((contact) => (
+                      <button
+                        key={contact.id}
+                        onClick={() => {
+                          if (contact.hasApp === false) {
+                            toast({
+                              title: "Chat needs Neura Talk on both sides",
+                              description:
+                                "This contact looks like a phone/PSTN contact. Personal chat is available only for app users.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          setMobileChatView("conversation");
+                          void handleOpenContact(
+                            contact.appPreferredIdentifier ||
+                              contact.identifier,
+                            contact.language,
+                          );
+                        }}
+                        className="w-full rounded-xl border border-white/5 bg-background/60 hover:bg-white/5 px-3 py-3 text-left transition"
+                        data-testid={`contact-chat-${contact.id}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium truncate">
+                            {contact.name}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={
+                                contact.hasApp === false
+                                  ? "outline"
+                                  : "secondary"
+                              }
+                            >
+                              {contact.hasApp === false ? "PSTN" : "App"}
+                            </Badge>
+                            {contact.isFavorite ? (
+                              <Badge variant="secondary">Fav</Badge>
                             ) : null}
                           </div>
-                          <div className="text-xs text-muted-foreground truncate mt-1">
-                            {thread.lastMessagePreview || "No messages yet"}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground/70 mt-2 flex items-center gap-2">
-                            <span>{normalizeLanguageLabel(thread.viewerLanguage)}</span>
-                            <span>to</span>
-                            <span>{normalizeLanguageLabel(thread.peerLanguage)}</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate mt-1">
+                          {contact.identifier}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground/70 mt-2">
+                          Receiver language:{" "}
+                          {normalizeLanguageLabel(contact.language)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground/70 mt-1">
+                          {contact.hasApp === false
+                            ? "Messaging unavailable until they use Neura Talk."
+                            : "Ready for app-to-app multilingual chat."}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
+              {search.trim().length >= 2 ? (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 px-2">
-                    Contacts
+                    Discover Neura Talk Users
                   </p>
-                  {contactsLoading ? (
-                    <div className="flex justify-center py-6">
-                      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  {discoverQuery.isLoading ? (
+                    <div className="flex justify-center py-4">
+                      <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
                     </div>
-                  ) : filteredContacts.length === 0 ? (
+                  ) : discoveryResults.length === 0 ? (
                     <Card>
-                      <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                        No contacts available for chat.
+                      <CardContent className="py-4 text-center text-sm text-muted-foreground">
+                        No direct app users found for this search yet.
                       </CardContent>
                     </Card>
                   ) : (
                     <div className="space-y-2">
-                      {filteredContacts.map((contact) => (
+                      {discoveryResults.map((result) => (
                         <button
-                          key={contact.id}
-                          onClick={() => {
-                            if (contact.hasApp === false) {
-                              toast({
-                                title: "Chat needs Neura Talk on both sides",
-                                description: "This contact looks like a phone/PSTN contact. Personal chat is available only for app users.",
-                                variant: "destructive",
-                              });
-                              return;
-                            }
-                            void handleOpenContact(contact.appPreferredIdentifier || contact.identifier, contact.language);
-                          }}
+                          key={result.id}
+                          onClick={() =>
+                            handleOpenContact(result.identifier, "en")
+                          }
                           className="w-full rounded-xl border border-white/5 bg-background/60 hover:bg-white/5 px-3 py-3 text-left transition"
-                          data-testid={`contact-chat-${contact.id}`}
+                          data-testid={`discover-user-${result.id}`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium truncate">{contact.name}</div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={contact.hasApp === false ? "outline" : "secondary"}>
-                                {contact.hasApp === false ? "PSTN" : "App"}
-                              </Badge>
-                              {contact.isFavorite ? <Badge variant="secondary">Fav</Badge> : null}
-                            </div>
+                          <div className="font-medium truncate">
+                            {result.displayName}
                           </div>
                           <div className="text-xs text-muted-foreground truncate mt-1">
-                            {contact.identifier}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground/70 mt-2">
-                            Receiver language: {normalizeLanguageLabel(contact.language)}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground/70 mt-1">
-                            {contact.hasApp === false ? "Messaging unavailable until they use Neura Talk." : "Ready for app-to-app multilingual chat."}
+                            {result.identifier}
                           </div>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </aside>
 
-                {search.trim().length >= 2 ? (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-2 px-2">
-                      Discover Neura Talk Users
-                    </p>
-                    {discoverQuery.isLoading ? (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : discoveryResults.length === 0 ? (
-                      <Card>
-                        <CardContent className="py-4 text-center text-sm text-muted-foreground">
-                          No direct app users found for this search yet.
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      <div className="space-y-2">
-                        {discoveryResults.map((result) => (
-                          <button
-                            key={result.id}
-                            onClick={() => handleOpenContact(result.identifier, "en")}
-                            className="w-full rounded-xl border border-white/5 bg-background/60 hover:bg-white/5 px-3 py-3 text-left transition"
-                            data-testid={`discover-user-${result.id}`}
-                          >
-                            <div className="font-medium truncate">{result.displayName}</div>
-                            <div className="text-xs text-muted-foreground truncate mt-1">
-                              {result.identifier}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </ScrollArea>
-          </aside>
-        ) : null}
-
-        <main className="flex-1 flex flex-col">
+        <main
+          className={`flex-1 min-w-0 flex-col ${
+            mobileChatView === "list" ? "hidden md:flex" : "flex"
+          }`}
+          data-testid="personal-chat-main"
+        >
           {!activeThread ? (
             <div className="flex-1 flex items-center justify-center p-6">
               <Card className="w-full max-w-xl">
@@ -875,8 +1122,14 @@ export default function ChatPage() {
                   <CardTitle>Start a real multilingual chat</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-muted-foreground">
-                  <p>Choose a contact and Neura Talk will store the original message plus a translated copy for the other side.</p>
-                  <p>Incoming messages default to your language, and you can still reveal the original wording when needed.</p>
+                  <p>
+                    Choose a contact and Neura Talk will store the original
+                    message plus a translated copy for the other side.
+                  </p>
+                  <p>
+                    Incoming messages default to your language, and you can
+                    still reveal the original wording when needed.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -885,11 +1138,33 @@ export default function ChatPage() {
               <div className="border-b px-4 py-3 bg-background/70 backdrop-blur-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold truncate">{activeThread.peer.displayName}</div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="md:hidden -ml-2 mb-1"
+                      onClick={() => setMobileChatView("list")}
+                      aria-label="Back to chats"
+                      data-testid="button-mobile-back-to-chats"
+                    >
+                      <ArrowLeft className="w-4 h-4 mr-1" />
+                      Chats
+                    </Button>
+                    <div className="font-semibold truncate">
+                      {activeThread.peer.displayName}
+                    </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                      <span>{activeThread.peer.identifier || activeThread.peer.phone || activeThread.peer.email || activeThread.peer.username}</span>
+                      <span>
+                        {activeThread.peer.identifier ||
+                          activeThread.peer.phone ||
+                          activeThread.peer.email ||
+                          activeThread.peer.username}
+                      </span>
                       <span>•</span>
-                      <span>{normalizeLanguageLabel(activeThread.viewerLanguage)} to {normalizeLanguageLabel(activeThread.peerLanguage)}</span>
+                      <span>
+                        {normalizeLanguageLabel(activeThread.viewerLanguage)} to{" "}
+                        {normalizeLanguageLabel(activeThread.peerLanguage)}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -898,7 +1173,12 @@ export default function ChatPage() {
                         <a
                           href={`/calls/c2c?identifier=${encodeURIComponent(activeThread.peer.identifier)}&theirLanguage=${encodeURIComponent(activeThread.peer.contactLanguage || activeThread.peerLanguage || "en")}&mode=voice`}
                         >
-                          <Button variant="outline" size="sm" className="gap-2" data-testid="button-chat-voice-call">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            data-testid="button-chat-voice-call"
+                          >
                             <Phone className="w-4 h-4" />
                             Voice
                           </Button>
@@ -906,7 +1186,12 @@ export default function ChatPage() {
                         <a
                           href={`/calls/c2c?identifier=${encodeURIComponent(activeThread.peer.identifier)}&theirLanguage=${encodeURIComponent(activeThread.peer.contactLanguage || activeThread.peerLanguage || "en")}&mode=video`}
                         >
-                          <Button variant="outline" size="sm" className="gap-2" data-testid="button-chat-video-call">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            data-testid="button-chat-video-call"
+                          >
                             <Video className="w-4 h-4" />
                             Video
                           </Button>
@@ -929,33 +1214,73 @@ export default function ChatPage() {
               <ScrollArea className="flex-1 p-4">
                 <div className="max-w-3xl mx-auto space-y-4">
                   {selectedThread.isLoading ? (
-                    <div className="flex justify-center py-8">
+                    <div
+                      role="status"
+                      aria-label="Loading conversation"
+                      className="flex justify-center py-8"
+                    >
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                     </div>
+                  ) : selectedThread.isError && !selectedThread.data ? (
+                    <Card>
+                      <CardContent className="py-8 text-center text-sm">
+                        <p className="text-muted-foreground">
+                          Couldn&apos;t load messages for this chat.
+                        </p>
+                        <Button
+                          className="mt-3"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void selectedThread.refetch()}
+                        >
+                          Retry
+                        </Button>
+                      </CardContent>
+                    </Card>
                   ) : activeMessages.length === 0 ? (
                     <Card>
                       <CardContent className="py-12 text-center text-muted-foreground">
                         <UserRound className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                        <p>No messages yet. Start the conversation naturally.</p>
+                        <p>
+                          No messages yet. Start the conversation naturally.
+                        </p>
                       </CardContent>
                     </Card>
                   ) : (
                     activeMessages.map((message) => {
-                      const showingOriginal = originalVisibleIds.includes(message.id);
-                      const showToggle = !message.isOwn && Boolean(message.translatedContent);
-                      const primaryContent = showingOriginal ? message.originalContent : message.displayContent;
+                      const showingOriginal = originalVisibleIds.includes(
+                        message.id,
+                      );
+                      const showToggle =
+                        !message.isOwn && Boolean(message.translatedContent);
+                      const primaryContent = showingOriginal
+                        ? message.originalContent
+                        : message.displayContent;
                       const secondaryContent = showToggle
-                        ? (showingOriginal ? message.translatedContent : message.originalContent)
+                        ? showingOriginal
+                          ? message.translatedContent
+                          : message.originalContent
                         : null;
 
                       return (
-                        <div key={message.id} className={message.isOwn ? "flex flex-col items-end" : "flex flex-col items-start"}>
+                        <div
+                          key={message.id}
+                          className={
+                            message.isOwn
+                              ? "flex flex-col items-end"
+                              : "flex flex-col items-start"
+                          }
+                        >
                           <ChatMessage
                             role={message.isOwn ? "user" : "assistant"}
                             content={primaryContent}
                             secondaryContent={secondaryContent}
                             timestamp={new Date(message.createdAt)}
-                            status={message.isOwn ? formatDeliveryStatus(message.deliveryStatus) : null}
+                            status={
+                              message.isOwn
+                                ? formatDeliveryStatus(message.deliveryStatus)
+                                : null
+                            }
                             attachmentTitle={message.attachmentTitle}
                             attachmentUrl={message.attachmentUrl}
                             attachmentSize={message.attachmentSize}
@@ -969,13 +1294,21 @@ export default function ChatPage() {
                               onClick={() => toggleOriginal(message.id)}
                               data-testid={`button-toggle-original-${message.id}`}
                             >
-                              {showingOriginal ? "Show my-language translation" : `Show original (${normalizeLanguageLabel(message.originalLanguage)})`}
+                              {showingOriginal
+                                ? "Show my-language translation"
+                                : `Show original (${normalizeLanguageLabel(message.originalLanguage)})`}
                             </button>
                           ) : null}
                           {message.isOwn ? (
                             <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1 px-2">
-                              {message.deliveryStatus === "seen" ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />}
-                              <span>{formatDeliveryStatus(message.deliveryStatus)}</span>
+                              {message.deliveryStatus === "seen" ? (
+                                <CheckCheck className="w-3 h-3" />
+                              ) : (
+                                <Check className="w-3 h-3" />
+                              )}
+                              <span>
+                                {formatDeliveryStatus(message.deliveryStatus)}
+                              </span>
                             </div>
                           ) : null}
                         </div>
@@ -1000,25 +1333,49 @@ export default function ChatPage() {
                     type="button"
                     variant="outline"
                     onClick={() => attachmentInputRef.current?.click()}
-                    disabled={!selectedThreadId || isUploadingAttachment || sendMessageMutation.isPending}
+                    disabled={
+                      !selectedThreadId ||
+                      isUploadingAttachment ||
+                      sendMessageMutation.isPending
+                    }
+                    aria-label="Attach file"
                     data-testid="button-attach-personal-chat"
                   >
-                    {isUploadingAttachment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                    {isUploadingAttachment ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Paperclip className="w-4 h-4" />
+                    )}
                   </Button>
                   <Button
                     type="button"
-                    variant={recorderState === "recording" ? "destructive" : "outline"}
+                    variant={
+                      recorderState === "recording" ? "destructive" : "outline"
+                    }
                     onClick={() => void handleVoiceNote()}
-                    disabled={!selectedThreadId || isUploadingAttachment || sendMessageMutation.isPending}
+                    disabled={
+                      !selectedThreadId ||
+                      isUploadingAttachment ||
+                      sendMessageMutation.isPending
+                    }
+                    aria-label={
+                      recorderState === "recording"
+                        ? "Stop and send voice note"
+                        : "Record voice note"
+                    }
                     data-testid="button-record-personal-chat"
                   >
                     <Mic className="w-4 h-4" />
                   </Button>
                   <Input
                     value={messageInput}
-                    onChange={(event) => void handleTypingChange(event.target.value)}
+                    onChange={(event) =>
+                      void handleTypingChange(event.target.value)
+                    }
                     placeholder="Type your message with emojis, slang, or mixed language..."
-                    disabled={sendMessageMutation.isPending || isUploadingAttachment}
+                    disabled={
+                      sendMessageMutation.isPending || isUploadingAttachment
+                    }
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
@@ -1029,10 +1386,19 @@ export default function ChatPage() {
                   />
                   <Button
                     onClick={() => void handleSendMessage()}
-                    disabled={!messageInput.trim() || sendMessageMutation.isPending || isUploadingAttachment}
+                    disabled={
+                      !messageInput.trim() ||
+                      sendMessageMutation.isPending ||
+                      isUploadingAttachment
+                    }
+                    aria-label="Send message"
                     data-testid="button-send-personal-chat"
                   >
-                    {sendMessageMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {sendMessageMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
                 {recorderState === "recording" ? (
@@ -1042,7 +1408,10 @@ export default function ChatPage() {
                 ) : null}
                 {isUploadingAttachment ? (
                   <div className="max-w-3xl mx-auto mt-2 text-xs text-muted-foreground">
-                    {uploadIntent === "voice_note" ? "Uploading voice note" : "Uploading attachment"}... {uploadProgress}%
+                    {uploadIntent === "voice_note"
+                      ? "Uploading voice note"
+                      : "Uploading attachment"}
+                    ... {uploadProgress}%
                   </div>
                 ) : null}
               </div>

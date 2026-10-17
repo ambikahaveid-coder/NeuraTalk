@@ -226,5 +226,24 @@ export function registerNotificationRoutes(app: Express): void {
     }
   });
 
+  // Remove only this account's message token on logout. Keep the device active
+  // so a separate VoIP token can continue to receive call alerts.
+  app.delete("/api/notifications/device-token/:deviceId", loadUser, requireAuth, async (req: Request, res: Response) => {
+    try {
+      await db
+        .update(registeredDevices)
+        .set({ pushToken: null, lastSeenAt: new Date() })
+        .where(and(
+          eq(registeredDevices.userId, req.user!.id),
+          eq(registeredDevices.deviceId, req.params.deviceId),
+        ));
+
+      return res.json({ success: true });
+    } catch (err) {
+      logger.error("Notifications", "Failed to unregister device token", err as Error);
+      return res.status(500).json({ success: false, message: "Failed to unregister device token" });
+    }
+  });
+
   logger.info("Notifications", "Notification routes registered");
 }

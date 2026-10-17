@@ -66,9 +66,10 @@ async function profileLanguageOf(userId: number): Promise<string | null> {
   const [row] = await db.select({ language: users.preferredLanguage }).from(users).where(eq(users.id, userId));
   return row?.language || null;
 }
-import { hasBlockedUser } from "./blocking";
 import { isTranslationConsentDenied } from "./translation-consent";
 import { translateChatText } from "./translation/chat-translate";
+import { isSenderBlockedInGroup } from "./group-chat-blocking";
+export { isSenderBlockedInGroup } from "./group-chat-blocking";
 
 const objectStorage = new ObjectStorageService();
 const router = Router();
@@ -185,30 +186,6 @@ async function detectLanguage(text: string, senderLanguage?: string): Promise<st
     return senderLanguage;
   }
   return detected;
-}
-
-// P0-3: DIRECTIONAL, via hasBlockedUser from ./blocking (not the symmetric
-// isBlocked() personal chat uses) -- a message is rejected if ANY other
-// current group member has blocked the sender. Directional is required
-// here specifically because a group has innocent bystanders: if isBlocked's
-// symmetric semantics were used, the person who DID the blocking would also
-// lose their own ability to use the group, which the product spec
-// explicitly rules out ("A can still use the group" after A blocks B).
-// Groups have no per-recipient message model (one row is shared by every
-// member), so "reject the send entirely" is the only enforcement point that
-// actually prevents delivery. Called from every group message-creation
-// route (text + voice) so a block can't be bypassed by switching routes.
-export async function isSenderBlockedInGroup(groupId: number, senderId: number): Promise<boolean> {
-  const members = await db.select({ userId: groupChatMembers.userId })
-    .from(groupChatMembers)
-    .where(eq(groupChatMembers.groupChatId, groupId));
-  for (const member of members) {
-    if (member.userId === senderId) continue;
-    if (await hasBlockedUser(member.userId, senderId)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 router.get("/api/group-chats/languages", (_req: Request, res: Response) => {

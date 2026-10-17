@@ -12,7 +12,16 @@
           "package_name": "com.Mindwhile.neuratalk"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "612487293092-imsrqo61so9pfk556edod81feu6uehh1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.Mindwhile.neuratalk",
+            "certificate_hash": "c1c1f842207720075fe4a2053856f498f8eb793b"
+          }
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyA065dn3hl2DZBP-TwRKfEKVbLgKLnBbgg"

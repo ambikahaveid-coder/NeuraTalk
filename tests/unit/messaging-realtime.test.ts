@@ -317,4 +317,61 @@ describe("14. MANDATORY multi-instance test -- an event published from one proce
     expect(receivedRightConsumer).toHaveLength(1);
     expect(receivedWrongConsumer).toHaveLength(0);
   });
+
+  it("cross-instance personal-chat delivery is user-scoped and does not duplicate the sender instance's local event", async () => {
+    vi.resetModules();
+    vi.doMock("../../server/redis", () => ({
+      getRedisClient: () => makeFakeMainClient(),
+      getRedisSubscriberClient: () => makeFakeSubscriberClient(),
+      isRedisReady: () => redisReady,
+    }));
+    const instanceA = await import("../../server/modules/messaging/realtime");
+    const receivedOnA: Record<string, unknown>[] = [];
+    instanceA.subscribeToPersonalChatEvents(42, (event) => receivedOnA.push(event));
+
+    vi.resetModules();
+    vi.doMock("../../server/redis", () => ({
+      getRedisClient: () => makeFakeMainClient(),
+      getRedisSubscriberClient: () => makeFakeSubscriberClient(),
+      isRedisReady: () => redisReady,
+    }));
+    const instanceB = await import("../../server/modules/messaging/realtime");
+    const receivedOnB: Record<string, unknown>[] = [];
+    const receivedForWrongUser: Record<string, unknown>[] = [];
+    instanceB.subscribeToPersonalChatEvents(42, (event) => receivedOnB.push(event));
+    instanceB.subscribeToPersonalChatEvents(99, (event) => receivedForWrongUser.push(event));
+
+    instanceA.publishPersonalChatEvent([42], { type: "message_created", threadId: 7 });
+
+    expect(receivedOnA).toHaveLength(1);
+    expect(receivedOnA[0]).toMatchObject({ type: "message_created", threadId: 7, userId: 42 });
+    expect(receivedOnB).toHaveLength(1);
+    expect(receivedOnB[0]).toMatchObject({ type: "message_created", threadId: 7, userId: 42 });
+    expect(receivedForWrongUser).toHaveLength(0);
+  });
+
+  it("personal-chat events still reach same-instance listeners when Redis is unavailable", async () => {
+    redisReady = false;
+    const { publishPersonalChatEvent, subscribeToPersonalChatEvents } = await import("../../server/modules/messaging/realtime");
+    const received: Record<string, unknown>[] = [];
+    subscribeToPersonalChatEvents(42, (event) => received.push(event));
+
+    publishPersonalChatEvent([42], { type: "message_created", threadId: 7 });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ type: "message_created", threadId: 7, userId: 42 });
+  });
+
+  it("unsubscribing a personal-chat listener stops subsequent local and Redis-delivered events", async () => {
+    const { publishPersonalChatEvent, subscribeToPersonalChatEvents } = await import("../../server/modules/messaging/realtime");
+    const received: Record<string, unknown>[] = [];
+    const unsubscribe = subscribeToPersonalChatEvents(42, (event) => received.push(event));
+
+    publishPersonalChatEvent([42], { type: "message_created", threadId: 7 });
+    unsubscribe();
+    publishPersonalChatEvent([42], { type: "message_created", threadId: 8 });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ threadId: 7, userId: 42 });
+  });
 });
