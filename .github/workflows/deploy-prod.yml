@@ -47,6 +47,12 @@ jobs:
       - name: Test Flutter app
         working-directory: flutter_app
         run: flutter test
+      # The project heap (1.5 GB) is sized for low-RAM dev machines; D8 dex
+      # merging needs more. User-home properties override the project file.
+      - name: Raise Gradle heap for CI
+        run: |
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseG1GC -Dkotlin.daemon.jvm.options=-Xmx2g" >> ~/.gradle/gradle.properties
       - name: Build Android debug APK
         working-directory: flutter_app
         run: flutter build apk --debug
