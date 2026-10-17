@@ -184,6 +184,15 @@ export async function streamTranslationTokens(
     if (isAbortError(error)) {
       throw error;
     }
+    // The OpenAI SDK reports an abort as APIUserAbortError ("Request was
+    // aborted."), which isAbortError() does not match. When the caller
+    // cancelled (a newer partial transcript replaced this request, or the
+    // listener barged in) nobody wants the result, so skip the fallback
+    // translation. A timeout leaves the caller's signal untouched and still
+    // falls back below.
+    if (callbacks.signal?.aborted) {
+      throw abortError();
+    }
 
     logger.warn(
       "StreamingTranslation",

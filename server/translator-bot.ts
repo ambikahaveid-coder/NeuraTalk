@@ -91,7 +91,10 @@ const BOT_DEFAULT_IDENTITY = "neuratalk-translator";
 
 const TARGET_LATENCY_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TARGET_LATENCY_MS, 800);
 const BOT_STOP_DEADLINE_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_STOP_DEADLINE_MS, 3_000);
-const TTS_READY_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TTS_READY_TIMEOUT_MS, 3_000);
+// Azure normally returns first audio in well under 500 ms, but production
+// saw a 3.2 s response that a 3 s limit discarded, so the listener never
+// heard that sentence. 5 s keeps one slow response from dropping speech.
+const TTS_READY_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_TTS_READY_TIMEOUT_MS, 5_000);
 // Partial transcripts only drive live captions (speech is synthesised from
 // finished utterances), so waiting for a few words saves translation requests.
 const PARTIAL_MIN_WORDS = parsePositiveInt(process.env.TRANSLATOR_BOT_MIN_PARTIAL_WORDS, 3);
