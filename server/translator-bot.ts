@@ -45,6 +45,7 @@ import {
   resolveDirectionalLanguages,
   setParticipantLanguagePreference,
 } from "./universal-language-runtime";
+import { isListenerLanguageKnown } from "./translation-target-rules";
 import {
   PCM_CHANNELS,
   PCM_SAMPLE_RATE,
@@ -916,7 +917,14 @@ class LiveKitRealtimeTranslatorBot {
         sourceLanguage,
         targetLanguage: preferredLanguage === "auto" ? pipeline?.effectiveLanguage || "en" : preferredLanguage,
         translationActive: preferredLanguage !== sourceLanguage,
+        targetState: undefined,
       }));
+
+      // A listener on "auto" who hasn't spoken yet has no known language; the
+      // resolver then assumes English, which translated two Telugu speakers'
+      // first sentences into English. Until we know what they speak, they hear
+      // the speaker's own voice; translation starts once the languages differ.
+      if (!isListenerLanguageKnown(preferredLanguage, pipeline?.detectedLanguage, resolved.targetState?.detectedLanguage)) continue;
 
       if (!resolved.translationActive) {
         // Once a listener has this speaker's translated track, their client

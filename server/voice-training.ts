@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { db } from "./db";
-import { voiceSamples, voiceProfiles } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { voiceSamples, voiceProfiles, users } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
 import { ObjectStorageService } from "./ai_integrations/object_storage";
 import crypto from "crypto";
 import { loadUser, requireAuth, requireSuperAdmin } from "./role-middleware";
@@ -436,6 +436,32 @@ export function registerVoiceTrainingRoutes(app: Express): void {
     } catch (error) {
       console.error("Error listing pending voice profiles:", error);
       res.status(500).json({ error: "Failed to list pending voice profiles" });
+    }
+  });
+
+  // Every custom clone with its owner, newest first, for the admin "Voice
+  // clones" section (approved ones included, so a misused one can be found).
+  app.get("/api/voice-training/admin/clones", loadUser, requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
+    try {
+      const rows = await db.select({
+        id: voiceProfiles.id,
+        userId: voiceProfiles.userId,
+        username: users.username,
+        email: users.email,
+        trainingStatus: voiceProfiles.trainingStatus,
+        moderationStatus: voiceProfiles.moderationStatus,
+        isEnabled: voiceProfiles.isEnabled,
+        createdAt: voiceProfiles.createdAt,
+      })
+        .from(voiceProfiles)
+        .leftJoin(users, eq(users.id, voiceProfiles.userId))
+        .where(eq(voiceProfiles.isCustom, true))
+        .orderBy(desc(voiceProfiles.createdAt))
+        .limit(500);
+      res.json({ clones: rows });
+    } catch (error) {
+      console.error("Error listing voice clones:", error);
+      res.status(500).json({ error: "Failed to list voice clones" });
     }
   });
 

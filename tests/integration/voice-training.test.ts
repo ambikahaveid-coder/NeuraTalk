@@ -290,6 +290,13 @@ describe("Voice Training API — RBAC", () => {
     expect(res.status).toBe(403);
   });
 
+  it("denies a non-admin from the list of everyone's voice clones", async () => {
+    currentUser = { id: 1, role: "consumer" };
+    const app = await buildApp();
+    const res = await request(app).get("/api/voice-training/admin/clones");
+    expect(res.status).toBe(403);
+  });
+
   it("allows super_admin to reach the moderation queue", async () => {
     currentUser = { id: 1, role: "super_admin" };
     const app = await buildApp();

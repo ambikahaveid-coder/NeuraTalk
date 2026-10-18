@@ -1075,6 +1075,95 @@ export function AbuseReportsSection() {
 }
 
 // ============================================================================
+// VOICE CLONES SECTION
+// Clones go live automatically after training; this is where one that is
+// misused gets switched off (and allowed again if that was a mistake).
+// ============================================================================
+export function VoiceClonesSection() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["/api/voice-training/admin/clones"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const res = await fetch("/api/voice-training/admin/clones", { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error("Failed to load voice clones");
+      return res.json();
+    },
+  });
+
+  const moderateMutation = useMutation({
+    mutationFn: async ({ id, approve }: { id: number; approve: boolean }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/voice-training/admin/${id}/moderate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ approve }),
+      });
+      if (!res.ok) throw new Error("Failed to update voice clone");
+      return res.json();
+    },
+    onSuccess: (_data, { approve }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/voice-training/admin/clones"] });
+      toast({ title: approve ? "Voice allowed again" : "Voice turned off" });
+    },
+    onError: () => toast({ title: "Could not update this voice", variant: "destructive" }),
+  });
+
+  const clones = data?.clones || [];
+
+  if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Voices are used in translated calls as soon as training finishes. Turn one off if it is misused; its owner can't switch it back on.
+      </p>
+      {clones.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">
+          <Users className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <p>No one has recorded their voice yet</p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          {clones.map((c: any) => {
+            const rejected = c.moderationStatus === "rejected";
+            const status = rejected ? "Turned off by admin"
+              : c.trainingStatus !== "ready" ? `Training: ${c.trainingStatus}`
+              : c.isEnabled ? "In use" : "Switched off by owner";
+            return (
+              <Card key={c.id}>
+                <CardContent className="pt-4 pb-4 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{c.username || c.email || `User #${c.userId}`}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Recorded {c.createdAt ? new Date(c.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={rejected ? "destructive" : "outline"}>{status}</Badge>
+                    {rejected ? (
+                      <Button size="sm" variant="outline" disabled={moderateMutation.isPending} onClick={() => moderateMutation.mutate({ id: c.id, approve: true })}>
+                        Allow again
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="destructive" disabled={moderateMutation.isPending} onClick={() => moderateMutation.mutate({ id: c.id, approve: false })}>
+                        Turn off
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // PAYMENT GATEWAYS SECTION
 // ============================================================================
 export function PaymentGatewaysSection() {
