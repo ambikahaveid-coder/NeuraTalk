@@ -13,6 +13,7 @@ import 'calls_settings_screen.dart';
 import 'privacy_screen.dart';
 import 'teams_screen.dart';
 import 'wallet_screen.dart';
+import 'voice_clone_screen.dart';
 
 /// "More" tab — Settings (brand mockup 12).
 class SettingsScreen extends StatelessWidget {
@@ -47,7 +48,7 @@ class SettingsScreen extends StatelessWidget {
       _Row(Icons.notifications_none, 'Notifications', 'Messages and calls', () => _go(context, const NotificationsSettingsScreen())),
       _Row(Icons.call_outlined, 'Calls', 'Microphone and call audio', () => _go(context, const CallsSettingsScreen())),
       _Row(Icons.shield_outlined, 'Privacy', 'Blocked contacts and your data', () => _go(context, const PrivacyScreen())),
-      _Row(Icons.record_voice_over_outlined, 'Voice clone', 'Translated calls in your own voice', () => _openWebPage(context, '/settings/voice-clone')),
+      _Row(Icons.record_voice_over_outlined, 'Your voice', 'Translated calls in your own voice', () => _go(context, const VoiceCloneScreen())),
       if (isBusiness(user)) _Row(Icons.groups_outlined, 'Teams', 'Your organisation\'s teams', () => _go(context, const TeamsScreen())),
       _Row(Icons.help_outline, 'Help and support', 'FAQs, contact us', () => _openWebPage(context, '/help')),
       _Row(Icons.description_outlined, 'Terms and privacy policy', 'How we handle your data', () => _openWebPage(context, '/privacy')),

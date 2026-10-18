@@ -82,10 +82,11 @@ class ApiService {
     return _parse(res);
   }
 
-  static Future<Map<String, dynamic>> delete(String path) async {
+  static Future<Map<String, dynamic>> delete(String path, {Map<String, dynamic>? body}) async {
     final res = await http.delete(
       Uri.parse('$baseUrl$path'),
       headers: _headers,
+      body: body == null ? null : jsonEncode(body),
     ).timeout(const Duration(seconds: 15));
     return _parse(res);
   }

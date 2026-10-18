@@ -378,6 +378,8 @@ export function registerVoiceTrainingRoutes(app: Express): void {
           name: profile[0].name,
           isEnabled: profile[0].isEnabled,
           trainingStatus: profile[0].trainingStatus,
+          // "rejected" means an admin turned the voice off; the app explains it.
+          moderationStatus: profile[0].moderationStatus,
           createdAt: profile[0].createdAt,
         },
         sampleCount: sampleCount.length,
