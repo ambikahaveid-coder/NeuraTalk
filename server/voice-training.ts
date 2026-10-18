@@ -251,8 +251,9 @@ export function registerVoiceTrainingRoutes(app: Express): void {
           voiceId: `custom_${userId}_${Date.now()}`,
           isCustom: true,
           trainingStatus: "training",
-          // Stays disabled until an admin approves it via moderation, even
-          // after training succeeds — see moderationStatus default "pending".
+          // Enabled and approved automatically once training succeeds (every
+          // sample used carries the owner's consent); an admin can still
+          // reject it later through moderation.
           isEnabled: false,
         }).returning();
         profileId = newProfile[0].id;
@@ -290,8 +291,23 @@ export function registerVoiceTrainingRoutes(app: Express): void {
             if (buffers.length > 0) {
               try {
                 const { voiceId } = await enrollElevenLabsVoice(buffers, `NeuraTalk_User_${userId}`);
+                // Waiting for a manual admin review left every clone unused, so
+                // calls fell back to a stock voice. Training only uses samples
+                // the owner consented to, so the clone goes live right away;
+                // a voice an admin already rejected stays rejected.
+                const [current] = await db.select({ moderationStatus: voiceProfiles.moderationStatus })
+                  .from(voiceProfiles).where(eq(voiceProfiles.id, profileId));
+                const rejected = current?.moderationStatus === "rejected";
                 await db.update(voiceProfiles)
-                  .set({ trainingStatus: "ready", voiceId: `eleven_${voiceId}` })
+                  .set({
+                    trainingStatus: "ready",
+                    voiceId: `eleven_${voiceId}`,
+                    ...(rejected ? {} : {
+                      moderationStatus: "approved",
+                      moderationNotes: "Auto-approved: trained only on samples the owner consented to",
+                      isEnabled: true,
+                    }),
+                  })
                   .where(eq(voiceProfiles.id, profileId));
 
                 await db.update(voiceSamples)
@@ -380,20 +396,21 @@ export function registerVoiceTrainingRoutes(app: Express): void {
       }
       const { enabled } = req.body;
 
-      // A user can always turn their own clone off, but can only turn it back
-      // on if it has passed moderation — otherwise this toggle would let an
-      // unreviewed or rejected clone bypass the review gate.
+      // A user can always turn their own clone off, and back on unless an
+      // admin rejected it (clones are approved automatically after training).
       const [existing] = await db.select().from(voiceProfiles)
         .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)));
       if (!existing) {
         return res.status(404).json({ error: "No custom voice profile found" });
       }
-      if (enabled && existing.moderationStatus !== "approved" && req.user!.role !== "super_admin") {
-        return res.status(403).json({ error: "This voice profile has not been approved yet and cannot be enabled." });
+      if (enabled && existing.moderationStatus === "rejected" && req.user!.role !== "super_admin") {
+        return res.status(403).json({ error: "This voice was turned off by NeuraTalk review and cannot be enabled." });
       }
+      // Clones trained before auto-approval were left "pending" forever.
+      const approvePendingClone = enabled && existing.moderationStatus === "pending" && existing.trainingStatus === "ready";
 
       const result = await db.update(voiceProfiles)
-        .set({ isEnabled: enabled })
+        .set({ isEnabled: enabled, ...(approvePendingClone ? { moderationStatus: "approved" } : {}) })
         .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)))
         .returning();
 
@@ -408,10 +425,9 @@ export function registerVoiceTrainingRoutes(app: Express): void {
   });
 
   // === Admin moderation ===
-  // A voice profile reaching trainingStatus "ready" is not usable in a real
-  // call until an admin approves it here — enforced by isEnabled defaulting
-  // to false on creation (see /train above) and by the moderationStatus
-  // check in server/modules/calls/controller.ts's translateNatural handler.
+  // Clones are approved automatically when training succeeds (see /train
+  // above). Admins use these routes to review them after the fact and reject
+  // one that is misused; a rejected clone is never spoken in calls.
   app.get("/api/voice-training/admin/pending-review", loadUser, requireAuth, requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
       const pending = await db.select().from(voiceProfiles)

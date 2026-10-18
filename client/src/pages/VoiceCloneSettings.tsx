@@ -44,7 +44,7 @@ const STATUS_COPY: Record<string, { label: string; variant: "default" | "seconda
 };
 
 const CONSENT_TEXT =
-  "I confirm this is my own voice, I am recording these samples voluntarily, and I consent to NeuraTalk using them to create a personal AI voice clone for my use in translated calls. My samples will be encrypted and I can delete them at any time. A NeuraTalk reviewer approves each voice clone before it can be used in a real call.";
+  "I confirm this is my own voice, I am recording these samples voluntarily, and I consent to NeuraTalk using them to create a personal AI voice clone for my use in translated calls. My samples will be encrypted and I can delete them at any time. NeuraTalk may switch off a clone that is misused.";
 
 const MIN_SAMPLES = 3;
 
@@ -101,7 +101,7 @@ export default function VoiceCloneSettings() {
       setProgress("Starting training…");
       await apiFetch(`/api/voice-training/train/${userId}`, { method: "POST" });
 
-      toast({ title: "Voice submitted for training", description: "This takes a few minutes, then a reviewer approves it before use in calls." });
+      toast({ title: "Voice submitted for training", description: "This takes a few minutes. Your voice is then used in your translated calls automatically." });
       setFiles([]);
       setConsented(false);
       qc.invalidateQueries({ queryKey: ["/api/voice-training/profile", userId] });
@@ -169,8 +169,8 @@ export default function VoiceCloneSettings() {
                 </Badge>
               </div>
               <CardDescription>
-                {profile.trainingStatus === "ready" && !profile.isEnabled && "Waiting for admin review before this can be used in calls."}
-                {profile.trainingStatus === "ready" && profile.isEnabled && "This voice is approved and will be used in your translated calls."}
+                {profile.trainingStatus === "ready" && !profile.isEnabled && "Your voice is ready but switched off. Turn it on to use it in translated calls."}
+                {profile.trainingStatus === "ready" && profile.isEnabled && "Your translated calls use this voice."}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex gap-2">
@@ -203,7 +203,7 @@ export default function VoiceCloneSettings() {
               <Button onClick={submitEnrollment} disabled={submitting} className="w-full">
                 {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{progress || "Submitting…"}</> : "Submit for enrollment"}
               </Button>
-              <p className="text-xs text-muted-foreground flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" />Samples are encrypted; a reviewer approves your clone before it's used in a real call.</p>
+              <p className="text-xs text-muted-foreground flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" />Samples are encrypted, and you can delete them at any time.</p>
             </CardContent>
           </Card>
         )}

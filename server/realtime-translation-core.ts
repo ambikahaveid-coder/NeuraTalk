@@ -525,14 +525,28 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 }
 
 /**
- * Languages ElevenLabs can speak in real time (eleven_turbo_v2_5, ~0.25 s to
- * first audio). Telugu, Kannada, Malayalam, Bengali, Marathi etc. are only in
- * eleven_v3, which takes 1.7-6 s: too slow for a live call, so those keep the
- * standard voice.
+ * Real-time ElevenLabs model for speaking translations in the caller's own
+ * cloned voice. eleven_v4_turbo covers Telugu, Kannada, Malayalam, Bengali,
+ * Marathi etc.; measured 2026-10-18 on the streaming endpoint at 0.42-0.74 s
+ * to first audio (Telugu slowest). eleven_turbo_v2_5 rejects language_code
+ * "te", which is why Telugu listeners used to get the standard voice.
  */
+const ELEVENLABS_REALTIME_MODEL = process.env.ELEVENLABS_REALTIME_MODEL || "eleven_v4_turbo";
+
+// eleven_v4 models reject optimize_streaming_latency (HTTP 400).
+function elevenLabsStreamUrl(voiceId: string): string {
+  const latency = ELEVENLABS_REALTIME_MODEL.startsWith("eleven_v4") ? "" : "&optimize_streaming_latency=3";
+  return `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_16000${latency}`;
+}
+
+/** Languages eleven_v4_turbo can speak (ElevenLabs model docs, 2026-10-18). */
 export const ELEVENLABS_REALTIME_LANGUAGES = new Set([
-  "en", "ja", "zh", "de", "hi", "fr", "ko", "pt", "it", "es", "id", "nl", "tr", "fil", "pl", "sv",
-  "bg", "ro", "ar", "cs", "el", "fi", "hr", "ms", "sk", "da", "ta", "uk", "ru", "hu", "no", "vi",
+  "af", "ar", "hy", "as", "ast", "az", "be", "bn", "bs", "bg", "my", "yue", "ca", "ceb", "hr", "cs",
+  "da", "nl", "en", "et", "fil", "fi", "fr", "gl", "ka", "de", "el", "gu", "ha", "he", "hi", "hu",
+  "is", "id", "ga", "it", "ja", "jv", "kn", "kk", "ko", "ky", "lv", "ln", "lt", "lb", "mk", "ms",
+  "ml", "mt", "zh", "mi", "mr", "mn", "ne", "no", "oc", "or", "ps", "fa", "pl", "pt", "pa", "ro",
+  "ru", "sr", "sd", "sk", "sl", "so", "es", "sw", "sv", "tg", "ta", "te", "th", "tr", "uk", "ur",
+  "uz", "vi", "cy", "yo",
 ]);
 
 export function canSpeakInClonedVoice(language: string): boolean {
@@ -552,11 +566,11 @@ export async function* streamElevenLabsTtsFrames(
   const lang = language.trim().toLowerCase().split(/[-_]/)[0];
   const requestStartNs = nowHrNs();
   const response = await undiciFetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_16000&optimize_streaming_latency=3`,
+    elevenLabsStreamUrl(voiceId),
     {
       method: "POST",
       headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/pcm" },
-      body: JSON.stringify({ text, model_id: "eleven_turbo_v2_5", language_code: lang }),
+      body: JSON.stringify({ text, model_id: ELEVENLABS_REALTIME_MODEL, language_code: lang }),
       signal,
     },
   );
@@ -602,11 +616,11 @@ export async function warmElevenLabsVoice(voiceId: string): Promise<void> {
   if (!key) return;
   try {
     const response = await undiciFetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=pcm_16000&optimize_streaming_latency=3`,
+      elevenLabsStreamUrl(voiceId),
       {
         method: "POST",
         headers: { "xi-api-key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "Hi.", model_id: "eleven_turbo_v2_5" }),
+        body: JSON.stringify({ text: "Hi.", model_id: ELEVENLABS_REALTIME_MODEL }),
         signal: AbortSignal.timeout(10_000),
       },
     );

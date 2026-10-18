@@ -247,9 +247,10 @@ describe("Voice Training API — training kickoff", () => {
     const profile = voiceProfilesTable.find((p) => p.id === res.body.profileId);
     expect(profile.trainingStatus).toBe("ready");
     expect(profile.voiceId).toBe("eleven_test-voice-id");
-    // New profiles must stay disabled until moderation approves them, even
-    // after training completes successfully.
-    expect(profile.isEnabled).toBe(false);
+    // Trained only on consented samples, so the clone goes live without a
+    // manual review; admins can still reject it afterwards.
+    expect(profile.isEnabled).toBe(true);
+    expect(profile.moderationStatus).toBe("approved");
   });
 
   it("denies starting training for another user's profile", async () => {
@@ -298,7 +299,19 @@ describe("Voice Training API — RBAC", () => {
 });
 
 describe("Voice Training API — moderation gate", () => {
-  it("a newly trained profile cannot be enabled by its owner before approval", async () => {
+  it("a clone an admin rejected cannot be re-enabled by its owner", async () => {
+    currentUser = { id: 7, role: "consumer" };
+    voiceProfilesTable.push({
+      id: 1, userId: 7, isCustom: true, trainingStatus: "ready",
+      moderationStatus: "rejected", isEnabled: false, name: "Test Voice", voiceId: "eleven_abc",
+    });
+    const app = await buildApp();
+    const res = await request(app).patch("/api/voice-training/profile/7/toggle").send({ enabled: true });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/turned off by NeuraTalk review/i);
+  });
+
+  it("a ready clone still pending from before auto-approval can be enabled and becomes approved", async () => {
     currentUser = { id: 7, role: "consumer" };
     voiceProfilesTable.push({
       id: 1, userId: 7, isCustom: true, trainingStatus: "ready",
@@ -306,8 +319,9 @@ describe("Voice Training API — moderation gate", () => {
     });
     const app = await buildApp();
     const res = await request(app).patch("/api/voice-training/profile/7/toggle").send({ enabled: true });
-    expect(res.status).toBe(403);
-    expect(res.body.error).toMatch(/not been approved/i);
+    expect(res.status).toBe(200);
+    expect(res.body.isEnabled).toBe(true);
+    expect(voiceProfilesTable[0].moderationStatus).toBe("approved");
   });
 
   it("owner can enable a profile once approved", async () => {
