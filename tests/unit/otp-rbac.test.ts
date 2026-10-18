@@ -32,6 +32,7 @@ vi.mock("../../server/modules/otp/service", () => ({
   OtpLockedOutError: class OtpLockedOutError extends Error {
     constructor(public retryAfterSec?: number) { super("locked"); }
   },
+  OtpDeliveryUnavailableError: class OtpDeliveryUnavailableError extends Error {},
 }));
 
 beforeEach(() => { vi.clearAllMocks(); });

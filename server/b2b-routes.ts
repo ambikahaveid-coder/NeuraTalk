@@ -25,6 +25,7 @@ import {
   QUEUED_CALL_STATUS,
   billingLedgerEntries,
 } from "@shared/schema";
+import { existingAccountSignupRefusal } from "./company-signup-guard";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { storage } from "./storage";
@@ -444,10 +445,21 @@ export function registerB2BRoutes(app: Express): void {
       });
       
       if (existing) {
-        return res.status(400).json({ 
-          success: false, 
-          message: "A company with this name already exists" 
+        return res.status(400).json({
+          success: false,
+          message: "A company with this name already exists"
         });
+      }
+
+      // Checked before anything is written. Without it, anyone could submit
+      // another user's email and overwrite their role, organization and
+      // username (super admins included).
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.email, input.email),
+      });
+      const refusal = existingAccountSignupRefusal(existingUser, (req as any).user?.id);
+      if (refusal) {
+        return res.status(409).json({ success: false, message: refusal });
       }
 
       // Create company in pending status
@@ -462,11 +474,6 @@ export function registerB2BRoutes(app: Express): void {
         status: "pending",
         plan: "free",
       }).returning();
-
-      // Check if user already exists (from OTP verification)
-      const existingUser = await db.query.users.findFirst({
-        where: eq(users.email, input.email),
-      });
 
       let adminUser;
       

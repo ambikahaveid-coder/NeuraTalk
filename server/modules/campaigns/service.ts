@@ -447,6 +447,9 @@ async function processOneRecipient(
     if (!customer) return skip(CAMPAIGN_SKIP_REASON.SYSTEM_ERROR);
     if (customer.status === CUSTOMER_STATUS.BLOCKED) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_BLOCKED);
     if (customer.status === CUSTOMER_STATUS.ARCHIVED) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_ARCHIVED);
+    // Messages are delivered only inside NeuraTalk; a contact with no linked
+    // account would be charged and marked SENT for a message nobody can see.
+    if (!customer.linkedUserId) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_NOT_ON_NEURATALK);
 
     const eligible = await isEligibleForChannel(businessId, customer.id, campaign.category as any);
     if (!eligible) return skip(CAMPAIGN_SKIP_REASON.CONSENT_MISSING);

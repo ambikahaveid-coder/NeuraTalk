@@ -3996,6 +3996,9 @@ export const CAMPAIGN_SKIP_REASON = {
   BILLING_NOT_CONFIGURED: "billing_not_configured",
   RENDER_FAILED: "render_failed",
   SYSTEM_ERROR: "system_error",
+  // The customer has no linked NeuraTalk account, so the in-app message
+  // could not reach anyone; skipped before billing so it is never charged.
+  CUSTOMER_NOT_ON_NEURATALK: "customer_not_on_neuratalk",
   // Phase 8 (doc 34 section 3) -- marketing-only frequency/throughput gates.
   // Never set for UTILITY campaigns (frequency capping is a marketing-
   // specific anti-spam control, not applied to operational messaging).
@@ -4227,6 +4230,9 @@ export const UTILITY_FAILURE_REASON = {
   INSUFFICIENT_CREDIT: "insufficient_credit",
   BILLING_NOT_CONFIGURED: "billing_not_configured",
   SYSTEM_ERROR: "system_error",
+  // No linked NeuraTalk account, so the in-app message could not reach
+  // anyone; failed before billing so it is never charged.
+  CUSTOMER_NOT_ON_NEURATALK: "customer_not_on_neuratalk",
 } as const;
 export type UtilityFailureReason = typeof UTILITY_FAILURE_REASON[keyof typeof UTILITY_FAILURE_REASON];
 

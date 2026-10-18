@@ -60,6 +60,20 @@ export class BillingError extends Error {
     this.name = "BillingError";
   }
 }
+/**
+ * No SMS or email provider is connected for business OTPs, so a send would
+ * be charged and never arrive. Set BUSINESS_OTP_DELIVERY_ENABLED=true only
+ * once a delivery adapter exists.
+ */
+export class OtpDeliveryUnavailableError extends Error {
+  constructor() {
+    super("OTP delivery is not available yet: no SMS or email provider is connected. You were not charged.");
+    this.name = "OtpDeliveryUnavailableError";
+  }
+}
+export function isBusinessOtpDeliveryEnabled(): boolean {
+  return process.env.BUSINESS_OTP_DELIVERY_ENABLED === "true";
+}
 /** One-time verification already resolved (verified/expired/failed/superseded), or a concurrent request won the race first. */
 export class AlreadyResolvedError extends Error {
   constructor(public readonly status: string) {
@@ -175,6 +189,7 @@ async function issueChallenge(
   resendCount: number,
   supersedesChallengeId: number | null,
 ) {
+  if (!isBusinessOtpDeliveryEnabled()) throw new OtpDeliveryUnavailableError();
   const charge = await chargeOtpMessage(tx, businessId, PLACEHOLDER_COST_PER_OTP_PAISE);
   if (!charge.charged) throw new BillingError(charge.reason ?? "unknown");
 

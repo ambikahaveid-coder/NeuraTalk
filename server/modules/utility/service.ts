@@ -173,6 +173,7 @@ export async function triggerUtilityMessage(businessId: number, input: TriggerUt
 
     if (customer.status === CUSTOMER_STATUS.BLOCKED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_BLOCKED);
     if (customer.status === CUSTOMER_STATUS.ARCHIVED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_ARCHIVED);
+    if (!customer.linkedUserId) return fail(UTILITY_FAILURE_REASON.CUSTOMER_NOT_ON_NEURATALK);
 
     let resolvedTemplate: ResolvedTemplate;
     try {

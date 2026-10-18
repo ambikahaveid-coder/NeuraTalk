@@ -202,9 +202,13 @@ const BIZ = 1;
 const OTHER_BIZ = 2;
 const STAFF = 10;
 
+// Utility messages are delivered in-app, so customers need a linked
+// NeuraTalk account; each test customer gets its own.
+let nextLinkedUserId = 7000;
+
 async function makeCustomer(businessId = BIZ, overrides: Record<string, any> = {}) {
   const { createCustomer } = await import("../../server/modules/customers/service");
-  return createCustomer(businessId, STAFF, { name: "Kiran", phone: "9876543210", ...overrides });
+  return createCustomer(businessId, STAFF, { name: "Kiran", phone: "9876543210", linkedUserId: nextLinkedUserId++, ...overrides });
 }
 
 async function makeApprovedUtilityTemplate(businessId = BIZ, vars: any[] = [{ name: "bookingId", type: "text", required: true }]) {
@@ -349,6 +353,21 @@ describe("Customer-state rules", () => {
       expect(e).toBeInstanceOf(s.UtilityTriggerFailedError);
       expect(e.reason).toBe("customer_blocked");
     }
+    expect(tables.get("messagingMessages")!.length).toBe(0);
+  });
+
+  it("customer with no NeuraTalk account -> FAILED with reason customer_not_on_neuratalk, never charged", async () => {
+    const s = await svc();
+    const customer = await makeCustomer(BIZ, { linkedUserId: null });
+    const { version } = await makeApprovedUtilityTemplate();
+    try {
+      await s.triggerUtilityMessage(BIZ, { eventType: "payment_receipt", eventReference: "pay:unlinked", customerId: customer.id, templateVersionId: version.id });
+      throw new Error("should have thrown");
+    } catch (e: any) {
+      expect(e).toBeInstanceOf(s.UtilityTriggerFailedError);
+      expect(e.reason).toBe("customer_not_on_neuratalk");
+    }
+    expect(chargeMock).not.toHaveBeenCalled();
     expect(tables.get("messagingMessages")!.length).toBe(0);
   });
 

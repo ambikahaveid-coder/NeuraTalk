@@ -5,6 +5,7 @@ import {
   createChallenge, getChallenge, listChallenges, verifyChallenge, resendChallenge,
   NotFoundError, ValidationError, DuplicateChallengeError, BillingError,
   AlreadyResolvedError, OtpExpiredError, OtpIncorrectCodeError, OtpMaxAttemptsError, OtpLockedOutError,
+  OtpDeliveryUnavailableError,
 } from "./service";
 import { OTP_PURPOSE, BUSINESS_OTP_CHANNEL } from "@shared/schema";
 
@@ -26,6 +27,7 @@ function handleServiceError(res: Response, error: unknown, fallbackMessage: stri
   if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
   if (error instanceof DuplicateChallengeError) return res.status(409).json({ success: false, error: error.message, existingChallengeId: error.existingChallengeId });
   if (error instanceof ValidationError) return badRequest(res, error.message);
+  if (error instanceof OtpDeliveryUnavailableError) return res.status(503).json({ success: false, error: error.message });
   if (error instanceof BillingError) return res.status(402).json({ success: false, error: "Unable to send OTP -- billing issue", reason: error.reason });
   if (error instanceof AlreadyResolvedError) return res.status(409).json({ success: false, error: error.message, status: error.status });
   if (error instanceof OtpExpiredError) return res.status(410).json({ success: false, error: error.message });

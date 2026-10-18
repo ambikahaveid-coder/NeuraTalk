@@ -288,10 +288,14 @@ async function makeApprovedTemplateVersion(businessId = BIZ, vars: any[] = [{ na
   return { template: t, version: row };
 }
 
+// Campaign messages are delivered in-app, so recipients need a linked
+// NeuraTalk account; each test customer gets its own.
+let nextLinkedUserId = 5000;
+
 async function makeActiveAudienceWithCustomer(businessId = BIZ, customerOverrides: Record<string, any> = {}) {
   const { createCustomer } = await import("../../server/modules/customers/service");
   const { createAudience, addMember } = await import("../../server/modules/audiences/service");
-  const customer = await createCustomer(businessId, AUTHOR, { name: "Kiran", phone: "9876543210", ...customerOverrides });
+  const customer = await createCustomer(businessId, AUTHOR, { name: "Kiran", phone: "9876543210", linkedUserId: nextLinkedUserId++, ...customerOverrides });
   const audience = await createAudience(businessId, AUTHOR, { name: `aud_${Date.now()}_${Math.random()}` });
   await addMember(businessId, AUTHOR, audience.id, customer.id);
   return { audience, customer };
@@ -488,7 +492,7 @@ describe("Recipient snapshot: immutable, server-resolved", () => {
     const reportBefore = await getCampaignReport(BIZ, campaign.id);
     expect(reportBefore.targeted).toBe(1);
 
-    const lateJoiner = await createCustomer(BIZ, AUTHOR, { name: "Late", phone: "9000000001" });
+    const lateJoiner = await createCustomer(BIZ, AUTHOR, { name: "Late", phone: "9000000001", linkedUserId: nextLinkedUserId++ });
     await addMember(BIZ, AUTHOR, audience.id, lateJoiner.id);
 
     const reportAfter = await getCampaignReport(BIZ, campaign.id);
@@ -532,6 +536,18 @@ describe("Recipient safety gate chain (P0)", () => {
     const report = await getCampaignReport(BIZ, campaign.id);
     expect(report.sent).toBe(1);
     expect(report.skipped).toBe(0);
+  });
+
+  it("customer with no NeuraTalk account -> skipped before billing, never charged or marked sent", async () => {
+    const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
+    const { campaign } = await makeReadyCampaign({ customerOverrides: { linkedUserId: null } });
+    await executeCampaign(BIZ, AUTHOR, campaign.id);
+    const report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.sent).toBe(0);
+    expect(report.skipped).toBe(1);
+    expect(chargeMock).not.toHaveBeenCalled();
+    const recipient = tables.get("campaignRecipients")!.find((r) => r.campaignId === campaign.id)!;
+    expect(recipient.skipReason).toBe("customer_not_on_neuratalk");
   });
 
   it("BLOCKED customer -> skipped, never sent, even though eligible for consent", async () => {
@@ -665,7 +681,7 @@ describe("Tenant isolation", () => {
     const { audience } = await makeActiveAudienceWithCustomer(BIZ);
     // Directly corrupt the fake DB to simulate a cross-business membership row (defense-in-depth test, not reachable via the real API).
     const { createCustomer } = await import("../../server/modules/customers/service");
-    const otherBizCustomer = await createCustomer(OTHER_BIZ, AUTHOR, { name: "Intruder", phone: "9111111111" });
+    const otherBizCustomer = await createCustomer(OTHER_BIZ, AUTHOR, { name: "Intruder", phone: "9111111111", linkedUserId: nextLinkedUserId++ });
     tables.get("audienceMembers")!.push({ id: 999, audienceId: audience.id, customerId: otherBizCustomer.id, addedBy: AUTHOR, addedAt: new Date() });
 
     const c = await createCampaign(BIZ, AUTHOR, { name: "X", category: "marketing" });

@@ -265,13 +265,16 @@ async function makeApprovedTemplateVersion(businessId = BIZ) {
   return { template: t, version: row };
 }
 
+// Campaign recipients need a linked NeuraTalk account to be sent to.
+let nextLinkedUserId = 6000;
+
 async function makeReadyCampaign(businessId = BIZ, phone: string) {
   const { createCustomer, setChannelConsent } = await import("../../server/modules/customers/service");
   const { createAudience, addMember } = await import("../../server/modules/audiences/service");
   const { createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
   const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
 
-  const customer = await createCustomer(businessId, AUTHOR, { name: "Kiran", phone });
+  const customer = await createCustomer(businessId, AUTHOR, { name: "Kiran", phone, linkedUserId: nextLinkedUserId++ });
   await setChannelConsent(businessId, AUTHOR, customer.id, "marketing" as any, true);
   const audience = await createAudience(businessId, AUTHOR, { name: `aud_${Date.now()}_${Math.random()}` });
   await addMember(businessId, AUTHOR, audience.id, customer.id);

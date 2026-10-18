@@ -217,6 +217,9 @@ beforeEach(() => {
   chargeMock = vi.fn(async () => ({ charged: true, billingAccountId: 1, costPaise: 15 }));
   lockoutState = { locked: false };
   failureRecords.length = 0;
+  // These tests cover the challenge lifecycle as if a delivery provider were
+  // connected; the disabled default has its own test below.
+  process.env.BUSINESS_OTP_DELIVERY_ENABLED = "true";
 });
 
 const BIZ = 1;
@@ -247,6 +250,16 @@ async function svc() { return import("../../server/modules/otp/service"); }
 // ---------------------------------------------------------------------------
 
 describe("Challenge creation", () => {
+  it("refuses to send, without charging, while no SMS or email provider is connected", async () => {
+    delete process.env.BUSINESS_OTP_DELIVERY_ENABLED;
+    const s = await svc();
+    const customer = await makeCustomer();
+    await expect(s.createChallenge(BIZ, STAFF, { customerId: customer.id, purpose: "login" }))
+      .rejects.toBeInstanceOf(s.OtpDeliveryUnavailableError);
+    expect(chargeMock).not.toHaveBeenCalled();
+    expect(tables.get("businessOtpChallenges") ?? []).toHaveLength(0);
+  });
+
   it("creates a PENDING challenge with a hashed code, never exposing the raw code", async () => {
     const s = await svc();
     const customer = await makeCustomer();
