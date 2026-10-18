@@ -24,6 +24,7 @@ import {
   LocalTrack,
 } from "livekit-client";
 import { getAuthToken } from "./use-auth";
+import { decideAudioRouting } from "@/lib/call-audio-routing";
 
 export type CallType = "voice" | "video";
 export type CallStatus = "idle" | "connecting" | "ringing" | "active" | "ended" | "error";
@@ -267,6 +268,26 @@ export function useLiveKitCall() {
     }
   }, []);
 
+  // Re-evaluated whenever an audio track arrives or leaves, or the listener
+  // changes translation mode: see lib/call-audio-routing.ts.
+  const applyAudioRouting = useCallback((room: Room | null) => {
+    if (!room) return;
+    const settings = translationSettingsRef.current;
+    const voiceMode = settings.enabled && settings.mode === "voice";
+    const entries: Array<{ track: RemoteTrack; info: { participantIdentity: string; isBot: boolean; trackName?: string } }> = [];
+    for (const participant of Array.from(room.remoteParticipants.values())) {
+      const isBot = isTranslatorBotParticipant(participant);
+      for (const pub of Array.from(participant.audioTrackPublications.values())) {
+        if (!pub.track) continue;
+        entries.push({ track: pub.track, info: { participantIdentity: participant.identity, isBot, trackName: pub.trackName } });
+      }
+    }
+    const routing = decideAudioRouting(entries.map((entry) => entry.info), room.localParticipant.identity, voiceMode);
+    entries.forEach((entry, index) => {
+      if (entry.track.mediaStreamTrack) entry.track.mediaStreamTrack.enabled = routing[index];
+    });
+  }, []);
+
   const syncRoomParticipantState = useCallback((room: Room, activeCallId?: string) => {
     const remoteParticipants = Array.from(room.remoteParticipants.values());
     setParticipants(remoteParticipants);
@@ -332,30 +353,14 @@ export function useLiveKitCall() {
       .on(RoomEvent.ParticipantDisconnected, () => {
         syncRoomParticipantState(room, activeCallId);
       })
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, participant: RemoteParticipant) => {
-        if (isTranslatorBotParticipant(participant)) {
-          if (
-            track.kind === Track.Kind.Audio
-            && shouldAttachBotTrack(
-              pub.trackName,
-              room.localParticipant.identity,
-              translationSettingsRef.current,
-            )
-          ) {
-            attachRemoteTrack(track);
-          }
-          return;
-        }
-
-        if (
-          track.kind === Track.Kind.Audio &&
-          shouldSuppressHumanAudio(room.localParticipant.metadata, participant.metadata, preferredLanguagesRef.current)
-        ) {
-          return;
-        }
-
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, participant: RemoteParticipant) => {
+        const isBot = isTranslatorBotParticipant(participant);
+        // The bot only publishes audio; every audio track is attached and
+        // applyAudioRouting decides which ones are audible.
+        if (isBot && track.kind !== Track.Kind.Audio) return;
         attachRemoteTrack(track);
-        syncRoomParticipantState(room, activeCallId);
+        if (track.kind === Track.Kind.Audio) applyAudioRouting(room);
+        if (!isBot) syncRoomParticipantState(room, activeCallId);
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         track.detach().forEach((el: HTMLMediaElement) => el.remove());
@@ -363,6 +368,8 @@ export function useLiveKitCall() {
         if (mediaTrack && remoteStreamRef.current) {
           remoteStreamRef.current.removeTrack(mediaTrack);
         }
+        // A speaker whose translation track just left must be heard again.
+        applyAudioRouting(room);
         const remainingTracks = remoteStreamRef.current?.getTracks() || [];
         setHasRemoteVideoTrack(remainingTracks.some((item) => item.kind === "video"));
         setHasRemoteAudioTrack(remainingTracks.some((item) => item.kind === "audio"));
@@ -431,7 +438,7 @@ export function useLiveKitCall() {
 
     roomRef.current = room;
     return room;
-  }, [attachLocalTrack, attachRemoteTrack, clearMediaElements, resetCallUiState, syncRoomParticipantState, teardownMediaState, updateServerCallStatus]);
+  }, [applyAudioRouting, attachLocalTrack, attachRemoteTrack, clearMediaElements, resetCallUiState, syncRoomParticipantState, teardownMediaState, updateServerCallStatus]);
 
   const startCall = useCallback(async (req: InitiateCallRequest): Promise<void> => {
     try {
@@ -496,21 +503,30 @@ export function useLiveKitCall() {
     }
   }, [connectToRoom]);
 
-  const acceptIncomingCall = useCallback(async (): Promise<void> => {
+  const acceptIncomingCall = useCallback(async (
+    options: { translationEnabled?: boolean; translationMode?: "off" | "subtitles" | "voice" } = {},
+  ): Promise<void> => {
     if (!incomingCall) return;
     try {
       preferredLanguagesRef.current = {};
+      // The callee used to keep the "subtitles" default, so translated voice
+      // was never played to whoever answered on the web.
+      const mode = normalizeTranslationMode(options.translationMode ?? "voice", options.translationEnabled);
+      translationSettingsRef.current = { enabled: mode !== "off", mode };
       activeMarkedRef.current = false;
       setStatus("connecting");
       setCallId(incomingCall.session?.callId || incomingCall.callId);
       setSession(incomingCall.session ?? null);
       setIsVideoOn(incomingCall.callType === "video");
-      await connectToRoom(
+      const room = await connectToRoom(
         incomingCall.session?.livekitUrl || incomingCall.livekitUrl,
         incomingCall.livekitToken,
         incomingCall.callType,
         incomingCall.session?.callId || incomingCall.callId,
       );
+      // Tell the translator which output this listener wants, as the
+      // mobile app does on join.
+      await announceTranslationMode(room, mode);
       await markCallAnswered(incomingCall.callId);
       setStatus("active");
       setIncomingCall(null);
@@ -632,10 +648,11 @@ export function useLiveKitCall() {
       enabled: mode !== "off",
       mode,
     };
+    applyAudioRouting(roomRef.current);
     if (!lp) return;
     await lp.setMetadata(JSON.stringify({ ...safeParse(lp.metadata), translationMode: mode }));
     await sendDataMessage({ type: "translation-mode", payload: { translationMode: mode } });
-  }, [sendDataMessage]);
+  }, [applyAudioRouting, sendDataMessage]);
 
   // Wake Lock — keep screen on during active/ringing call so it doesn't drop
   useEffect(() => {
@@ -858,30 +875,15 @@ function isTranslatorBotParticipant(participant: RemoteParticipant) {
   return participant.identity === "neuratalk-translator" || meta?.role === "bot";
 }
 
-function shouldAttachBotTrack(
-  trackName: string | undefined,
-  localIdentity: string,
-  translationSettings: { enabled: boolean; mode: "off" | "subtitles" | "voice" },
-) {
-  if (!translationSettings.enabled || translationSettings.mode !== "voice") {
-    return false;
+async function announceTranslationMode(room: Room, mode: "off" | "subtitles" | "voice") {
+  const lp = room.localParticipant;
+  try {
+    await lp.setMetadata(JSON.stringify({ ...safeParse(lp.metadata), translationMode: mode }));
+    const msg = { type: "translation-mode", payload: { translationMode: mode }, from: lp.identity, ts: Date.now() };
+    await lp.publishData(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true, topic: "translation-control" } as any);
+  } catch {
+    // Best effort: the server already defaults app calls to voice output.
   }
-  if (!trackName) return false;
-  return trackName.includes(`translated-for-${encodeURIComponent(localIdentity)}-from-`);
-}
-
-function shouldSuppressHumanAudio(
-  localMetadata: string | undefined,
-  remoteMetadata: string | undefined,
-  preferred: { local?: string; remote?: string },
-) {
-  const localMode = String((safeParse(localMetadata) as Record<string, any>)?.translationMode || "").toLowerCase();
-  if (localMode !== "voice") {
-    return false;
-  }
-  const localLanguage = String(preferred.local || (safeParse(localMetadata) as Record<string, any>)?.language || "").toLowerCase();
-  const remoteLanguage = String(preferred.remote || (safeParse(remoteMetadata) as Record<string, any>)?.language || "").toLowerCase();
-  return Boolean(localLanguage && remoteLanguage && localLanguage !== remoteLanguage);
 }
 
 function normalizeTranslationMode(

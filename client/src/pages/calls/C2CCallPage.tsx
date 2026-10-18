@@ -476,7 +476,7 @@ export default function C2CCallPage({
 
       <IncomingCallRing
         caller={call.incomingCall}
-        onAccept={() => call.acceptIncomingCall()}
+        onAccept={() => call.acceptIncomingCall({ translationEnabled, translationMode })}
         onReject={() => call.rejectIncomingCall()}
       />
 

@@ -919,7 +919,13 @@ class LiveKitRealtimeTranslatorBot {
       }));
 
       if (!resolved.translationActive) {
-        continue;
+        // Once a listener has this speaker's translated track, their client
+        // silences the speaker's own voice. Skipping a sentence that is
+        // already in the listener's language would leave them hearing
+        // nothing, so it is spoken through unchanged instead.
+        const listenerHearsTranslatedTrack = shouldDeliverVoiceTranslation(mode)
+          && this.outputChannels.has(`${sourceIdentity}=>${participant.identity}`);
+        if (!listenerHearsTranslatedTrack) continue;
       }
 
       targets.push({
@@ -1212,6 +1218,7 @@ class LiveKitRealtimeTranslatorBot {
     targetLanguage: string,
     targetMode: ListenerTranslationMode,
     trace: LatencyTrace | null,
+    attempt = 0,
   ): Promise<void> {
     // generation is the channel speechGeneration captured when this sentence
     // was queued; a barge-in or backlog reset discards it.
@@ -1241,8 +1248,11 @@ class LiveKitRealtimeTranslatorBot {
       }
       timeoutFallbackTriggered = true;
       trace?.markFallback(`tts_ready_timeout:${TTS_READY_TIMEOUT_MS}`);
-      logger.warn("TranslatorBot", `[${this.callId}] TTS readiness timeout for ${channel.key} after ${TTS_READY_TIMEOUT_MS}ms`);
+      logger.warn("TranslatorBot", `[${this.callId}] TTS readiness timeout for ${channel.key} after ${TTS_READY_TIMEOUT_MS}ms (attempt ${attempt + 1})`);
       channel.ttsAbort?.abort();
+      // The first slow response is retried below; only a second one gives up
+      // on voice for this sentence.
+      if (attempt === 0) return;
       recordVoiceCounter("translation_fallbacks");
       void this.publishTranslationMessage({
         type: "translation-fallback",
@@ -1329,7 +1339,8 @@ class LiveKitRealtimeTranslatorBot {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message !== "This operation was aborted") {
+      const retryingAfterTimeout = timeoutFallbackTriggered && attempt === 0;
+      if (message !== "This operation was aborted" && !retryingAfterTimeout) {
         trace?.markFallback(`tts_failed:${message}`);
         logger.warn("TranslatorBot", `[${this.callId}] Azure TTS failed for ${channel.key}: ${message}`);
         recordVoiceCounter("translation_fallbacks");
@@ -1358,6 +1369,13 @@ class LiveKitRealtimeTranslatorBot {
       if (pipeline.turn) {
         pipeline.turn.finalAudioAt = Date.now();
       }
+    }
+
+    // One slow Azure response (3–5 s in production) used to drop the whole
+    // sentence; a fresh request usually answers in well under a second.
+    if (timeoutFallbackTriggered && !firstByteObserved && attempt === 0) {
+      channel.pendingTtsSegments += 1;
+      await this.streamTtsSegment(channel, text, generation, turnId, Date.now(), pipeline, targetLanguage, targetMode, trace, 1);
     }
   }
 
