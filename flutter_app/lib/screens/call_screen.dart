@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import 'package:livekit_noise_filter/livekit_noise_filter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
@@ -33,6 +34,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _connecting = true;
   bool _reconnecting = false;
   bool _muted = false;
+  final _noiseFilter = LiveKitNoiseFilter();
   bool _speakerOn = true;
   bool _videoOn = false;
   bool _onHold = false;
@@ -311,14 +313,31 @@ class _CallScreenState extends State<CallScreen> {
       // Android OEM audio stacks don't apply the standard WebRTC defaults
       // consistently, so asking for these outright is the safer bet for
       // reducing background noise, echo and volume jumps on real devices.
-      await _room.localParticipant?.setMicrophoneEnabled(
-        true,
-        audioCaptureOptions: const lk.AudioCaptureOptions(
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        ),
-      );
+      // Krisp removes background noise (traffic, fans, voices) before the
+      // audio leaves the phone, on top of WebRTC's own suppression. If the
+      // filter can't start on this device, the call goes on without it.
+      try {
+        await _room.localParticipant?.setMicrophoneEnabled(
+          true,
+          audioCaptureOptions: lk.AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            processor: _noiseFilter,
+          ),
+        );
+        // LiveKit's own setup turns the filter on explicitly after publishing.
+        unawaited(_noiseFilter.setBypass(false).catchError((_) {}));
+      } catch (_) {
+        await _room.localParticipant?.setMicrophoneEnabled(
+          true,
+          audioCaptureOptions: const lk.AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          ),
+        );
+      }
       if (widget.session.isVideo && cameraGrantedForVideo) {
         await _room.localParticipant?.setCameraEnabled(true);
       } else if (widget.session.isVideo) {

@@ -22,6 +22,7 @@ import {
   VideoPresets,
   createLocalTracks,
   LocalTrack,
+  LocalAudioTrack,
 } from "livekit-client";
 import { getAuthToken } from "./use-auth";
 import { decideAudioRouting } from "@/lib/call-audio-routing";
@@ -430,6 +431,7 @@ export function useLiveKitCall() {
       try {
         await room.localParticipant.publishTrack(t);
         attachLocalTrack(t);
+        if (t.kind === Track.Kind.Audio) void enableNoiseFilter(t as LocalAudioTrack);
       } catch (pubErr) {
         // Non-fatal: track failed to publish but call can continue (other participant hears silence)
         console.warn("[useLiveKitCall] Track publish failed", t.kind, pubErr);
@@ -873,6 +875,23 @@ function safeParse(s?: string) {
 function isTranslatorBotParticipant(participant: RemoteParticipant) {
   const meta = safeParse(participant.metadata) as Record<string, any>;
   return participant.identity === "neuratalk-translator" || meta?.role === "bot";
+}
+
+/**
+ * Krisp background-noise removal on the microphone (included with LiveKit
+ * Cloud), on top of the browser's own noise suppression. Loaded only for a
+ * call; unsupported browsers (e.g. Safari < 17.4) keep the browser filter.
+ */
+async function enableNoiseFilter(track: LocalAudioTrack) {
+  try {
+    const { KrispNoiseFilter, isKrispNoiseFilterSupported } = await import("@livekit/krisp-noise-filter");
+    if (!isKrispNoiseFilterSupported()) return;
+    const processor = KrispNoiseFilter();
+    await track.setProcessor(processor);
+    await processor.setEnabled(true);
+  } catch (error) {
+    console.warn("[useLiveKitCall] Krisp noise filter unavailable, using the browser's noise suppression", error);
+  }
 }
 
 async function announceTranslationMode(room: Room, mode: "off" | "subtitles" | "voice") {

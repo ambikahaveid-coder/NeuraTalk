@@ -130,6 +130,25 @@ function isQuietFrame(frame: Int16Array): boolean {
 // before translation can start; live calls prefer speed.
 const LIVE_CALL_CODEMIX_REFINE = (process.env.TRANSLATOR_BOT_CODEMIX_REFINE || "false") === "true";
 
+// Krisp noise cancellation on the audio the bot hears (LiveKit Cloud, no
+// extra cost for this model). Off by default: the apps already apply Krisp
+// before sending, and LiveKit advises cancelling noise only once. Turn on for
+// callers whose app can't filter. Continuous background noise otherwise
+// delays end-of-sentence detection (measured +1-1.5 s at 10 dB SNR).
+const SERVER_NOISE_CANCELLATION = (process.env.TRANSLATOR_BOT_NOISE_CANCELLATION || "false") === "true";
+let serverNoiseCancellation: Promise<unknown | undefined> | null = null;
+
+function loadServerNoiseCancellation(): Promise<any | undefined> {
+  if (!SERVER_NOISE_CANCELLATION) return Promise.resolve(undefined);
+  serverNoiseCancellation ??= import("@livekit/noise-cancellation-node")
+    .then(({ NoiseCancellation }) => NoiseCancellation())
+    .catch((error) => {
+      logger.warn("TranslatorBot", `server noise cancellation unavailable, continuing without it: ${String(error)}`);
+      return undefined;
+    });
+  return serverNoiseCancellation;
+}
+
 function speakingLanguageFor(profileLanguage: string): string {
   return DETECT_SPOKEN_LANGUAGE ? "auto" : profileLanguage;
 }
@@ -551,10 +570,12 @@ class LiveKitRealtimeTranslatorBot {
     pipeline.currentTrackSid = track.sid || participant.identity;
 
     const task = (async () => {
+      const noiseCancellation = await loadServerNoiseCancellation();
       const audioStream = new AudioStream(track, {
         sampleRate: PCM_SAMPLE_RATE,
         numChannels: PCM_CHANNELS,
         frameSizeMs: FRAME_DURATION_MS,
+        ...(noiseCancellation ? { noiseCancellation } : {}),
       });
 
       try {

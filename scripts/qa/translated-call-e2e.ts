@@ -13,8 +13,8 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join as pathJoin } from "node:path";
 import {
-  AudioFrame, AudioSource, AudioStream, LocalAudioTrack, Room, RoomEvent,
-  TrackKind, TrackPublishOptions, TrackSource,
+  AudioFrame, AudioSource, AudioStream, LocalAudioTrack, LocalVideoTrack, Room, RoomEvent,
+  TrackKind, TrackPublishOptions, TrackSource, VideoBufferType, VideoFrame, VideoSource,
   type RemoteTrack, type RemoteTrackPublication, type RemoteParticipant,
 } from "@livekit/rtc-node";
 import { createCallRoom, endCallRoom, issueAccessToken, issueBotToken, getClientConfig } from "../../server/livekit-service";
@@ -32,6 +32,11 @@ const [aId, aProfile] = arg("a", "1:te").split(":");
 const [bId, bProfile] = arg("b", "4:te").split(":");
 const outDir = arg("out", "qa-out");
 mkdirSync(outDir, { recursive: true });
+// --video: both people also publish a camera, as in a video call.
+const withVideo = process.argv.includes("--video");
+// --noise <dB>: background noise at this signal-to-noise ratio under the
+// speech and in the pauses (e.g. 10 = noisy street, 20 = busy office).
+const noiseSnrDb = process.argv.includes("--noise") ? Number(arg("noise", "10")) : null;
 
 // Who says what, in which language. A speaks Telugu, B (also a Telugu
 // profile) speaks English, then both speak Telugu: no setting is changed.
@@ -85,6 +90,11 @@ async function join(label: "A" | "B", id: string, profile: string, callId: strin
   const party: Party = { label, id, room, source: new AudioSource(RATE, 1), heard: [], messages: [], onsets: [] };
   let lastLoudAt = 0;
   room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, participant: RemoteParticipant) => {
+    // Registered before connect so tracks already in the room are seen too.
+    if (track.kind === TrackKind.KIND_VIDEO) {
+      log(`${label} receives video from ${participant.identity}`);
+      return;
+    }
     if (track.kind !== TrackKind.KIND_AUDIO) return;
     const name = pub.name || "";
     log(`${label} subscribed to ${participant.identity}/${name}`);
@@ -130,8 +140,46 @@ async function join(label: "A" | "B", id: string, profile: string, callId: strin
   const options = new TrackPublishOptions();
   options.source = TrackSource.SOURCE_MICROPHONE;
   await room.localParticipant!.publishTrack(track, options);
-  log(`${label} (user ${id}, profile ${profile}) joined`);
+  if (withVideo) {
+    const video = new VideoSource(320, 240);
+    const camera = LocalVideoTrack.createVideoTrack("camera", video);
+    const cameraOptions = new TrackPublishOptions();
+    cameraOptions.source = TrackSource.SOURCE_CAMERA;
+    await room.localParticipant!.publishTrack(camera, cameraOptions);
+    const frame = new Uint8Array(320 * 240 * 1.5).fill(label === "A" ? 90 : 160);
+    const timer = setInterval(() => video.captureFrame(new VideoFrame(frame, 320, 240, VideoBufferType.I420)), 66);
+    room.on(RoomEvent.Disconnected, () => clearInterval(timer));
+  }
+  log(`${label} (user ${id}, profile ${profile}) joined${withVideo ? " with camera" : ""}`);
   return party;
+}
+
+// Brown-ish noise (white noise through a one-pole low-pass) sounds like
+// traffic or a crowded room more than hiss does.
+let noiseState = 0;
+function noiseSamples(count: number, rms: number): Int16Array {
+  const out = new Int16Array(count);
+  for (let i = 0; i < count; i++) {
+    noiseState = 0.97 * noiseState + 0.03 * (Math.random() * 2 - 1);
+    // The low-pass leaves RMS ~0.071 of the uniform input; x14 restores `rms`.
+    out[i] = Math.max(-32768, Math.min(32767, Math.round(noiseState * rms * 14)));
+  }
+  return out;
+}
+
+function rmsOf(samples: Int16Array): number {
+  let sum = 0;
+  for (const s of samples) sum += s * s;
+  return Math.sqrt(sum / Math.max(1, samples.length));
+}
+
+let noiseRms = 0;
+function withNoise(samples: Int16Array): Int16Array {
+  if (noiseSnrDb === null) return samples;
+  const noise = noiseSamples(samples.length, noiseRms);
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) out[i] = Math.max(-32768, Math.min(32767, samples[i] + noise[i]));
+  return out;
 }
 
 // When each speaker stopped, to measure "stopped talking -> listener hears
@@ -149,7 +197,11 @@ async function speak(party: Party, samples: Int16Array, label: string) {
 
 async function silence(party: Party, seconds: number) {
   const zero = new Int16Array(FRAME);
-  for (let i = 0; i < seconds * 100; i++) await party.source.captureFrame(new AudioFrame(zero, RATE, 1, FRAME));
+  for (let i = 0; i < seconds * 100; i++) {
+    // With --noise the "silence" between sentences is the noisy room itself.
+    const frame = noiseSnrDb === null ? zero : noiseSamples(FRAME, noiseRms);
+    await party.source.captureFrame(new AudioFrame(frame, RATE, 1, FRAME));
+  }
 }
 
 async function main() {
@@ -161,6 +213,12 @@ async function main() {
   const inputVoice = { A: "CwhRBWXzGAHq8TQ4Fs17", B: "EXAVITQu4vr4xnSDxMaL" };
   const lines = [];
   for (const line of script) lines.push({ ...line, audio: await synthesize(line.text, line.language, inputVoice[line.who]) });
+  if (noiseSnrDb !== null) {
+    const speechRms = lines.reduce((sum, l) => sum + rmsOf(l.audio), 0) / lines.length;
+    noiseRms = speechRms / Math.pow(10, noiseSnrDb / 20);
+    for (const line of lines) line.audio = withNoise(line.audio);
+    log(`background noise at ${noiseSnrDb} dB SNR`);
+  }
   log("input audio ready", lines.map((l) => `${l.who}:${l.language} ${(l.audio.length / RATE).toFixed(1)}s`).join(", "));
 
   const A = await join("A", aId, aProfile, callId);
