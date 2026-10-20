@@ -90,10 +90,16 @@ function getAzureSpeechRegion(): string {
   return process.env.AZURE_SPEECH_REGION?.trim() || "centralindia";
 }
 
-function resolveAzureLocales(language: string): string[] {
+function resolveAzureLocales(language: string, candidateLanguages?: string[]): string[] {
   const normalized = normalizeLanguage(language);
   if (normalized === "auto" || normalized === "mixed" || normalized === "multilingual") {
-    return AZURE_AUTO_DETECT_LOCALES;
+    // Identifying among the call's own languages (e.g. Telugu + English)
+    // instead of all ten was faster and stopped short Telugu sentences being
+    // recognised as English. Needs two or more to identify at all.
+    const narrowed = Array.from(new Set((candidateLanguages ?? [])
+      .map((code) => AZURE_LOCALE_MAP[normalizeLanguage(code)])
+      .filter((locale): locale is string => Boolean(locale))));
+    return narrowed.length >= 2 ? narrowed : AZURE_AUTO_DETECT_LOCALES;
   }
   return [AZURE_LOCALE_MAP[normalized] || DEFAULT_AUDIO_LOCALE];
 }
@@ -156,6 +162,7 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
   private readonly onProviderSwitch?: (provider: string, reason: string) => void;
   private readonly onSocketOpen?: (latencyMs: number) => void;
   private readonly endpointingMs: number;
+  private readonly candidateLanguages?: string[];
 
   private recognizer: SpeechSDK.SpeechRecognizer | null = null;
   private pushStream: SpeechSDK.PushAudioInputStream | null = null;
@@ -184,8 +191,10 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
     onProviderSwitch?: (provider: string, reason: string) => void;
     onSocketOpen?: (latencyMs: number) => void;
     endpointingMs?: number;
+    candidateLanguages?: string[];
   }) {
     this.language = normalizeLanguage(opts.language);
+    this.candidateLanguages = opts.candidateLanguages;
     this.onTranscript = opts.onTranscript;
     this.onError = opts.onError;
     this.onProviderSwitch = opts.onProviderSwitch;
@@ -267,7 +276,7 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
 
     const key = getAzureSpeechKey();
     const region = getAzureSpeechRegion();
-    const locales = resolveAzureLocales(this.language);
+    const locales = resolveAzureLocales(this.language, this.candidateLanguages);
     const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(key, region);
     speechConfig.outputFormat = SpeechSDK.OutputFormat.Detailed;
     speechConfig.setProperty(SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, String(this.endpointingMs));
@@ -482,6 +491,7 @@ class AzureStreamingSttProvider implements StreamingSttProvider {
     onSocketOpen?: (latencyMs: number) => void;
     endpointingMs?: number;
     utteranceEndMs?: number;
+    candidateLanguages?: string[];
   }): StreamingSttProviderSession {
     return new AzureStreamingSttSession({
       language: opts.language,
@@ -490,6 +500,7 @@ class AzureStreamingSttProvider implements StreamingSttProvider {
       onProviderSwitch: opts.onProviderSwitch,
       onSocketOpen: opts.onSocketOpen,
       endpointingMs: opts.endpointingMs,
+      candidateLanguages: opts.candidateLanguages,
     });
   }
 }

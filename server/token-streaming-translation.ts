@@ -3,6 +3,7 @@ import { logger } from "./observability";
 import { normalizeLanguage, normalizeSpaces } from "./realtime-translation-core";
 import { getCachedTranslation, setCachedTranslation, ultraTranslate } from "./ultra-pipeline";
 import { createLinkedAbortController, runWithResilience } from "./voice-resilience";
+import { azureTranslate } from "./azure-service";
 
 const translationOpenAI = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
@@ -24,6 +25,12 @@ const OPENAI_TRANSLATION_TIMEOUT_MS = parsePositiveInt(
 
 export interface StreamingTranslationCallbacks {
   signal?: AbortSignal;
+  /**
+   * "azure": translate with Azure Translator first (about 0.3-0.4 s, steady)
+   * and use the OpenAI stream only if it fails. OpenAI's first token took
+   * 0.6-1.5 s in our measurements, most of a live call's delay.
+   */
+  fastProvider?: "azure";
   onRequestStart?: () => void;
   onStreamReady?: (latencyMs: number) => void;
   onProviderSelected?: (provider: StreamingTranslationResult["provider"], streamed: boolean) => void;
@@ -36,7 +43,7 @@ export interface StreamingTranslationCallbacks {
 
 export interface StreamingTranslationResult {
   finalText: string;
-  provider: "cache" | "openai-stream" | "fallback";
+  provider: "cache" | "azure" | "openai-stream" | "fallback";
   streamed: boolean;
 }
 
@@ -67,6 +74,24 @@ export async function streamTranslationTokens(
     callbacks.onProviderSelected?.("cache", false);
     emitImmediate(cached, callbacks);
     return { finalText: cached, provider: "cache", streamed: false };
+  }
+
+  if (callbacks.fastProvider === "azure") {
+    try {
+      callbacks.onRequestStart?.();
+      const translated = normalizeSpaces(await azureTranslate(inputText, sourceLanguage, targetLanguage));
+      if (callbacks.signal?.aborted) throw abortError();
+      if (translated) {
+        callbacks.onProviderSelected?.("azure", false);
+        setCachedTranslation(inputText, sourceLanguage, targetLanguage, translated);
+        emitImmediate(translated, callbacks);
+        return { finalText: translated, provider: "azure", streamed: false };
+      }
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      callbacks.onFallback?.(`azure_translate_failed:${String(error).slice(0, 120)}`);
+      logger.warn("StreamingTranslation", `Azure translation failed for ${sourceLanguage}->${targetLanguage}, using OpenAI: ${String(error)}`);
+    }
   }
 
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;

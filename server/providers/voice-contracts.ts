@@ -33,6 +33,11 @@ export interface StreamingSttProvider {
     onSocketOpen?: (latencyMs: number) => void;
     endpointingMs?: number;
     utteranceEndMs?: number;
+    /**
+     * With language "auto": identify only among these (e.g. the languages of
+     * the people on the call). Fewer candidates is faster and more accurate.
+     */
+    candidateLanguages?: string[];
   }): StreamingSttProviderSession;
 }
 

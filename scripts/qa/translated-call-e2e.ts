@@ -75,12 +75,15 @@ interface Party {
   source: AudioSource;
   heard: Array<{ from: string; track: string; startedAt: string; samples: number[] }>;
   messages: unknown[];
+  /** Times translated audio started after at least 0.6 s of quiet. */
+  onsets: number[];
 }
 
 async function join(label: "A" | "B", id: string, profile: string, callId: string): Promise<Party> {
   const token = await issueAccessToken(callId, { userId: id, displayName: `QA ${label}`, language: profile, translationMode: "voice", role: label === "A" ? "caller" : "callee" });
   const room = new Room();
-  const party: Party = { label, id, room, source: new AudioSource(RATE, 1), heard: [], messages: [] };
+  const party: Party = { label, id, room, source: new AudioSource(RATE, 1), heard: [], messages: [], onsets: [] };
+  let lastLoudAt = 0;
   room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, participant: RemoteParticipant) => {
     if (track.kind !== TrackKind.KIND_AUDIO) return;
     const name = pub.name || "";
@@ -100,6 +103,10 @@ async function join(label: "A" | "B", id: string, profile: string, callId: strin
         let loud = false;
         for (let i = 0; i < data.length; i += 8) if (Math.abs(data[i]) > 500) { loud = true; break; }
         if (loud && !entry.startedAt) { entry.startedAt = at(); log(`${label} hears translated audio on ${name}`); }
+        if (loud) {
+          if (Date.now() - lastLoudAt > 600) party.onsets.push(Date.now());
+          lastLoudAt = Date.now();
+        }
         for (const s of data) entry.samples.push(s);
       }
     })();
@@ -109,6 +116,11 @@ async function join(label: "A" | "B", id: string, profile: string, callId: strin
     try {
       const msg = JSON.parse(new TextDecoder().decode(payload));
       const p = msg?.payload ?? {};
+      // Recognition results (partial/final) show where the delay goes.
+      if (p.isFinal !== undefined || p.speechFinal !== undefined) {
+        if (p.isFinal) log(`${label} sees ${p.sourceIdentity} FINAL${p.speechFinal ? " (speech end)" : ""} [${p.sourceLanguage}]: ${String(p.text).slice(0, 60)}`);
+        return;
+      }
       if (p.partial) return;
       party.messages.push({ at: at(), type: p.type, from: p.sourceLanguage, to: p.targetLanguage, original: p.original, translated: p.translated ?? p.translatedText, reason: p.reason });
     } catch { /* ignore */ }
@@ -122,11 +134,16 @@ async function join(label: "A" | "B", id: string, profile: string, callId: strin
   return party;
 }
 
+// When each speaker stopped, to measure "stopped talking -> listener hears
+// the translation", the delay people actually notice.
+const stoppedAt: Array<{ who: string; at: number }> = [];
+
 async function speak(party: Party, samples: Int16Array, label: string) {
   log(`${party.label} starts speaking: ${label}`);
   for (let i = 0; i + FRAME <= samples.length; i += FRAME) {
     await party.source.captureFrame(new AudioFrame(samples.slice(i, i + FRAME), RATE, 1, FRAME));
   }
+  stoppedAt.push({ who: party.label, at: Date.now() });
   log(`${party.label} stops speaking`);
 }
 
@@ -161,6 +178,13 @@ async function main() {
   }
 
   await stopBotWorker(callId);
+  // Delay people notice: speaker stops -> listener first hears the translation.
+  // Negative means the translation had already started before they finished.
+  for (const s of stoppedAt) {
+    const listener = s.who === "A" ? B : A;
+    const onset = listener.onsets.find((t) => t > s.at - 8_000 && t < s.at + 8_000 && !(t < s.at && listener.onsets.some((u) => u > t && u <= s.at)));
+    log(`LATENCY ${s.who} stopped -> ${listener.label} hears: ${onset === undefined ? "no translation" : `${onset - s.at} ms`}`);
+  }
   for (const p of [A, B]) {
     p.heard.forEach((h, i) => {
       const file = pathJoin(outDir, `${p.label}_heard_${i}.wav`);

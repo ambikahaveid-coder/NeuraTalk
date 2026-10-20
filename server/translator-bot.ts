@@ -109,6 +109,27 @@ const AUTO_DETECT_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_LANGUAGE_DETECT |
 // garbled Telugu and two same-profile callers were never translated.
 const DETECT_SPOKEN_LANGUAGE = (process.env.TRANSLATOR_BOT_DETECT_SPOKEN_LANGUAGE || "true") === "true";
 
+// Translation is most of a call's delay: Azure Translator answered in
+// 0.30-0.38 s where OpenAI's first token took 0.63-1.46 s (2026-10-20,
+// Telugu<->English). "openai" restores the previous behaviour.
+const FAST_TRANSLATION_PROVIDER = (process.env.TRANSLATOR_BOT_TRANSLATION_PROVIDER || "azure") === "azure" ? "azure" as const : undefined;
+
+const MAX_LEADING_SILENCE_TRIM_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_MAX_LEADING_SILENCE_TRIM_MS, 400);
+// Peak below this (16-bit PCM) counts as silence at the start of a voice clip.
+const QUIET_FRAME_PEAK = 300;
+
+function isQuietFrame(frame: Int16Array): boolean {
+  for (let i = 0; i < frame.length; i += 1) {
+    if (frame[i] > QUIET_FRAME_PEAK || frame[i] < -QUIET_FRAME_PEAK) return false;
+  }
+  return true;
+}
+
+// Re-recognising each finished Telugu/Hindi sentence with Sarvam improves
+// code-mixed accuracy but adds a second network round trip (up to 2.5 s)
+// before translation can start; live calls prefer speed.
+const LIVE_CALL_CODEMIX_REFINE = (process.env.TRANSLATOR_BOT_CODEMIX_REFINE || "false") === "true";
+
 function speakingLanguageFor(profileLanguage: string): string {
   return DETECT_SPOKEN_LANGUAGE ? "auto" : profileLanguage;
 }
@@ -718,6 +739,26 @@ class LiveKitRealtimeTranslatorBot {
     return pipeline;
   }
 
+  /**
+   * Languages to identify speech among: everyone's profile and detected
+   * languages on this call, plus English (widely mixed in). Falls back to
+   * the full list in the recogniser when fewer than two are known.
+   */
+  private callLanguageCandidates(): string[] {
+    const languages = new Set<string>(["en"]);
+    for (const pipeline of Array.from(this.speakerPipelines.values())) {
+      for (const language of [pipeline.profileLanguage, pipeline.detectedLanguage]) {
+        if (language && language !== "auto") languages.add(normalizeLanguage(language));
+      }
+    }
+    for (const participant of Array.from(this.room?.remoteParticipants.values() ?? [])) {
+      if (isBotParticipant(participant)) continue;
+      const language = normalizeLanguage(String(readParticipantMetadata(participant).language || participant.attributes?.language || "auto"));
+      if (language !== "auto") languages.add(language);
+    }
+    return Array.from(languages);
+  }
+
   private async ensureDeepgramForPipeline(pipeline: SpeakerPipeline): Promise<void> {
     if (pipeline.deepgram) return;
 
@@ -731,6 +772,7 @@ class LiveKitRealtimeTranslatorBot {
       : pipeline.effectiveLanguage;
     pipeline.deepgram = createManagedStreamingSttSession({
       language: sttLanguage,
+      candidateLanguages: sttLanguage === "auto" ? this.callLanguageCandidates() : undefined,
       onTranscript: (event) => void this.handleTranscript(pipeline.identity, event),
       onSocketOpen: (latencyMs) => {
         pipeline.lastDeepgramSocketLatencyMs = latencyMs;
@@ -849,7 +891,7 @@ class LiveKitRealtimeTranslatorBot {
   private async refineCodemixFinal(pipeline: SpeakerPipeline, streamingText: string): Promise<string> {
     const wav = pipeline.utteranceAudio.takeWav();
     const language = pipeline.effectiveLanguage;
-    if (!shouldRefineCodemix(language)) return streamingText;
+    if (!LIVE_CALL_CODEMIX_REFINE || !shouldRefineCodemix(language)) return streamingText;
     const result = await refineCodemixTranscript(wav, language, streamingText);
     logger.debug("TranslatorBot", `[${this.callId}] codemix refine ${result.reason} in ${result.ms}ms for ${pipeline.identity}`);
     if (!result.refined) return streamingText;
@@ -1039,6 +1081,7 @@ class LiveKitRealtimeTranslatorBot {
         opts.targetLanguage,
         {
           signal: translationAbort.signal,
+          fastProvider: FAST_TRANSLATION_PROVIDER,
           onRequestStart: () => {
             trace?.mark("translation_request_start", true);
           },
@@ -1358,8 +1401,20 @@ class LiveKitRealtimeTranslatorBot {
             },
           )
         : streamAzureTtsFrames(text, targetLanguage, ttsSignal, ttsOptions);
+      // Voices start with a short silence; the listener noticed it as extra
+      // delay. Skip leading quiet frames (capped, so a softly spoken first
+      // word is never cut).
+      let leadingFramesSkipped = 0;
+      let soundStarted = false;
       for await (const frame of frames) {
         if (this.closed || generation !== channel.speechGeneration) break;
+        if (!soundStarted) {
+          if (isQuietFrame(frame) && leadingFramesSkipped * FRAME_DURATION_MS < MAX_LEADING_SILENCE_TRIM_MS) {
+            leadingFramesSkipped += 1;
+            continue;
+          }
+          soundStarted = true;
+        }
         await channel.audioSource.captureFrame(new AudioFrame(frame, PCM_SAMPLE_RATE, PCM_CHANNELS, frame.length));
         if (!playbackMarked) {
           playbackMarked = true;
