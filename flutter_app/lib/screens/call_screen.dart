@@ -48,7 +48,10 @@ class _CallScreenState extends State<CallScreen> {
   // Languages of the latest caption (from the translator bot), shown as "Telugu ⇄ English".
   String? _captionFromLang;
   String? _captionToLang;
-  bool _showCaptions = true;
+  // A call should feel like a normal phone call: people hear each other's
+  // translated voices, no text. The CC button still turns the live transcript
+  // on for anyone who wants or needs to read along.
+  bool _showCaptions = false;
   // Last few sentences from the other person: what they said + translation.
   // A partial (still-speaking) line is replaced until its final version arrives.
   final List<({String original, String translated, bool partial})> _transcript = [];

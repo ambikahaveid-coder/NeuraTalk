@@ -1185,6 +1185,13 @@ export class BillingEngine {
       try {
         await this.advanceRuntimeSession(sessionId);
       } catch (error) {
+        // The call ended between listing active sessions and advancing this
+        // one; advanceRuntimeSession already dropped it from the active set.
+        // Nothing was billed wrongly, so this is not an error.
+        if (error instanceof Error && error.message === "BILLING_SESSION_NOT_FOUND") {
+          logger.debug("BillingEngine", `Runtime sweep skipped ${sessionId}: session already closed`);
+          return;
+        }
         logger.error("BillingEngine", `Runtime sweep failed for ${sessionId}`, error as Error);
       }
     }));

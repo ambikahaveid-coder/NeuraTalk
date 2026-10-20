@@ -45,7 +45,7 @@ import {
   resolveDirectionalLanguages,
   setParticipantLanguagePreference,
 } from "./universal-language-runtime";
-import { isListenerLanguageKnown } from "./translation-target-rules";
+import { resolveListenerTarget } from "./translation-target-rules";
 import {
   PCM_CHANNELS,
   PCM_SAMPLE_RATE,
@@ -103,6 +103,15 @@ const RESTART_MIN_CHAR_DELTA = parsePositiveInt(process.env.TRANSLATOR_BOT_RESTA
 const VAD_THRESHOLD = parsePositiveFloat(process.env.TRANSLATOR_BOT_VAD_THRESHOLD, 0.018);
 const SILENCE_RESET_FRAMES = parsePositiveInt(process.env.TRANSLATOR_BOT_SILENCE_RESET_FRAMES, 6);
 const AUTO_DETECT_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_LANGUAGE_DETECT || "true") === "true";
+// People just talk: the language each person speaks is identified from their
+// audio, sentence by sentence, for the whole call. Profile languages used to
+// pin recognition, so a "Telugu" profile speaking English was recognised as
+// garbled Telugu and two same-profile callers were never translated.
+const DETECT_SPOKEN_LANGUAGE = (process.env.TRANSLATOR_BOT_DETECT_SPOKEN_LANGUAGE || "true") === "true";
+
+function speakingLanguageFor(profileLanguage: string): string {
+  return DETECT_SPOKEN_LANGUAGE ? "auto" : profileLanguage;
+}
 const PRECACHE_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_PRECACHE || "true") === "true";
 const TRANSLATOR_BOT_IDLE_TIMEOUT_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_IDLE_TIMEOUT_MS, 120_000);
 const TRANSLATOR_BOT_WATCHDOG_INTERVAL_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_WATCHDOG_INTERVAL_MS, 15_000);
@@ -144,7 +153,10 @@ interface SpeakerTurnLatency {
 interface SpeakerPipeline {
   identity: string;
   name: string;
+  /** Language used to recognise this person's speech ("auto" = identified from audio). */
   preferredLanguage: string;
+  /** Language on their profile: only the first guess of what they understand, until they speak. */
+  profileLanguage: string;
   translationMode: ListenerTranslationMode;
   effectiveLanguage: string;
   detectedLanguage: string | null;
@@ -640,13 +652,15 @@ class LiveKitRealtimeTranslatorBot {
 
   private async ensureSpeakerPipeline(participant: RemoteParticipant): Promise<SpeakerPipeline> {
     const metadata = readParticipantMetadata(participant);
-    const preferredLanguage = normalizeLanguage(String(metadata.language || participant.attributes?.language || "auto"));
+    const profileLanguage = normalizeLanguage(String(metadata.language || participant.attributes?.language || "auto"));
+    const preferredLanguage = speakingLanguageFor(profileLanguage);
     const translationMode = resolveListenerTranslationMode(metadata.translationMode);
     const existing = this.speakerPipelines.get(participant.identity);
 
     if (existing) {
       if (existing.metadataVersion !== participant.metadata) {
         existing.metadataVersion = participant.metadata;
+        existing.profileLanguage = profileLanguage;
         existing.preferredLanguage = preferredLanguage;
         existing.translationMode = translationMode;
         void setParticipantLanguagePreference(this.callId, participant.identity, preferredLanguage).catch(() => undefined);
@@ -658,11 +672,12 @@ class LiveKitRealtimeTranslatorBot {
       return existing;
     }
 
-    const initialLanguage = preferredLanguage === "auto" ? "en" : preferredLanguage;
+    const initialLanguage = profileLanguage === "auto" ? "en" : profileLanguage;
     const pipeline: SpeakerPipeline = {
       identity: participant.identity,
       name: participant.name || participant.identity,
       preferredLanguage,
+      profileLanguage,
       translationMode,
       effectiveLanguage: initialLanguage,
       detectedLanguage: null,
@@ -709,7 +724,9 @@ class LiveKitRealtimeTranslatorBot {
     // "auto" speakers start on Azure's multi-language identification until a
     // language is detected; starting on "en" transcribed Telugu/Hindi speech
     // as English gibberish, which then defeated the text-based detection.
-    const sttLanguage = pipeline.preferredLanguage === "auto" && !pipeline.detectedLanguage
+    // With spoken-language detection on, recognition keeps identifying the
+    // language for the whole call instead of pinning to the first one heard.
+    const sttLanguage = pipeline.preferredLanguage === "auto" && (DETECT_SPOKEN_LANGUAGE || !pipeline.detectedLanguage)
       ? "auto"
       : pipeline.effectiveLanguage;
     pipeline.deepgram = createManagedStreamingSttSession({
@@ -747,9 +764,13 @@ class LiveKitRealtimeTranslatorBot {
 
     // Until text detection settles, trust the language Azure identified from
     // the audio itself (e.g. "te-IN" -> "te") as the translation source.
-    if (pipeline.preferredLanguage === "auto" && !pipeline.detectedLanguage && event.language) {
+    if (pipeline.preferredLanguage === "auto" && event.language && (DETECT_SPOKEN_LANGUAGE || !pipeline.detectedLanguage)) {
       const spoken = normalizeLanguage(event.language.split("-")[0]);
-      if (spoken) pipeline.effectiveLanguage = spoken;
+      if (spoken) {
+        pipeline.effectiveLanguage = spoken;
+        // Also what this person understands when they are the listener.
+        if (DETECT_SPOKEN_LANGUAGE) pipeline.detectedLanguage = spoken;
+      }
     }
 
     const text = applySpokenCorrections(event.text, pipeline.effectiveLanguage);
@@ -907,24 +928,24 @@ class LiveKitRealtimeTranslatorBot {
       if (!shouldTranslateForListener(mode)) {
         continue;
       }
-      const preferredLanguage = normalizeLanguage(
-        String(pipeline?.preferredLanguage || readParticipantMetadata(participant).language || participant.attributes?.language || "auto"),
+      const listenerProfileLanguage = normalizeLanguage(
+        String(pipeline?.profileLanguage || readParticipantMetadata(participant).language || participant.attributes?.language || "auto"),
       );
-      const resolved = await resolveDirectionalLanguages(this.callId, sourceIdentity, participant.identity, {
+      const runtime = await resolveDirectionalLanguages(this.callId, sourceIdentity, participant.identity, {
         sourceLanguage,
-        targetLanguage: preferredLanguage,
-      }).catch(() => ({
-        sourceLanguage,
-        targetLanguage: preferredLanguage === "auto" ? pipeline?.effectiveLanguage || "en" : preferredLanguage,
-        translationActive: preferredLanguage !== sourceLanguage,
-        targetState: undefined,
-      }));
+        targetLanguage: listenerProfileLanguage,
+      }).catch(() => undefined);
 
-      // A listener on "auto" who hasn't spoken yet has no known language; the
-      // resolver then assumes English, which translated two Telugu speakers'
-      // first sentences into English. Until we know what they speak, they hear
-      // the speaker's own voice; translation starts once the languages differ.
-      if (!isListenerLanguageKnown(preferredLanguage, pipeline?.detectedLanguage, resolved.targetState?.detectedLanguage)) continue;
+      // What this listener understands: the language they've been speaking in
+      // this call, else their profile language. Unknown (an "auto" listener
+      // who hasn't spoken yet) means they hear the speaker's own voice.
+      const resolved = resolveListenerTarget({
+        sourceLanguage,
+        listenerProfileLanguage,
+        listenerSpokenLanguage: pipeline?.detectedLanguage,
+        runtimeDetectedLanguage: runtime?.targetState?.detectedLanguage,
+      });
+      if (!resolved) continue;
 
       if (!resolved.translationActive) {
         // Once a listener has this speaker's translated track, their client
@@ -1529,10 +1550,14 @@ class LiveKitRealtimeTranslatorBot {
         preferredLanguage: pipeline.preferredLanguage,
         isFinal,
       });
-      if (detected.participant.detectedLanguage && detected.participant.detectedLanguage !== "unknown") {
+      if (DETECT_SPOKEN_LANGUAGE && pipeline.detectedLanguage) {
+        // Azure identified this sentence's language from the audio (see
+        // handleTranscript); keep it and keep recognising every language
+        // rather than pinning recognition to one, so people can switch.
+      } else if (detected.participant.detectedLanguage && detected.participant.detectedLanguage !== "unknown") {
         pipeline.detectedLanguage = detected.participant.detectedLanguage;
         pipeline.effectiveLanguage = detected.effectiveLanguage;
-        if (pipeline.effectiveLanguage !== previousLanguage) {
+        if (!DETECT_SPOKEN_LANGUAGE && pipeline.effectiveLanguage !== previousLanguage) {
           await this.reconnectDeepgram(pipeline, pipeline.effectiveLanguage);
         }
       }
@@ -1678,12 +1703,14 @@ class LiveKitRealtimeTranslatorBot {
 
   private applyParticipantMetadata(identity: string, metadata: string | undefined): void {
     const parsed = safeJsonParse<Record<string, unknown>>(metadata);
-    const language = normalizeLanguage(String(parsed?.language || "auto"));
+    const profileLanguage = normalizeLanguage(String(parsed?.language || "auto"));
+    const language = speakingLanguageFor(profileLanguage);
     const translationMode = resolveListenerTranslationMode(parsed?.translationMode);
     const pipeline = this.speakerPipelines.get(identity);
     if (!pipeline) return;
 
     pipeline.metadataVersion = metadata || "";
+    pipeline.profileLanguage = profileLanguage;
     pipeline.preferredLanguage = language;
     pipeline.translationMode = translationMode;
     void setParticipantLanguagePreference(this.callId, identity, language).catch(() => undefined);
@@ -1709,7 +1736,7 @@ class LiveKitRealtimeTranslatorBot {
       }
       if (data.type === "translation-mode" && data.payload?.translationMode) {
         this.applyParticipantMetadata(identity, JSON.stringify({
-          language: this.speakerPipelines.get(identity)?.preferredLanguage || "auto",
+          language: this.speakerPipelines.get(identity)?.profileLanguage || "auto",
           translationMode: data.payload.translationMode,
         }));
       }

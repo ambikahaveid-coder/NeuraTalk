@@ -188,6 +188,11 @@ export interface SmartCallRecord {
   metadata?: Record<string, unknown>;
 }
 
+/** The caller explicitly turned translation off: for this call, or in their settings. */
+function callerTurnedTranslationOff(req: { translationEnabled?: boolean }, callerUser: unknown): boolean {
+  return req.translationEnabled === false || (callerUser as { translationEnabled?: boolean } | undefined)?.translationEnabled === false;
+}
+
 function smartCallKey(callId: string): string {
   return `smart_call:${callId}`;
 }
@@ -1342,7 +1347,11 @@ async function initiateCallLocked(
     userId: req.callerId,
     displayName: req.callerDisplayName || req.callerId,
     language: effectiveCallerLanguage,
-    translationMode: translationEnabled ? (req.callerTranslationMode || "subtitles") : "off",
+    // Matching profile languages no longer switch the translator off: it
+    // listens and translates only sentences actually spoken in different
+    // languages. Only a caller who turned translation off gets "off". Billing
+    // still follows `translationEnabled` above (profile languages).
+    translationMode: callerTurnedTranslationOff(req, callerUser) ? "off" : (req.callerTranslationMode || "voice"),
     role: "caller",
   });
   logSetupLatency(callId, requestedJoinMethod, "issue_caller_token", elapsedMs(stageStartNs));
