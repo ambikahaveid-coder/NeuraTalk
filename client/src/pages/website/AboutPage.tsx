@@ -24,15 +24,13 @@ export default function AboutPage() {
               to explain symptoms to doctors.
             </p>
             <p>
-              We built NeuraTalk to change that. Using advanced AI, we enable real-time voice translation 
-              that preserves not just words, but emotion, tone, and intent. When you speak Telugu and 
-              your customer speaks English, NeuraTalk makes it feel like you're speaking the same language.
+              We built NeuraTalk to change that. When you speak Telugu and the other person speaks
+              English, NeuraTalk translates while you talk and they hear it in your own voice — so it
+              feels like a normal call, not like using a translator.
             </p>
             <p>
-              What makes us different? We focus on a tightly controlled, reliability-first
-              architecture. NeuraTalk combines infrastructure we operate with carefully chosen
-              realtime, AI, and telecom providers so language-bridged conversations stay secure,
-              observable, and practical in the real world.
+              What makes us different? We care about the call feeling human: no robot voice, no
+              captions to read, no language settings, and as little delay as we can manage.
             </p>
           </div>
         </div>
@@ -87,20 +85,14 @@ export default function AboutPage() {
           <h2 className="text-2xl font-bold mb-6">Our Technology</h2>
           <div className="space-y-4 text-muted-foreground">
             <p>
-              NeuraTalk uses a controlled communication stack built around our orchestration layer,
-              realtime transport, AI translation services, and phone-bridge integrations. We do
-              not treat external providers as invisible magic; we monitor them, harden failover,
-              and design the product around recoverability.
+              Every sentence goes through four steps in about half a second: background noise is
+              removed on your phone, speech recognition works out what you said and in which
+              language, it is translated, and it is spoken in your cloned voice to the other person.
             </p>
             <p>
-              This means we can support both app-to-app conversations and app-to-phone bridges
-              without pretending telecom complexity does not exist. We work alongside real phone
-              networks and identity rules, while keeping the user experience as simple as possible.
-            </p>
-            <p>
-              Our AI understands context, emotion, and cultural nuances. When someone speaks angrily, 
-              the translation preserves that anger. When someone speaks softly with care, 
-              that tenderness comes through. This is what makes NeuraTalk feel human.
+              We use Microsoft Azure for speech recognition and translation, ElevenLabs for your
+              voice, and LiveKit for the call itself. We measure each step on real calls and keep
+              a backup for when a provider is slow, so one hiccup doesn't drop the conversation.
             </p>
           </div>
         </div>

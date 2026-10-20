@@ -39,10 +39,10 @@ export default function SolutionsPage() {
                   while expanding your reach.
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>Real-time call translation</li>
-                  <li>Agent performance analytics</li>
-                  <li>Quality monitoring</li>
-                  <li>CRM integration ready</li>
+                  <li>Agents speak their language, customers hear theirs</li>
+                  <li>Hire for skill, not for languages spoken</li>
+                  <li>Call history for every agent</li>
+                  <li>Same-language calls stay untranslated</li>
                 </ul>
               </CardContent>
             </Card>
@@ -55,13 +55,13 @@ export default function SolutionsPage() {
               <CardContent>
                 <p className="text-muted-foreground mb-4">
                   Help patients explain symptoms in their language. 
-                  Doctors receive accurate translations with medical context.
+                  The doctor hears them in their language, in the patient's own voice.
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>Patient-doctor translation</li>
-                  <li>Medical terminology aware</li>
-                  <li>HIPAA-ready architecture</li>
-                  <li>Emergency hotline support</li>
+                  <li>Patients describe symptoms in their own words</li>
+                  <li>Calls are not recorded by default</li>
+                  <li>Works on voice or video</li>
                 </ul>
               </CardContent>
             </Card>
@@ -77,10 +77,10 @@ export default function SolutionsPage() {
                   everyone understands.
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>Video conference translation</li>
-                  <li>Meeting transcription</li>
-                  <li>Team collaboration tools</li>
-                  <li>SSO integration</li>
+                  <li>Translated video calls</li>
+                  <li>Each person hears their own language</li>
+                  <li>Translated team chat</li>
+                  <li>Company account for your team</li>
                 </ul>
               </CardContent>
             </Card>
@@ -97,9 +97,9 @@ export default function SolutionsPage() {
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>Guest service translation</li>
-                  <li>Booking assistance</li>
-                  <li>Concierge support</li>
-                  <li>Emergency communication</li>
+                  <li>Talk to guests before they arrive</li>
+                  <li>Staff speak their own language</li>
+                  <li>Voice or video</li>
                 </ul>
               </CardContent>
             </Card>
@@ -118,7 +118,7 @@ export default function SolutionsPage() {
                   <li>Order support calls</li>
                   <li>Return/refund handling</li>
                   <li>Product assistance</li>
-                  <li>COD verification</li>
+                  <li>Delivery and address calls</li>
                 </ul>
               </CardContent>
             </Card>
@@ -135,9 +135,9 @@ export default function SolutionsPage() {
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>Multi-client support</li>
-                  <li>Quality assurance</li>
-                  <li>Performance reporting</li>
-                  <li>White-label options</li>
+                  <li>One team, many languages</li>
+                  <li>Call history and usage</li>
+                  <li>Developer API</li>
                 </ul>
               </CardContent>
             </Card>
@@ -160,10 +160,10 @@ export default function SolutionsPage() {
             </Card>
             <Card>
               <CardContent className="p-6">
-                <h3 className="font-semibold mb-2">Language Learning</h3>
+                <h3 className="font-semibold mb-2">Friends Abroad</h3>
                 <p className="text-sm text-muted-foreground">
-                  Practice conversations with AI that corrects pronunciation 
-                  and suggests better phrasing.
+                  Keep in touch with friends and colleagues who speak another
+                  language, in your own voice.
                 </p>
               </CardContent>
             </Card>

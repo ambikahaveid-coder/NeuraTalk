@@ -2,19 +2,16 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Menu, Phone, Globe, Mail, MapPin, Linkedin, Twitter, Youtube, ArrowRight, Building2, Users, Shield, FileText } from "lucide-react";
-import { useState } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ThemeToggle, usePublicTheme } from "@/components/theme-toggle";
 import AIChatbot from "./AIChatbot";
 import { LogoWithIcon } from "@/components/Logo";
 
 const navLinks = [
   { href: "/", label: "Home" },
-  { href: "/demo", label: "Demo" },
+  { href: "/demo", label: "How it works" },
   { href: "/products", label: "Products" },
   { href: "/solutions", label: "Solutions" },
   { href: "/faq", label: "FAQ" },
-  { href: "/sdk-docs", label: "API Docs" },
   { href: "/contact", label: "Contact" },
 ];
 
@@ -50,7 +47,7 @@ const footerLinks = {
   ],
   resources: [
     { href: "/help", label: "Help Center" },
-    { href: "/demo", label: "Watch Demo" },
+    { href: "/demo", label: "How a call works" },
     { href: "/contact", label: "Support" },
     { href: "/report-abuse", label: "Report Abuse" },
     { href: "/contact", label: "Enterprise Sales" },
@@ -64,7 +61,6 @@ interface WebsiteLayoutProps {
 export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
   usePublicTheme();
   const [location] = useLocation();
-  const [language, setLanguage] = useState("en");
   const currentYear = new Date().getFullYear();
 
   return (
@@ -90,31 +86,17 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
           </nav>
 
           <div className="flex items-center gap-2">
-            <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger className="w-[100px] h-8" data-testid="select-language">
-                <Globe className="w-4 h-4 mr-1" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="te">తెలుగు</SelectItem>
-                <SelectItem value="ta">தமிழ்</SelectItem>
-                <SelectItem value="kn">ಕನ್ನಡ</SelectItem>
-                <SelectItem value="hi">हिंदी</SelectItem>
-              </SelectContent>
-            </Select>
-
             <ThemeToggle />
 
-            <Link href="/demo" className="hidden md:block">
-              <Button variant="outline" size="sm" data-testid="button-request-demo">
-                Watch Demo
+            <Link href="/login" className="hidden sm:block">
+              <Button variant="ghost" size="sm" data-testid="button-login-header">
+                Log in
               </Button>
             </Link>
 
-            <Link href="/login" className="hidden sm:block">
-              <Button size="sm" data-testid="button-login-header">
-                Login
+            <Link href="/login" className="hidden md:block">
+              <Button size="sm" data-testid="button-start-header">
+                Start free
               </Button>
             </Link>
 
@@ -140,11 +122,11 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                       </span>
                     </Link>
                   </div>
-                  <Link href="/demo">
-                    <Button variant="outline" className="w-full">Watch Demo</Button>
+                  <Link href="/login">
+                    <Button className="w-full">Start free</Button>
                   </Link>
                   <Link href="/login">
-                    <Button className="w-full">Login</Button>
+                    <Button variant="outline" className="w-full">Log in</Button>
                   </Link>
                 </nav>
               </SheetContent>
@@ -167,7 +149,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <LogoWithIcon size="sm" />
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Breaking language barriers with AI-powered voice translation for enterprises worldwide.
+                Calls that translate themselves — in your own voice, in your own language.
               </p>
               <div className="flex gap-3">
                 <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
@@ -271,8 +253,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
               <div className="flex flex-col gap-2">
                 <h5 className="font-medium text-sm">Privacy & Compliance</h5>
                 <div className="flex flex-wrap gap-2">
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">GDPR Compliant</span>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">DPDP Act 2023</span>
+                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">DPDP Act 2023</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   Calls and messages are encrypted in transit. We follow India's DPDP Act 2023.

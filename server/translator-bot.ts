@@ -175,6 +175,8 @@ interface BotSession {
 interface SpeakerTurnLatency {
   turnId: string;
   speechStartedAt?: number;
+  /** Last frame of this turn that had voice in it. */
+  lastVoicedAt?: number;
   firstTranscriptAt?: number;
   translationStartedAt?: number;
   translationCompletedAt?: number;
@@ -647,6 +649,7 @@ class LiveKitRealtimeTranslatorBot {
 
       pipeline.recentSilenceFrames = 0;
       pipeline.speechRunFrames += 1;
+      if (pipeline.turn) pipeline.turn.lastVoicedAt = Date.now();
       // A speaker carrying on talking must not cut the translation of what
       // they already said (it used to be cancelled on every voiced frame, so
       // listeners heard almost nothing). Only a listener who really starts
@@ -1384,6 +1387,11 @@ class LiveKitRealtimeTranslatorBot {
               pipeline.turn.ttsLogged = true;
               pipeline.turn.firstAudioAt = firstAudioAt;
               recordStageLatency(this.callId, "tts", firstAudioAt - pipeline.turn.ttsStartedAt);
+              recordVoiceCounter(ttsProvider === "elevenlabs-tts" ? "own_voice_turns" : "fallback_voice_turns");
+              if (pipeline.turn.lastVoicedAt) {
+                // 0 when the translation starts while they are still talking.
+                recordStageLatency(this.callId, "response", Math.max(0, firstAudioAt - pipeline.turn.lastVoicedAt));
+              }
 
               if (!pipeline.turn.totalLogged && pipeline.turn.speechStartedAt) {
                 pipeline.turn.totalLogged = true;

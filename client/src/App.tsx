@@ -109,8 +109,7 @@ function PageLoader() {
           <Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-primary animate-pulse" />
         </div>
         <div className="text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-primary mb-1">Neural Linking</p>
-          <p className="text-[10px] text-muted-foreground/60 tracking-wider">Initializing secure translation channel...</p>
+          <p className="text-sm font-medium text-muted-foreground">Loading…</p>
         </div>
       </div>
     </div>

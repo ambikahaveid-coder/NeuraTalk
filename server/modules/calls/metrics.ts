@@ -12,7 +12,10 @@
 import { EventEmitter } from "events";
 import { logger } from "../../observability";
 
-export type PipelineStage = "stt" | "translation" | "tts" | "ultra" | "total";
+// "response" = the speaker's voice stops -> the listener starts hearing the
+// translation (what a person on the call feels as delay). "total" counts
+// from the start of speech, so it also includes how long they talked.
+export type PipelineStage = "stt" | "translation" | "tts" | "ultra" | "total" | "response";
 export type VoiceLatencyMetric = "reconnect_recovery_ms" | "interruption_recovery_ms";
 export type VoiceCounterMetric =
   | "transcript_events"
@@ -26,6 +29,8 @@ export type VoiceCounterMetric =
   | "audio_backlog_events"
   | "ghost_audio_drops"
   | "turn_order_mismatches"
+  | "own_voice_turns"
+  | "fallback_voice_turns"
   | "stale_transcripts"
   | "overlap_events"
   | "reconnect_started"
@@ -46,6 +51,7 @@ const buffers: Record<PipelineStage, number[]> = {
   tts: [],
   ultra: [],
   total: [],
+  response: [],
 };
 
 const voiceLatencyBuffers: Record<VoiceLatencyMetric, number[]> = {
@@ -65,6 +71,8 @@ const voiceCounters: Record<VoiceCounterMetric, number> = {
   audio_backlog_events: 0,
   ghost_audio_drops: 0,
   turn_order_mismatches: 0,
+  own_voice_turns: 0,
+  fallback_voice_turns: 0,
   stale_transcripts: 0,
   overlap_events: 0,
   reconnect_started: 0,
@@ -126,6 +134,7 @@ export interface MetricsSnapshot {
   tts: StageStats;
   ultra: StageStats;
   total: StageStats;
+  response: StageStats;
 }
 
 export interface VoiceMetricsSnapshot {
@@ -161,6 +170,7 @@ export function getMetricsSnapshot(): MetricsSnapshot {
     tts: statsFor("tts"),
     ultra: statsFor("ultra"),
     total: statsFor("total"),
+    response: statsFor("response"),
   };
 }
 

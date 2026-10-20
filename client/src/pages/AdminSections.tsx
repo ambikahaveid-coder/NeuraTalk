@@ -107,7 +107,11 @@ function CallListTable({ days, status, search }: { days: number; status: string;
                       <td className="py-2 pr-3 whitespace-nowrap">{new Date(c.createdAt).toLocaleString()}</td>
                       <td className="py-2 pr-3">{personLabel(c.callerName, c.callerPhone)}</td>
                       <td className="py-2 pr-3">{c.joinMethod === "conference" ? "Group call" : personLabel(c.receiverName, c.receiverPhone)}</td>
-                      <td className="py-2 pr-3 whitespace-nowrap">{languageName(c.callerLanguage)} → {languageName(c.receiverLanguage)}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap">
+                        {c.joinMethod !== "conference" && c.callerLanguage && languageName(c.callerLanguage) === languageName(c.receiverLanguage)
+                          ? <span>{languageName(c.callerLanguage)} <span className="text-xs text-muted-foreground">· same language</span></span>
+                          : `${languageName(c.callerLanguage)} → ${languageName(c.receiverLanguage)}`}
+                      </td>
                       <td className="py-2 pr-3 capitalize">{c.callType}{c.joinMethod === "app_to_pstn" ? " · phone" : ""}</td>
                       <td className="py-2 pr-3"><Badge variant={outcome.variant}>{outcome.label}</Badge></td>
                       <td className="py-2 pr-3 text-right whitespace-nowrap">{formatDuration(c.durationSeconds)}</td>
@@ -232,41 +236,14 @@ export function CallLogsSection() {
 
       <CallListTable key={`${days}-${statusFilter}-${search}`} days={days} status={statusFilter} search={search} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><PhoneCall className="w-4 h-4" />Call Pipeline Metrics</CardTitle>
-          <CardDescription>p50/p95 latency per stage, from the last {metrics.windowSize ?? 0} samples</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label: "Speech-to-Text", stage: metrics.stt },
-              { label: "Translation", stage: metrics.translation },
-              { label: "Text-to-Speech", stage: metrics.tts },
-              { label: "End-to-End Total", stage: metrics.total },
-            ].map(pipe => {
-              const hasSamples = (pipe.stage?.count ?? 0) > 0;
-              return (
-                <div key={pipe.label} className="p-4 rounded-lg border">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-2 h-2 rounded-full ${hasSamples ? "bg-green-500" : "bg-muted-foreground/40"}`} />
-                    <span className="text-sm font-medium">{pipe.label}</span>
-                  </div>
-                  <p className="text-lg font-bold">{hasSamples ? `${pipe.stage.p50}ms` : "N/A"}</p>
-                  <p className="text-xs text-muted-foreground">{hasSamples ? `p95: ${pipe.stage.p95}ms · ${pipe.stage.count} samples` : "no samples yet"}</p>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      <TranslatedCallQuality metrics={metrics} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><HeartPulse className="w-4 h-4" />Conversation Stability Signals</CardTitle>
-          <CardDescription>Realtime collapse-prevention metrics from the shared conversation engine</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <details className="rounded-lg border bg-card">
+        <summary className="cursor-pointer select-none px-6 py-4 text-sm font-medium flex items-center gap-2">
+          <HeartPulse className="w-4 h-4" />Engineering details
+          <span className="text-xs font-normal text-muted-foreground">speech engine signals, for debugging</span>
+        </summary>
+        <div className="px-6 pb-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               {
@@ -323,43 +300,93 @@ export function CallLogsSection() {
               <p className="text-xl font-bold">{metrics.voice?.counters?.turn_order_mismatches ?? 0}</p>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Call Types</CardTitle>
-            <Link href="/admin/transcripts">
-              <Button variant="outline" size="sm">
-                <Download className="w-4 h-4 mr-2" />Export in Transcripts
-              </Button>
-            </Link>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
             {[
-              { type: "C2C (App-to-App)", icon: <Phone className="w-4 h-4" />, color: "text-blue-500", href: "/calls/c2c", status: "live" as const },
-              { type: "B2B (Enterprise)", icon: <Building2 className="w-4 h-4" />, color: "text-purple-500", href: "/calls/b2b", status: "live" as const },
-              { type: "PSTN (Phone)", icon: <PhoneCall className="w-4 h-4" />, color: "text-green-500", href: "/calls/c2c", status: "live" as const },
-              { type: "Face-to-Face", icon: <Users className="w-4 h-4" />, color: "text-amber-500", href: "/calls/face-to-face", status: "live" as const },
-              { type: "SIM Calls", icon: <Zap className="w-4 h-4" />, color: "text-cyan-500", href: "/calls/sim", status: "carrier" as const },
-            ].map(ct => (
-              <Link key={ct.type} href={ct.href}>
-                <div className="p-3 rounded-lg border text-center cursor-pointer hover:bg-muted/50 transition-colors">
-                  <div className={`mx-auto w-8 h-8 rounded-full bg-muted flex items-center justify-center mb-2 ${ct.color}`}>{ct.icon}</div>
-                  <p className="text-xs font-medium">{ct.type}</p>
-                  {ct.status === "carrier" && (
-                    <p className="text-[10px] text-amber-500 mt-0.5">Carrier required</p>
-                  )}
-                </div>
-              </Link>
+              { label: "Hearing (speech → text)", stage: metrics.stt },
+              { label: "Translating", stage: metrics.translation },
+              { label: "Voice (text → audio)", stage: metrics.tts },
+              { label: "Start of speech → heard", stage: metrics.total },
+            ].map(pipe => (
+              <div key={pipe.label} className="p-4 rounded-lg border bg-muted/20">
+                <p className="text-xs text-muted-foreground mb-1">{pipe.label}</p>
+                <p className="text-xl font-bold">{(pipe.stage?.count ?? 0) > 0 ? `${pipe.stage.p50} ms` : "—"}</p>
+                <p className="text-xs text-muted-foreground">{(pipe.stage?.count ?? 0) > 0 ? `p95 ${pipe.stage.p95} ms · ${pipe.stage.count} turns` : "no calls yet"}</p>
+              </div>
             ))}
           </div>
-        </CardContent>
-      </Card>
+          <div className="flex justify-end mt-4">
+            <Link href="/admin/transcripts">
+              <Button variant="outline" size="sm"><Download className="w-4 h-4 mr-2" />Export transcripts</Button>
+            </Link>
+          </div>
+        </div>
+      </details>
     </div>
+  );
+}
+
+/** Translation delay a target the caller can feel: under 600 ms is good. */
+export function delayTone(ms: number): { label: string; className: string } {
+  if (ms <= 600) return { label: "Good", className: "text-green-600 dark:text-green-400" };
+  if (ms <= 1200) return { label: "Noticeable", className: "text-amber-600 dark:text-amber-400" };
+  return { label: "Too slow", className: "text-red-600 dark:text-red-400" };
+}
+
+/** Share of translated turns spoken in the caller's own cloned voice. */
+export function ownVoiceShare(counters: Record<string, number> | undefined): number | null {
+  const own = counters?.own_voice_turns ?? 0;
+  const fallback = counters?.fallback_voice_turns ?? 0;
+  return own + fallback > 0 ? Math.round((own / (own + fallback)) * 100) : null;
+}
+
+/**
+ * What a person on a translated call actually feels: how long after they
+ * stop talking the other side hears them, and whether it was their voice.
+ */
+function TranslatedCallQuality({ metrics }: { metrics: any }) {
+  const response = metrics.response;
+  const hasDelay = (response?.count ?? 0) > 0;
+  const counters = metrics.voice?.counters;
+  const share = ownVoiceShare(counters);
+  const turns = (counters?.own_voice_turns ?? 0) + (counters?.fallback_voice_turns ?? 0);
+  const p50 = hasDelay ? delayTone(response.p50) : null;
+
+  return (
+    <Card data-testid="card-call-quality">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2"><Activity className="w-4 h-4" />Translated call quality</CardTitle>
+        <CardDescription>Since the server last restarted. Same-language calls are not translated and are not counted here.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 rounded-lg border">
+            <p className="text-sm text-muted-foreground">Delay after speaking</p>
+            <p className={`text-3xl font-bold mt-1 ${p50?.className ?? ""}`} data-testid="stat-response-delay">
+              {hasDelay ? `${response.p50} ms` : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {hasDelay
+                ? `${p50!.label} · slowest 5%: ${response.p95} ms · target under 600 ms`
+                : "No translated calls yet. Target: under 600 ms."}
+            </p>
+          </div>
+          <div className="p-4 rounded-lg border">
+            <p className="text-sm text-muted-foreground">Heard in their own voice</p>
+            <p className="text-3xl font-bold mt-1" data-testid="stat-own-voice">{share === null ? "—" : `${share}%`}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {share === null
+                ? "No translated speech yet."
+                : `${counters?.own_voice_turns ?? 0} of ${turns} turns. The rest used a standard voice because the speaker has no voice clone yet, or the language isn't supported for clones.`}
+            </p>
+          </div>
+          <div className="p-4 rounded-lg border">
+            <p className="text-sm text-muted-foreground">Sentences that hit a problem</p>
+            <p className="text-3xl font-bold mt-1" data-testid="stat-translation-problems">{counters?.translation_fallbacks ?? 0}</p>
+            <p className="text-xs text-muted-foreground mt-1">Translation or voice failed, timed out or fell behind for a sentence. Should stay near 0 — if it grows, check System Health.</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1111,56 +1138,137 @@ export function VoiceClonesSection() {
     onError: () => toast({ title: "Could not update this voice", variant: "destructive" }),
   });
 
-  const clones = data?.clones || [];
+  const [confirmOff, setConfirmOff] = useState<any | null>(null);
+  const clones: any[] = data?.clones || [];
+  const counts = clones.reduce(
+    (acc, c) => {
+      acc[voiceCloneState(c).key] += 1;
+      return acc;
+    },
+    { inUse: 0, training: 0, ownerOff: 0, adminOff: 0, failed: 0 } as Record<VoiceCloneStateKey, number>,
+  );
 
   if (isLoading) return <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
+  const name = (c: any) => c.displayName || c.username || c.phone || c.email || `User #${c.userId}`;
+
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Voices are used in translated calls as soon as training finishes. Turn one off if it is misused; its owner can't switch it back on.
-      </p>
-      {clones.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">
-          <Users className="w-10 h-10 mx-auto mb-3 opacity-50" />
-          <p>No one has recorded their voice yet</p>
-        </CardContent></Card>
-      ) : (
-        <div className="space-y-3">
-          {clones.map((c: any) => {
-            const rejected = c.moderationStatus === "rejected";
-            const status = rejected ? "Turned off by admin"
-              : c.trainingStatus !== "ready" ? `Training: ${c.trainingStatus}`
-              : c.isEnabled ? "In use" : "Switched off by owner";
-            return (
-              <Card key={c.id}>
-                <CardContent className="pt-4 pb-4 flex items-center justify-between gap-4 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{c.username || c.email || `User #${c.userId}`}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Recorded {c.createdAt ? new Date(c.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "—"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={rejected ? "destructive" : "outline"}>{status}</Badge>
-                    {rejected ? (
-                      <Button size="sm" variant="outline" disabled={moderateMutation.isPending} onClick={() => moderateMutation.mutate({ id: c.id, approve: true })}>
-                        Allow again
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="destructive" disabled={moderateMutation.isPending} onClick={() => moderateMutation.mutate({ id: c.id, approve: false })}>
-                        Turn off
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: "Speaking in their own voice", value: counts.inUse, className: "text-green-600 dark:text-green-400" },
+          { label: "Training now", value: counts.training, className: "text-blue-600 dark:text-blue-400" },
+          { label: "Switched off by owner", value: counts.ownerOff, className: "" },
+          { label: "Turned off by admin / failed", value: counts.adminOff + counts.failed, className: "text-red-600 dark:text-red-400" },
+        ].map((s) => (
+          <Card key={s.label}><CardContent className="pt-6">
+            <p className={`text-3xl font-bold ${s.className}`}>{s.value}</p>
+            <p className="text-sm text-muted-foreground">{s.label}</p>
+          </CardContent></Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4" />Voice clones</CardTitle>
+          <CardDescription>
+            A voice is used in translated calls as soon as training finishes — no approval needed. Turn one off if it is misused; the owner can't switch it back on.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {clones.length === 0 ? (
+            <div className="py-10 text-center text-muted-foreground">
+              <Users className="w-10 h-10 mx-auto mb-3 opacity-50" />
+              <p>No one has recorded their voice yet.</p>
+              <p className="text-xs mt-1">Users record it in the app: Settings → Your voice.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b">
+                    <th className="py-2 pr-3 font-medium">Person</th>
+                    <th className="py-2 pr-3 font-medium">Language</th>
+                    <th className="py-2 pr-3 font-medium">Recorded</th>
+                    <th className="py-2 pr-3 font-medium">Status</th>
+                    <th className="py-2 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clones.map((c) => {
+                    const state = voiceCloneState(c);
+                    return (
+                      <tr key={c.id} className="border-b last:border-0" data-testid={`voice-row-${c.id}`}>
+                        <td className="py-2 pr-3">
+                          <p className="font-medium">{name(c)}</p>
+                          {c.phone && name(c) !== c.phone && <p className="text-xs text-muted-foreground">{c.phone}</p>}
+                        </td>
+                        <td className="py-2 pr-3">{languageName(c.language)}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">
+                          {c.createdAt ? new Date(c.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) : "—"}
+                        </td>
+                        <td className="py-2 pr-3"><Badge variant={state.variant}>{state.label}</Badge></td>
+                        <td className="py-2 text-right">
+                          {state.key === "adminOff" ? (
+                            <Button size="sm" variant="outline" disabled={moderateMutation.isPending} onClick={() => moderateMutation.mutate({ id: c.id, approve: true })}>
+                              Allow again
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 dark:text-red-400" disabled={moderateMutation.isPending} onClick={() => setConfirmOff(c)}>
+                              Turn off
+                            </Button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!confirmOff} onOpenChange={(open) => !open && setConfirmOff(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Turn off {confirmOff ? name(confirmOff) : ""}'s voice?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Their translated calls will use a standard voice instead. They can't switch it back on — only an admin can, with "Allow again".
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOff(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={moderateMutation.isPending}
+              onClick={() => {
+                moderateMutation.mutate({ id: confirmOff.id, approve: false });
+                setConfirmOff(null);
+              }}
+            >
+              Turn off voice
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+type VoiceCloneStateKey = "inUse" | "training" | "ownerOff" | "adminOff" | "failed";
+
+/** One plain status per clone, in the order an admin cares about. */
+export function voiceCloneState(c: { moderationStatus?: string | null; trainingStatus?: string | null; isEnabled?: boolean | null }): {
+  key: VoiceCloneStateKey;
+  label: string;
+  variant: "default" | "secondary" | "destructive" | "outline";
+} {
+  if (c.moderationStatus === "rejected") return { key: "adminOff", label: "Turned off by admin", variant: "destructive" };
+  if (c.trainingStatus === "failed") return { key: "failed", label: "Training failed", variant: "destructive" };
+  if (c.trainingStatus !== "ready") return { key: "training", label: "Training…", variant: "secondary" };
+  if (!c.isEnabled) return { key: "ownerOff", label: "Off (owner)", variant: "outline" };
+  return { key: "inUse", label: "In use", variant: "default" };
 }
 
 // ============================================================================

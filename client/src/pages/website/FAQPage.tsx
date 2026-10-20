@@ -1,180 +1,137 @@
+import { Link } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Mail } from "lucide-react";
 
+type Faq = { id: string; q: string; a: React.ReactNode };
+
+const GROUPS: { title: string; items: Faq[] }[] = [
+  {
+    title: "Calls",
+    items: [
+      {
+        id: "what-is",
+        q: "What is NeuraTalk?",
+        a: "An app for voice and video calls between people who speak different languages. While you talk, your words are translated and the other person hears them in your own voice — so it feels like a normal call.",
+      },
+      {
+        id: "settings",
+        q: "Do I have to choose a language before calling?",
+        a: "No. NeuraTalk works out which language each person is speaking from their voice. If you both speak the same language, nothing is translated and you just hear each other directly.",
+      },
+      {
+        id: "own-voice",
+        q: "Will they hear a robot voice?",
+        a: "Not once you've recorded your voice. In the app, open Settings → Your voice and read three short passages (about two minutes). After that, your translated words are spoken in your voice. Until then, a natural standard voice is used.",
+      },
+      {
+        id: "captions",
+        q: "Do I need to read anything on screen?",
+        a: "No. There are no captions during calls by default — you just listen. If you want them, you can turn captions on from the call screen.",
+      },
+      {
+        id: "delay",
+        q: "How long is the delay?",
+        a: "In our tests the other person starts hearing you within about 0.6 seconds of you finishing a sentence. A weak network or a lot of background noise can make it a little longer.",
+      },
+      {
+        id: "noise",
+        q: "What if I'm somewhere noisy?",
+        a: "Background noise is removed on your device before your voice is sent, which helps the translation understand you the first time.",
+      },
+      {
+        id: "video-calls",
+        q: "Does it work in video calls?",
+        a: "Yes. Video calls are translated the same way as voice calls.",
+      },
+      {
+        id: "languages",
+        q: "Which languages are supported?",
+        a: "English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati and Punjabi — any pair, in either direction. Mixed speech like Tenglish or Hinglish usually works, but names and mixed sentences are where mistakes are most likely.",
+      },
+      {
+        id: "other-person",
+        q: "Does the other person need NeuraTalk?",
+        a: "Yes, for now both people need the NeuraTalk app or website. Translated calls to ordinary phone numbers are not available yet.",
+      },
+    ],
+  },
+  {
+    title: "Account & billing",
+    items: [
+      {
+        id: "start",
+        q: "How do I get started?",
+        a: "Sign up with your phone number, verify the code we send, and you can start calling. New accounts get free translated minutes to try it. No credit card needed.",
+      },
+      {
+        id: "pricing",
+        q: "How much does it cost?",
+        a: <>Translated call time is taken from your balance, which you can see in the app. See the <Link href="/pricing" className="underline">pricing page</Link> for current rates.</>,
+      },
+      {
+        id: "refunds",
+        q: "Can I get a refund?",
+        a: <>Yes, in the cases described in our <Link href="/refund-policy" className="underline">refund policy</Link>.</>,
+      },
+    ],
+  },
+  {
+    title: "Privacy & your voice",
+    items: [
+      {
+        id: "privacy",
+        q: "Are my calls recorded?",
+        a: "No, calls are not recorded by default. Speech passes through our cloud providers (Microsoft Azure, ElevenLabs, OpenAI) only to be translated and spoken.",
+      },
+      {
+        id: "voice-training",
+        q: "What happens to my voice recording?",
+        a: "It is used only to speak your own words in your own calls, never anyone else's. You can switch your voice off or delete it any time from Settings → Your voice.",
+      },
+      {
+        id: "security",
+        q: "Are calls encrypted?",
+        a: <>Yes, calls are encrypted in transit. Details of how we handle data are in the <Link href="/trust" className="underline">Trust Center</Link> and <Link href="/privacy" className="underline">Privacy Policy</Link>.</>,
+      },
+    ],
+  },
+];
+
 export default function FAQPage() {
   return (
     <div className="min-h-screen bg-background">
-      <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
+      <section className="py-16 px-4 bg-gradient-to-b from-primary/5 to-background">
         <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-4xl font-bold mb-6">Frequently Asked Questions</h1>
-          <p className="text-xl text-muted-foreground">
-            Find answers to common questions about NeuraTalk
-          </p>
+          <h1 className="text-4xl font-bold mb-4">Questions and answers</h1>
+          <p className="text-lg text-muted-foreground">Straight answers about how NeuraTalk calls work.</p>
         </div>
       </section>
 
-      <section className="py-16 px-4">
-        <div className="max-w-3xl mx-auto space-y-8">
-          <div>
-            <Badge className="mb-4">General</Badge>
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="what-is">
-                <AccordionTrigger>What is NeuraTalk?</AccordionTrigger>
-                <AccordionContent>
-                  NeuraTalk is a voice AI platform that enables real-time multilingual communication. 
-                  You can make calls, join video meetings, and chat with AI - all with live translation 
-                  between languages like Telugu, Tamil, Kannada, Hindi, and English.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="how-works">
-                <AccordionTrigger>How does the translation work?</AccordionTrigger>
-                <AccordionContent>
-                  When you speak, our AI listens, translates, and speaks in the other person's language - 
-                  all in real-time. The translation preserves your tone and emotion, so the other person 
-                  hears not just your words, but how you feel.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="languages">
-                <AccordionTrigger>Which languages are supported?</AccordionTrigger>
-                <AccordionContent>
-                  Currently we support Telugu, Tamil, Kannada, Hindi, and English. We also understand 
-                  mixed language (like Tenglish or Hinglish) - so you can speak naturally without 
-                  worrying about switching languages mid-sentence.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="phone-number">
-                <AccordionTrigger>Do I need a new phone number?</AccordionTrigger>
-                <AccordionContent>
-                  No. NeuraTalk works with your existing phone number and carrier. We enhance your calls, 
-                  we don't replace your phone service. Your phone bill still comes from your regular carrier.
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-
-          <div>
-            <Badge className="mb-4">Using NeuraTalk</Badge>
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="start">
-                <AccordionTrigger>How do I get started?</AccordionTrigger>
-                <AccordionContent>
-                  Sign up with your email or phone number, verify with OTP, and you're ready. 
-                  New users get free credits to try all features. No credit card required.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="credits">
-                <AccordionTrigger>What are credits and how do they work?</AccordionTrigger>
-                <AccordionContent>
-                  Credits are used for calls and translations. 1 credit = approximately 1 minute of 
-                  translated call time. You can see your balance in the dashboard and buy more credits 
-                  when needed. We'll warn you when credits are low.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="other-person">
-                <AccordionTrigger>Does the other person need the app?</AccordionTrigger>
-                <AccordionContent>
-                  No! That's the beauty of NeuraTalk. You use the app, but the person you're calling 
-                  just receives a normal phone call. They hear the translated version of what you say 
-                  in their language.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="video-calls">
-                <AccordionTrigger>Can I use this for video calls?</AccordionTrigger>
-                <AccordionContent>
-                  Face-to-face multilingual sessions are the primary supported path today. Some
-                  meeting-room style audio/video experiences may depend on your deployment and
-                  enabled transport stack, so we recommend face-to-face sessions for the most
-                  reliable real-time translation experience.
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-
-          <div>
-            <Badge className="mb-4">Billing & Credits</Badge>
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="pricing">
-                <AccordionTrigger>How much does NeuraTalk cost?</AccordionTrigger>
-                <AccordionContent>
-                  We offer flexible pricing. Individual users can buy credit packs starting from 
-                  small amounts. Businesses get volume discounts and monthly plans. 
-                  Check our pricing page for current rates.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="free-trial">
-                <AccordionTrigger>Is there a free trial?</AccordionTrigger>
-                <AccordionContent>
-                  Yes! Every new user gets free credits to try the service. For businesses, 
-                  we offer extended trial periods. Contact sales for enterprise trials.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="refunds">
-                <AccordionTrigger>Can I get a refund?</AccordionTrigger>
-                <AccordionContent>
-                  Unused credits can be refunded within 30 days of purchase. 
-                  Contact support with your account details for refund requests.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="payment-methods">
-                <AccordionTrigger>What payment methods do you accept?</AccordionTrigger>
-                <AccordionContent>
-                  We accept credit/debit cards, UPI, net banking, and popular wallets through 
-                  our secure payment partners. All transactions are encrypted and secure.
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
-
-          <div>
-            <Badge className="mb-4">Privacy & Security</Badge>
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="privacy">
-                <AccordionTrigger>Are my calls recorded?</AccordionTrigger>
-                <AccordionContent>
-                  By default, NO. We do not record your calls. If you enable recording for a meeting, 
-                  all participants are notified. You have full control over recording settings.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="data">
-                <AccordionTrigger>Where is my data stored?</AccordionTrigger>
-                <AccordionContent>
-                  Core application data is stored on secure infrastructure we control. For live
-                  calling, translation, and phone-bridge delivery we may use vetted provider
-                  infrastructure as part of the service path, with access controls and encryption
-                  applied throughout.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="voice-training">
-                <AccordionTrigger>What about voice training data?</AccordionTrigger>
-                <AccordionContent>
-                  Voice samples for training your personalized voice model are stored encrypted 
-                  and only used with your explicit consent. You can delete your voice data anytime 
-                  from settings.
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="security">
-                <AccordionTrigger>How secure is NeuraTalk?</AccordionTrigger>
-                <AccordionContent>
-                  We use industry-standard encryption for communications and enforce access
-                  controls across our stack. NeuraTalk combines infrastructure we control with
-                  vetted calling and AI providers where needed, and we follow Indian IT Act
-                  guidelines and broader security best practices.
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </div>
+      <section className="py-12 px-4">
+        <div className="max-w-3xl mx-auto space-y-10">
+          {GROUPS.map((group) => (
+            <div key={group.title}>
+              <Badge variant="outline" className="mb-4">{group.title}</Badge>
+              <Accordion type="single" collapsible className="w-full">
+                {group.items.map((item) => (
+                  <AccordionItem key={item.id} value={item.id}>
+                    <AccordionTrigger className="text-left">{item.q}</AccordionTrigger>
+                    <AccordionContent className="text-muted-foreground leading-relaxed">{item.a}</AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </div>
+          ))}
         </div>
 
         <div className="max-w-3xl mx-auto mt-16 p-8 rounded-2xl bg-primary/5 border border-primary/10 text-center">
-          <h2 className="text-2xl font-bold mb-4">Still have questions?</h2>
-          <p className="text-muted-foreground mb-6">
-            Our support team is available 24/7 to help you with any technical or billing issues.
-          </p>
-          <Button className="gap-2" onClick={() => window.location.href = 'mailto:support@mindwhile.com'}>
+          <h2 className="text-2xl font-bold mb-3">Still have a question?</h2>
+          <p className="text-muted-foreground mb-6">Write to us and we'll get back to you.</p>
+          <Button className="gap-2" onClick={() => (window.location.href = "mailto:support@mindwhile.com")}>
             <Mail className="w-4 h-4" />
-            Contact Support
+            Email support
           </Button>
         </div>
       </section>

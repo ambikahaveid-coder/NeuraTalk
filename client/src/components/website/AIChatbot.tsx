@@ -339,14 +339,14 @@ export default function AIChatbot() {
         
         {!isOpen && (
           <motion.div
-            className="absolute -top-12 right-0 bg-slate-800/90 backdrop-blur border border-cyan-500/30 text-white text-sm px-3 py-2 rounded-lg shadow-xl whitespace-nowrap"
+            className="hidden md:block absolute -top-12 right-0 bg-slate-800/90 backdrop-blur border border-cyan-500/30 text-white text-sm px-3 py-2 rounded-lg shadow-xl whitespace-nowrap"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 2 }}
           >
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-cyan-400" />
-              <span>Ask NEURA anything!</span>
+              <span>Have a question?</span>
             </div>
             <div className="absolute bottom-0 right-4 translate-y-1/2 rotate-45 w-2 h-2 bg-slate-800/90 border-r border-b border-cyan-500/30" />
           </motion.div>

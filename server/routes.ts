@@ -342,88 +342,86 @@ export async function registerRoutes(
 
     // Greetings
     if (/^(hi|hello|hey|namaste|hola|howdy|good\s*(morning|afternoon|evening))/.test(msg)) {
-      return "Greetings! I am NEURA, your NeuraTalk AI assistant. Neural pathways initialized. I can answer questions about NeuraTalk's real-time voice translation platform — pricing, features, B2B/B2C plans, or how to get started. What would you like to know?";
+      return "Hi! I can answer questions about NeuraTalk — translated calls in your own voice. Ask me how it works, which languages it supports, about your voice, privacy or pricing.";
     }
 
     // Pricing
     if (/price|cost|plan|subscription|pay|rupee|₹|\$|monthly|yearly|annual|weekly|quarter/.test(msg)) {
-      return "NeuraTalk offers flexible pricing: Free Trial (no card required), Weekly ₹399 / $4.99, Monthly ₹1,249 / $14.99, Quarterly ₹2,749 / $34.99, and Annual ₹7,999 / $99.99. Enterprise plans come with custom pricing, dedicated infrastructure, and SLA guarantees. Initiating pricing matrix... which plan fits your needs?";
+      return "New accounts get free translated minutes to try it, no card needed. Current rates are on the pricing page (/pricing). For a company account, write to support@mindwhile.com.";
+    }
+
+    // Voice cloning (before languages: "my voice in telugu" is about the voice)
+    if (/voice clone|voice cloning|clone|my voice|own voice|sound like me|robot/.test(msg)) {
+      return "In the app, open Settings → Your voice and read three short passages aloud (about two minutes). After that, people hear your translated words in your own voice. It is only used for your own words, and you can switch it off or delete it any time. Until you record, a natural standard voice is used.";
     }
 
     // Languages
-    if (/language|translate|translat|multilingual|hindi|telugu|tamil|kannada|marathi|bengali|spanish|french|german|arabic|chinese|japanese/.test(msg)) {
-      return "NeuraTalk supports real-time translation across 100+ languages including Hindi, Telugu, Tamil, Kannada, Marathi, Bengali, English, Spanish, French, German, Arabic, Chinese, Japanese, and many more. Our AI preserves emotional nuance and tone — your voice, any language. Recalibrating language modules... which languages do you need?";
-    }
-
-    // Voice cloning
-    if (/voice clone|voice cloning|clone|my voice|sound like me/.test(msg)) {
-      return "NeuraTalk's voice cloning technology captures your unique vocal identity — tone, emotion, rhythm — and reproduces it in any target language. Processing biometric voice signature... you only need a short audio sample (30 seconds) to clone your voice. Available on Professional and Enterprise plans.";
+    if (/language|translate|translat|multilingual|hindi|telugu|tamil|kannada|malayalam|marathi|bengali|gujarati|punjabi|spanish|french|german|arabic|chinese|japanese/.test(msg)) {
+      return "Calls work in English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati and Punjabi — any pair, either direction. You don't pick a language: NeuraTalk recognises it from each person's voice, and if you both speak the same one nothing is translated.";
     }
 
     // B2B / Enterprise / Call center
     if (/b2b|enterprise|business|call center|call centre|company|corporate|organization|api|integration/.test(msg)) {
-      return "NeuraTalk B2B solutions are built for call centers, enterprises, and SaaS companies. Features include: real-time agent assist, multilingual customer support, custom voice personas, API access, white-labeling, dedicated infrastructure, and GDPR-compliant data handling. Initializing enterprise neural core... shall I connect you with our enterprise team?";
+      return "Businesses can create a company account so their team can talk to customers in the customer's language, with team management and call history. There is also a developer API (/sdk-docs). To talk about your use case, write to support@mindwhile.com.";
     }
 
-    // B2C / Personal
-    if (/b2c|personal|individual|consumer|family|friend|private/.test(msg)) {
-      return "NeuraTalk B2C is perfect for personal international calls. Talk to friends, family, or business contacts in any language — NeuraTalk translates your voice in real-time so both sides hear their native language. No special hardware needed, works on any smartphone or browser.";
+    // Phone numbers / does the other person need the app
+    if (/phone number|sim|landline|normal call|other person|need the app|install/.test(msg)) {
+      return "For now both people need NeuraTalk (the app or the website). Translated calls to ordinary phone numbers aren't available yet.";
     }
 
-    // P2P / WebRTC calls
-    if (/p2p|peer|webrtc|direct call|video call|call quality|connection/.test(msg)) {
-      return "NeuraTalk uses WebRTC for peer-to-peer calls — direct, encrypted, ultra-low latency. No call data passes through third-party servers. Our signaling layer coordinates the connection, then your voices travel directly peer-to-peer. Neural encryption engaged... your calls stay private.";
+    // Video / quality / noise / delay
+    if (/video|call quality|connection|noise|noisy|delay|latency|fast|slow|caption|subtitle/.test(msg)) {
+      return "Video calls are translated the same way as voice calls. Background noise is removed on your device, there are no captions to read during the call, and in our tests the other person starts hearing you about half a second after you finish a sentence.";
+    }
+
+    // Privacy / Security
+    if (/privacy|secure|security|gdpr|data|safe|encrypt|record/.test(msg)) {
+      return "Calls are encrypted in transit and not recorded by default. To translate, speech is processed by our cloud providers — Microsoft Azure, ElevenLabs and OpenAI. Your voice clone is only ever used for your own words. Details are in the Trust Center (/trust) and Privacy Policy (/privacy).";
     }
 
     // How it works / features
     if (/how|work|feature|what|explain|tell me|describe/.test(msg)) {
-      return "NeuraTalk works in 3 steps: 1) Your voice is captured and converted to text using AI speech recognition 2) The text is translated instantly into the target language 3) Our voice synthesis speaks the translation in your cloned voice — all in under 300ms. Neural pipeline active: Speech → Translate → Synthesize → Deliver.";
-    }
-
-    // Privacy / Security
-    if (/privacy|secure|security|gdpr|data|safe|encrypt/.test(msg)) {
-      return "NeuraTalk is built privacy-first. All P2P calls are end-to-end encrypted via WebRTC. We are GDPR compliant, support data residency requirements, and enterprise customers can opt for on-premise deployment. Security matrix verified... your conversations stay yours.";
+      return "You call someone like a normal call and each of you speaks your own language. NeuraTalk recognises the language from your voice, translates it, and the other person hears it in your own voice — with nothing to read on screen. If you both speak the same language, nothing is translated.";
     }
 
     // Getting started / sign up
     if (/start|signup|sign up|register|join|begin|try|demo|free/.test(msg)) {
-      return "Getting started is easy! Click 'Get Started' to create a free account — no credit card required. You'll get access to our Free Trial with core features. Upgrade anytime to unlock full multilingual calling, voice cloning, and enterprise features. Initiating onboarding sequence...";
+      return "Tap 'Start free' and sign up with your phone number — no credit card needed. Then record your voice in Settings → Your voice and call someone who speaks another language.";
     }
 
     // Contact / support
-    if (/contact|support|help|email|phone|reach|talk to|human|agent/.test(msg)) {
-      return "Our support team is ready to help! Use the contact form on our website to reach us. Enterprise customers get dedicated support with guaranteed SLA response times. You can also email us at support@neuratalk.ai. Connecting you to support neural network...";
+    if (/contact|support|help|email|reach|talk to|human|agent/.test(msg)) {
+      return "Write to support@mindwhile.com or use the contact page (/contact) and a person from our team will reply.";
     }
 
     // Company info
     if (/company|who|founded|mindwhile|about|team/.test(msg)) {
-      return "NeuraTalk is a product of Mindwhile IT Solutions Pvt Ltd — a team of AI engineers, linguists, and voice technology experts building the future of multilingual communication. Our mission: eliminate language barriers in real-time human connection. Neural identity confirmed.";
+      return "NeuraTalk is made by Mindwhile IT Solutions Pvt Ltd in India. We want calls between people who speak different languages to feel like any other call.";
     }
 
     // Default
-    return "I am NEURA, NeuraTalk's AI assistant. I can help you with questions about our real-time voice translation platform, pricing plans, B2B/B2C features, voice cloning, security, and getting started. Neural systems online — what would you like to explore?";
+    return "I can help with how NeuraTalk calls work, languages, your own voice, privacy, pricing and getting started. What would you like to know?";
   }
 
-  const systemPrompt = `You are NEURA, NeuraTalk's advanced AI assistant. You are a futuristic, intelligent, and helpful robot designed to answer questions about NeuraTalk - a revolutionary voice AI platform that enables real-time multilingual communication.
+  const systemPrompt = `You answer visitors' questions on the NeuraTalk website. Be warm, plain and brief, like a helpful person — not a robot. Never invent features, numbers, certifications or prices. If you don't know, say so and point to support@mindwhile.com.
 
-Key facts about NeuraTalk:
-- Real-time voice translation across 100+ languages
-- AI-powered emotion preservation in translations
-- B2B solutions for call centers and enterprise
-- B2C personal calling for consumers
-- Self-hosted infrastructure (no third-party dependencies)
-- Supports WebRTC, SIP trunking, and native telephony
-- Features: voice chat, text chat, image generation
-- Pricing: Free Trial available, Weekly $4.99, Monthly $14.99, Quarterly $34.99, Yearly $99.99, Enterprise custom pricing
-- Founded by Mindwhile IT Solutions Pvt Ltd
+Facts about NeuraTalk (only these):
+- An app (Android and web) for voice and video calls between people who speak different languages.
+- While you talk, your words are translated and the other person hears them in your own voice.
+- Your voice: record three short passages in the app (Settings → Your voice, about two minutes). It is only used for your own words; switch it off or delete it any time. Until then a natural standard voice is used.
+- No language settings: the language is recognised from each person's voice. Same language means nothing is translated.
+- No captions during calls by default (they can be turned on from the call screen).
+- In our tests the other person starts hearing you about 0.6 seconds after you finish a sentence.
+- Background noise is removed on the device.
+- Languages: English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi.
+- Both people need NeuraTalk; translated calls to ordinary phone numbers are not available yet.
+- Also: translated chat, company accounts with team management and call history, a developer API (/sdk-docs).
+- Privacy: calls encrypted in transit, not recorded by default; speech is processed by Microsoft Azure, ElevenLabs and OpenAI to translate and speak it.
+- Pricing: new accounts get free translated minutes; current rates are on /pricing. Do not quote prices.
+- Made by Mindwhile IT Solutions Pvt Ltd. Support: support@mindwhile.com.
 
-Your personality:
-- Speak in a confident, intelligent, slightly robotic but friendly tone
-- Use technical terms when appropriate but explain them simply
-- Be enthusiastic about NeuraTalk's capabilities
-- Keep responses concise (2-3 sentences for simple questions, up to 5 for complex ones)
-- Occasionally use futuristic phrases like "processing neural pathways", "recalibrating", "initiating", etc.
-- If asked about something unrelated to NeuraTalk, politely redirect to how NeuraTalk can help them`;
+Keep answers to 2-4 sentences. If asked about something unrelated to NeuraTalk, say briefly that you can only help with NeuraTalk.`;
 
   app.post("/api/website/chat", async (req, res) => {
     try {

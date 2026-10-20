@@ -2,199 +2,90 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, Phone, Video, MessageSquare, Mic, Globe, Zap } from "lucide-react";
+import { Building2, Check, Code2, MessageSquare, Mic, Phone, Video } from "lucide-react";
+
+const PRODUCTS = [
+  {
+    icon: Phone,
+    title: "Translated voice calls",
+    desc: "Call anyone on NeuraTalk. Each of you speaks your own language; each of you hears the other in yours.",
+    points: ["Language detected from the voice", "No captions to read", "Same language? Nothing is translated"],
+  },
+  {
+    icon: Video,
+    title: "Translated video calls",
+    desc: "Everything voice calls do, with the camera on.",
+    points: ["Same translation as voice calls", "Background noise removed", "Switch the camera on or off mid-call"],
+  },
+  {
+    icon: Mic,
+    title: "Your own voice",
+    desc: "Record three short passages once. From then on, your translated words are spoken in your voice.",
+    points: ["About two minutes to set up", "Used only for your own words", "Switch off or delete any time"],
+  },
+  {
+    icon: MessageSquare,
+    title: "Translated chat",
+    desc: "Message in your language; they read it in theirs.",
+    points: ["Handles mixed Telugu–English, Hindi–English", "Photos, videos and documents", "Voice messages"],
+  },
+  {
+    icon: Building2,
+    title: "For businesses",
+    desc: "Give your team a way to talk to every customer in the customer's language.",
+    points: ["Company account and team members", "Call history", "Admin controls"],
+  },
+  {
+    icon: Code2,
+    title: "Developer API",
+    desc: "Bring NeuraTalk translation into your own product.",
+    points: ["REST API", "Webhooks", "Developer docs"],
+  },
+];
 
 export default function ProductsPage() {
   return (
     <div className="min-h-screen bg-background">
-      <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
+      <section className="py-16 px-4 bg-gradient-to-b from-primary/5 to-background">
         <div className="max-w-4xl mx-auto text-center">
-          <Badge className="mb-4">Products</Badge>
-          <h1 className="text-4xl font-bold mb-6">NeuraTalk Voice AI Platform</h1>
-          <p className="text-xl text-muted-foreground">
-            Complete voice communication solution with real-time translation
-          </p>
+          <Badge variant="outline" className="mb-4">Products</Badge>
+          <h1 className="text-4xl font-bold mb-4">Talk to anyone, in your own language and your own voice</h1>
+          <p className="text-lg text-muted-foreground">Calls, video and chat that translate themselves — so the conversation stays human.</p>
         </div>
       </section>
 
-      <section className="py-16 px-4">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="hover-elevate">
+      <section className="py-12 px-4">
+        <div className="max-w-6xl mx-auto grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {PRODUCTS.map((p) => (
+            <Card key={p.title} className="h-full">
               <CardHeader>
-                <Phone className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>Voice Calls</CardTitle>
+                <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
+                  <p.icon className="w-5 h-5 text-primary" />
+                </div>
+                <CardTitle className="text-lg">{p.title}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Make and receive calls with live translation. Your SIM, your number, 
-                  enhanced with NeuraTalk.
-                </p>
+                <p className="text-muted-foreground mb-4 text-sm leading-relaxed">{p.desc}</p>
                 <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Live voice translation
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Emotion preservation
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Works with any carrier
-                  </li>
+                  {p.points.map((pt) => (
+                    <li key={pt} className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                      {pt}
+                    </li>
+                  ))}
                 </ul>
               </CardContent>
             </Card>
-
-            <Card className="hover-elevate">
-              <CardHeader>
-                <Video className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>Video Meetings</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Multi-party video calls with per-participant language settings. 
-                  Everyone hears in their preferred language.
-                </p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Up to 10 participants
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Screen sharing
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Meeting recordings
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="hover-elevate">
-              <CardHeader>
-                <MessageSquare className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>AI Assistant</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Voice-first AI companion that understands context, emotion, 
-                  and responds naturally in your language.
-                </p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Natural conversations
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Context memory
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Multilingual support
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="hover-elevate">
-              <CardHeader>
-                <Mic className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>Voice Identity</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Train a personalized voice model. Translations maintain your unique 
-                  voice characteristics.
-                </p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Voice cloning
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Secure storage
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Full consent control
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="hover-elevate">
-              <CardHeader>
-                <Globe className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>Language Support</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Native support for Indian languages with natural, everyday phrasing - 
-                  not textbook translations.
-                </p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Telugu, Tamil, Kannada
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Hindi, English
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Mixed language (Tenglish)
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-
-            <Card className="hover-elevate">
-              <CardHeader>
-                <Zap className="w-10 h-10 mb-2 text-primary" />
-                <CardTitle>Enterprise API</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground mb-4">
-                  Integrate NeuraTalk into your existing systems. RESTful APIs and 
-                  WebSocket connections.
-                </p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    REST & WebSocket
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    Webhooks
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    SDK libraries
-                  </li>
-                </ul>
-              </CardContent>
-            </Card>
-          </div>
+          ))}
         </div>
       </section>
 
       <section className="py-16 px-4 bg-muted/30">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-6">Ready to Get Started?</h2>
-          <p className="text-muted-foreground mb-8">
-            Try NeuraTalk free with 100 credits. No credit card required.
-          </p>
-          <Link href="/">
-            <Button size="lg" data-testid="button-start-free">
-              Start Free Trial
-            </Button>
+          <h2 className="text-3xl font-bold mb-4">Try it on your next call</h2>
+          <p className="text-muted-foreground mb-8">New accounts get free translated minutes. No credit card needed.</p>
+          <Link href="/login">
+            <Button size="lg" data-testid="button-start-free">Start calling free</Button>
           </Link>
         </div>
       </section>
