@@ -32,6 +32,25 @@
           "other_platform_oauth_client": []
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:612487293092:android:739975d498cb5335335e31",
+        "android_client_info": {
+          "package_name": "com.Mindwhile.neuratalk.business"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA065dn3hl2DZBP-TwRKfEKVbLgKLnBbgg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

@@ -1,10 +1,12 @@
-enum PushTargetType { personalChat, groupChat, businessChat }
+enum PushTargetType { personalChat, groupChat, businessChat, businessInbox }
 
 class PushTarget {
-  const PushTarget({required this.type, required this.id});
+  const PushTarget({required this.type, required this.id, this.businessId});
 
   final PushTargetType type;
   final int id;
+  /// For [PushTargetType.businessInbox]: the business the conversation belongs to.
+  final int? businessId;
 
   static PushTarget? fromData(Map<String, dynamic> data) {
     final type = data['type'];
@@ -23,6 +25,11 @@ class PushTarget {
         targetType = PushTargetType.businessChat;
         idValue = data['businessId'];
         break;
+      case 'business_inbox_message':
+        final id = int.tryParse(data['conversationId']?.toString() ?? '');
+        final businessId = int.tryParse(data['businessId']?.toString() ?? '');
+        if (id == null || businessId == null) return null;
+        return PushTarget(type: PushTargetType.businessInbox, id: id, businessId: businessId);
       default:
         return null;
     }

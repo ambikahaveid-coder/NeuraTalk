@@ -20,6 +20,8 @@ import 'screens/main_shell.dart';
 import 'screens/incoming_call_screen.dart';
 import 'screens/call_screen.dart';
 import 'widgets/brand_logo.dart';
+import 'app_variant.dart';
+import 'business/business_shell.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -91,7 +93,7 @@ class NeuraTalkApp extends StatelessWidget {
       child: Consumer<ThemeController>(
         builder: (_, appearance, __) => MaterialApp(
           navigatorKey: navigatorKey,
-          title: 'NeuraTalk',
+          title: appDisplayName,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: appearance.mode,
@@ -133,6 +135,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         context.read<CallService>().pollNow();
         final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
         if (userId != null) unawaited(PushService.init(userId: userId));
+        unawaited(CallKitService.resumePendingAccept());
       }
     }
   }
@@ -152,6 +155,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
           final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
           if (userId != null) unawaited(PushService.init(userId: userId));
           unawaited(ContactResolver.instance.ensureLoaded());
+          WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(CallKitService.resumePendingAccept()));
         } else {
           calls.stopPolling();
           context.read<PersonalChatProvider>().reset();
@@ -163,6 +167,8 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
         if (userId != null) unawaited(PushService.init(userId: userId));
         unawaited(ContactResolver.instance.ensureLoaded());
+        // A call accepted from the lock screen while the app was closed.
+        WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(CallKitService.resumePendingAccept()));
       }
     }
   }
@@ -254,8 +260,10 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
       return const BrandSplash();
     }
     if (!auth.isLoggedIn) {
-      return auth.onboardingDone ? const LoginScreen() : const OnboardingScreen();
+      // The business app goes straight to login (the onboarding tour is
+      // about personal translated calls).
+      return auth.onboardingDone || isBusinessApp ? const LoginScreen() : const OnboardingScreen();
     }
-    return const MainShell();
+    return isBusinessApp ? const BusinessShell() : const MainShell();
   }
 }

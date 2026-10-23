@@ -248,7 +248,12 @@ export async function sendVoIPPush(
         // otherwise, since nothing previously pruned these. Anything else
         // (transient network/quota errors) is left alone to retry normally.
         const code = result.error?.code;
-        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token") {
+        const message = result.error?.message ?? "";
+        // Production showed these arriving as message "NotRegistered" (an
+        // old install's token); match the message too, or dead tokens are
+        // retried on every call forever.
+        if (code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token"
+          || /NotRegistered|Requested entity was not found|registration token is not a valid/i.test(message)) {
           deadTokens.push(tokens[index]);
         }
       }

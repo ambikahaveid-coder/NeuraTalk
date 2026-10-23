@@ -6,6 +6,7 @@ import 'calls_screen.dart';
 import 'contacts_screen.dart';
 import 'settings_screen.dart';
 import 'language_preferences_screen.dart';
+import '../services/call_readiness.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -35,11 +36,14 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     // First login on this device: ask which language to translate into (brand mockup 03).
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!await LanguagePreferencesScreen.needsFirstRunChoice() || !mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => const LanguagePreferencesScreen(firstRun: true),
-      ));
+      if (await LanguagePreferencesScreen.needsFirstRunChoice() && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => const LanguagePreferencesScreen(firstRun: true),
+        ));
+      }
+      // Then make sure calls can ring while the app is closed.
+      if (mounted) await CallReadiness.ensure(context);
     });
   }
 

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart' show navigatorKey;
 import '../models/push_target.dart';
 import '../providers/personal_chat_provider.dart';
+import '../business/business_shell.dart';
 import '../screens/business_messages_screen.dart';
 import '../screens/conversation_screen.dart';
 import '../screens/group_conversation_screen.dart';
@@ -222,6 +223,11 @@ class PushService {
         case PushTargetType.businessChat:
           unawaited(navigator.push(MaterialPageRoute(
             builder: (_) => BusinessChatScreen(businessId: target.id),
+          )));
+          break;
+        case PushTargetType.businessInbox:
+          unawaited(navigator.push(MaterialPageRoute(
+            builder: (_) => BusinessConversationScreen(businessId: target.businessId!, conversationId: target.id),
           )));
           break;
       }

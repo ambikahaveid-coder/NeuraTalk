@@ -377,6 +377,15 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "business_otp_challenges" ADD COLUMN IF NOT EXISTS "delivery_ciphertext" text`);
     // Permission to learn the caller's own voice from their calls (additive).
     await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "voice_learning_consent_at" timestamp`);
+    // App users stay signed in (90-day rolling sessions). Sessions created
+    // under the old 24 h rule are moved to the long window once; super-admins
+    // keep 24 h. Idempotent: only touches still-valid sessions.
+    await _db.execute(_sql`
+      UPDATE "user_sessions" s SET "expires_at" = now() + interval '90 days'
+      FROM "users" u
+      WHERE u."id" = s."user_id" AND u."role" <> 'super_admin'
+        AND s."expires_at" > now()
+        AND s."expires_at" - coalesce(s."last_activity_at", s."created_at") < interval '2 days'`);
     // Business catalog shown to customers in business chats (additive).
     await _db.execute(_sql`
       CREATE TABLE IF NOT EXISTS "business_catalog_items" (

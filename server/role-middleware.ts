@@ -246,6 +246,11 @@ function extractRequestedTenantBinding(req: Request): SessionValidationOptions {
 // ============================================================================
 
 const SESSION_EXPIRY_HOURS = 24;
+// People stay signed in on their phone like any messaging app: 90 days,
+// renewed on every use. Platform super-admins keep the short 24 h window.
+export const LONG_SESSION_DAYS = 90;
+const LONG_SESSION_MS = LONG_SESSION_DAYS * 24 * 60 * 60 * 1000;
+const SHORT_SESSION_MS = SESSION_EXPIRY_HOURS * 60 * 60 * 1000;
 
 /**
  * Generate cryptographically secure session token
@@ -296,7 +301,8 @@ export async function createSession(
   options?: SessionCreateOptions,
 ): Promise<string> {
   const token = generateSecureToken();
-  const expiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000);
+  const [owner] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).catch(() => []);
+  const expiresAt = new Date(Date.now() + (owner?.role === "super_admin" ? SHORT_SESSION_MS : LONG_SESSION_MS));
 
   try {
     const sessionOptions = await resolveSessionCreateOptions(userId, options);
@@ -372,7 +378,11 @@ export async function getSessionDetails(
       return null;
     }
 
-    const newExpiresAt = new Date(Date.now() + SESSION_EXPIRY_HOURS * 60 * 60 * 1000);
+    // Keep the window this session was created with (long for app users,
+    // short for super-admins): renew by the same length.
+    const lastSeen = (session.lastActivityAt ?? session.createdAt ?? new Date()).getTime();
+    const windowMs = session.expiresAt.getTime() - lastSeen > 2 * SHORT_SESSION_MS ? LONG_SESSION_MS : SHORT_SESSION_MS;
+    const newExpiresAt = new Date(Date.now() + windowMs);
     await db.update(userSessions)
       .set({
         lastActivityAt: new Date(),

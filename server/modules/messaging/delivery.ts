@@ -32,6 +32,7 @@ import {
   messagingMessages,
   messagingParticipants,
   organizations,
+  users,
   MESSAGE_DELIVERY_STATUS,
   MESSAGING_PARTICIPANT_TYPE,
 } from "@shared/schema";
@@ -166,6 +167,14 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
           createdAt: (message.createdAt ?? now).toISOString(),
         },
       });
+    }
+
+    // A customer wrote: ring the business team's phones (NeuraTalk
+    // Business app) -- the assigned agent, or everyone on the team if the
+    // chat is not assigned yet.
+    const [senderParticipant] = await db.select().from(messagingParticipants).where(eq(messagingParticipants.id, message.senderParticipantId));
+    if (senderParticipant && isCustomerSide(senderParticipant)) {
+      void notifyBusinessTeam(input.businessId, businessConversationId, bizConv.assignedToUserId ?? null, customer?.id ?? null, message.content);
     }
 
     if (consumerIsRecipient && consumerUserId) {
@@ -330,4 +339,32 @@ export async function countDeliveryOutcomes(messageIds: number[]): Promise<{ acc
     if (status === MESSAGE_DELIVERY_STATUS.READ) counts.read++;
   });
   return counts;
+}
+async function notifyBusinessTeam(
+  businessId: number,
+  businessConversationId: number,
+  assignedToUserId: number | null,
+  customerId: number | null,
+  content: string,
+): Promise<void> {
+  try {
+    const team = await db.select({ id: users.id, role: users.role }).from(users)
+      .where(and(eq(users.organizationId, businessId), eq(users.isActive, true)));
+    const recipients = assignedToUserId && team.some((u) => u.id === assignedToUserId)
+      ? [assignedToUserId]
+      : team.map((u) => u.id);
+    if (recipients.length === 0) return;
+    const [customer] = customerId
+      ? await db.select({ name: customers.name, phone: customers.phone }).from(customers).where(eq(customers.id, customerId))
+      : [];
+    const title = customer?.name || customer?.phone || "New customer message";
+    const body = notificationPreview({ content });
+    await Promise.allSettled(recipients.map((userId) => sendPushNotification(userId, {
+      title,
+      body,
+      data: { type: "business_inbox_message", businessId: String(businessId), conversationId: String(businessConversationId) },
+    })));
+  } catch (error) {
+    logger.warn("BusinessDelivery", `team notification failed for business ${businessId}: ${String(error)}`);
+  }
 }

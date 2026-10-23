@@ -4,6 +4,7 @@ import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../main.dart' show navigatorKey;
 import '../screens/call_screen.dart';
+import 'api_service.dart';
 import 'call_service.dart';
 
 /// Native OS-level incoming-call UI (a full-screen ringing activity + system
@@ -16,6 +17,62 @@ import 'call_service.dart';
 /// handler registered in main.dart).
 class CallKitService {
   static bool _listening = false;
+  /// Accept tapped while the app was closed: the app is still starting (no
+  /// call service, navigator or session yet). Joined by [resumePendingAccept]
+  /// once the app is ready -- it used to be silently dropped, so calls only
+  /// worked while the app was open.
+  static String? _pendingAcceptedCallId;
+  static bool _resuming = false;
+
+  /// Call once the app is signed in and on screen (startup and every resume).
+  static Future<void> resumePendingAccept() async {
+    if (_resuming) return;
+    _resuming = true;
+    try {
+      var callId = _pendingAcceptedCallId;
+      if (callId == null) {
+        // Cold start: the accept event may have fired before our listener;
+        // the plugin still knows which ringing call was accepted.
+        try {
+          final active = await FlutterCallkitIncoming.activeCalls();
+          if (active is List) {
+            for (final call in active) {
+              if (call is Map && call['isAccepted'] == true && call['id'] is String) {
+                callId = call['id'] as String;
+                break;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+      if (callId == null) return;
+      _pendingAcceptedCallId = null;
+      await _joinAccepted(callId);
+    } finally {
+      _resuming = false;
+    }
+  }
+
+  static Future<void> _joinAccepted(String callId) async {
+    final callService = CallService.instance;
+    final navigator = navigatorKey.currentState;
+    if (callService == null || navigator == null || !ApiService.isLoggedIn) {
+      _pendingAcceptedCallId = callId;
+      return;
+    }
+    callService.markHandledExternally(callId);
+    try {
+      final session = await callService.fetchAndAnswerIncoming(callId);
+      if (session != null) {
+        navigator.push(MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
+      } else {
+        await FlutterCallkitIncoming.endCall(callId);
+      }
+    } catch (_) {
+      // The caller hung up or it was answered elsewhere.
+      await FlutterCallkitIncoming.endCall(callId);
+    }
+  }
 
   static Future<void> showIncomingCall({
     required String callId,
@@ -96,21 +153,7 @@ class CallKitService {
 
       switch (event.event) {
         case Event.actionCallAccept:
-          if (callService == null) break;
-          callService.markHandledExternally(callId);
-          try {
-            final session = await callService.fetchAndAnswerIncoming(callId);
-            if (session != null) {
-              navigatorKey.currentState?.push(
-                MaterialPageRoute(
-                  builder: (_) => CallScreen(session: session, callService: callService),
-                ),
-              );
-            }
-          } catch (_) {
-            // Best-effort -- the call may have already expired or been
-            // answered/declined elsewhere; nothing more to do here.
-          }
+          await _joinAccepted(callId);
           break;
         case Event.actionCallDecline:
           // A deliberate user action (swipe/tap Decline) -- genuinely reject

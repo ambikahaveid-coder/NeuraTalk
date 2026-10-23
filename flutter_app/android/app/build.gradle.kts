@@ -75,6 +75,23 @@ android {
         }
     }
 
+    // Two apps from one codebase, installable side by side:
+    //   customer -> "NeuraTalk"           (com.Mindwhile.neuratalk)
+    //   business -> "NeuraTalk Business"  (com.Mindwhile.neuratalk.business)
+    // Build with --flavor customer|business plus --dart-define=APP_VARIANT=...
+    flavorDimensions += "app"
+    productFlavors {
+        create("customer") {
+            dimension = "app"
+            resValue("string", "app_name", "NeuraTalk")
+        }
+        create("business") {
+            dimension = "app"
+            applicationIdSuffix = ".business"
+            resValue("string", "app_name", "NeuraTalk Business")
+        }
+    }
+
     lint {
         checkReleaseBuilds = false
         abortOnError = false
