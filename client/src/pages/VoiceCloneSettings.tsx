@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Mic, Trash2, ArrowLeft, ShieldCheck, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { getAuthToken, useAuth } from "@/hooks/use-auth";
@@ -141,6 +142,28 @@ export default function VoiceCloneSettings() {
     }
   }
 
+  const learningQuery = useQuery<{ allowed: boolean; ownVoice: "on" | "off" | "none" }>({
+    queryKey: ["/api/voice-training/learning-consent"],
+    queryFn: async () => {
+      const res = await fetch("/api/voice-training/learning-consent", { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Could not load your voice settings");
+      return res.json();
+    },
+  });
+  async function setLearning(allow: boolean) {
+    const res = await fetch("/api/voice-training/learning-consent", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${getAuthToken()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ allow }),
+    });
+    if (!res.ok) {
+      toast({ title: "Could not save", description: "Please try again.", variant: "destructive" });
+      return;
+    }
+    qc.invalidateQueries({ queryKey: ["/api/voice-training/learning-consent"] });
+    toast({ title: allow ? "Your voice will be learned on your next call" : "Learning from calls is off" });
+  }
+
   const profile = data?.profile;
   const readyForCalls = profile?.trainingStatus === "ready" && profile?.isEnabled;
 
@@ -156,6 +179,26 @@ export default function VoiceCloneSettings() {
             <p className="text-muted-foreground text-sm">Enroll your voice so translated calls sound like you, not a generic TTS voice.</p>
           </div>
         </div>
+
+        {learningQuery.data && learningQuery.data.ownVoice === "none" && (
+          <Card data-testid="card-learn-voice-from-calls">
+            <CardContent className="pt-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="font-medium">Learn my voice from my calls</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Skip the recordings: NeuraTalk learns your voice from the first half-minute you speak in a call, then the other
+                  person hears your translated words in your own voice. The recording itself is not kept.
+                </p>
+              </div>
+              <Switch
+                checked={learningQuery.data.allowed}
+                onCheckedChange={(value) => setLearning(value)}
+                aria-label="Learn my voice from my calls"
+                data-testid="switch-learn-voice"
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>

@@ -46,6 +46,38 @@ export function decrypt(encryptedText: string): string {
 }
 
 export function registerVoiceTrainingRoutes(app: Express): void {
+  // "Speak my translations in my own voice": the one-time permission that
+  // lets calls learn the caller's voice (server/voice-learning.ts), plus
+  // whether their own voice is ready yet. Always the caller's own account.
+  app.get("/api/voice-training/learning-consent", loadUser, requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const [user] = await db.select({ consentAt: users.voiceLearningConsentAt }).from(users).where(eq(users.id, userId));
+      const [profile] = await db.select().from(voiceProfiles)
+        .where(and(eq(voiceProfiles.userId, userId), eq(voiceProfiles.isCustom, true)));
+      const ready = !!profile && profile.trainingStatus === "ready" && profile.voiceId.startsWith("eleven_");
+      res.json({
+        allowed: !!user?.consentAt,
+        ownVoice: ready ? (profile!.isEnabled ? "on" : "off") : "none",
+      });
+    } catch (error) {
+      console.error("[VoiceTraining] learning-consent read failed:", error);
+      res.status(500).json({ error: "Could not load your voice settings" });
+    }
+  });
+
+  app.put("/api/voice-training/learning-consent", loadUser, requireAuth, async (req: Request, res: Response) => {
+    if (typeof req.body?.allow !== "boolean") return res.status(400).json({ error: "allow must be true or false" });
+    try {
+      const allow = req.body.allow as boolean;
+      await db.update(users).set({ voiceLearningConsentAt: allow ? new Date() : null }).where(eq(users.id, req.user!.id));
+      res.json({ allowed: allow });
+    } catch (error) {
+      console.error("[VoiceTraining] learning-consent update failed:", error);
+      res.status(500).json({ error: "Could not save your choice" });
+    }
+  });
+
   app.post("/api/voice-training/request-upload", loadUser, requireAuth, async (req: Request, res: Response) => {
     try {
       const { consent } = req.body;

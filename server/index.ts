@@ -375,6 +375,8 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "display_name" text`);
     // In-app business OTP delivery: encrypted code until used (additive).
     await _db.execute(_sql`ALTER TABLE "business_otp_challenges" ADD COLUMN IF NOT EXISTS "delivery_ciphertext" text`);
+    // Permission to learn the caller's own voice from their calls (additive).
+    await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "voice_learning_consent_at" timestamp`);
   }, { optional: true });
   let redisOperational = false;
   try {

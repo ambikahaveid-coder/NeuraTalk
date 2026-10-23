@@ -219,6 +219,10 @@ export const users = pgTable("users", {
   // translator bot pipeline) even if the other participant's language
   // differs. Defaults on since that's the whole point of the app.
   translationEnabled: boolean("translation_enabled").notNull().default(true),
+  // When set, the person allowed NeuraTalk to learn their voice from their
+  // own call speech (server/voice-learning.ts) so translations sound like
+  // them. Null = not allowed (the default).
+  voiceLearningConsentAt: timestamp("voice_learning_consent_at"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   uniqueIndex("users_email_unique_idx").on(table.email).where(sql`email IS NOT NULL`),

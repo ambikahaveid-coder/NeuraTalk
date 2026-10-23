@@ -39,6 +39,7 @@ import {
   type ListenerTranslationMode,
 } from "./translation/translation-service";
 import { buildTtsFailedEvent, buildTtsReadyEvent } from "./translation/tts-service";
+import { CallVoiceLearner, canLearnVoice } from "./voice-learning";
 import { UtteranceAudioBuffer, refineCodemixTranscript, shouldRefineCodemix } from "./translation/codemix-stt-refiner";
 import {
   registerParticipantTranscript,
@@ -228,6 +229,9 @@ interface SpeakerPipeline {
   reconnectStartedAt?: number;
   /** ElevenLabs voice id of this speaker's approved cloned voice, if any. */
   clonedVoiceId?: string | null;
+  /** Learning their voice from this call (no voice yet, permission given). */
+  voiceLearner?: CallVoiceLearner | null;
+  voiceLearningCheckedAt?: number;
   /** Cached answer to "does anyone listening need this speaker translated?" */
   needsTranslation?: boolean;
   needsTranslationCheckedAt?: number;
@@ -594,6 +598,14 @@ class LiveKitRealtimeTranslatorBot {
           // speaker directly, so skip speech-to-text entirely (no cost, no
           // delay). It starts again the moment someone with a different
           // language joins or switches language.
+          // Learning this caller's own voice uses their clear speech whether
+          // or not this particular call needs translation.
+          pipeline.voiceLearner?.push(frame.data, computeRms(frame.data) >= VAD_THRESHOLD);
+          // Permission can be given mid-call: look again every 30 s.
+          if (!pipeline.clonedVoiceId && !pipeline.voiceLearner && now - (pipeline.voiceLearningCheckedAt ?? now) >= 30_000) {
+            pipeline.voiceLearningCheckedAt = now;
+            void this.startVoiceLearning(pipeline);
+          }
           if (!this.speakerNeedsTranslation(pipeline, now)) {
             if (pipeline.deepgram) {
               const stt = pipeline.deepgram;
@@ -757,7 +769,9 @@ class LiveKitRealtimeTranslatorBot {
         if (voiceId) {
           logger.info("TranslatorBot", `[${this.callId}] ${participant.identity}: translations will use their cloned voice`);
           void warmElevenLabsVoice(voiceId);
+          return;
         }
+        return this.startVoiceLearning(pipeline);
       })
       .catch(() => undefined);
     await setParticipantLanguagePreference(this.callId, participant.identity, preferredLanguage).catch(() => undefined);
@@ -1790,7 +1804,33 @@ class LiveKitRealtimeTranslatorBot {
     }
   }
 
+  /**
+   * No voice of their own yet: with their permission, learn it from what
+   * they say in this call, then speak their translations in it from that
+   * moment on (until then the listener gets their original voice + captions).
+   */
+  private async startVoiceLearning(pipeline: SpeakerPipeline): Promise<void> {
+    pipeline.voiceLearningCheckedAt = Date.now();
+    if (this.closed || pipeline.voiceLearner || pipeline.clonedVoiceId || !(await canLearnVoice(pipeline.identity))) return;
+    logger.info("TranslatorBot", `[${this.callId}] ${pipeline.identity}: learning their voice from this call`);
+    pipeline.voiceLearner = new CallVoiceLearner(pipeline.identity, FRAME_DURATION_MS, (voiceId) => {
+      pipeline.clonedVoiceId = voiceId;
+      void warmElevenLabsVoice(voiceId);
+      for (const key of Array.from(this.noVoiceNoticesSent)) {
+        if (key.startsWith(`${pipeline.identity}=>`)) this.noVoiceNoticesSent.delete(key);
+      }
+      void this.publishTranslationMessage({
+        type: "translation",
+        from: this.botIdentity,
+        payload: { type: "voice_ready", sourceIdentity: pipeline.identity },
+        ts: Date.now(),
+      });
+    });
+  }
+
   private async disposeSpeakerPipeline(pipeline: SpeakerPipeline): Promise<void> {
+    await pipeline.voiceLearner?.flush().catch(() => {});
+    pipeline.voiceLearner = null;
     await pipeline.deepgram?.close().catch(() => {});
     pipeline.deepgram = null;
 

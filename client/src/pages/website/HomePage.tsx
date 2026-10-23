@@ -27,7 +27,7 @@ const FEATURES = [
   {
     icon: UserRound,
     title: "Your own voice",
-    desc: "Record yourself once in the app. After that, people hear your translated words in your voice. Until then, they hear your original voice with translated captions.",
+    desc: "Record yourself once in the app — or let NeuraTalk learn your voice from the first half-minute of your first call. After that, people hear your translated words in your voice. Until then, they hear your original voice with translated captions.",
   },
   {
     icon: Languages,

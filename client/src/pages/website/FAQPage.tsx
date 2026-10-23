@@ -23,7 +23,7 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "own-voice",
         q: "Will they hear a robot voice?",
-        a: "No. In the app, open Settings → Your voice and read three short passages (about two minutes). After that, your translated words are spoken in your voice. Until then, the other person hears your original voice and sees translated captions — we never use a robot voice.",
+        a: "No. In the app, open Settings → Your voice and read three short passages (about two minutes), or allow NeuraTalk to learn your voice from the first half-minute you speak in a call (the recording itself is not kept). After that, your translated words are spoken in your voice. Until then, the other person hears your original voice and sees translated captions — we never use a robot voice.",
       },
       {
         id: "captions",

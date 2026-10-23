@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../services/voice_consent.dart';
 import '../theme/app_theme.dart';
 import '../utils/languages.dart';
 import '../utils/voice_prompts.dart';
@@ -55,6 +56,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
   bool _consented = false;
   String _uploadStep = '';
   bool _busy = false;
+  bool? _learnAllowed;
 
   int? get _userId => int.tryParse(context.read<AuthProvider>().user?['id']?.toString() ?? '');
 
@@ -84,6 +86,9 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
       final data = await ApiService.get('/api/voice-training/profile/$id');
       if (!mounted) return;
       final hasVoice = data is Map && data['hasCustomVoice'] == true;
+      final consent = await VoiceConsent.status();
+      if (!mounted) return;
+      _learnAllowed = consent?['allowed'] == true;
       setState(() {
         _profile = hasVoice ? Map<String, dynamic>.from(data['profile'] as Map) : null;
         _stage = hasVoice ? _Stage.status : _Stage.intro;
@@ -343,6 +348,22 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
         icon: Icons.lock_outline,
         title: 'Private to you',
         body: 'Recordings are encrypted. Only your calls use your voice, and you can delete it any time.',
+      ),
+      const SizedBox(height: NtSpace.m),
+      NtCard(
+        child: SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _learnAllowed ?? false,
+          onChanged: _learnAllowed == null ? null : (value) async {
+            setState(() => _learnAllowed = value);
+            if (!await VoiceConsent.setAllowed(value) && mounted) setState(() => _learnAllowed = !value);
+          },
+          title: Text('Or learn it from my calls', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+          subtitle: Text(
+            'Skip the reading: NeuraTalk learns your voice from the first half-minute you speak in a call. The recording is not kept.',
+            style: TextStyle(color: AppColors.textSecondary, height: 1.35),
+          ),
+        ),
       ),
     ], SizedBox(
       width: double.infinity,

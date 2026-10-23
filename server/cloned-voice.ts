@@ -10,6 +10,11 @@ import { voiceProfiles } from "@shared/schema";
 const cache = new Map<string, { voiceId: string | null; at: number }>();
 const CACHE_MS = 60_000;
 
+/** A voice was just created (e.g. learned during a call): use it right away. */
+export function rememberClonedVoice(identity: string, voiceId: string | null): void {
+  cache.set(identity, { voiceId, at: Date.now() });
+}
+
 export async function lookupClonedVoiceId(identity: string): Promise<string | null> {
   const userId = Number(identity);
   if (!Number.isInteger(userId) || userId <= 0) return null;

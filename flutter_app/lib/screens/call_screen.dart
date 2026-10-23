@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
+import '../services/voice_consent.dart';
 import '../services/contact_resolver.dart';
 import '../utils/languages.dart';
 import '../widgets/nt_ui.dart';
@@ -122,6 +123,13 @@ class _CallScreenState extends State<CallScreen> {
     _room = lk.Room();
     _videoOn = widget.session.isVideo;
     widget.callService.setActiveCall(widget.session);
+    // One-time question: translate in your own voice? (never for an
+    // incoming call, so answering is never delayed by it)
+    if (!widget.session.isIncoming) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(VoiceConsent.askIfNeeded(context));
+      });
+    }
     if (widget.session.isIncoming || widget.session.isGroup) {
       _connect();
     } else {
@@ -522,6 +530,12 @@ class _CallScreenState extends State<CallScreen> {
 
       // Audio routing first: these events may carry no caption text.
       final speaker = payload['sourceIdentity'];
+      if (type == 'voice_ready' && speaker == me && mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+          content: Text('Your voice is ready — they now hear your translated words in your own voice.'),
+        ));
+        return;
+      }
       if (speaker is String && type == 'tts_ready' && !_readyTranslationSpeakers.contains(speaker)) {
         _readyTranslationSpeakers.add(speaker);
         _applyTranslatedTrack('translated-for-${Uri.encodeComponent(me ?? '')}-from-${Uri.encodeComponent(speaker)}', subscribed: true);
