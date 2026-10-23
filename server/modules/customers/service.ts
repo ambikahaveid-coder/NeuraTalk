@@ -78,6 +78,80 @@ async function findDuplicate(businessId: number, normalizedPhone: string, normal
   return existing ?? null;
 }
 
+function phoneDigits(value: string | null | undefined): string {
+  return String(value ?? "").replace(/\D/g, "");
+}
+
+/**
+ * The NeuraTalk account (if any) behind a customer's phone or email. This is
+ * what lets a business reach a contact inside NeuraTalk -- the same model as
+ * a messaging app finding your contacts by number. The person stays in
+ * control: they can stop promotional messages from any business in the app
+ * (marketing consent is then revoked), and every send still requires consent.
+ */
+export async function findNeuraTalkUserForContact(
+  normalizedPhone: string | null | undefined,
+  normalizedEmail: string | null | undefined,
+  dbClient: DbLike = db,
+): Promise<number | null> {
+  try {
+    return await lookupNeuraTalkUser(normalizedPhone, normalizedEmail, dbClient);
+  } catch (error) {
+    // Best-effort: an unlinked contact is skipped at send time, never charged.
+    logger.warn("Customers", `NeuraTalk account lookup failed: ${String(error)}`);
+    return null;
+  }
+}
+
+async function lookupNeuraTalkUser(
+  normalizedPhone: string | null | undefined,
+  normalizedEmail: string | null | undefined,
+  dbClient: DbLike,
+): Promise<number | null> {
+  const digits = phoneDigits(normalizedPhone);
+  if (digits.length >= 10) {
+    const local = digits.slice(-10);
+    const [byPhone] = await dbClient.select({ id: users.id }).from(users).where(and(
+      eq(users.isActive, true),
+      sql`(
+        regexp_replace(coalesce(${users.phone}, ''), '[^0-9]', '', 'g') = ${digits}
+        OR (length(regexp_replace(coalesce(${users.phone}, ''), '[^0-9]', '', 'g')) = 10
+            AND regexp_replace(coalesce(${users.phone}, ''), '[^0-9]', '', 'g') = ${local}
+            AND ${digits} = ${"91" + local})
+      )`,
+    )).limit(1);
+    if (byPhone) return byPhone.id;
+  }
+  if (normalizedEmail) {
+    const [byEmail] = await dbClient.select({ id: users.id }).from(users)
+      .where(and(eq(users.isActive, true), sql`lower(${users.email}) = ${normalizedEmail.toLowerCase()}`)).limit(1);
+    if (byEmail) return byEmail.id;
+  }
+  return null;
+}
+
+/**
+ * Links an existing, still-unlinked customer to the NeuraTalk account that
+ * matches its phone/email. Returns the linked user id, or null when there is
+ * no match or that account is already linked to another customer row of
+ * this business. Safe to call repeatedly.
+ */
+export async function linkCustomerToNeuraTalkUser(
+  customer: typeof customers.$inferSelect,
+  dbClient: DbLike = db,
+): Promise<number | null> {
+  if (customer.linkedUserId) return customer.linkedUserId;
+  const userId = await findNeuraTalkUserForContact(customer.normalizedPhone, customer.normalizedEmail, dbClient);
+  if (!userId) return null;
+  const [taken] = await dbClient.select({ id: customers.id }).from(customers)
+    .where(and(eq(customers.businessId, customer.businessId), eq(customers.linkedUserId, userId)));
+  if (taken && taken.id !== customer.id) return null;
+  const [updated] = await dbClient.update(customers).set({ linkedUserId: userId, updatedAt: new Date() })
+    .where(and(eq(customers.id, customer.id), sql`${customers.linkedUserId} IS NULL`))
+    .returning({ linkedUserId: customers.linkedUserId });
+  return updated?.linkedUserId ?? null;
+}
+
 export async function createCustomer(businessId: number, actorUserId: number, input: CreateCustomerInput) {
   const [business] = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, businessId));
   if (!business) throw new NotFoundError("Business not found");
@@ -102,9 +176,29 @@ export async function createCustomer(businessId: number, actorUserId: number, in
     );
   }
 
+  // Reach the contact inside NeuraTalk when they have an account. If that
+  // account already talks to this business (they messaged first), it is the
+  // same person: fill in the details on that record instead of a duplicate.
+  let linkedUserId = input.linkedUserId ?? await findNeuraTalkUserForContact(normalizedPhone, normalizedEmailValue);
+  if (linkedUserId) {
+    const [alreadyLinked] = await db.select().from(customers)
+      .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, linkedUserId)));
+    if (alreadyLinked) {
+      await db.update(customers).set({
+        name: alreadyLinked.name || input.name?.trim() || null,
+        phone: alreadyLinked.phone || input.phone?.trim() || null,
+        normalizedPhone: alreadyLinked.normalizedPhone || normalizedPhone || null,
+        email: alreadyLinked.email || input.email?.trim() || null,
+        normalizedEmail: alreadyLinked.normalizedEmail || normalizedEmailValue || null,
+        updatedAt: new Date(),
+      }).where(eq(customers.id, alreadyLinked.id));
+      throw new DuplicateCustomerError("This person is already a customer of this business", alreadyLinked.id);
+    }
+  }
+
   const [customer] = await db.insert(customers).values({
     businessId,
-    linkedUserId: input.linkedUserId ?? null,
+    linkedUserId: linkedUserId ?? null,
     name: input.name?.trim() || null,
     phone: input.phone?.trim() || null,
     normalizedPhone: normalizedPhone || null,
@@ -161,8 +255,29 @@ export async function findOrCreateCustomerByLinkedUser(
   const [business] = await dbClient.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, businessId));
   if (!business) throw new NotFoundError("Business not found");
 
-  const [user] = await dbClient.select({ id: users.id, username: users.username }).from(users).where(eq(users.id, userId));
+  const [user] = await dbClient.select({ id: users.id, username: users.username, phone: users.phone, email: users.email }).from(users).where(eq(users.id, userId));
   if (!user) throw new NotFoundError("User not found");
+
+  // The business may already have this person as a contact (entered by
+  // phone/email before they ever messaged). Link that record rather than
+  // creating a second customer for the same person.
+  const userPhone = user.phone ? normalizePhoneForIndia(user.phone) : "";
+  const userEmail = user.email ? normalizeEmail(user.email) : "";
+  const matchConditions = [];
+  if (userPhone) matchConditions.push(eq(customers.normalizedPhone, userPhone));
+  if (userEmail) matchConditions.push(eq(customers.normalizedEmail, userEmail));
+  if (matchConditions.length > 0) {
+    const [unlinked] = await dbClient.select().from(customers).where(and(
+      eq(customers.businessId, businessId),
+      sql`${customers.linkedUserId} IS NULL`,
+      or(...matchConditions),
+    ));
+    if (unlinked) {
+      const [linked] = await dbClient.update(customers).set({ linkedUserId: userId, updatedAt: new Date() })
+        .where(and(eq(customers.id, unlinked.id), sql`${customers.linkedUserId} IS NULL`)).returning();
+      if (linked) return linked;
+    }
+  }
 
   // onConflictDoNothing backstops the customers_business_linked_user_idx
   // unique constraint: two concurrent calls for the same (businessId,
@@ -299,6 +414,10 @@ export async function updateCustomer(businessId: number, actorUserId: number, cu
   }
 
   const [updated] = await db.update(customers).set(patch).where(eq(customers.id, customerId)).returning();
+  if (!updated.linkedUserId && (input.phone !== undefined || input.email !== undefined)) {
+    const linkedUserId = await linkCustomerToNeuraTalkUser(updated);
+    if (linkedUserId) updated.linkedUserId = linkedUserId;
+  }
 
   await createAuditLog(actorUserId, businessId, AUDIT_ACTION_CUSTOMER.UPDATED, customerId, { fields: Object.keys(patch) });
   return updated;
@@ -346,7 +465,7 @@ export async function getCustomerConsents(businessId: number, customerId: number
 }
 
 export async function setChannelConsent(businessId: number, actorUserId: number, customerId: number, channel: CustomerConsentChannel, granted: boolean, source?: string) {
-  await getOwnedCustomer(businessId, customerId);
+  const customer = await getOwnedCustomer(businessId, customerId);
   if (!Object.values(CUSTOMER_CONSENT_CHANNEL).includes(channel)) {
     throw new ValidationError(`Invalid channel: ${channel}`);
   }
@@ -354,6 +473,13 @@ export async function setChannelConsent(businessId: number, actorUserId: number,
   const status = granted ? CUSTOMER_CONSENT_STATUS.GRANTED : CUSTOMER_CONSENT_STATUS.REVOKED;
   const [existing] = await db.select().from(customerConsents)
     .where(and(eq(customerConsents.customerId, customerId), eq(customerConsents.channel, channel)));
+
+  // A person who switched these messages off in their own app can only
+  // switch them back on themselves -- never the business.
+  const actorIsCustomer = customer.linkedUserId != null && customer.linkedUserId === actorUserId;
+  if (granted && !actorIsCustomer && existing?.status === CUSTOMER_CONSENT_STATUS.REVOKED && existing.source === "customer_app") {
+    throw new ValidationError("This customer turned off these messages in their NeuraTalk app; only they can turn them back on");
+  }
 
   let row;
   if (existing) {

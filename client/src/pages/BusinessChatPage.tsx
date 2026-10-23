@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Building2, Loader2, Send } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,7 +80,12 @@ interface BusinessMessage {
   content: string;
   senderParticipantId: number;
   createdAt: string;
+  category?: string;
+  /** Ticks on MY messages: how far they got on the business side. */
+  deliveryToBusiness?: string | null;
 }
+
+const TICK_LABEL: Record<string, string> = { queued: "Sending", sent: "Sent", delivered: "Delivered", read: "Seen", failed: "Not delivered" };
 
 interface MessagesResponse {
   success: true;
@@ -226,20 +232,13 @@ export default function BusinessChatPage() {
             }
             if (payload.type === "heartbeat") return;
 
-            if (payload.type === "message.created" && payload.message) {
-              const incoming = payload.message as BusinessMessage;
-              queryClient.setQueryData<MessagesResponse>(messagesQueryKey, (current) => {
-                if (!current) return current;
-                // Dedupe against both an in-flight/just-completed
-                // invalidate-refetch and a possible duplicate live event --
-                // the message id is the only identity that matters here.
-                if (current.messages.some((m) => m.id === incoming.id)) return current;
-                return {
-                  ...current,
-                  messages: [incoming, ...current.messages],
-                  total: current.total + 1,
-                };
-              });
+            // Refetch rather than inserting the pushed payload: the live
+            // frame carries the stored (redacted) text, while the fetch
+            // returns this customer's own view -- e.g. a one-time code --
+            // and also confirms delivery to the business (ticks).
+            if (payload.type === "message.created" || payload.type === "delivery.updated") {
+              queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+              if (payload.type === "message.created") queryClient.invalidateQueries({ queryKey: ["/api/messaging/business-threads"] });
             }
           } catch {
             // Ignore malformed real-time payloads -- the poll fallback (or
@@ -319,12 +318,37 @@ export default function BusinessChatPage() {
     sendMessageMutation.mutate(trimmed);
   };
 
+  // Opening the chat = everything the business sent is seen (blue ticks).
+  const newestId = messagesQuery.data?.messages?.[0]?.id;
+  useEffect(() => {
+    if (!isValidBusinessId || newestId === undefined) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    apiRequest("POST", `/api/messaging/business/${businessId}/read`)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["/api/messaging/business-threads"] }))
+      .catch(() => {});
+  }, [businessId, isValidBusinessId, newestId, queryClient]);
+
+  const preferencesQuery = useQuery<{ success: true; known: boolean; promotions: boolean }>({
+    queryKey: ["/api/messaging/business", businessId, "preferences"],
+    queryFn: async () => (await apiRequest("GET", `/api/messaging/business/${businessId}/preferences`)).json(),
+    enabled: isValidBusinessId,
+  });
+  const promotionsMutation = useMutation({
+    mutationFn: async (promotions: boolean) =>
+      (await apiRequest("PUT", `/api/messaging/business/${businessId}/preferences`, { promotions })).json(),
+    onSuccess: (_data, promotions) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/messaging/business", businessId, "preferences"] });
+      toast({ title: promotions ? "Offers turned on" : "Offers turned off", description: promotions ? "This business can send you offers again." : "You will no longer get offers from this business. Order updates and codes still arrive." });
+    },
+    onError: () => toast({ title: "Could not update", description: "Please try again.", variant: "destructive" }),
+  });
+
   const headerName = identityQuery.data?.business?.name || "Business Chat";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5 flex flex-col">
       <div className="border-b px-4 py-3 bg-background/70 backdrop-blur-sm flex items-center gap-3">
-        <a href="/dashboard">
+        <a href="/business-messages">
           <Button variant="ghost" size="icon" data-testid="button-business-chat-back">
             <ArrowLeft className="w-5 h-5" />
           </Button>
@@ -343,6 +367,18 @@ export default function BusinessChatPage() {
             {identityQuery.isLoading ? "Loading..." : headerName}
           </div>
         </div>
+        {preferencesQuery.data?.known && (
+          <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+            <span>Offers</span>
+            <Switch
+              checked={preferencesQuery.data.promotions}
+              disabled={promotionsMutation.isPending}
+              onCheckedChange={(value) => promotionsMutation.mutate(value)}
+              aria-label="Receive offers from this business"
+              data-testid="switch-business-offers"
+            />
+          </label>
+        )}
       </div>
 
       <main className="flex-1 flex flex-col">
@@ -399,6 +435,7 @@ export default function BusinessChatPage() {
                         // no-name-badge-for-"me" convention this component
                         // already had no counter-example against.
                         senderName={isMine ? undefined : businessName}
+                        status={isMine && message.deliveryToBusiness ? TICK_LABEL[message.deliveryToBusiness] ?? null : null}
                       />
                     );
                   })

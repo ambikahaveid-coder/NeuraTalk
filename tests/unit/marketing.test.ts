@@ -336,12 +336,13 @@ describe("getBusinessMarketingReport: business-wide rollup", () => {
     expect(report.totals.cost.totalChargedPaise).toBe(0);
   });
 
-  it("delivery metrics beyond SENT are explicitly NOT_AVAILABLE at the rollup level too", async () => {
+  it("delivery metrics at the rollup level are real receipt counts, never estimated", async () => {
     const s = await svc();
     const report = await s.getBusinessMarketingReport(BIZ);
     expect(report.delivery.sent.availability).toBe("AVAILABLE");
-    expect(report.delivery.accepted.availability).toBe("NOT_AVAILABLE");
-    expect(report.delivery.delivered.availability).toBe("NOT_AVAILABLE");
+    expect(report.delivery.accepted).toEqual({ availability: "AVAILABLE", count: 0 });
+    expect(report.delivery.delivered).toEqual({ availability: "AVAILABLE", count: 0 });
+    expect(report.delivery.read).toEqual({ availability: "AVAILABLE", count: 0 });
   });
 });
 

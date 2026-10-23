@@ -4103,6 +4103,8 @@ export type OtpPurpose = typeof OTP_PURPOSE[keyof typeof OTP_PURPOSE];
 export const BUSINESS_OTP_CHANNEL = {
   SMS: "sms",
   EMAIL: "email",
+  // Delivered inside the customer's NeuraTalk app (business chat + push).
+  IN_APP: "in_app",
 } as const;
 export type BusinessOtpChannel = typeof BUSINESS_OTP_CHANNEL[keyof typeof BUSINESS_OTP_CHANNEL];
 
@@ -4129,6 +4131,10 @@ export const businessOtpChallenges = pgTable("business_otp_challenges", {
   resendCount: integer("resend_count").notNull().default(0), // carried forward across a supersede chain, capped at MAX_RESENDS in service.ts
   templateVersionId: integer("template_version_id").references(() => templateVersions.id), // optional business-branded content; must be an APPROVED, category=AUTHENTICATION version
   messageId: integer("message_id").references(() => messagingMessages.id), // set once the (redacted) conversational record is created
+  // IN_APP only: the code, AES-256-GCM encrypted (server/tenant-secrets.ts),
+  // so the customer's own app can show it while it is still usable. Cleared
+  // the moment the challenge is verified, fails, is superseded or expires.
+  deliveryCiphertext: text("delivery_ciphertext"),
   supersedesChallengeId: integer("supersedes_challenge_id"), // self-referential, set on a resend -- no .references() to avoid a circular table definition; validated at the application layer only
   metadata: jsonb("metadata").default({}),
   createdBy: integer("created_by").notNull().references(() => users.id),

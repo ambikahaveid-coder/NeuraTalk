@@ -373,6 +373,8 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "group_chat_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
     // Profile names are display names, not unique usernames (additive, safe on every start).
     await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "display_name" text`);
+    // In-app business OTP delivery: encrypted code until used (additive).
+    await _db.execute(_sql`ALTER TABLE "business_otp_challenges" ADD COLUMN IF NOT EXISTS "delivery_ciphertext" text`);
   }, { optional: true });
   let redisOperational = false;
   try {

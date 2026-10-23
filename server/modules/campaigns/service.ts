@@ -43,7 +43,8 @@ import {
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { assertLegalCampaignTransition, isCampaignEditable, isCampaignCancellable, IllegalCampaignTransitionError } from "./lifecycle";
 import { renderTemplateContent, TemplateRenderError } from "../templates/render";
-import { isEligibleForChannel } from "../customers/service";
+import { findNeuraTalkUserForContact, isEligibleForChannel, linkCustomerToNeuraTalkUser } from "../customers/service";
+import { countDeliveryOutcomes, deliverCommittedMessage } from "../messaging/delivery";
 import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeCampaignMessage, PLACEHOLDER_COST_PER_MESSAGE_PAISE } from "./billing";
 import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot, findCustomersAtFrequencyCap, peekBusinessThroughputStatus, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR } from "./frequency";
@@ -396,9 +397,13 @@ export async function executeCampaign(businessId: number, actorUserId: number | 
 
   let sent = 0, skipped = 0;
   for (const recipient of pending) {
-    const result = await processOneRecipient(businessId, current, version, recipient);
+    const committed: CommittedSend[] = [];
+    const result = await processOneRecipient(businessId, current, version, recipient, committed);
     if (result === "sent") sent++;
     else if (result === "skipped") skipped++;
+    for (const send of committed) {
+      await deliverCommittedMessage({ businessId, businessConversationId: send.businessConversationId, messageId: send.messageId, publishCreated: true });
+    }
   }
 
   // Completion check: only the run that observes zero remaining PENDING
@@ -424,13 +429,16 @@ export async function executeCampaign(businessId: number, actorUserId: number | 
 }
 
 type RecipientOutcome = "sent" | "skipped" | "already_processed";
+interface CommittedSend { businessConversationId: number; messageId: number }
 
 async function processOneRecipient(
   businessId: number,
   campaign: typeof campaigns.$inferSelect,
   version: (typeof templateVersions.$inferSelect) | undefined,
   recipient: typeof campaignRecipients.$inferSelect,
+  committed: CommittedSend[] = [],
 ): Promise<RecipientOutcome> {
+  let pendingSend: CommittedSend | null = null;
   return db.transaction(async (tx) => {
     const [current] = await tx.select().from(campaignRecipients).where(eq(campaignRecipients.id, recipient.id));
     if (!current || current.status !== CAMPAIGN_RECIPIENT_STATUS.PENDING) return "already_processed";
@@ -449,7 +457,10 @@ async function processOneRecipient(
     if (customer.status === CUSTOMER_STATUS.ARCHIVED) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_ARCHIVED);
     // Messages are delivered only inside NeuraTalk; a contact with no linked
     // account would be charged and marked SENT for a message nobody can see.
-    if (!customer.linkedUserId) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_NOT_ON_NEURATALK);
+    // They may have joined NeuraTalk since being added, so look again first.
+    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))) {
+      return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_NOT_ON_NEURATALK);
+    }
 
     const eligible = await isEligibleForChannel(businessId, customer.id, campaign.category as any);
     if (!eligible) return skip(CAMPAIGN_SKIP_REASON.CONSENT_MISSING);
@@ -525,8 +536,12 @@ async function processOneRecipient(
       throw new Error("RACE_LOST");
     }
 
-    void businessConversation; // referenced for clarity of destructure; not otherwise needed here
-    return "sent";
+    pendingSend = { businessConversationId: businessConversation.id, messageId: message.id };
+    return "sent" as RecipientOutcome;
+  }).then((outcome) => {
+    // Only after COMMIT: the message is real, so it can be delivered.
+    if (outcome === "sent" && pendingSend) committed.push(pendingSend);
+    return outcome;
   }).catch((err) => {
     if (err instanceof Error && err.message === "RACE_LOST") return "already_processed" as RecipientOutcome;
     throw err;
@@ -560,16 +575,20 @@ export interface CampaignReport {
     totalChargedPaise: number;
     availability: "AVAILABLE";
   };
-  /** Doc 36 section "R0-C" -- the honest delivery ceiling is SENT. Every stage past it is explicitly NOT_AVAILABLE, never fabricated, never silently omitted. */
+  /**
+   * Counted from the real in-app delivery rows (messaging/delivery.ts):
+   * accepted = reached the person's NeuraTalk inbox, delivered = their app
+   * fetched it, read = they opened the chat. Never estimated.
+   */
   delivery: {
     sent: AvailableCount;
-    accepted: UnavailableMetric;
-    delivered: UnavailableMetric;
-    read: UnavailableMetric;
+    accepted: AvailableCount;
+    delivered: AvailableCount;
+    read: AvailableCount;
+    failed: AvailableCount;
   };
 }
 
-const NO_CHANNEL_ADAPTER_REASON = "No channel adapter is connected -- messagingDeliveries never progresses past QUEUED in this codebase (see docs 30 section 21, 31 section 25, 32 section 23)";
 
 export async function getCampaignReport(businessId: number, campaignId: number): Promise<CampaignReport> {
   await getOwnedCampaign(businessId, campaignId);
@@ -589,14 +608,18 @@ export async function getCampaignReport(businessId: number, campaignId: number):
     }
   }
 
+  const messageIds = rows.map((r) => r.messageId).filter((id): id is number => typeof id === "number");
+  const { accepted, delivered, read, failed } = await countDeliveryOutcomes(messageIds);
+
   return {
     ...report,
     cost: { totalChargedPaise, availability: "AVAILABLE" },
     delivery: {
       sent: { availability: "AVAILABLE", count: report.sent },
-      accepted: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
-      delivered: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
-      read: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
+      accepted: { availability: "AVAILABLE", count: accepted },
+      delivered: { availability: "AVAILABLE", count: delivered },
+      read: { availability: "AVAILABLE", count: read },
+      failed: { availability: "AVAILABLE", count: failed },
     },
   };
 }
@@ -664,6 +687,11 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
     if (err instanceof ValidationError) reasons.push(err.message);
     else throw err;
   }
+  // Not ready for another reason (e.g. awaiting approval): still judge the
+  // bound template on its own status, not report it as unapproved.
+  if (!version && campaign.templateVersionId) {
+    [version] = await db.select().from(templateVersions).where(eq(templateVersions.id, campaign.templateVersionId));
+  }
 
   if (![CAMPAIGN_STATUS.DRAFT, CAMPAIGN_STATUS.SCHEDULED].includes(campaign.status as any)) {
     reasons.push(`Campaign status "${campaign.status}" does not permit execution`);
@@ -680,7 +708,7 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
   else if (memberIds.length === 0) reasons.push("Audience has no members");
 
   const ownedCustomers = memberIds.length
-    ? await db.select({ id: customers.id, status: customers.status }).from(customers)
+    ? await db.select({ id: customers.id, status: customers.status, linkedUserId: customers.linkedUserId, normalizedPhone: customers.normalizedPhone, normalizedEmail: customers.normalizedEmail }).from(customers)
         .where(and(eq(customers.businessId, businessId), inArray(customers.id, memberIds)))
     : [];
 
@@ -709,6 +737,17 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
     }
   }
 
+  // Delivered only inside NeuraTalk: a consented contact without an account
+  // (now or by phone/email match at send time) will be skipped, not charged.
+  let notOnNeuraTalk = 0;
+  for (let i = consentedIds.length - 1; i >= 0; i--) {
+    const customer = ownedCustomers.find((c) => c.id === consentedIds[i]);
+    if (customer && !customer.linkedUserId && !(await findNeuraTalkUserForContact(customer.normalizedPhone, customer.normalizedEmail))) {
+      notOnNeuraTalk++;
+      consentedIds.splice(i, 1);
+    }
+  }
+
   const frequencyApplicable = campaign.category === MESSAGE_CATEGORY.MARKETING;
   let frequencyCapped = 0;
   let businessThroughput: { cap: number; used: number; remaining: number } | null = null;
@@ -733,6 +772,7 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
   const consentMissingTotal = consentRevoked + consentMissing;
   if (consentMissingTotal > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CONSENT_MISSING] = consentMissingTotal;
   if (frequencyCapped > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CUSTOMER_FREQUENCY_CAP_EXCEEDED] = frequencyCapped;
+  if (notOnNeuraTalk > 0) suppressionBreakdown[CAMPAIGN_SKIP_REASON.CUSTOMER_NOT_ON_NEURATALK] = notOnNeuraTalk;
   if (!templateReady && (consentedIds.length - frequencyCapped) > 0) {
     suppressionBreakdown[CAMPAIGN_SKIP_REASON.TEMPLATE_NOT_APPROVED] = consentedIds.length - frequencyCapped;
   }

@@ -536,10 +536,15 @@ describe("P2: SSE-preferred real-time transport (bounded reconnect, polling corr
     expect(FakeEventSource.instances[0].url).toBe("/api/messaging/business/7/stream?auth=test-token");
   });
 
-  it("a message.created event renders the incoming message immediately, correctly attributed, without waiting for the next poll tick", async () => {
-    mockFetch.mockImplementation(routeFetch({
-      messages: jsonResponse({ success: true, messages: [], total: 0, limit: 50, offset: 0, viewerParticipantId: MY_PARTICIPANT_ID }),
-    }));
+  it("a message.created event refetches the thread immediately (the customer's own view, e.g. a one-time code), correctly attributed, without waiting for the next poll tick", async () => {
+    let messagesState = { success: true, messages: [] as any[], total: 0, limit: 50, offset: 0, viewerParticipantId: MY_PARTICIPANT_ID as number | null };
+    mockFetch.mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.endsWith("/messages")) return jsonResponse(messagesState);
+      if (method === "GET" && u === "/api/messaging/business/7") return jsonResponse(IDENTITY_RESPONSE);
+      return jsonResponse({ success: true });
+    });
     setUrl("/business-chat/7");
     renderPage();
     await vi.waitFor(() => expect(screen.getByText("No messages sent yet. Say hello to get started.")).toBeInTheDocument());
@@ -547,16 +552,24 @@ describe("P2: SSE-preferred real-time transport (bounded reconnect, polling corr
 
     const es = FakeEventSource.instances[0];
     act(() => { es.emit({ type: "ready" }); });
+    // The pushed frame carries the stored (redacted) text; the refetch
+    // returns what this customer is allowed to see.
+    messagesState = {
+      ...messagesState,
+      messages: [{ id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "Your code is 123456", createdAt: "2026-08-25T00:05:00Z" }],
+      total: 1,
+    };
     act(() => {
       es.emit({
         type: "message.created",
         conversationId: 1,
-        message: { id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "live business reply", createdAt: "2026-08-25T00:05:00Z" },
+        message: { id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "Your code is [code sent separately]", createdAt: "2026-08-25T00:05:00Z" },
       });
     });
 
-    await vi.waitFor(() => expect(screen.getByText("live business reply")).toBeInTheDocument());
-    expect(getAlignment("live business reply")).toBe("left"); // role="assistant", correctly attributed even though it arrived via the live stream, not a poll
+    await vi.waitFor(() => expect(screen.getByText("Your code is 123456")).toBeInTheDocument());
+    expect(screen.queryByText("Your code is [code sent separately]")).not.toBeInTheDocument();
+    expect(getAlignment("Your code is 123456")).toBe("left"); // role="assistant", correctly attributed
   });
 
   it("does not duplicate a message that arrives via SSE and is also returned by a subsequent poll/refetch of the same data", async () => {
@@ -576,18 +589,15 @@ describe("P2: SSE-preferred real-time transport (bounded reconnect, polling corr
     const es = FakeEventSource.instances[0];
     const liveMessage = { id: 10, senderParticipantId: BUSINESS_PARTICIPANT_ID, content: "no dupes please", createdAt: "2026-08-25T00:05:00Z" };
     act(() => { es.emit({ type: "ready" }); });
+    messagesState = { ...messagesState, messages: [liveMessage], total: 1 };
     act(() => { es.emit({ type: "message.created", conversationId: 1, message: liveMessage }); });
     await vi.waitFor(() => expect(screen.getAllByText("no dupes please")).toHaveLength(1));
 
-    // Server-side state now reflects the same message (as it genuinely
-    // would once the write is durable) -- if a poll/refetch happens while
-    // SSE is healthy it must not double-render it.
-    messagesState = { ...messagesState, messages: [liveMessage], total: 1 };
+    act(() => { es.emit({ type: "message.created", conversationId: 1, message: liveMessage }); }); // duplicate live event
     await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
 
     expect(screen.getAllByText("no dupes please")).toHaveLength(1);
   });
-
   it("bounded reconnect: an SSE error schedules a NEW connection attempt rather than permanently giving up (unlike ChatPage.tsx's personal-chat pattern)", async () => {
     mockFetch.mockImplementation(routeFetch({}));
     setUrl("/business-chat/7");

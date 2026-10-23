@@ -65,6 +65,14 @@ export type MessagingRealtimeEvent =
       assignedToUserId: number | null;
       assignedToUsername: string | null;
       operation: "assign" | "reassign" | "unassign" | "claim" | "release";
+    }
+  | {
+      // Delivery ticks moved (see delivery.ts) -- clients refetch the thread.
+      type: "delivery.updated";
+      businessId: number;
+      conversationId: number;
+      customerUserId: number | null;
+      status: "delivered" | "read";
     };
 
 type PersonalChatRealtimeEnvelope = {
@@ -98,6 +106,13 @@ function personalChatKey(userId: number): string {
   return `personal-chat:${userId}`;
 }
 
+function emitLocally(event: MessagingRealtimeEvent): void {
+  localBus.emit(businessKey(event.businessId), event);
+  if ((event.type === "message.created" || event.type === "delivery.updated") && event.customerUserId != null) {
+    localBus.emit(consumerKey(event.customerUserId, event.businessId), event);
+  }
+}
+
 const instanceId = randomUUID();
 let subscriberClient: Redis | null = null;
 let subscriberStarting = false;
@@ -117,7 +132,8 @@ function isRedisRealtimeMessage(value: unknown): value is RedisRealtimeMessage {
   return (
     (message.type === "message.created"
       || message.type === "conversation.created"
-      || message.type === "assignment.changed")
+      || message.type === "assignment.changed"
+      || message.type === "delivery.updated")
     && Number.isSafeInteger(message.businessId)
   );
 }
@@ -156,17 +172,29 @@ function ensureSubscriber(): void {
         return;
       }
 
-      localBus.emit(businessKey(event.businessId), event);
-      if (event.type === "message.created" && event.customerUserId != null) {
-        localBus.emit(consumerKey(event.customerUserId, event.businessId), event);
-      }
+      emitLocally(event);
     });
     sub.on("error", (error) => {
       logger.error("MessagingRealtime", "Redis subscriber error", error instanceof Error ? error : new Error(String(error)));
     });
-    sub.subscribe(CHANNEL).catch((error) => {
-      logger.error("MessagingRealtime", "Failed to subscribe to real-time channel", error instanceof Error ? error : new Error(String(error)));
-    });
+    // The duplicated subscriber connection has no offline queue, so a
+    // SUBSCRIBE sent before it is connected fails outright (and was never
+    // retried -- live updates silently never worked). Subscribe once it is
+    // ready; ioredis re-subscribes by itself after any later reconnect.
+    const subscribe = () => {
+      sub.subscribe(CHANNEL).catch((error) => {
+        logger.error("MessagingRealtime", "Failed to subscribe to real-time channel", error instanceof Error ? error : new Error(String(error)));
+      });
+    };
+    if (sub.status === "ready") subscribe();
+    else sub.once("ready", subscribe);
+    // Created with lazyConnect (inherited from the main client): it would
+    // otherwise wait for a first command that can never be queued.
+    if (sub.status === "wait") {
+      sub.connect().catch((error) => {
+        logger.error("MessagingRealtime", "Real-time subscriber could not connect", error instanceof Error ? error : new Error(String(error)));
+      });
+    }
     subscriberClient = sub;
   } catch (error) {
     // getRedisClient()/getRedisSubscriberClient() throw if Redis hasn't
@@ -197,15 +225,19 @@ function ensureSubscriber(): void {
  */
 export function publishMessagingEvent(event: MessagingRealtimeEvent): void {
   if (!isRedisReady()) {
-    // Consistent with the rest of this module's fail-open posture: no
-    // subscriber is listening anyway if Redis isn't ready, so skip the
-    // publish call rather than let it queue/throw.
+    // No Redis: this instance's own SSE connections still get the event
+    // (the same local fan-out the Redis subscriber would have done).
+    emitLocally(event);
     return;
   }
   try {
-    getRedisClient().publish(CHANNEL, JSON.stringify(event));
+    void getRedisClient().publish(CHANNEL, JSON.stringify(event)).catch((error) => {
+      logger.error("MessagingRealtime", "Failed to publish real-time event", error instanceof Error ? error : new Error(String(error)));
+      emitLocally(event);
+    });
   } catch (error) {
     logger.error("MessagingRealtime", "Failed to publish real-time event", error instanceof Error ? error : new Error(String(error)));
+    emitLocally(event);
   }
 }
 

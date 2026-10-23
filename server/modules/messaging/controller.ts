@@ -14,6 +14,7 @@ import {
   listEligibleAssignees,
   getPublicBusinessIdentity,
   listUserInitiatedMessages,
+  listUserBusinessThreads,
   InvalidParticipantError,
   NotFoundError,
   NotAParticipantError,
@@ -24,7 +25,11 @@ import {
   type ConversationAssignmentFilter,
 } from "./service";
 import { subscribeToBusinessEvents, subscribeToConsumerEvents, type MessagingRealtimeEvent } from "./realtime";
-import { MESSAGING_PARTICIPANT_TYPE } from "@shared/schema";
+import { MESSAGING_PARTICIPANT_TYPE, CUSTOMER_CONSENT_CHANNEL, customers } from "@shared/schema";
+import { acknowledgeBusinessReads, acknowledgeConsumerDeliveries } from "./delivery";
+import { getCustomerConsents, setChannelConsent } from "../customers/service";
+import { db } from "../../db";
+import { and, eq } from "drizzle-orm";
 
 function badRequest(res: Response, msg: string) {
   return res.status(400).json({ success: false, error: msg });
@@ -284,6 +289,12 @@ export async function getMessages(req: Request, res: Response) {
   if (limit !== undefined && !Number.isFinite(limit)) return badRequest(res, "Invalid limit");
   if (offset !== undefined && !Number.isFinite(offset)) return badRequest(res, "Invalid offset");
 
+  // An agent opening the latest page of a conversation has read it.
+  if (!offset) {
+    await acknowledgeBusinessReads(businessId, conversationId).catch((error) => {
+      logger.warn("Messaging", `read receipt failed: ${String(error)}`);
+    });
+  }
   const result = await listMessages(businessId, conversationId, { limit, offset });
   if (!result) return res.status(404).json({ success: false, error: "Conversation not found" });
   return res.json({ success: true, ...result });
@@ -323,6 +334,10 @@ export async function getUserMessages(req: Request, res: Response) {
   if (offset !== undefined && !Number.isFinite(offset)) return badRequest(res, "Invalid offset");
 
   try {
+    // Their app is fetching these messages: delivered (double grey tick).
+    await acknowledgeConsumerDeliveries(businessId, req.user!.id, "delivered").catch((error) => {
+      logger.warn("Messaging", `delivery receipt failed: ${String(error)}`);
+    });
     const result = await listUserInitiatedMessages(businessId, req.user!.id, { limit, offset });
     return res.json({ success: true, ...result });
   } catch (error) {
@@ -386,6 +401,9 @@ function runMessagingSseStream(
 // internally, so that event type is filtered out entirely for this
 // audience rather than forwarded and ignored client-side.
 function toConsumerFrame(event: MessagingRealtimeEvent): Record<string, unknown> | null {
+  if (event.type === "delivery.updated") {
+    return { type: event.type, conversationId: event.conversationId, status: event.status, emittedAt: new Date().toISOString() };
+  }
   if (event.type === "message.created") {
     return {
       type: event.type,
@@ -446,4 +464,64 @@ export async function streamBusinessConversations(req: Request, res: Response) {
     (listener) => subscribeToBusinessEvents(businessId, listener),
     toInboxFrame,
   );
+}
+
+// Consumer: the "Business" inbox -- every business this user has a chat with.
+export async function getUserBusinessThreads(req: Request, res: Response) {
+  try {
+    const threads = await listUserBusinessThreads(req.user!.id);
+    return res.json({ success: true, threads });
+  } catch (error) {
+    logger.error("Messaging", "Failed to list business threads", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to load business chats" });
+  }
+}
+
+// Consumer opened the chat: everything addressed to them is read (blue ticks).
+export async function markUserThreadRead(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+  try {
+    const updated = await acknowledgeConsumerDeliveries(businessId, req.user!.id, "read");
+    return res.json({ success: true, updated });
+  } catch (error) {
+    logger.error("Messaging", "Failed to mark business chat read", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to mark as read" });
+  }
+}
+
+async function findOwnCustomerRecord(businessId: number, userId: number) {
+  const [customer] = await db.select().from(customers)
+    .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, userId)));
+  return customer ?? null;
+}
+
+// Consumer: may this business send me promotional (marketing) messages?
+export async function getUserBusinessPreferences(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+  const customer = await findOwnCustomerRecord(businessId, req.user!.id);
+  if (!customer) return res.json({ success: true, promotions: false, known: false });
+  const consents = await getCustomerConsents(businessId, customer.id);
+  const marketing = consents.find((row: any) => row.channel === CUSTOMER_CONSENT_CHANNEL.MARKETING);
+  return res.json({ success: true, known: true, promotions: marketing?.status === "granted" });
+}
+
+const preferencesSchema = z.object({ promotions: z.boolean() });
+
+// Consumer opt-out / opt-in for promotional messages from one business.
+export async function setUserBusinessPreferences(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+  const parsed = preferencesSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return badRequest(res, parsed.error.message);
+  const customer = await findOwnCustomerRecord(businessId, req.user!.id);
+  if (!customer) return res.status(404).json({ success: false, error: "You have no chat with this business" });
+  try {
+    await setChannelConsent(businessId, req.user!.id, customer.id, CUSTOMER_CONSENT_CHANNEL.MARKETING, parsed.data.promotions, "customer_app");
+    return res.json({ success: true, promotions: parsed.data.promotions });
+  } catch (error) {
+    logger.error("Messaging", "Failed to update business message preferences", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to update preference" });
+  }
 }

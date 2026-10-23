@@ -95,7 +95,12 @@ interface MessageRow {
   senderParticipantId: number;
   content: string;
   createdAt: string;
+  category?: string;
+  /** How far a business-sent message got with the customer (ticks). */
+  deliveryToCustomer?: string | null;
 }
+
+const TICK_LABEL: Record<string, string> = { queued: "Sending", sent: "Sent", delivered: "Delivered", read: "Seen", failed: "Not delivered — customer is not on NeuraTalk" };
 
 interface EligibleMember {
   id: number;
@@ -242,6 +247,9 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
             }
             if (payload.type === "heartbeat") return;
 
+            if (payload.type === "delivery.updated" && selectedIdRef.current !== null && payload.conversationId === selectedIdRef.current) {
+              queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations", selectedIdRef.current, "messages"] });
+            }
             if (payload.type === "message.created" || payload.type === "conversation.created" || payload.type === "assignment.changed") {
               // Invalidation, not direct cache mutation -- the conversation
               // list's shape depends on the active assignment filter and
@@ -544,13 +552,16 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                 ) : (
                   chronologicalMessages.map((message) => {
                     const role = roleByParticipantId.get(message.senderParticipantId);
-                    const isMine = role === "agent";
+                    // Business side = an agent, or the business itself
+                    // (campaigns, order updates, codes); else the customer.
+                    const isMine = role !== "customer" && message.deliveryToCustomer != null;
                     return (
                       <ChatMessage
                         key={message.id}
                         role={isMine ? "user" : "assistant"}
                         content={message.content}
                         timestamp={new Date(message.createdAt)}
+                        status={isMine && message.deliveryToCustomer ? TICK_LABEL[message.deliveryToCustomer] ?? null : null}
                       />
                     );
                   })

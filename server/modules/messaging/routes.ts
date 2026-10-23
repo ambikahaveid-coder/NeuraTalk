@@ -29,6 +29,16 @@ export function registerMessagingRoutes(app: Express): void {
     ctrl.listConversations,
   );
 
+  // Must be registered BEFORE /conversations/:id, which would otherwise
+  // swallow "stream" as an id (400) and the inbox never got live updates.
+  app.get(
+    "/api/business/:businessId/conversations/stream",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requirePermission(PERMISSIONS.MESSAGING_VIEW),
+    ctrl.streamBusinessConversations,
+  );
+
   app.get(
     "/api/business/:businessId/conversations/:id",
     requireAuth,
@@ -103,19 +113,16 @@ export function registerMessagingRoutes(app: Express): void {
     ctrl.listEligibleAssigneesHandler,
   );
 
-  // P2: Business Inbox real-time stream -- same RBAC stack as
-  // listConversations/getMessages above, reused verbatim. See
-  // server/modules/messaging/realtime.ts for the Redis-backed transport
-  // and this phase's architecture report for why this is "Redis-backed
-  // SSE real-time delivery with polling correctness fallback", not
-  // guaranteed real-time delivery.
-  app.get(
-    "/api/business/:businessId/conversations/stream",
-    requireAuth,
-    requireCompanyAccess("businessId"),
-    requirePermission(PERMISSIONS.MESSAGING_VIEW),
-    ctrl.streamBusinessConversations,
-  );
+  // P2: Business Inbox real-time stream is registered at the top of this
+  // function (route order) -- see server/modules/messaging/realtime.ts.
+
+  // Consumer "Business" inbox: all of this user's chats with businesses.
+  app.get("/api/messaging/business-threads", requireAuth, ctrl.getUserBusinessThreads);
+  // Consumer opened a business chat (read receipts).
+  app.post("/api/messaging/business/:businessId/read", requireAuth, ctrl.markUserThreadRead);
+  // Consumer's own promotional-messages switch for one business.
+  app.get("/api/messaging/business/:businessId/preferences", requireAuth, ctrl.getUserBusinessPreferences);
+  app.put("/api/messaging/business/:businessId/preferences", requireAuth, ctrl.setUserBusinessPreferences);
 
   // P1-2: consumer-facing, deliberately NOT requireCompanyAccess/
   // requirePermission -- the caller is a normal NeuraTalk user, not a

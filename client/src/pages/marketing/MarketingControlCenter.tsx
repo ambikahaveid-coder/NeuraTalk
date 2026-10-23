@@ -127,6 +127,14 @@ interface CampaignPreflightResponse {
   };
 }
 
+/** Real delivery receipts when the backend has them; an explicit "not available" otherwise. */
+function DeliveryMetric({ label, metric }: { label: string; metric?: { availability?: string; reason?: string; count?: number } }) {
+  if (metric?.availability === "AVAILABLE" && typeof metric.count === "number") {
+    return <MetricCard label={label} value={metric.count} icon={CheckCircle2} tone="positive" />;
+  }
+  return <NotAvailableMetric label={label} reason={metric?.reason ?? "Not reported yet."} />;
+}
+
 function formatPaise(value?: number): string {
   const safeValue = typeof value === "number" && Number.isFinite(value) ? value : 0;
   return new Intl.NumberFormat("en-IN", {
@@ -221,9 +229,9 @@ export function MarketingOverviewPage({ businessId }: { businessId: number }) {
             <CardTitle className="text-sm">Delivery status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <NotAvailableMetric label="Accepted" reason={report?.delivery?.accepted?.reason ?? "No delivery stage is exposed by the current R0 backend contract."} />
-            <NotAvailableMetric label="Delivered" reason={report?.delivery?.delivered?.reason ?? "No delivery stage is exposed by the current R0 backend contract."} />
-            <NotAvailableMetric label="Read" reason={report?.delivery?.read?.reason ?? "No delivery stage is exposed by the current R0 backend contract."} />
+            <DeliveryMetric label="Accepted" metric={report?.delivery?.accepted} />
+            <DeliveryMetric label="Delivered" metric={report?.delivery?.delivered} />
+            <DeliveryMetric label="Read" metric={report?.delivery?.read} />
           </CardContent>
         </Card>
 
@@ -661,9 +669,9 @@ function MarketingReportsPage({ businessId }: { businessId: number }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <NotAvailableMetric label="Accepted" reason={report?.delivery?.accepted?.reason ?? "No accepted metric is available from the current R0 contract."} />
-        <NotAvailableMetric label="Delivered" reason={report?.delivery?.delivered?.reason ?? "No delivered metric is available from the current R0 contract."} />
-        <NotAvailableMetric label="Read" reason={report?.delivery?.read?.reason ?? "No read metric is available from the current R0 contract."} />
+        <DeliveryMetric label="Accepted" metric={report?.delivery?.accepted} />
+        <DeliveryMetric label="Delivered" metric={report?.delivery?.delivered} />
+        <DeliveryMetric label="Read" metric={report?.delivery?.read} />
       </div>
 
       <Card>

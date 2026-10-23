@@ -38,6 +38,8 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { renderTemplateContent, TemplateRenderError } from "../templates/render";
 import { findOrCreateCustomerConversation } from "../messaging/service";
+import { deliverCommittedMessage } from "../messaging/delivery";
+import { linkCustomerToNeuraTalkUser } from "../customers/service";
 import { chargeUtilityMessage, PLACEHOLDER_COST_PER_UTILITY_MESSAGE_PAISE } from "./billing";
 import { createAuditLog, AUDIT_ACTION_UTILITY } from "./audit";
 
@@ -57,11 +59,6 @@ export class UtilityTriggerFailedError extends Error {
 
 type DbLike = Pick<typeof db, "select" | "update" | "insert">;
 
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err as any)?.code ?? (err as any)?.cause?.code;
-  return code === "23505" || (err instanceof Error && err.message === "UNIQUE_VIOLATION");
-}
-
 function assertValidEventType(eventType: string): asserts eventType is UtilityEventType {
   if (!Object.values(UTILITY_EVENT_TYPE).includes(eventType as UtilityEventType)) {
     throw new ValidationError(`Invalid utility event type: ${eventType}`);
@@ -79,23 +76,23 @@ function assertValidEventType(eventType: string): asserts eventType is UtilityEv
  * (doc 32 section 11/12).
  */
 async function claimEvent(tx: DbLike, businessId: number, eventType: UtilityEventType, eventReference: string, customerId: number, templateVersionId: number, actorUserId: number | undefined) {
-  try {
-    const [row] = await tx.insert(businessUtilityEvents).values({
-      businessId, customerId, eventType, eventReference, templateVersionId,
-      status: UTILITY_MESSAGE_STATUS.FAILED, // provisional -- promoted to CREATED only on full success
-      createdBy: actorUserId ?? null,
-    }).returning();
-    return { row, isNew: true as const };
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-    const [existing] = await tx.select().from(businessUtilityEvents).where(and(
-      eq(businessUtilityEvents.businessId, businessId),
-      eq(businessUtilityEvents.eventType, eventType),
-      eq(businessUtilityEvents.eventReference, eventReference),
-    ));
-    if (!existing) throw err; // shouldn't happen -- the violation implies a row exists
-    return { row: existing, isNew: false as const };
-  }
+  // ON CONFLICT DO NOTHING, not try/catch: in real Postgres a unique
+  // violation aborts the whole transaction, so the follow-up SELECT failed
+  // and every replayed event returned 500 instead of "duplicate".
+  const [row] = await tx.insert(businessUtilityEvents).values({
+    businessId, customerId, eventType, eventReference, templateVersionId,
+    status: UTILITY_MESSAGE_STATUS.FAILED, // provisional -- promoted to CREATED only on full success
+    createdBy: actorUserId ?? null,
+  }).onConflictDoNothing().returning();
+  if (row) return { row, isNew: true as const };
+
+  const [existing] = await tx.select().from(businessUtilityEvents).where(and(
+    eq(businessUtilityEvents.businessId, businessId),
+    eq(businessUtilityEvents.eventType, eventType),
+    eq(businessUtilityEvents.eventReference, eventReference),
+  ));
+  if (!existing) throw new Error("Utility event conflicted but no existing row was found");
+  return { row: existing, isNew: false as const };
 }
 
 async function resolveOwnedCustomer(tx: DbLike, businessId: number, customerId: number) {
@@ -173,7 +170,7 @@ export async function triggerUtilityMessage(businessId: number, input: TriggerUt
 
     if (customer.status === CUSTOMER_STATUS.BLOCKED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_BLOCKED);
     if (customer.status === CUSTOMER_STATUS.ARCHIVED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_ARCHIVED);
-    if (!customer.linkedUserId) return fail(UTILITY_FAILURE_REASON.CUSTOMER_NOT_ON_NEURATALK);
+    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))) return fail(UTILITY_FAILURE_REASON.CUSTOMER_NOT_ON_NEURATALK);
 
     let resolvedTemplate: ResolvedTemplate;
     try {
@@ -235,6 +232,12 @@ export async function triggerUtilityMessage(businessId: number, input: TriggerUt
 
     await createAuditLog(input.actorUserId, businessId, AUDIT_ACTION_UTILITY.EVENT_CREATED, claimed.id, { eventType, templateVersionId });
     return { event: updated, wasDuplicate: false };
+  }).then(async (result) => {
+    // After COMMIT: deliver into the customer's NeuraTalk app.
+    if (!result.wasDuplicate && result.event.messageId) {
+      await deliverCommittedMessage({ businessId, messageId: result.event.messageId, publishCreated: true });
+    }
+    return result;
   });
 }
 

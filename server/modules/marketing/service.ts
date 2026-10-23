@@ -14,12 +14,11 @@ import { campaigns, campaignRecipients, CAMPAIGN_RECIPIENT_STATUS, CAMPAIGN_STAT
 import { eq, inArray } from "drizzle-orm";
 import { peekBusinessThroughputStatus, peekCustomerFrequencyStatus, type FrequencyStatus } from "../campaigns/frequency";
 import { getCustomer } from "../customers/service";
+import { countDeliveryOutcomes } from "../messaging/delivery";
 
 export class NotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "NotFoundError"; }
 }
-
-const NO_CHANNEL_ADAPTER_REASON = "No channel adapter is connected -- messagingDeliveries never progresses past QUEUED in this codebase (see docs 30 section 21, 31 section 25, 32 section 23)";
 
 export interface BusinessMarketingReport {
   businessId: number;
@@ -34,9 +33,11 @@ export interface BusinessMarketingReport {
   };
   delivery: {
     sent: { availability: "AVAILABLE"; count: number };
-    accepted: { availability: "NOT_AVAILABLE"; reason: string };
-    delivered: { availability: "NOT_AVAILABLE"; reason: string };
-    read: { availability: "NOT_AVAILABLE"; reason: string };
+    /** Real in-app delivery receipts (messaging/delivery.ts), never estimated. */
+    accepted: { availability: "AVAILABLE"; count: number };
+    delivered: { availability: "AVAILABLE"; count: number };
+    read: { availability: "AVAILABLE"; count: number };
+    failed: { availability: "AVAILABLE"; count: number };
   };
 }
 
@@ -74,6 +75,10 @@ export async function getBusinessMarketingReport(businessId: number): Promise<Bu
     }
   }
 
+  const outcomes = await countDeliveryOutcomes(
+    recipientRows.map((r) => r.messageId).filter((id): id is number => typeof id === "number"),
+  );
+
   return {
     businessId,
     campaignCount: campaignRows.length,
@@ -81,9 +86,10 @@ export async function getBusinessMarketingReport(businessId: number): Promise<Bu
     totals: { targeted, sent, skipped, skippedByReason, cost: { totalChargedPaise, availability: "AVAILABLE" } },
     delivery: {
       sent: { availability: "AVAILABLE", count: sent },
-      accepted: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
-      delivered: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
-      read: { availability: "NOT_AVAILABLE", reason: NO_CHANNEL_ADAPTER_REASON },
+      accepted: { availability: "AVAILABLE", count: outcomes.accepted },
+      delivered: { availability: "AVAILABLE", count: outcomes.delivered },
+      read: { availability: "AVAILABLE", count: outcomes.read },
+      failed: { availability: "AVAILABLE", count: outcomes.failed },
     },
   };
 }

@@ -24,6 +24,10 @@ function makeFakeMainClient() {
 
 function makeFakeSubscriberClient() {
   return {
+    // Mirrors an ioredis connection that is already connected.
+    status: "ready",
+    once: (_event: string, _cb: (...args: any[]) => void) => {},
+    connect: () => Promise.resolve(),
     on: (event: string, cb: (...args: any[]) => void) => {
       if (event === "message") {
         brokerListeners.push((channel: string, msg: string) => cb(channel, msg));
@@ -91,6 +95,36 @@ describe("P2: publish/subscribe connection lifecycle -- exactly one subscriber c
 
     subscribeToBusinessEvents(2, () => {});
     expect(getRedisSubscriberClientSpy).toHaveBeenCalledTimes(1); // still just one
+  });
+
+  it("a not-yet-connected (lazy) subscriber is connected and only SUBSCRIBEs once ready -- regression: it used to subscribe immediately, fail, and never get live events", async () => {
+    let readyHandler: (() => void) | null = null;
+    const subscribe = vi.fn(() => Promise.resolve());
+    const connect = vi.fn(() => Promise.resolve());
+    getRedisSubscriberClientSpy.mockImplementationOnce(() => ({
+      status: "wait",
+      once: (event: string, cb: () => void) => { if (event === "ready") readyHandler = cb; },
+      connect,
+      on: () => {},
+      subscribe,
+    }) as any);
+    const { subscribeToBusinessEvents } = await import("../../server/modules/messaging/realtime");
+
+    subscribeToBusinessEvents(1, () => {});
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(subscribe).not.toHaveBeenCalled();
+
+    readyHandler!();
+    expect(subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it("without Redis, events still reach this instance's own listeners", async () => {
+    redisReady = false;
+    const { publishMessagingEvent, subscribeToConsumerEvents } = await import("../../server/modules/messaging/realtime");
+    const received: unknown[] = [];
+    subscribeToConsumerEvents(42, 1, (e) => received.push(e));
+    publishMessagingEvent({ type: "delivery.updated", businessId: 1, conversationId: 5, customerUserId: 42, status: "read" });
+    expect(received).toHaveLength(1);
   });
 });
 

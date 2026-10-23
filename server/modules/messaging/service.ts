@@ -31,6 +31,8 @@ import { findOrCreateCustomerByLinkedUser } from "../customers/service";
 import { createAuditLog } from "../../audit";
 import { AUDIT_ACTION } from "@shared/schema";
 import { publishMessagingEvent } from "./realtime";
+import { deliverCommittedMessage, deliveryStatusByMessage } from "./delivery";
+import { revealInAppOtpCodes } from "../otp/reveal";
 
 export class InvalidParticipantError extends Error {
   constructor(public readonly participantType: string) {
@@ -428,11 +430,31 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
     customerUserId,
     message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
   });
+  await deliverCommittedMessage({ businessId: input.businessId, businessConversationId: input.businessConversationId, messageId: result.message.id });
   return result;
 }
 
+export type MessageWithDelivery = typeof messagingMessages.$inferSelect & {
+  /** Best delivery status to the customer side (ticks on business-sent messages). */
+  deliveryToCustomer: string | null;
+  /** Best delivery status to the business side (ticks on customer-sent messages). */
+  deliveryToBusiness: string | null;
+};
+
+async function withDeliveryStatus(
+  conversationId: number,
+  rows: (typeof messagingMessages.$inferSelect)[],
+): Promise<MessageWithDelivery[]> {
+  const statuses = await deliveryStatusByMessage(conversationId, rows.map((r) => r.id));
+  return rows.map((row) => ({
+    ...row,
+    deliveryToCustomer: statuses.get(row.id)?.toCustomer ?? null,
+    deliveryToBusiness: statuses.get(row.id)?.toBusiness ?? null,
+  }));
+}
+
 export interface ListMessagesResult {
-  messages: (typeof messagingMessages.$inferSelect)[];
+  messages: MessageWithDelivery[];
   total: number;
   limit: number;
   offset: number;
@@ -459,7 +481,8 @@ export async function listMessages(
     .limit(limit)
     .offset(offset);
 
-  return { messages: rows, total: rows.length, limit, offset };
+  const messages = await withDeliveryStatus(bizConversation.conversationId, rows);
+  return { messages, total: messages.length, limit, offset };
 }
 
 export interface SendUserInitiatedMessageInput {
@@ -586,6 +609,7 @@ export async function sendUserInitiatedMessage(
     customerUserId: input.authenticatedUserId,
     message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
   });
+  await deliverCommittedMessage({ businessId: input.businessId, businessConversationId, messageId: result.message.id });
 
   return result;
 }
@@ -640,6 +664,7 @@ export async function sendBusinessAgentMessage(input: CreateMessageInput): Promi
     customerUserId,
     message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
   });
+  await deliverCommittedMessage({ businessId: input.businessId, businessConversationId: input.businessConversationId, messageId: result.message.id });
 
   return result;
 }
@@ -741,7 +766,73 @@ export async function listUserInitiatedMessages(
     ));
 
   const result = await listMessages(businessId, bizConversation.id, opts);
-  return { ...(result ?? emptyResult), viewerParticipantId: viewerParticipant?.id ?? null };
+  if (!result) return { ...emptyResult, viewerParticipantId: viewerParticipant?.id ?? null };
+  // Only the customer's own view ever shows a live in-app OTP code.
+  const messages = await revealInAppOtpCodes(result.messages);
+  return { ...result, messages, viewerParticipantId: viewerParticipant?.id ?? null };
+}
+
+export interface UserBusinessThread {
+  businessId: number;
+  businessName: string;
+  logoUrl: string | null;
+  lastMessage: { content: string; createdAt: Date | null; fromBusiness: boolean } | null;
+  unreadCount: number;
+}
+
+/**
+ * The consumer's "Business" inbox: every business this user has a
+ * conversation with (they messaged it, or it messaged them), newest first.
+ * Scoped strictly to customers.linkedUserId = the caller.
+ */
+export async function listUserBusinessThreads(authenticatedUserId: number): Promise<UserBusinessThread[]> {
+  const rows = await db.select({
+    businessId: businessConversations.businessId,
+    conversationId: businessConversations.conversationId,
+    customerId: customers.id,
+    businessName: organizations.name,
+    logoUrl: organizations.logoUrl,
+  })
+    .from(customers)
+    .innerJoin(businessConversations, and(eq(businessConversations.customerId, customers.id), eq(businessConversations.businessId, customers.businessId)))
+    .innerJoin(organizations, eq(organizations.id, customers.businessId))
+    .where(eq(customers.linkedUserId, authenticatedUserId));
+  if (rows.length === 0) return [];
+
+  const conversationIds = rows.map((r) => r.conversationId);
+  const participants = await db.select().from(messagingParticipants)
+    .where(inArray(messagingParticipants.conversationId, conversationIds));
+  const mine = new Set(participants.filter((p) => {
+    const row = rows.find((r) => r.conversationId === p.conversationId);
+    return (p.participantType === MESSAGING_PARTICIPANT_TYPE.CUSTOMER && p.participantId === row?.customerId)
+      || (p.participantType === MESSAGING_PARTICIPANT_TYPE.USER && p.participantId === authenticatedUserId);
+  }).map((p) => p.id));
+
+  const threads: UserBusinessThread[] = [];
+  for (const row of rows) {
+    const [last] = await db.select().from(messagingMessages)
+      .where(and(eq(messagingMessages.conversationId, row.conversationId), isNull(messagingMessages.deletedAt)))
+      .orderBy(desc(messagingMessages.createdAt)).limit(1);
+    if (!last) continue;
+    const [unread] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(messagingDeliveries)
+      .innerJoin(messagingMessages, eq(messagingMessages.id, messagingDeliveries.messageId))
+      .where(and(
+        eq(messagingMessages.conversationId, row.conversationId),
+        isNull(messagingMessages.deletedAt),
+        inArray(messagingDeliveries.participantId, Array.from(mine).length ? Array.from(mine) : [-1]),
+        inArray(messagingDeliveries.status, [MESSAGE_DELIVERY_STATUS.QUEUED, MESSAGE_DELIVERY_STATUS.SENT, MESSAGE_DELIVERY_STATUS.DELIVERED]),
+      ));
+    const [shown] = await revealInAppOtpCodes([last]);
+    threads.push({
+      businessId: row.businessId,
+      businessName: row.businessName,
+      logoUrl: row.logoUrl ?? null,
+      lastMessage: { content: shown.content, createdAt: last.createdAt, fromBusiness: !mine.has(last.senderParticipantId) },
+      unreadCount: unread?.count ?? 0,
+    });
+  }
+  return threads.sort((a, b) => (b.lastMessage?.createdAt?.getTime() ?? 0) - (a.lastMessage?.createdAt?.getTime() ?? 0));
 }
 
 export interface BusinessConversationSummary {

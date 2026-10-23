@@ -19,6 +19,8 @@ export const API_KEY_PERMISSIONS = [
   "ws:subscribe",
   "masking:manage",
   "recording:control",
+  // Business messaging from the company's own systems (utility messages, OTP).
+  "messages:send",
 ] as const;
 
 export type ApiKeyPermission = typeof API_KEY_PERMISSIONS[number];

@@ -8,6 +8,7 @@ import 'conversation_screen.dart';
 import 'user_discovery_screen.dart';
 import 'chat_screen.dart';
 import 'group_chat_list_screen.dart';
+import 'business_messages_screen.dart';
 import 'contacts_screen.dart';
 
 /// Real human-to-human conversations (server/personal-chat-routes.ts).
@@ -132,6 +133,11 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               icon: Icon(Icons.auto_awesome, color: AppColors.cyan),
               tooltip: 'NEURA AI',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
+            ),
+            IconButton(
+              icon: Icon(Icons.storefront_outlined, color: AppColors.cyan),
+              tooltip: 'Business messages',
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessMessagesScreen())),
             ),
             IconButton(
               icon: Icon(Icons.groups_outlined, color: AppColors.cyan),

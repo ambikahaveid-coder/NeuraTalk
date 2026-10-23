@@ -1132,16 +1132,24 @@ describe("Phase 8B-R0: enriched getCampaignReport (cost + delivery availability)
     expect(report.cost.availability).toBe("AVAILABLE"); // the system genuinely measured zero
   });
 
-  it("delivery.sent is AVAILABLE; accepted/delivered/read are explicitly NOT_AVAILABLE, never fabricated as 0 or omitted", async () => {
+  it("delivery counts come from the real delivery rows -- never estimated from the sent count", async () => {
     const { executeCampaign, getCampaignReport } = await import("../../server/modules/campaigns/service");
     const { campaign } = await makeReadyCampaign();
     await executeCampaign(BIZ, AUTHOR, campaign.id);
-    const report = await getCampaignReport(BIZ, campaign.id);
+
+    const delivery = tables.get("messagingDeliveries")![0];
+    delivery.status = "queued";
+    let report = await getCampaignReport(BIZ, campaign.id);
     expect(report.delivery.sent).toEqual({ availability: "AVAILABLE", count: 1 });
-    expect(report.delivery.accepted.availability).toBe("NOT_AVAILABLE");
-    expect(report.delivery.delivered.availability).toBe("NOT_AVAILABLE");
-    expect(report.delivery.read.availability).toBe("NOT_AVAILABLE");
-    expect(typeof report.delivery.accepted.reason).toBe("string");
-    expect(report.delivery.accepted.reason.length).toBeGreaterThan(0);
+    expect(report.delivery.accepted).toEqual({ availability: "AVAILABLE", count: 0 });
+    expect(report.delivery.delivered).toEqual({ availability: "AVAILABLE", count: 0 });
+    expect(report.delivery.read).toEqual({ availability: "AVAILABLE", count: 0 });
+
+    delivery.status = "read"; // the customer opened the chat
+    report = await getCampaignReport(BIZ, campaign.id);
+    expect(report.delivery.accepted.count).toBe(1);
+    expect(report.delivery.delivered.count).toBe(1);
+    expect(report.delivery.read.count).toBe(1);
+    expect(report.delivery.failed.count).toBe(0);
   });
 });

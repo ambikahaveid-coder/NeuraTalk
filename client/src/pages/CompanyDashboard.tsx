@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { useUpload } from "@/hooks/use-upload";
 import MarketingControlCenter from "@/pages/marketing/MarketingControlCenter";
+import MessagingStudio from "@/pages/messaging/MessagingStudio";
 import BusinessInboxPanel from "@/pages/inbox/BusinessInboxPanel";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
@@ -43,7 +44,7 @@ import {
   Settings, Plus, Clock, Check, X, Loader2, Copy, Eye, EyeOff,
   Building2, Key, Activity, ExternalLink, FileText, UserPlus, Languages,
   Share2, Link2, Globe, Headphones, Monitor, Wallet, Receipt, ShieldCheck, RefreshCw,
-  Radio, PiggyBank, Lock, MessagesSquare
+  Radio, PiggyBank, Lock, MessagesSquare, Send
 } from "lucide-react";
 import { LogoWithIcon } from "@/components/Logo";
 
@@ -69,7 +70,7 @@ const BUSINESS_PERMISSION_LABELS: Record<string, { label: string; group: string 
   "messaging:send": { label: "Send business messages", group: "Messaging" },
 };
 
-type Tab = "overview" | "inbox" | "marketing" | "agents" | "reports" | "api" | "settings";
+type Tab = "overview" | "inbox" | "messaging" | "marketing" | "agents" | "reports" | "api" | "settings";
 
 interface CompanyCreditResponse {
   success: boolean;
@@ -250,6 +251,7 @@ export default function CompanyDashboard() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Overview", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "inbox", label: "Inbox", icon: <MessagesSquare className="w-4 h-4" /> },
+    { id: "messaging", label: "Messaging", icon: <Send className="w-4 h-4" /> },
     { id: "marketing", label: "Marketing", icon: <Sparkles className="w-4 h-4" /> },
     { id: "agents", label: "Team", icon: <Users className="w-4 h-4" /> },
     { id: "reports", label: "Reports", icon: <FileText className="w-4 h-4" /> },
@@ -334,6 +336,10 @@ export default function CompanyDashboard() {
 
           {activeTab === "inbox" && (
             <BusinessInboxPanel businessId={user?.organization?.id ?? 0} />
+          )}
+
+          {activeTab === "messaging" && (
+            <MessagingStudio businessId={user?.organization?.id ?? 0} />
           )}
 
           {activeTab === "marketing" && (

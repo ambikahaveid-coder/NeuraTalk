@@ -41,6 +41,9 @@ import { chargeOtpMessage, PLACEHOLDER_COST_PER_OTP_PAISE } from "./billing";
 import { createAuditLog, AUDIT_ACTION_OTP } from "./audit";
 import { isOtpVerifyLockedOut, recordOtpVerifyFailure, clearOtpVerifyFailures } from "../../rate-limit";
 import { assertLegalOtpTransition } from "./lifecycle";
+import { encryptTenantSecret } from "../../tenant-secrets";
+import { linkCustomerToNeuraTalkUser } from "../customers/service";
+import { deliverCommittedMessage } from "../messaging/delivery";
 
 export class NotFoundError extends Error {
   constructor(message: string) { super(message); this.name = "NotFoundError"; }
@@ -116,8 +119,16 @@ function resolveDestination(customer: typeof customers.$inferSelect, requestedCh
     throw new ValidationError(`Invalid channel: ${requestedChannel}`);
   }
 
+  // Default: inside NeuraTalk when the customer has an account (the only
+  // channel that actually delivers today), else SMS/email.
   const channel = (requestedChannel as BusinessOtpChannel | undefined)
-    ?? (customer.normalizedPhone ? BUSINESS_OTP_CHANNEL.SMS : BUSINESS_OTP_CHANNEL.EMAIL);
+    ?? (customer.linkedUserId ? BUSINESS_OTP_CHANNEL.IN_APP
+      : customer.normalizedPhone ? BUSINESS_OTP_CHANNEL.SMS : BUSINESS_OTP_CHANNEL.EMAIL);
+
+  if (channel === BUSINESS_OTP_CHANNEL.IN_APP) {
+    if (!customer.linkedUserId) throw new ValidationError("This customer is not on NeuraTalk, so the code cannot be sent in the app");
+    return { channel, destination: `neuratalk:user:${customer.linkedUserId}` };
+  }
 
   if (channel === BUSINESS_OTP_CHANNEL.SMS) {
     if (!customer.normalizedPhone) throw new ValidationError("Customer has no phone number on file");
@@ -132,6 +143,10 @@ async function resolveOwnedCustomer(tx: DbLike, businessId: number, customerId: 
   if (!customer) throw new NotFoundError("Customer not found");
   if (customer.status === CUSTOMER_STATUS.BLOCKED) throw new ValidationError("Customer is blocked");
   if (customer.status === CUSTOMER_STATUS.ARCHIVED) throw new ValidationError("Customer is archived");
+  if (!customer.linkedUserId) {
+    const linkedUserId = await linkCustomerToNeuraTalkUser(customer, tx);
+    if (linkedUserId) return { ...customer, linkedUserId };
+  }
   return customer;
 }
 
@@ -189,7 +204,8 @@ async function issueChallenge(
   resendCount: number,
   supersedesChallengeId: number | null,
 ) {
-  if (!isBusinessOtpDeliveryEnabled()) throw new OtpDeliveryUnavailableError();
+  // SMS/email have no provider connected; only the in-app channel delivers.
+  if (channel !== BUSINESS_OTP_CHANNEL.IN_APP && !isBusinessOtpDeliveryEnabled()) throw new OtpDeliveryUnavailableError();
   const charge = await chargeOtpMessage(tx, businessId, PLACEHOLDER_COST_PER_OTP_PAISE);
   if (!charge.charged) throw new BillingError(charge.reason ?? "unknown");
 
@@ -212,6 +228,7 @@ async function issueChallenge(
     supersedesChallengeId,
     createdBy: actorUserId,
     expiresAt,
+    deliveryCiphertext: channel === BUSINESS_OTP_CHANNEL.IN_APP ? encryptTenantSecret(code) : null,
   }).returning();
 
   const { conversation, participants } = await findOrCreateCustomerConversation(tx, businessId, customer.id);
@@ -255,8 +272,9 @@ async function issueChallenge(
 
 /** Strips codeHash (and everything else security-sensitive) before a challenge is ever returned to a caller -- defense in depth alongside "never select codeHash in the first place" at the controller layer. */
 export function toSafeChallenge(row: typeof businessOtpChallenges.$inferSelect) {
-  const { codeHash, ...safe } = row;
+  const { codeHash, deliveryCiphertext, ...safe } = row;
   void codeHash;
+  void deliveryCiphertext;
   return safe;
 }
 
@@ -300,7 +318,16 @@ export async function createChallenge(businessId: number, actorUserId: number, i
 
     await createAuditLog(actorUserId, businessId, AUDIT_ACTION_OTP.CHALLENGE_CREATED, challenge.id, { purpose, channel });
     return toSafeChallenge(challenge);
+  }).then(async (safe) => {
+    await deliverOtpMessage(businessId, safe);
+    return safe;
   });
+}
+
+/** After COMMIT: hand the OTP message to in-app delivery (no-op for SMS/email). */
+async function deliverOtpMessage(businessId: number, challenge: { channel: string; messageId: number | null }) {
+  if (challenge.channel !== BUSINESS_OTP_CHANNEL.IN_APP || !challenge.messageId) return;
+  await deliverCommittedMessage({ businessId, messageId: challenge.messageId, publishCreated: true });
 }
 
 async function getOwnedChallenge(tx: DbLike, businessId: number, challengeId: number) {
@@ -355,7 +382,7 @@ export async function verifyChallenge(businessId: number, actorUserId: number | 
   return db.transaction(async (tx) => {
     if (challenge.expiresAt.getTime() <= Date.now()) {
       assertLegalOtpTransition(challenge.status as OtpChallengeStatus, OTP_CHALLENGE_STATUS.EXPIRED);
-      const [expired] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.EXPIRED })
+      const [expired] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.EXPIRED, deliveryCiphertext: null })
         .where(and(eq(businessOtpChallenges.id, challengeId), eq(businessOtpChallenges.status, OTP_CHALLENGE_STATUS.PENDING))).returning();
       if (expired) await createAuditLog(actorUserId, businessId, AUDIT_ACTION_OTP.CHALLENGE_EXPIRED, challengeId, {});
       throw new OtpExpiredError();
@@ -372,7 +399,7 @@ export async function verifyChallenge(businessId: number, actorUserId: number | 
       await recordOtpVerifyFailure(challenge.destination, REDIS_NAMESPACE);
 
       if (afterIncrement.attempts >= afterIncrement.maxAttempts) {
-        const [failed] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.FAILED, failedAt: new Date() })
+        const [failed] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.FAILED, failedAt: new Date(), deliveryCiphertext: null })
           .where(and(eq(businessOtpChallenges.id, challengeId), eq(businessOtpChallenges.status, OTP_CHALLENGE_STATUS.PENDING))).returning();
         if (failed) await createAuditLog(actorUserId, businessId, AUDIT_ACTION_OTP.CHALLENGE_FAILED, challengeId, { attempts: afterIncrement.attempts });
         throw new OtpMaxAttemptsError();
@@ -380,7 +407,7 @@ export async function verifyChallenge(businessId: number, actorUserId: number | 
       throw new OtpIncorrectCodeError();
     }
 
-    const [verified] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.VERIFIED, verifiedAt: new Date() })
+    const [verified] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.VERIFIED, verifiedAt: new Date(), deliveryCiphertext: null })
       .where(and(eq(businessOtpChallenges.id, challengeId), eq(businessOtpChallenges.status, OTP_CHALLENGE_STATUS.PENDING))).returning();
     if (!verified) throw new AlreadyResolvedError("pending"); // lost the race -- e.g. a concurrent verify already succeeded
 
@@ -410,7 +437,7 @@ export async function resendChallenge(businessId: number, actorUserId: number, c
     }
 
     assertLegalOtpTransition(challenge.status as OtpChallengeStatus, OTP_CHALLENGE_STATUS.SUPERSEDED);
-    const [superseded] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.SUPERSEDED, supersededAt: new Date() })
+    const [superseded] = await tx.update(businessOtpChallenges).set({ status: OTP_CHALLENGE_STATUS.SUPERSEDED, supersededAt: new Date(), deliveryCiphertext: null })
       .where(and(eq(businessOtpChallenges.id, challengeId), eq(businessOtpChallenges.status, OTP_CHALLENGE_STATUS.PENDING))).returning();
     if (!superseded) throw new AlreadyResolvedError("pending"); // lost the race -- e.g. it was just verified or expired
 
@@ -425,5 +452,8 @@ export async function resendChallenge(businessId: number, actorUserId: number, c
 
     await createAuditLog(actorUserId, businessId, AUDIT_ACTION_OTP.RESEND_REQUESTED, fresh.id, { supersedes: superseded.id, resendCount: fresh.resendCount });
     return toSafeChallenge(fresh);
+  }).then(async (safe) => {
+    await deliverOtpMessage(businessId, safe);
+    return safe;
   });
 }

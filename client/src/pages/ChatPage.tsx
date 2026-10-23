@@ -11,6 +11,7 @@ import {
   CheckCheck,
   Check,
   Search,
+  Building2,
   UserRound,
   Phone,
   Video,
@@ -194,6 +195,12 @@ export default function ChatPage() {
   );
   const [messageInput, setMessageInput] = useState("");
   const [search, setSearch] = useState("");
+  const businessThreadsQuery = useQuery<{ threads: Array<{ unreadCount: number }> }>({
+    queryKey: ["/api/messaging/business-threads"],
+    queryFn: async () => (await apiRequest("GET", "/api/messaging/business-threads")).json(),
+    refetchInterval: 30000,
+  });
+  const businessUnread = (businessThreadsQuery.data?.threads ?? []).reduce((sum, t) => sum + (t.unreadCount || 0), 0);
   const [originalVisibleIds, setOriginalVisibleIds] = useState<number[]>([]);
   const [optimisticMessages, setOptimisticMessages] = useState<
     Record<number, PendingPersonalThreadMessage[]>
@@ -894,6 +901,17 @@ export default function ChatPage() {
           data-testid="personal-chat-sidebar"
         >
           <div className="p-4 border-b space-y-3">
+            <a
+              href="/business-messages"
+              className="flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm hover:bg-muted/60"
+              data-testid="link-business-messages"
+            >
+              <Building2 className="w-4 h-4 text-primary" />
+              <span className="flex-1 font-medium">Business messages</span>
+              {businessUnread > 0 && (
+                <Badge className="rounded-full px-2" aria-label={`${businessUnread} unread`}>{businessUnread}</Badge>
+              )}
+            </a>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input

@@ -16,6 +16,7 @@ const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const BusinessChatPage = lazy(() => import("@/pages/BusinessChatPage"));
+const BusinessMessagesPage = lazy(() => import("@/pages/BusinessMessagesPage"));
 const VoiceCloneSettings = lazy(() => import("@/pages/VoiceCloneSettings"));
 const ApiDocs = lazy(() => import("@/pages/ApiDocs"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -320,6 +321,9 @@ function Router() {
           via a direct businessId in the URL for this phase. */}
       <Route path="/business-chat/:businessId">
         <ProtectedRoute component={BusinessChatPage} />
+      </Route>
+      <Route path="/business-messages">
+        <ProtectedRoute component={BusinessMessagesPage} />
       </Route>
 
       <Route path="/settings/voice-clone">

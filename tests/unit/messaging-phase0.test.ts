@@ -227,6 +227,16 @@ vi.mock("../../server/modules/messaging/realtime", () => ({
   publishMessagingEvent: vi.fn((event: Record<string, unknown>) => { publishMessagingEventCalls.push(event); }),
 }));
 
+// In-app delivery (ticks, push) and OTP reveal run against the real DB in
+// the end-to-end harness; this file covers the messaging service itself.
+vi.mock("../../server/modules/messaging/delivery", () => ({
+  deliverCommittedMessage: vi.fn(async () => {}),
+  deliveryStatusByMessage: vi.fn(async () => new Map()),
+}));
+vi.mock("../../server/modules/otp/reveal", () => ({
+  revealInAppOtpCodes: vi.fn(async (messages: unknown[]) => messages),
+}));
+
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -253,8 +263,8 @@ vi.mock("@shared/schema", async (importOriginal) => {
   return {
     ...actual,
     organizations: mkTable("organizations", ["id", "name", "logoUrl", "description", "email", "phone", "status"]),
-    users: mkTable("users", ["id", "username", "organizationId", "isActive"]),
-    customers: mkTable("customers", ["id", "businessId", "linkedUserId", "name", "status", "source", "createdBy"]),
+    users: mkTable("users", ["id", "username", "organizationId", "isActive", "phone", "email"]),
+    customers: mkTable("customers", ["id", "businessId", "linkedUserId", "name", "status", "source", "createdBy", "phone", "normalizedPhone", "email", "normalizedEmail", "updatedAt"]),
     messagingConversations: mkTable("messagingConversations", ["id", "type", "organizationId", "metadata", "isArchived", "createdAt", "updatedAt"]),
     businessConversations: mkTable("businessConversations", ["id", "conversationId", "businessId", "customerId", "status", "assignedToUserId", "createdAt"]),
     messagingParticipants: mkTable("messagingParticipants", ["id", "conversationId", "participantType", "participantId", "role", "joinedAt", "leftAt"]),
