@@ -282,13 +282,15 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                               final msg = provider.messages[i];
                               final isOwn = msg['senderId'] == selfId || msg['senderId'] == -1;
                               final prev = i > 0 ? provider.messages[i - 1] : null;
-                              return _GroupMessageBubble(
+                              final divider = ntDayDivider(prev?['createdAt'], msg['createdAt']);
+                              final bubble = _GroupMessageBubble(
                                 message: msg,
                                 isOwn: isOwn,
                                 myLanguage: myLanguage,
-                                showSender: !isOwn && prev?['senderId'] != msg['senderId'],
+                                showSender: !isOwn && (prev?['senderId'] != msg['senderId'] || divider != null),
                                 onLongPress: msg['_pending'] == true ? null : () => _showMessageActions(msg, isOwn),
                               );
+                              return divider == null ? bubble : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [divider, bubble]);
                             },
                           ),
           ),
@@ -356,7 +358,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                     maxLines: 5,
                     style: TextStyle(color: AppColors.ink, fontSize: 16),
                     decoration: InputDecoration(
-                      hintText: 'Message the group...',
+                      hintText: 'Message the group', hintMaxLines: 1,
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,

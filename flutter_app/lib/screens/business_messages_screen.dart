@@ -108,7 +108,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
               child: TextField(
                 onChanged: _onSearch,
                 decoration: InputDecoration(
-                  hintText: 'Find a business by name, type or city',
+                  hintText: 'Search businesses',
                   prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
                   isDense: true,
                   contentPadding: NtSearch.padding,
@@ -464,7 +464,12 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                           reverse: true,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           itemCount: _messages.length,
-                          itemBuilder: (_, i) => _bubble(_messages[_messages.length - 1 - i]),
+                          itemBuilder: (_, i) {
+                            final k = _messages.length - 1 - i;
+                            final divider = ntDayDivider(k > 0 ? _messages[k - 1]['createdAt'] : null, _messages[k]['createdAt']);
+                            final bubble = _bubble(_messages[k]);
+                            return divider == null ? bubble : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [divider, bubble]);
+                          },
                         ),
         ),
         SafeArea(

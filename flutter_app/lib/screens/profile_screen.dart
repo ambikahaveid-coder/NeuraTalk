@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import 'edit_profile_screen.dart';
+import 'media_viewer_screen.dart';
 import 'settings_screen.dart';
 import 'teams_screen.dart';
 import 'transcript_history_screen.dart';
@@ -69,8 +71,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Container(
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
                     height: 250,
+                    child: Container(
                     decoration: const BoxDecoration(
                       gradient: RadialGradient(
                         center: Alignment(0.6, 1.4),
@@ -93,14 +99,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: Row(
                               children: [
                                 GestureDetector(
-                                  onTap: () => _go(const EditProfileScreen()),
+                                  // Photo: open it full screen (zoomable). No photo yet: add one.
+                                  onTap: () => avatarUrl != null
+                                      ? _go(MediaViewerScreen(objectPath: avatarUrl, name: 'photo.jpg', title: hasName ? username : null))
+                                      : _go(const EditProfileScreen()),
                                   child: Container(
                                     padding: const EdgeInsets.all(3),
                                     decoration: const BoxDecoration(color: AppColors.onAccent, shape: BoxShape.circle),
                                     child: CircleAvatar(
                                       radius: 34,
                                       backgroundColor: AppColors.navySoft,
-                                      backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
+                                      backgroundImage: avatarUrl != null ? CachedNetworkImageProvider('${ApiService.baseUrl}$avatarUrl') : null,
                                       child: avatarUrl == null
                                           ? Text(hasName ? username.characters.first.toUpperCase() : '?',
                                               style: const TextStyle(color: AppColors.onAccent, fontSize: 26, fontWeight: FontWeight.w700))
@@ -130,10 +139,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ),
                   ),
-                  Positioned(left: 16, right: 16, top: 200, child: _planCard()),
+                  ),
+                  // The card sits in the flow (not floating), so the gap below
+                  // it stays the same whatever its height or the text size.
+                  Padding(padding: const EdgeInsets.fromLTRB(16, 200, 16, 0), child: _planCard()),
                 ],
               ),
-              const SizedBox(height: 96),
+              const SizedBox(height: 16),
               Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: _stats()),
               const SizedBox(height: 16),
               Padding(

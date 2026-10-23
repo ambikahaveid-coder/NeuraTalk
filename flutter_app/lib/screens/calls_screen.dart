@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
@@ -51,8 +52,16 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
         _loading = false;
         _error = 'Could not load your calls. Pull down to try again.';
       });
+      // This screen is built when the app opens. If that happened without
+      // internet, keep trying quietly so the list appears once it's back.
+      _retry?.cancel();
+      _retry = Timer(const Duration(seconds: 6), () {
+        if (mounted && _error != null) _loadCalls();
+      });
     }
   }
+
+  Timer? _retry;
 
   List<Map<String, dynamic>> get _missed => _calls.where((c) => c['outcome'] == 'missed').toList();
 
@@ -220,6 +229,7 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
 
   @override
   void dispose() {
+    _retry?.cancel();
     _tabs.dispose();
     super.dispose();
   }

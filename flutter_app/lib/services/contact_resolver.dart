@@ -24,7 +24,6 @@ class ContactResolver {
 
   Map<String, String> _byPhoneSuffix = {};
   bool _loaded = false;
-  bool _loading = false;
 
   String _digitsOnly(String s) => s.replaceAll(RegExp(r'\D'), '');
 
@@ -39,9 +38,19 @@ class ContactResolver {
   /// call repeatedly; only does real work once per app session unless
   /// [force] is set (e.g. after the user grants permission or edits their
   /// address book).
-  Future<void> ensureLoaded({bool force = false}) async {
-    if ((_loaded && !force) || _loading) return;
-    _loading = true;
+  Future<void> ensureLoaded({bool force = false}) {
+    if (_loaded && !force) return Future.value();
+    // Everyone asking while a load is running waits for that same load
+    // (returning early made screens refresh before the names were there).
+    return _inFlight ??= _load().whenComplete(() => _inFlight = null);
+  }
+
+  Future<void>? _inFlight;
+
+  /// Bumped whenever names finish loading, so any screen can rebuild.
+  final ValueNotifier<int> changes = ValueNotifier(0);
+
+  Future<void> _load() async {
     try {
       final granted = await FlutterContacts.requestPermission(readonly: true).timeout(
         const Duration(seconds: 5),
@@ -62,10 +71,9 @@ class ContactResolver {
       }
       _byPhoneSuffix = map;
       _loaded = true;
+      changes.value++;
     } catch (_) {
       _loaded = true;
-    } finally {
-      _loading = false;
     }
   }
 

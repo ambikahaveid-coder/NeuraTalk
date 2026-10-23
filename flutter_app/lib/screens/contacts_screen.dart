@@ -1,4 +1,6 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -149,6 +151,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   int _tab = 0; // 0 All, 1 On NeuraTalk, 2 Invite
   String _query = '';
+  bool _fabVisible = true;
 
   static const _avatarColors = [Color(0xFF1E66F5), Color(0xFF16A34A), Color(0xFFEA580C), Color(0xFF6D4AFF), Color(0xFF0EA5E9), Color(0xFFDB2777)];
 
@@ -156,7 +159,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: AnimatedScale(
+        scale: _fabVisible ? 1 : 0,
+        duration: const Duration(milliseconds: 180),
+        child: FloatingActionButton(
         heroTag: 'contacts-add',
         tooltip: 'Find people on NeuraTalk',
         backgroundColor: AppColors.cyan,
@@ -168,6 +174,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         highlightElevation: 3,
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
         child: const Icon(Icons.add, size: 28),
+      ),
       ),
       body: SafeArea(
         child: Column(
@@ -235,7 +242,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                   : _permissionDenied
                       ? _permissionDeniedState()
-                      : RefreshIndicator(onRefresh: _sync, color: AppColors.cyan, child: _list()),
+                      : NotificationListener<UserScrollNotification>(
+                          // Hide the add button while scrolling down so it
+                          // never sits on top of a contact's Invite button.
+                          onNotification: (n) {
+                            final show = n.direction != ScrollDirection.reverse;
+                            if (n.direction != ScrollDirection.idle && show != _fabVisible) {
+                              setState(() => _fabVisible = show);
+                            }
+                            return false;
+                          },
+                          child: RefreshIndicator(onRefresh: _sync, color: AppColors.cyan, child: _list()),
+                        ),
             ),
           ],
         ),
@@ -307,7 +325,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     return CircleAvatar(
       radius: 24,
       backgroundColor: color.withValues(alpha: 0.14),
-      backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
+      backgroundImage: avatarUrl != null ? CachedNetworkImageProvider('${ApiService.baseUrl}$avatarUrl') : null,
       child: avatarUrl == null
           ? (initial != null
               ? Text(initial, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w700))
@@ -382,7 +400,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   Widget _inviteTile(Contact contact) {
     return ListTile(
-      contentPadding: const EdgeInsets.fromLTRB(20, 2, 12, 2),
+      contentPadding: const EdgeInsets.fromLTRB(20, 2, 16, 2),
       leading: _avatar(contact.displayName),
       title: Text(contact.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
       subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : '',

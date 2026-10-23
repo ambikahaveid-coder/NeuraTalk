@@ -31,6 +31,24 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String? _callingThread;
 
+  void _namesChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Show people by their name in your phone's contacts once those load.
+    ContactResolver.instance.changes.addListener(_namesChanged);
+    ContactResolver.instance.ensureLoaded();
+  }
+
+  @override
+  void dispose() {
+    ContactResolver.instance.changes.removeListener(_namesChanged);
+    super.dispose();
+  }
+
   String get _greeting {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
@@ -120,8 +138,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Container(width: 8, height: 8, decoration: BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
                       const SizedBox(width: 8),
-                      Text('Everything is translated into ${myLang.name}',
-                          style: TextStyle(color: AppColors.textSecondary, fontSize: 14.5)),
+                      Flexible(
+                        child: Text('Everything is translated into ${myLang.name}',
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 14.5)),
+                      ),
                     ]),
                   ),
                 ]),
@@ -194,8 +214,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Icon(icon, color: color, size: 25),
                 ),
                 const SizedBox(height: 8),
-                Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppColors.ink, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                // Shrinks to fit with large system text instead of "New c…".
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(label, maxLines: 1,
+                      style: TextStyle(color: AppColors.ink, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                ),
               ]),
             ),
           ),

@@ -1,4 +1,6 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../screens/media_viewer_screen.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
@@ -83,7 +85,9 @@ class NtAvatar extends StatelessWidget {
   final String? avatarUrl;
   final double size;
   final bool online;
-  const NtAvatar({super.key, required this.name, this.avatarUrl, this.size = 48, this.online = false});
+  /// Tap the photo to see it full screen (zoomable), like a profile photo.
+  final bool openOnTap;
+  const NtAvatar({super.key, required this.name, this.avatarUrl, this.size = 48, this.online = false, this.openOnTap = false});
 
   static const _palette = [Color(0xFF1E66F5), Color(0xFF16A34A), Color(0xFFEA580C), Color(0xFF7C3AED), Color(0xFF0891B2), Color(0xFFDB2777)];
 
@@ -94,20 +98,30 @@ class NtAvatar extends StatelessWidget {
         ? trimmed.characters.first.toUpperCase()
         : null;
     final color = _palette[trimmed.hashCode.abs() % _palette.length];
-    return SizedBox(
+    final avatar = SizedBox(
       width: size,
       height: size,
       child: Stack(children: [
         CircleAvatar(
           radius: size / 2,
           backgroundColor: color.withValues(alpha: AppColors.isDark ? 0.28 : 0.14),
-          backgroundImage: avatarUrl != null ? NetworkImage('${ApiService.baseUrl}$avatarUrl') : null,
-          child: avatarUrl == null
-              ? (letter != null
-                  ? Text(letter, style: TextStyle(color: color, fontSize: size * 0.4, fontWeight: FontWeight.w700))
-                  : Icon(Icons.person, color: color, size: size * 0.5))
-              : null,
+          // The letter shows while the photo loads, offline, or if it fails.
+          child: letter != null
+              ? Text(letter, style: TextStyle(color: color, fontSize: size * 0.4, fontWeight: FontWeight.w700))
+              : Icon(Icons.person, color: color, size: size * 0.5),
         ),
+        if (avatarUrl != null)
+          ClipOval(
+            child: CachedNetworkImage(
+              imageUrl: '${ApiService.baseUrl}$avatarUrl',
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              fadeInDuration: const Duration(milliseconds: 120),
+              placeholder: (_, __) => const SizedBox.shrink(),
+              errorWidget: (_, __, ___) => const SizedBox.shrink(),
+            ),
+          ),
         if (online)
           Positioned(
             right: 0,
@@ -119,6 +133,17 @@ class NtAvatar extends StatelessWidget {
             ),
           ),
       ]),
+    );
+    if (!openOnTap || avatarUrl == null) return avatar;
+    return Semantics(
+      button: true,
+      label: 'View photo of $trimmed',
+      child: GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(
+          builder: (_) => MediaViewerScreen(objectPath: avatarUrl!, name: 'photo.jpg', title: trimmed),
+        )),
+        child: avatar,
+      ),
     );
   }
 }
@@ -323,4 +348,37 @@ class NtSearch {
   static OutlineInputBorder border(Color color, [double width = 1]) =>
       OutlineInputBorder(borderRadius: BorderRadius.circular(22), borderSide: BorderSide(color: color, width: width));
   static const iconBox = BoxConstraints(minWidth: 42, minHeight: 40);
+}
+
+/// "Today" / "Yesterday" / weekday / date divider between chat messages
+/// from different days (like any messaging app). Returns null when
+/// [current] is on the same day as [previous].
+Widget? ntDayDivider(dynamic previous, dynamic current) {
+  final cur = DateTime.tryParse('${current ?? ''}')?.toLocal();
+  if (cur == null) return null;
+  final prev = DateTime.tryParse('${previous ?? ''}')?.toLocal();
+  if (prev != null && prev.year == cur.year && prev.month == cur.month && prev.day == cur.day) return null;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(cur.year, cur.month, cur.day);
+  final diff = today.difference(day).inDays;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  final label = diff == 0
+      ? 'Today'
+      : diff == 1
+          ? 'Yesterday'
+          : diff < 7
+              ? weekdays[cur.weekday - 1]
+              : '${cur.day} ${months[cur.month - 1]}${cur.year == now.year ? '' : ' ${cur.year}'}';
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(color: AppColors.surfaceElevated, borderRadius: BorderRadius.circular(10)),
+        child: Text(label, style: TextStyle(color: AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+      ),
+    ),
+  );
 }

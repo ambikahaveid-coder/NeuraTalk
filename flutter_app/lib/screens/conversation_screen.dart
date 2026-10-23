@@ -665,18 +665,26 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final on = provider.isTranslationOn(_threadId);
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      padding: const EdgeInsets.fromLTRB(10, 4, 12, 4),
       decoration: BoxDecoration(color: AppColors.background, border: Border(bottom: BorderSide(color: AppColors.border))),
       child: Row(children: [
-        LanguagePairChip(
-          mine: mine,
-          theirs: theirs,
-          onTapMine: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const LanguagePreferencesScreen()));
-            if (mounted) context.read<PersonalChatProvider>().openThread(_threadId);
-          },
+        // Shrinks on narrow phones / large text instead of pushing the
+        // Translate switch off the screen.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: LanguagePairChip(
+              mine: mine,
+              theirs: theirs,
+              onTapMine: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const LanguagePreferencesScreen()));
+                if (mounted) context.read<PersonalChatProvider>().openThread(_threadId);
+              },
+            ),
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 4),
         if (same)
           const Padding(padding: EdgeInsets.only(right: 8), child: LiveBadge(on: false, label: 'Same language'))
         else
@@ -693,9 +701,10 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                   Icon(Icons.translate, size: 16, color: on ? AppColors.cyan : AppColors.textMuted),
                   const SizedBox(width: 4),
                   Text('Translate', style: TextStyle(color: AppColors.textSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
-                  Transform.scale(
-                    scale: 0.72,
-                    child: Switch(value: on, onChanged: (v) => provider.setTranslationOn(_threadId, v)),
+                  // Sized to what it shows (Transform.scale kept the full-size width).
+                  SizedBox(
+                    height: 28,
+                    child: FittedBox(child: Switch(value: on, onChanged: (v) => provider.setTranslationOn(_threadId, v))),
                   ),
                 ]),
               ),
@@ -737,7 +746,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         titleSpacing: 0,
         title: Row(
           children: [
-            NtAvatar(name: displayName, avatarUrl: avatarUrl, size: 40, online: provider.peerRecentlyActive),
+            NtAvatar(name: displayName, avatarUrl: avatarUrl, size: 40, online: provider.peerRecentlyActive, openOnTap: true),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -818,7 +827,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                             controller: _scrollCtrl,
                             padding: const EdgeInsets.all(16),
                             itemCount: provider.messages.length,
-                            itemBuilder: (_, i) => _PersonalMessageBubble(
+                            itemBuilder: (_, i) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                              if (ntDayDivider(i == 0 ? null : provider.messages[i - 1]['createdAt'], provider.messages[i]['createdAt']) case final divider?) divider,
+                              _PersonalMessageBubble(
                               message: provider.messages[i],
                               onRetry: () => context.read<PersonalChatProvider>().retryMessage(_threadId, provider.messages[i]),
                               onLongPress: () => _showMessageActions(provider.messages[i]),
@@ -827,6 +838,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                               myLanguage: _myLanguage(provider),
                               translationOn: provider.isTranslationOn(_threadId),
                             ),
+                            ]),
                           ),
           ),
           if (provider.peerTyping)
@@ -987,7 +999,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                       },
                       onChanged: (text) => context.read<PersonalChatProvider>().onTextChanged(_threadId, text),
                       decoration: InputDecoration(
-                        hintText: 'Type a message...',
+                        hintText: 'Message',
+                        hintMaxLines: 1,
                         hintStyle: TextStyle(color: AppColors.textMuted),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,

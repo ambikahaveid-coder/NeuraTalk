@@ -10,6 +10,7 @@ import 'chat_screen.dart';
 import 'group_chat_list_screen.dart';
 import 'business_messages_screen.dart';
 import 'contacts_screen.dart';
+import '../services/contact_resolver.dart';
 
 /// Real human-to-human conversations (server/personal-chat-routes.ts).
 /// This is the "Chat" bottom-nav tab. NEURA AI (the existing assistant,
@@ -33,6 +34,10 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     provider.loadThreads();
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.connectStream();
+    // Show saved contact names (as Home and Calls do) once contacts are read.
+    ContactResolver.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   String _formatTime(dynamic raw) {
@@ -59,7 +64,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
       if ((t['isArchived'] == true) != _showArchived) return false;
       if (q.isEmpty) return true;
       final peer = (t['peer'] as Map?) ?? const {};
-      return '${peer['displayName'] ?? ''} ${peer['phone'] ?? ''} ${t['lastMessagePreview'] ?? ''}'.toLowerCase().contains(q);
+      final saved = ContactResolver.instance.nameFor(peer['phone']?.toString()) ?? '';
+      return '$saved ${peer['displayName'] ?? ''} ${peer['phone'] ?? ''} ${t['lastMessagePreview'] ?? ''}'.toLowerCase().contains(q);
     }).toList();
     filtered.sort((a, b) {
       final aPinned = a['isPinned'] == true;
@@ -257,15 +263,17 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     final unread = (thread['unreadCount'] as int?) ?? 0;
     final isPinned = thread['isPinned'] == true;
     final isMuted = thread['isMuted'] == true;
+    // Same name as everywhere else: the name saved in this phone's contacts.
+    final name = ContactResolver.instance.nameFor(peer['phone']?.toString()) ?? peer['displayName']?.toString() ?? 'Unknown user';
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: NtAvatar(name: peer['displayName']?.toString() ?? '', avatarUrl: avatarUrl, size: 50),
+      leading: NtAvatar(name: name, avatarUrl: avatarUrl, size: 50),
       title: Row(
         children: [
           Flexible(
             child: Text(
-              peer['displayName']?.toString() ?? 'Unknown user',
+              name,
               style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),

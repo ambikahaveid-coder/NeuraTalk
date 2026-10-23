@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -41,7 +42,15 @@ class AuthProvider extends ChangeNotifier {
       } catch (_) {}
       await ApiService.init();
       if (ApiService.isLoggedIn) {
-        await fetchProfile();
+        // Show the app straight away from the last saved profile. Without it
+        // a slow or missing network at startup left _user empty and dropped
+        // a signed-in person on the login screen ("the app logs me out").
+        _user ??= await _loadCachedUser();
+        if (_user == null) {
+          await fetchProfile();
+        } else {
+          unawaited(fetchProfile());
+        }
       }
     } finally {
       _ready = true;
@@ -187,6 +196,7 @@ class AuthProvider extends ChangeNotifier {
     if (token == null) throw Exception('Login failed: server did not return a session.');
     await ApiService.saveToken(token);
     _user = res['user'] as Map<String, dynamic>?;
+    unawaited(_saveCachedUser(_user));
   }
 
   /// Completes a login done through the in-app web OTP page, which already
@@ -197,6 +207,8 @@ class AuthProvider extends ChangeNotifier {
     _error = null;
     if (_user == null) {
       await fetchProfile();
+    } else {
+      unawaited(_saveCachedUser(_user));
     }
     notifyListeners();
   }
@@ -205,14 +217,45 @@ class AuthProvider extends ChangeNotifier {
     try {
       final res = await ApiService.get('/api/auth/me') as Map<String, dynamic>;
       _user = res;
+      unawaited(_saveCachedUser(res));
       notifyListeners();
     } on ApiException catch (e) {
       // Only an expired/invalid session signs you out. A network blip or a
       // server hiccup used to log people out at random.
-      if (e.statusCode == 401) await ApiService.clearToken();
+      if (e.statusCode == 401) {
+        await ApiService.clearToken();
+        await _saveCachedUser(null);
+        _user = null;
+        notifyListeners();
+      }
     } catch (_) {
       // Offline etc.: keep the session and the last known profile.
     }
+  }
+
+  static const _userCacheKey = 'auth_user_cache_v1';
+
+  static Future<Map<String, dynamic>?> _loadCachedUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_userCacheKey);
+      if (raw == null) return null;
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _saveCachedUser(Map<String, dynamic>? user) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (user == null) {
+        await prefs.remove(_userCacheKey);
+      } else {
+        await prefs.setString(_userCacheKey, jsonEncode(user));
+      }
+    } catch (_) {}
   }
 
   /// Saved chats on this phone belong to the signed-in person only.
@@ -237,6 +280,7 @@ class AuthProvider extends ChangeNotifier {
     } catch (_) {}
     await ApiService.clearToken();
     await _clearSavedChats();
+    await _saveCachedUser(null);
     _user = null;
     notifyListeners();
   }
