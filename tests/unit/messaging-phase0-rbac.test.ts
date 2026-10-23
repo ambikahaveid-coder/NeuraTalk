@@ -7,6 +7,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  * validation (malformed bodies, invalid ids).
  */
 
+// Business-chat extras (files, translation, auto replies) are exercised by
+// the real-database end-to-end harness; here their database parts are inert.
+vi.mock("../../server/modules/messaging/attachments", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  attachmentsByMessage: vi.fn(async () => new Map()),
+  shareAttachment: vi.fn(async () => {}),
+}));
+vi.mock("../../server/modules/messaging/translate", () => ({
+  viewerTranslationLanguage: vi.fn(async () => null),
+  withTranslations: vi.fn(async (messages: unknown[]) => messages),
+}));
+vi.mock("../../server/modules/messaging/auto-replies", () => ({ sendAutoRepliesAfterCustomerMessage: vi.fn(async () => {}) }));
 vi.mock("../../server/observability", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

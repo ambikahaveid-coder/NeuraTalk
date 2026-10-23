@@ -116,6 +116,27 @@ export function registerMessagingRoutes(app: Express): void {
   // P2: Business Inbox real-time stream is registered at the top of this
   // function (route order) -- see server/modules/messaging/realtime.ts.
 
+  // Find a business (search), open one by its link, see its public profile.
+  app.get("/api/messaging/businesses", requireAuth, ctrl.searchBusinessesHandler);
+  app.get("/api/messaging/business-link/:slug", requireAuth, ctrl.getBusinessProfileHandler);
+  app.get("/api/messaging/business/:businessId/profile", requireAuth, ctrl.getBusinessProfileHandler);
+  app.get("/api/messaging/business/:businessId/call-target", requireAuth, ctrl.getBusinessCallTargetHandler);
+  // Business chat settings: agents read them (quick replies); admins change them.
+  app.get(
+    "/api/business/:businessId/messaging-settings",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requirePermission(PERMISSIONS.MESSAGING_VIEW),
+    ctrl.getMessagingSettingsHandler,
+  );
+  app.put(
+    "/api/business/:businessId/messaging-settings",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requireRole("company_admin", "super_admin"),
+    ctrl.updateMessagingSettingsHandler,
+  );
+
   // Consumer "Business" inbox: all of this user's chats with businesses.
   app.get("/api/messaging/business-threads", requireAuth, ctrl.getUserBusinessThreads);
   // Consumer opened a business chat (read receipts).

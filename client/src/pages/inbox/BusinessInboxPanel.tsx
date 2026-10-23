@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Loader2, MessagesSquare, Send, UserRound } from "lucide-react";
+import { ArrowLeft, Building2, Loader2, MessagesSquare, Paperclip, Send, ShoppingBag, UserRound } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUpload } from "@/hooks/use-upload";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -98,6 +100,10 @@ interface MessageRow {
   category?: string;
   /** How far a business-sent message got with the customer (ticks). */
   deliveryToCustomer?: string | null;
+  messageType?: string;
+  /** The customer's message in my language; the original stays in `content`. */
+  translatedContent?: string | null;
+  attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
 }
 
 const TICK_LABEL: Record<string, string> = { queued: "Sending", sent: "Sent", delivered: "Delivered", read: "Seen", failed: "Not delivered — customer is not on NeuraTalk" };
@@ -290,8 +296,9 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
   }, [businessId, queryClient]);
 
   const sendReplyMutation = useMutation({
-    mutationFn: async (content: string) => {
-      const res = await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/messages`, { content });
+    mutationFn: async (input: string | { content: string; attachment?: Record<string, unknown> }) => {
+      const body = typeof input === "string" ? { content: input } : input;
+      const res = await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/messages`, body);
       return res.json() as Promise<{ success: true; message: MessageRow }>;
     },
     onSuccess: (data) => {
@@ -309,6 +316,37 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
       toast({ title: "Reply failed", description: "Could not send this reply. Try again.", variant: "destructive" });
     },
   });
+
+  // Quick replies ("/shortcut") and catalog items, set up in Messaging.
+  const settingsQuery = useQuery<{ settings: { quickReplies: Array<{ shortcut: string; text: string }> } }>({
+    queryKey: ["/api/business", businessId, "messaging-settings"],
+    queryFn: async () => (await apiRequest("GET", `/api/business/${businessId}/messaging-settings`)).json(),
+    enabled: businessId > 0,
+    retry: false,
+  });
+  const catalogQuery = useQuery<{ items: Array<{ id: number; name: string; description: string | null; pricePaise: number | null; isAvailable: boolean }> }>({
+    queryKey: ["/api/business", businessId, "catalog"],
+    queryFn: async () => (await apiRequest("GET", `/api/business/${businessId}/catalog`)).json(),
+    enabled: businessId > 0,
+    retry: false,
+  });
+  const quickMatches = messageInput.startsWith("/")
+    ? (settingsQuery.data?.settings.quickReplies ?? []).filter((q) => q.shortcut.startsWith(messageInput.slice(1).toLowerCase()))
+    : [];
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const { uploadFile, isUploading } = useUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const sendFile = async (file: File) => {
+    const upload = await uploadFile(file);
+    if (!upload) {
+      toast({ title: "File not sent", description: "Upload failed. Try again.", variant: "destructive" });
+      return;
+    }
+    sendReplyMutation.mutate({
+      content: messageInput.trim(),
+      attachment: { url: upload.objectPath, mimeType: file.type || undefined, sizeBytes: file.size || undefined, title: file.name.slice(0, 240) },
+    });
+  };
 
   const handleSend = () => {
     const trimmed = messageInput.trim();
@@ -559,7 +597,13 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                       <ChatMessage
                         key={message.id}
                         role={isMine ? "user" : "assistant"}
-                        content={message.content}
+                        content={message.translatedContent || message.content}
+                        secondaryContent={message.translatedContent ? message.content : null}
+                        messageType={message.attachments?.length ? "attachment" : "text"}
+                        attachmentUrl={message.attachments?.[0]?.url ?? null}
+                        attachmentMime={message.attachments?.[0]?.mimeType ?? null}
+                        attachmentSize={message.attachments?.[0]?.sizeBytes ?? null}
+                        attachmentTitle={message.attachments?.length ? message.content : null}
                         timestamp={new Date(message.createdAt)}
                         status={isMine && message.deliveryToCustomer ? TICK_LABEL[message.deliveryToCustomer] ?? null : null}
                       />
@@ -571,11 +615,41 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
             </ScrollArea>
 
             <div className="border-t border-white/10 p-4">
+              {quickMatches.length > 0 && (
+                <ul className="max-w-2xl mx-auto mb-2 rounded-md border bg-background/90 divide-y" role="listbox" aria-label="Quick replies" data-testid="list-quick-replies">
+                  {quickMatches.slice(0, 6).map((q) => (
+                    <li key={q.shortcut}>
+                      <button type="button" className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50" onClick={() => setMessageInput(q.text)}>
+                        <strong>/{q.shortcut}</strong> <span className="text-muted-foreground">— {q.text}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="max-w-2xl mx-auto flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void sendFile(file);
+                  }}
+                />
+                <Button variant="ghost" size="icon" aria-label="Attach a photo or file" disabled={isUploading || sendReplyMutation.isPending} onClick={() => fileInputRef.current?.click()} data-testid="button-inbox-attach">
+                  {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                </Button>
+                {(catalogQuery.data?.items ?? []).some((i) => i.isAvailable) && (
+                  <Button variant="ghost" size="icon" aria-label="Send a catalog item" onClick={() => setCatalogOpen(true)} data-testid="button-inbox-catalog">
+                    <ShoppingBag className="w-4 h-4" />
+                  </Button>
+                )}
                 <Input
                   value={messageInput}
                   onChange={(event) => setMessageInput(event.target.value)}
-                  placeholder="Reply to customer..."
+                  placeholder="Reply to customer... (type / for quick replies)"
                   maxLength={8192}
                   disabled={sendReplyMutation.isPending}
                   onKeyDown={(event) => {
@@ -598,6 +672,30 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
           </>
         )}
       </div>
+
+      <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Send a catalog item</DialogTitle></DialogHeader>
+          <ul className="divide-y">
+            {(catalogQuery.data?.items ?? []).filter((i) => i.isAvailable).map((item) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className="w-full text-left py-2 hover:bg-muted/50 px-2 rounded"
+                  onClick={() => {
+                    const price = item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`;
+                    setMessageInput(`${item.name} — ${price}${item.description ? `\n${item.description}` : ""}`);
+                    setCatalogOpen(false);
+                  }}
+                >
+                  <p className="font-medium">{item.name}</p>
+                  <p className="text-sm text-muted-foreground">{item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`}</p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

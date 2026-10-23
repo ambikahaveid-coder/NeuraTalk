@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
+import { Switch } from "@/components/ui/switch";
+import { useUpload } from "@/hooks/use-upload";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2, ClipboardCheck, FileText, KeyRound, Loader2, Megaphone, Plus, Send, ShieldCheck, UserPlus, Users, XCircle,
+  CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +24,7 @@ import { getAuthToken, useAuth } from "@/hooks/use-auth";
  * Delivered/read numbers come from the real in-app delivery receipts.
  */
 
-type Section = "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
+type Section = "profile" | "catalog" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
 
 interface Customer {
   id: number; name: string | null; phone: string | null; email: string | null;
@@ -79,7 +82,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 export default function MessagingStudio({ businessId }: { businessId: number }) {
-  const [section, setSection] = useState<Section>("customers");
+  const [section, setSection] = useState<Section>("profile");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const base = `/api/business/${businessId}`;
@@ -120,6 +123,8 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
   }
 
   const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
+    { id: "profile", label: "Chat link & auto replies", icon: <Link2 className="w-4 h-4" /> },
+    { id: "catalog", label: "Catalog", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "customers", label: "Customers", icon: <Users className="w-4 h-4" /> },
     { id: "templates", label: "Templates", icon: <FileText className="w-4 h-4" /> },
     { id: "approvals", label: "Approvals", icon: <ClipboardCheck className="w-4 h-4" /> },
@@ -149,6 +154,8 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
       <p className="text-xs text-muted-foreground">
         Messages are delivered inside the customer's NeuraTalk app with a notification. Customers who are not on NeuraTalk are skipped and never charged.
       </p>
+      {section === "profile" && <ProfileSection {...props} businessId={businessId} />}
+      {section === "catalog" && <CatalogSection {...props} />}
       {section === "customers" && <CustomersSection {...props} customers={customersQuery.data?.customers ?? []} loading={customersQuery.isLoading} />}
       {section === "templates" && <TemplatesSection {...props} />}
       {section === "approvals" && <ApprovalsSection {...props} />}
@@ -675,6 +682,218 @@ function CodesSection(props: SectionProps & { customers: Customer[] }) {
                       </>
                     ) : <Button size="sm" variant="outline" onClick={() => { setVerifyFor(ch.id); setCode(""); }}>Check code</Button>)}
                   </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- profile & link
+interface ChatSettings {
+  listed: boolean;
+  greeting: { enabled: boolean; text: string };
+  away: { enabled: boolean; text: string; hours: Record<string, { open: string; close: string }>; timezone: string };
+  quickReplies: Array<{ shortcut: string; text: string }>;
+}
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function ProfileSection(props: SectionProps & { businessId: number }) {
+  const key = [props.base, "messaging-settings"];
+  const settingsQuery = useQuery<{ settings: ChatSettings }>({ queryKey: key, queryFn: () => call("GET", `${props.base}/messaging-settings`) });
+  const profileQuery = useQuery<{ business: { slug: string; name: string } }>({
+    queryKey: ["/api/messaging/business", props.businessId, "profile"],
+    queryFn: () => call("GET", `/api/messaging/business/${props.businessId}/profile`),
+    retry: false,
+  });
+  const [draft, setDraft] = useState<ChatSettings | null>(null);
+  useEffect(() => { if (settingsQuery.data && !draft) setDraft(settingsQuery.data.settings); }, [settingsQuery.data, draft]);
+  const save = useAction(props, (next: ChatSettings) => call("PUT", `${props.base}/messaging-settings`, next), "Saved", [key]);
+
+  const slug = profileQuery.data?.business.slug;
+  const link = slug ? `${window.location.origin}/b/${slug}` : null;
+  const [qr, setQr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!link) return;
+    QRCode.toDataURL(link, { width: 480, margin: 1 }).then(setQr).catch(() => setQr(null));
+  }, [link]);
+  const [shortcut, setShortcut] = useState("");
+  const [replyText, setReplyText] = useState("");
+
+  if (!draft) return <Loader2 className="w-5 h-5 animate-spin mx-auto" />;
+  const update = (patch: Partial<ChatSettings>) => setDraft({ ...draft, ...patch });
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Your chat link</CardTitle>
+          <CardDescription>Customers open it (or scan the QR code at your counter) to chat with you in NeuraTalk.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          {!profileQuery.data ? (
+            <p className="text-sm text-muted-foreground">Your link becomes active once your company is approved.</p>
+          ) : (
+            <>
+              {qr && <img src={qr} alt={`QR code for ${link}`} className="w-48 h-48 mx-auto rounded-md bg-white p-2" data-testid="img-chat-qr" />}
+              <div className="flex gap-2">
+                <Input readOnly value={link ?? ""} aria-label="Chat link" data-testid="input-chat-link" />
+                <Button size="icon" variant="outline" aria-label="Copy link" onClick={() => { void navigator.clipboard?.writeText(link ?? ""); props.toast({ title: "Link copied" }); }}>
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              {qr && <a href={qr} download={`${slug}-chat-qr.png`} className="text-sm text-primary underline">Download QR code</a>}
+            </>
+          )}
+          <label className="flex items-center justify-between gap-2 pt-2 text-sm">
+            <span>Show my business in NeuraTalk search</span>
+            <Switch checked={draft.listed} onCheckedChange={(v) => update({ listed: v })} aria-label="Show in search" />
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Automatic replies</CardTitle></CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label className="flex items-center justify-between gap-2 text-sm font-medium">
+              Greeting — sent when a customer messages you for the first time
+              <Switch checked={draft.greeting.enabled} onCheckedChange={(v) => update({ greeting: { ...draft.greeting, enabled: v } })} aria-label="Greeting message" />
+            </label>
+            <Textarea rows={2} value={draft.greeting.text} onChange={(e) => update({ greeting: { ...draft.greeting, text: e.target.value } })} placeholder="Welcome to our shop! How can we help you?" aria-label="Greeting text" />
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center justify-between gap-2 text-sm font-medium">
+              Away message — sent outside your opening hours
+              <Switch checked={draft.away.enabled} onCheckedChange={(v) => update({ away: { ...draft.away, enabled: v } })} aria-label="Away message" />
+            </label>
+            <Textarea rows={2} value={draft.away.text} onChange={(e) => update({ away: { ...draft.away, text: e.target.value } })} placeholder="We are closed now. We will reply when we open at 9 AM." aria-label="Away text" />
+            <div className="grid sm:grid-cols-2 gap-2">
+              {DAYS.map((day, i) => {
+                const hours = draft.away.hours[String(i)];
+                return (
+                  <div key={day} className="flex items-center gap-2 text-sm">
+                    <Switch
+                      checked={!!hours}
+                      aria-label={`Open on ${day}`}
+                      onCheckedChange={(open) => {
+                        const next = { ...draft.away.hours };
+                        if (open) next[String(i)] = { open: "09:00", close: "18:00" }; else delete next[String(i)];
+                        update({ away: { ...draft.away, hours: next } });
+                      }}
+                    />
+                    <span className="w-9">{day}</span>
+                    {hours ? (
+                      <>
+                        <Input type="time" className="h-8 w-[6.5rem]" value={hours.open} aria-label={`${day} opens`}
+                          onChange={(e) => update({ away: { ...draft.away, hours: { ...draft.away.hours, [String(i)]: { ...hours, open: e.target.value } } } })} />
+                        <span>–</span>
+                        <Input type="time" className="h-8 w-[6.5rem]" value={hours.close} aria-label={`${day} closes`}
+                          onChange={(e) => update({ away: { ...draft.away, hours: { ...draft.away.hours, [String(i)]: { ...hours, close: e.target.value } } } })} />
+                      </>
+                    ) : <span className="text-muted-foreground">Closed</span>}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">No days set = always open. Times are India time.</p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Quick replies — your team types "/" in the Inbox to use them</p>
+            <ul className="space-y-1">
+              {draft.quickReplies.map((q, i) => (
+                <li key={`${q.shortcut}-${i}`} className="flex items-start justify-between gap-2 rounded-md bg-muted/40 p-2 text-sm">
+                  <span><strong>/{q.shortcut}</strong> — {q.text}</span>
+                  <Button size="icon" variant="ghost" className="h-6 w-6" aria-label={`Remove /${q.shortcut}`}
+                    onClick={() => update({ quickReplies: draft.quickReplies.filter((_, j) => j !== i) })}><Trash2 className="w-3.5 h-3.5" /></Button>
+                </li>
+              ))}
+            </ul>
+            <div className="flex flex-wrap gap-2">
+              <Input className="w-32" placeholder="shortcut" value={shortcut} onChange={(e) => setShortcut(e.target.value.replace(/[^a-z0-9_-]/gi, "").toLowerCase())} aria-label="Quick reply shortcut" />
+              <Input className="flex-1 min-w-[12rem]" placeholder="Reply text" value={replyText} onChange={(e) => setReplyText(e.target.value)} aria-label="Quick reply text" />
+              <Button variant="outline" disabled={!shortcut || !replyText.trim()}
+                onClick={() => { update({ quickReplies: [...draft.quickReplies, { shortcut, text: replyText.trim() }] }); setShortcut(""); setReplyText(""); }}>Add</Button>
+            </div>
+          </div>
+
+          <Button onClick={() => save.mutate(draft)} disabled={save.isPending} data-testid="button-save-chat-settings">
+            {save.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}Save
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- catalog
+interface CatalogRow { id: number; name: string; description: string | null; pricePaise: number | null; imageUrl: string | null; isAvailable: boolean }
+
+function CatalogSection(props: SectionProps) {
+  const key = [props.base, "catalog"];
+  const items = useQuery<{ items: CatalogRow[] }>({ queryKey: key, queryFn: () => call("GET", `${props.base}/catalog`) });
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [description, setDescription] = useState("");
+  const [imagePath, setImagePath] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const { uploadFile, isUploading } = useUpload();
+  const add = useAction(props, () => call("POST", `${props.base}/catalog`, {
+    name: name.trim(),
+    description: description.trim() || null,
+    pricePaise: price.trim() ? Math.round(Number(price) * 100) : null,
+    imageUrl: imagePath,
+  }), "Added to catalog", [key]);
+  const toggle = useAction(props, (row: CatalogRow) => call("PATCH", `${props.base}/catalog/${row.id}`, { isAvailable: !row.isAvailable }), "Updated", [key]);
+  const remove = useAction(props, (id: number) => call("DELETE", `${props.base}/catalog/${id}`), "Removed", [key]);
+  const priceValid = !price.trim() || (Number.isFinite(Number(price)) && Number(price) >= 0);
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Add a product or service</CardTitle>
+          <CardDescription>Customers see your catalog in your chat and can ask about any item.</CardDescription></CardHeader>
+        <CardContent className="space-y-3">
+          <div><Label htmlFor="cat-name">Name</Label><Input id="cat-name" value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div><Label htmlFor="cat-price">Price (₹) — leave empty for "price on request"</Label><Input id="cat-price" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+          <div><Label htmlFor="cat-desc">Description</Label><Textarea id="cat-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              const upload = await uploadFile(file);
+              if (upload) setImagePath(upload.objectPath);
+            }} />
+          <Button variant="outline" className="w-full" onClick={() => fileRef.current?.click()} disabled={isUploading}>
+            {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImagePlus className="w-4 h-4 mr-2" />}{imagePath ? "Photo added — change" : "Add a photo"}
+          </Button>
+          <Button className="w-full" disabled={!name.trim() || !priceValid || add.isPending}
+            onClick={() => add.mutate(undefined as never, { onSuccess: () => { setName(""); setPrice(""); setDescription(""); setImagePath(null); } })} data-testid="button-add-catalog-item">
+            <Plus className="w-4 h-4 mr-2" />Add to catalog
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Catalog ({items.data?.items.length ?? 0})</CardTitle></CardHeader>
+        <CardContent>
+          {(items.data?.items ?? []).length === 0 ? <Empty>No items yet.</Empty> : (
+            <ul className="divide-y">
+              {items.data!.items.map((row) => (
+                <li key={row.id} className="py-2 flex items-center gap-3">
+                  {row.imageUrl ? <img src={row.imageUrl} alt="" className="w-12 h-12 rounded-md object-cover" /> : <div className="w-12 h-12 rounded-md bg-muted" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{row.name}</p>
+                    <p className="text-sm text-muted-foreground">{row.pricePaise == null ? "Price on request" : `₹${(row.pricePaise / 100).toLocaleString("en-IN")}`}</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {row.isAvailable ? "Shown" : "Hidden"}
+                    <Switch checked={row.isAvailable} onCheckedChange={() => toggle.mutate(row)} aria-label={`Show ${row.name}`} />
+                  </label>
+                  <Button size="icon" variant="ghost" aria-label={`Remove ${row.name}`} onClick={() => remove.mutate(row.id)}><Trash2 className="w-4 h-4" /></Button>
                 </li>
               ))}
             </ul>

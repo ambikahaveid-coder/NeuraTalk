@@ -15,6 +15,7 @@ import {
   messagingMessages,
   messagingDeliveries,
   messagingEvents,
+  messagingAttachments,
   users,
   organizations,
   customers,
@@ -33,6 +34,7 @@ import { AUDIT_ACTION } from "@shared/schema";
 import { publishMessagingEvent } from "./realtime";
 import { deliverCommittedMessage, deliveryStatusByMessage } from "./delivery";
 import { revealInAppOtpCodes } from "../otp/reveal";
+import { attachmentLabel, attachmentsByMessage, messageTypeFor, shareAttachment, type AttachmentInput, type MessageAttachment } from "./attachments";
 
 export class InvalidParticipantError extends Error {
   constructor(public readonly participantType: string) {
@@ -301,6 +303,8 @@ export interface CreateMessageInput {
   senderParticipantId?: number;
   content: string;
   messageType?: string;
+  /** A photo/video/document/voice note already uploaded and shared (see attachments.ts). */
+  attachment?: AttachmentInput;
 }
 
 export interface CreateMessageResult {
@@ -349,13 +353,15 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   }
   const senderParticipantId = ownParticipant.id;
 
-  const content = input.content?.trim();
+  const messageType = input.attachment
+    ? messageTypeFor(input.attachment, input.messageType)
+    : input.messageType && Object.values(MESSAGE_TYPE).includes(input.messageType as any) && input.messageType !== MESSAGE_TYPE.TEMPLATE && input.messageType !== MESSAGE_TYPE.SYSTEM
+      ? input.messageType
+      : MESSAGE_TYPE.TEXT;
+  // A file may be sent without a caption; lists and notifications show a label.
+  const content = input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
   if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
   if (content.length > 8192) throw new Error("VALIDATION_CONTENT_TOO_LONG");
-
-  const messageType = input.messageType && Object.values(MESSAGE_TYPE).includes(input.messageType as any)
-    ? input.messageType
-    : MESSAGE_TYPE.TEXT;
 
   const [message] = await tx.insert(messagingMessages).values({
     conversationId: bizConversation.conversationId,
@@ -365,11 +371,29 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
     content,
   }).returning();
 
-  const recipients = await tx.select().from(messagingParticipants)
+  if (input.attachment) {
+    await tx.insert(messagingAttachments).values({
+      messageId: message.id,
+      attachmentType: messageType,
+      url: input.attachment.url,
+      mimeType: input.attachment.mimeType ?? null,
+      sizeBytes: input.attachment.sizeBytes ?? null,
+      durationSeconds: input.attachment.durationSeconds ?? null,
+    });
+  }
+
+  // A customer writes to the business: the conversation's CUSTOMER record
+  // participant is the same person, so it is not a recipient (it used to
+  // get a delivery of their own message -- shown with ticks on the wrong
+  // side and counted as unread for them).
+  const senderIsCustomer = ownParticipant.role === "customer";
+  const recipients = (await tx.select().from(messagingParticipants)
     .where(and(
       eq(messagingParticipants.conversationId, bizConversation.conversationId),
       ne(messagingParticipants.id, senderParticipantId),
-    ));
+    )))
+    .filter((p) => !senderIsCustomer
+      || (p.participantType !== MESSAGING_PARTICIPANT_TYPE.CUSTOMER && !(p.participantType === MESSAGING_PARTICIPANT_TYPE.USER && p.role === "customer")));
 
   const deliveries: (typeof messagingDeliveries.$inferSelect)[] = [];
   for (const recipient of recipients) {
@@ -435,6 +459,7 @@ export async function createMessage(input: CreateMessageInput): Promise<CreateMe
 }
 
 export type MessageWithDelivery = typeof messagingMessages.$inferSelect & {
+  attachments: MessageAttachment[];
   /** Best delivery status to the customer side (ticks on business-sent messages). */
   deliveryToCustomer: string | null;
   /** Best delivery status to the business side (ticks on customer-sent messages). */
@@ -445,9 +470,11 @@ async function withDeliveryStatus(
   conversationId: number,
   rows: (typeof messagingMessages.$inferSelect)[],
 ): Promise<MessageWithDelivery[]> {
-  const statuses = await deliveryStatusByMessage(conversationId, rows.map((r) => r.id));
+  const ids = rows.map((r) => r.id);
+  const [statuses, files] = await Promise.all([deliveryStatusByMessage(conversationId, ids), attachmentsByMessage(ids)]);
   return rows.map((row) => ({
     ...row,
+    attachments: files.get(row.id) ?? [],
     deliveryToCustomer: statuses.get(row.id)?.toCustomer ?? null,
     deliveryToBusiness: statuses.get(row.id)?.toBusiness ?? null,
   }));
@@ -492,6 +519,7 @@ export interface SendUserInitiatedMessageInput {
   authenticatedUserId: number;
   content: string;
   messageType?: string;
+  attachment?: AttachmentInput;
 }
 
 /**
@@ -582,6 +610,8 @@ export async function sendUserInitiatedMessage(
   input: SendUserInitiatedMessageInput,
 ): Promise<CreateMessageResult> {
   let businessConversationId!: number;
+  // The customer owns their file; the business's team may read it.
+  if (input.attachment) await shareAttachment(input.authenticatedUserId, input.businessId, null, input.attachment.url);
   const result = await db.transaction(async (tx) => {
     const [business] = await tx.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.businessId));
     if (!business) throw new NotFoundError("Business not found");
@@ -599,6 +629,7 @@ export async function sendUserInitiatedMessage(
       authenticatedUserId: input.authenticatedUserId,
       content: input.content,
       messageType: input.messageType,
+      attachment: input.attachment,
     });
   });
 
@@ -610,6 +641,9 @@ export async function sendUserInitiatedMessage(
     message: { id: result.message.id, senderParticipantId: result.message.senderParticipantId, content: result.message.content, createdAt: (result.message.createdAt as Date).toISOString() },
   });
   await deliverCommittedMessage({ businessId: input.businessId, businessConversationId, messageId: result.message.id });
+  // Greeting / away message from the business, if it set them up.
+  const { sendAutoRepliesAfterCustomerMessage } = await import("./auto-replies");
+  await sendAutoRepliesAfterCustomerMessage(input.businessId, businessConversationId);
 
   return result;
 }
@@ -646,6 +680,12 @@ export async function sendUserInitiatedMessage(
  * own id.
  */
 export async function sendBusinessAgentMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
+  if (input.attachment) {
+    const [conv] = await db.select({ customerId: businessConversations.customerId }).from(businessConversations)
+      .where(and(eq(businessConversations.id, input.businessConversationId), eq(businessConversations.businessId, input.businessId)));
+    if (!conv) throw new NotFoundError("Conversation not found");
+    await shareAttachment(input.authenticatedUserId, input.businessId, conv.customerId, input.attachment.url);
+  }
   const result = await db.transaction(async (tx) => {
     const [bizConversation] = await tx.select().from(businessConversations)
       .where(and(eq(businessConversations.id, input.businessConversationId), eq(businessConversations.businessId, input.businessId)));
@@ -1213,4 +1253,39 @@ export async function adminSetConversationAssignment(
   });
 
   return summary;
+}
+
+/** The business team member who answers a customer's call (see getBusinessCallTargetHandler). */
+export async function pickBusinessCallee(businessId: number, customerUserId: number): Promise<{ userId: number; businessName: string } | null> {
+  const [org] = await db.select({ name: organizations.name, status: organizations.status, isActive: organizations.isActive })
+    .from(organizations).where(eq(organizations.id, businessId));
+  if (!org || org.status !== "approved" || !org.isActive) return null;
+  const team = await db.select({ id: users.id, role: users.role }).from(users)
+    .where(and(eq(users.organizationId, businessId), eq(users.isActive, true)));
+  const teamIds = new Set(team.map((u) => u.id));
+  if (teamIds.size === 0) return null;
+
+  const [customer] = await db.select({ id: customers.id }).from(customers)
+    .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, customerUserId)));
+  if (customer) {
+    const [conv] = await db.select().from(businessConversations)
+      .where(and(eq(businessConversations.businessId, businessId), eq(businessConversations.customerId, customer.id)));
+    if (conv?.assignedToUserId && teamIds.has(conv.assignedToUserId)) return { userId: conv.assignedToUserId, businessName: org.name };
+    if (conv) {
+      const agents = await db.select().from(messagingParticipants).where(and(
+        eq(messagingParticipants.conversationId, conv.conversationId),
+        eq(messagingParticipants.participantType, MESSAGING_PARTICIPANT_TYPE.USER),
+        ne(messagingParticipants.participantId, customerUserId),
+      ));
+      if (agents.length) {
+        const [last] = await db.select({ sender: messagingMessages.senderParticipantId }).from(messagingMessages)
+          .where(and(eq(messagingMessages.conversationId, conv.conversationId), inArray(messagingMessages.senderParticipantId, agents.map((a) => a.id))))
+          .orderBy(desc(messagingMessages.createdAt)).limit(1);
+        const agent = agents.find((a) => a.id === last?.sender);
+        if (agent && teamIds.has(agent.participantId)) return { userId: agent.participantId, businessName: org.name };
+      }
+    }
+  }
+  const admin = team.find((u) => u.role === "company_admin") ?? team[0];
+  return { userId: admin.id, businessName: org.name };
 }

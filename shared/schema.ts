@@ -3606,6 +3606,22 @@ export const messagingAttachments = pgTable("messaging_attachments", {
   index("messaging_attachments_message_idx").on(t.messageId),
 ]);
 
+/** A business's product/service catalog shown to customers in its chat. */
+export const businessCatalogItems = pgTable("business_catalog_items", {
+  id: serial("id").primaryKey(),
+  businessId: integer("business_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  pricePaise: integer("price_paise"), // null = "price on request"
+  imageUrl: text("image_url"), // public object path (same rule as the business logo)
+  isAvailable: boolean("is_available").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("business_catalog_items_business_idx").on(t.businessId, t.sortOrder),
+]);
+
 export const messagingTranslations = pgTable("messaging_translations", {
   id: serial("id").primaryKey(),
   messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),

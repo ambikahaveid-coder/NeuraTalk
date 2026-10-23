@@ -17,6 +17,7 @@ const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const BusinessChatPage = lazy(() => import("@/pages/BusinessChatPage"));
 const BusinessMessagesPage = lazy(() => import("@/pages/BusinessMessagesPage"));
+const BusinessLinkPage = lazy(() => import("@/pages/BusinessLinkPage"));
 const VoiceCloneSettings = lazy(() => import("@/pages/VoiceCloneSettings"));
 const ApiDocs = lazy(() => import("@/pages/ApiDocs"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -143,6 +144,17 @@ function WebsitePage({ children }: { children: React.ReactNode }) {
   );
 }
 
+const RETURN_TO_KEY = "neuratalk_return_to";
+function takeReturnTo(): string | null {
+  try {
+    const value = sessionStorage.getItem(RETURN_TO_KEY);
+    sessionStorage.removeItem(RETURN_TO_KEY);
+    return value && /^\/(b|business-chat)\//.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function ProtectedRoute({ 
   component: Component,
   allowedRoles,
@@ -153,6 +165,11 @@ function ProtectedRoute({
   const { user, isAuthenticated } = useAuth();
   
   if (!isAuthenticated) {
+    // A business link / QR code opened while signed out: come back to it after login.
+    const here = window.location.pathname + window.location.search;
+    if (/^\/(b|business-chat)\//.test(window.location.pathname)) {
+      try { sessionStorage.setItem(RETURN_TO_KEY, here); } catch { /* storage unavailable */ }
+    }
     return <Redirect to="/login" />;
   }
   
@@ -204,7 +221,7 @@ function Router() {
       
       <Route path="/login">
         {isAuthenticated && !needsBusinessSignup ? (
-          <Redirect to={getDashboardRedirect()} />
+          <Redirect to={takeReturnTo() ?? getDashboardRedirect()} />
         ) : (
           <Suspense fallback={<PageLoader />}><Landing /></Suspense>
         )}
@@ -324,6 +341,9 @@ function Router() {
       </Route>
       <Route path="/business-messages">
         <ProtectedRoute component={BusinessMessagesPage} />
+      </Route>
+      <Route path="/b/:slug">
+        <ProtectedRoute component={BusinessLinkPage} />
       </Route>
 
       <Route path="/settings/voice-clone">

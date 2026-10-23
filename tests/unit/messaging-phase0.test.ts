@@ -188,6 +188,18 @@ const fakeDb = {
 // Mocks
 // ---------------------------------------------------------------------------
 
+// Business-chat extras (files, translation, auto replies) are exercised by
+// the real-database end-to-end harness; here their database parts are inert.
+vi.mock("../../server/modules/messaging/attachments", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  attachmentsByMessage: vi.fn(async () => new Map()),
+  shareAttachment: vi.fn(async () => {}),
+}));
+vi.mock("../../server/modules/messaging/translate", () => ({
+  viewerTranslationLanguage: vi.fn(async () => null),
+  withTranslations: vi.fn(async (messages: unknown[]) => messages),
+}));
+vi.mock("../../server/modules/messaging/auto-replies", () => ({ sendAutoRepliesAfterCustomerMessage: vi.fn(async () => {}) }));
 vi.mock("../../server/db", () => ({ db: fakeDb }));
 
 vi.mock("../../server/observability", () => ({

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import AppNavigation from "@/components/AppNavigation";
@@ -182,6 +182,7 @@ export default function C2CCallPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [dialNumber, setDialNumber] = useState("");
+  const [calleeLabel, setCalleeLabel] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isVideoMode, setIsVideoMode] = useState(defaultMode === "video");
   const [callSettingsErrors, setCallSettingsErrors] = useState<{
@@ -250,6 +251,8 @@ export default function C2CCallPage({
     const identifier = params.get("identifier");
     const targetLanguage = params.get("theirLanguage");
     const mode = params.get("mode");
+    const label = params.get("name");
+    if (label) setCalleeLabel(label.slice(0, 80));
 
     if (identifier) {
       setDialNumber(identifier);
@@ -333,6 +336,18 @@ export default function C2CCallPage({
     isActive,
     call.updateTranslationMode,
   ]);
+
+  // Opened from a business chat ("Call" button): ring straight away, once.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (autoStartedRef.current || isInCall) return;
+    const params = new URLSearchParams(window.location.search);
+    const identifier = params.get("identifier");
+    if (params.get("autostart") !== "1" || !identifier) return;
+    autoStartedRef.current = true;
+    void startCallWith(identifier);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startCallWith = async (identifier: string, contact?: Contact) => {
     if (!identifier) {
@@ -625,9 +640,9 @@ export default function C2CCallPage({
                               ? "Connecting..."
                               : "Ringing..."}
                           </p>
-                          {selectedContact && (
+                          {(selectedContact || calleeLabel) && (
                             <p className="text-lg font-semibold mt-1">
-                              {selectedContact.name}
+                              {selectedContact?.name || calleeLabel}
                             </p>
                           )}
                         </div>

@@ -377,6 +377,21 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "business_otp_challenges" ADD COLUMN IF NOT EXISTS "delivery_ciphertext" text`);
     // Permission to learn the caller's own voice from their calls (additive).
     await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "voice_learning_consent_at" timestamp`);
+    // Business catalog shown to customers in business chats (additive).
+    await _db.execute(_sql`
+      CREATE TABLE IF NOT EXISTS "business_catalog_items" (
+        "id" serial PRIMARY KEY,
+        "business_id" integer NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+        "name" text NOT NULL,
+        "description" text,
+        "price_paise" integer,
+        "image_url" text,
+        "is_available" boolean NOT NULL DEFAULT true,
+        "sort_order" integer NOT NULL DEFAULT 0,
+        "created_at" timestamp DEFAULT now(),
+        "updated_at" timestamp DEFAULT now()
+      )`);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "business_catalog_items_business_idx" ON "business_catalog_items" ("business_id", "sort_order")`);
   }, { optional: true });
   let redisOperational = false;
   try {

@@ -27,6 +27,9 @@ import {
 import { subscribeToBusinessEvents, subscribeToConsumerEvents, type MessagingRealtimeEvent } from "./realtime";
 import { MESSAGING_PARTICIPANT_TYPE, CUSTOMER_CONSENT_CHANNEL, customers } from "@shared/schema";
 import { acknowledgeBusinessReads, acknowledgeConsumerDeliveries } from "./delivery";
+import { getMessagingSettings, getPublicBusinessProfile, searchBusinesses, updateMessagingSettings } from "./business-directory";
+import { viewerTranslationLanguage, withTranslations } from "./translate";
+import { attachmentInputSchema, AttachmentNotOwnedError } from "./attachments";
 import { getCustomerConsents, setChannelConsent } from "../customers/service";
 import { db } from "../../db";
 import { and, eq } from "drizzle-orm";
@@ -188,11 +191,12 @@ const createMessageSchema = z.object({
   // identity resolved server-side from the authenticated user (P1 fix,
   // 2026-08-23).
   senderParticipantId: z.number().int().positive().optional(),
-  content: z.string().min(1).max(8192),
+  content: z.string().max(8192).default(""),
   messageType: z.string().optional(),
+  attachment: attachmentInputSchema.optional(),
   // category is deliberately NOT accepted here -- structural governance,
   // see doc 24 section 6. Any category field in the request body is ignored.
-});
+}).refine((v) => v.content.trim() || v.attachment, { message: "content must not be empty" });
 
 export async function postMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -200,7 +204,10 @@ export async function postMessage(req: Request, res: Response) {
   if (!Number.isFinite(businessId) || !Number.isFinite(conversationId)) return badRequest(res, "Invalid id");
 
   const parsed = createMessageSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) {
+    if (parsed.error.issues.some((i) => i.message === "content must not be empty")) return badRequest(res, "content must not be empty");
+    return badRequest(res, parsed.error.message);
+  }
 
   try {
     // P1-5: sendBusinessAgentMessage (not createMessage directly) --
@@ -216,12 +223,14 @@ export async function postMessage(req: Request, res: Response) {
       senderParticipantId: parsed.data.senderParticipantId,
       content: parsed.data.content,
       messageType: parsed.data.messageType,
+      attachment: parsed.data.attachment,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
     if (error instanceof NotAParticipantError) return res.status(403).json({ success: false, error: error.message });
     if (error instanceof SenderIdentityMismatchError) return res.status(403).json({ success: false, error: error.message });
+    if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
     const message = error instanceof Error ? error.message : String(error);
     if (message === "VALIDATION_EMPTY_CONTENT") return badRequest(res, "content must not be empty");
     if (message === "VALIDATION_CONTENT_TOO_LONG") return badRequest(res, "content exceeds maximum length");
@@ -240,16 +249,20 @@ export async function postMessage(req: Request, res: Response) {
 // conversation), this caller never knows the conversation/participant ids
 // up front -- sendUserInitiatedMessage resolves/creates all of that itself.
 const sendUserMessageSchema = z.object({
-  content: z.string().min(1).max(8192),
+  content: z.string().max(8192).default(""),
   messageType: z.string().optional(),
-});
+  attachment: attachmentInputSchema.optional(),
+}).refine((v) => v.content.trim() || v.attachment, { message: "content must not be empty" });
 
 export async function sendUserMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
   if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
 
   const parsed = sendUserMessageSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) {
+    if (parsed.error.issues.some((i) => i.message === "content must not be empty")) return badRequest(res, "content must not be empty");
+    return badRequest(res, parsed.error.message);
+  }
 
   try {
     // authenticatedUserId comes exclusively from the session (req.user.id,
@@ -261,10 +274,12 @@ export async function sendUserMessage(req: Request, res: Response) {
       authenticatedUserId: req.user!.id,
       content: parsed.data.content,
       messageType: parsed.data.messageType,
+      attachment: parsed.data.attachment,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
+    if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
     // Not expected on this path (sendUserInitiatedMessage always resolves/
     // creates the caller's own participant before creating the message),
     // but mapped defensively for consistency with postMessage above rather
@@ -297,7 +312,10 @@ export async function getMessages(req: Request, res: Response) {
   }
   const result = await listMessages(businessId, conversationId, { limit, offset });
   if (!result) return res.status(404).json({ success: false, error: "Conversation not found" });
-  return res.json({ success: true, ...result });
+  // The agent reads the customer's messages in the agent's own language.
+  const language = await viewerTranslationLanguage(req.user!.id).catch(() => null);
+  const messages = await withTranslations(result.messages, language, (m) => m.deliveryToCustomer != null);
+  return res.json({ success: true, ...result, messages });
 }
 
 // P1-3A Part A: consumer-facing, requireAuth only (see routes.ts) -- any
@@ -339,7 +357,10 @@ export async function getUserMessages(req: Request, res: Response) {
       logger.warn("Messaging", `delivery receipt failed: ${String(error)}`);
     });
     const result = await listUserInitiatedMessages(businessId, req.user!.id, { limit, offset });
-    return res.json({ success: true, ...result });
+    // The customer reads the business's messages in their own language.
+    const language = await viewerTranslationLanguage(req.user!.id).catch(() => null);
+    const messages = await withTranslations(result.messages, language, (m) => result.viewerParticipantId != null && m.senderParticipantId === result.viewerParticipantId);
+    return res.json({ success: true, ...result, messages });
   } catch (error) {
     logger.error("Messaging", "Failed to fetch user-initiated messages", error as Error);
     return res.status(500).json({ success: false, error: "Failed to load messages" });
@@ -523,5 +544,66 @@ export async function setUserBusinessPreferences(req: Request, res: Response) {
   } catch (error) {
     logger.error("Messaging", "Failed to update business message preferences", error as Error);
     return res.status(500).json({ success: false, error: "Failed to update preference" });
+  }
+}
+// Consumer: find a business by name / category / city.
+export async function searchBusinessesHandler(req: Request, res: Response) {
+  const q = typeof req.query.q === "string" ? req.query.q.slice(0, 80) : "";
+  try {
+    return res.json({ success: true, businesses: await searchBusinesses(q) });
+  } catch (error) {
+    logger.error("Messaging", "Business search failed", error as Error);
+    return res.status(500).json({ success: false, error: "Search failed" });
+  }
+}
+
+// Consumer: public profile by id (chat header) or by link slug (/b/<slug>).
+export async function getBusinessProfileHandler(req: Request, res: Response) {
+  const raw = req.params.businessId ?? req.params.slug;
+  const key = req.params.businessId !== undefined ? Number(raw) : String(raw ?? "").toLowerCase();
+  if (typeof key === "number" && (!Number.isInteger(key) || key <= 0)) return badRequest(res, "Invalid businessId");
+  try {
+    const business = await getPublicBusinessProfile(key);
+    if (!business) return res.status(404).json({ success: false, error: "Business not found" });
+    return res.json({ success: true, business });
+  } catch (error) {
+    logger.error("Messaging", "Business profile failed", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to load business" });
+  }
+}
+
+// Business: chat settings (listed, greeting, away + hours, quick replies).
+export async function getMessagingSettingsHandler(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  const settings = await getMessagingSettings(businessId);
+  if (!settings) return res.status(404).json({ success: false, error: "Business not found" });
+  return res.json({ success: true, settings });
+}
+
+export async function updateMessagingSettingsHandler(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  try {
+    const settings = await updateMessagingSettings(businessId, req.body ?? {});
+    return res.json({ success: true, settings });
+  } catch (error) {
+    if (error instanceof z.ZodError) return badRequest(res, error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; "));
+    logger.error("Messaging", "Failed to save messaging settings", error as Error);
+    return res.status(500).json({ success: false, error: "Failed to save settings" });
+  }
+}
+// Consumer: who at the business answers a call from this chat -- the agent
+// assigned to it, else whoever last replied, else a company admin. The
+// client then places a normal NeuraTalk (translated) call to that person.
+export async function getBusinessCallTargetHandler(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  if (!Number.isInteger(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
+  try {
+    const { pickBusinessCallee } = await import("./service");
+    const target = await pickBusinessCallee(businessId, req.user!.id);
+    if (!target) return res.status(404).json({ success: false, error: "No one at this business can take calls right now" });
+    return res.json({ success: true, calleeIdentifier: String(target.userId), businessName: target.businessName });
+  } catch (error) {
+    logger.error("Messaging", "Failed to find business call target", error as Error);
+    return res.status(500).json({ success: false, error: "Could not start the call" });
   }
 }

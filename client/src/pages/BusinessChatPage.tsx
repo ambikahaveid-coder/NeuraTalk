@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Loader2, Send } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, Loader2, Paperclip, Phone, Send, ShoppingBag } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUpload } from "@/hooks/use-upload";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -81,9 +83,21 @@ interface BusinessMessage {
   senderParticipantId: number;
   createdAt: string;
   category?: string;
+  messageType?: string;
   /** Ticks on MY messages: how far they got on the business side. */
   deliveryToBusiness?: string | null;
+  /** The message in my language (business messages), original kept in `content`. */
+  translatedContent?: string | null;
+  attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
 }
+
+interface PublicProfile {
+  id: number; name: string; slug: string; logoUrl: string | null; description: string | null;
+  category: string | null; city: string | null; website: string | null; verified: boolean; openNow: boolean;
+}
+interface CatalogItem { id: number; name: string; description: string | null; pricePaise: number | null; imageUrl: string | null }
+
+const rupees = (paise: number | null) => (paise == null ? "Price on request" : `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`);
 
 const TICK_LABEL: Record<string, string> = { queued: "Sending", sent: "Sent", delivered: "Delivered", read: "Seen", failed: "Not delivered" };
 
@@ -343,6 +357,52 @@ export default function BusinessChatPage() {
     onError: () => toast({ title: "Could not update", description: "Please try again.", variant: "destructive" }),
   });
 
+  const profileQuery = useQuery<{ success: true; business: PublicProfile }>({
+    queryKey: ["/api/messaging/business", businessId, "profile"],
+    queryFn: async () => (await apiRequest("GET", `/api/messaging/business/${businessId}/profile`)).json(),
+    enabled: isValidBusinessId,
+    retry: false,
+  });
+  const profile = profileQuery.data?.business;
+  const catalogQuery = useQuery<{ success: true; items: CatalogItem[] }>({
+    queryKey: ["/api/messaging/business", businessId, "catalog"],
+    queryFn: async () => (await apiRequest("GET", `/api/messaging/business/${businessId}/catalog`)).json(),
+    enabled: isValidBusinessId,
+    retry: false,
+  });
+  const catalog = catalogQuery.data?.items ?? [];
+  const [catalogOpen, setCatalogOpen] = useState(false);
+
+  const { uploadFile, isUploading } = useUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const sendFileMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const upload = await uploadFile(file);
+      if (!upload) throw new Error("Upload failed");
+      const res = await apiRequest("POST", `/api/messaging/business/${businessId}/messages`, {
+        content: messageInput.trim(),
+        attachment: { url: upload.objectPath, mimeType: file.type || undefined, sizeBytes: file.size || undefined, title: file.name.slice(0, 240) },
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      setMessageInput("");
+      queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+    },
+    onError: () => toast({ title: "File not sent", description: "Could not send this file. Try again.", variant: "destructive" }),
+  });
+
+  const startBusinessCall = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/messaging/business/${businessId}/call-target`);
+      const target = await res.json() as { calleeIdentifier: string; businessName: string };
+      const params = new URLSearchParams({ identifier: target.calleeIdentifier, name: target.businessName, autostart: "1", mode: "voice" });
+      window.location.href = `/calls/c2c?${params.toString()}`;
+    } catch {
+      toast({ title: "Can't call right now", description: "No one at this business can take calls at the moment. Send a message instead.", variant: "destructive" });
+    }
+  };
+
   const headerName = identityQuery.data?.business?.name || "Business Chat";
 
   return (
@@ -361,14 +421,32 @@ export default function BusinessChatPage() {
               className="w-6 h-6 rounded-full object-cover shrink-0"
             />
           ) : (
-            <Building2 className="w-4 h-4 text-muted-foreground shrink-0" />
+            <Building2 className="w-4 h-4 text-muted-foreground shrink-0 hidden sm:block" />
           )}
-          <div className="font-semibold truncate" data-testid="text-business-chat-name">
-            {identityQuery.isLoading ? "Loading..." : headerName}
+          <div className="min-w-0">
+            <div className="font-semibold truncate flex items-center gap-1" data-testid="text-business-chat-name">
+              {identityQuery.isLoading ? "Loading..." : headerName}
+              {profile?.verified && <BadgeCheck className="w-4 h-4 text-primary shrink-0" aria-label="Verified business" />}
+            </div>
+            {profile && (
+              <div className="text-xs text-muted-foreground truncate" data-testid="text-business-chat-subtitle">
+                {[profile.category, profile.city, profile.openNow ? "Open now" : "Closed now"].filter(Boolean).join(" · ")}
+              </div>
+            )}
           </div>
         </div>
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          {catalog.length > 0 && (
+            <Button variant="ghost" size="icon" onClick={() => setCatalogOpen(true)} aria-label="Catalog" data-testid="button-business-catalog">
+              <ShoppingBag className="w-5 h-5" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={startBusinessCall} aria-label="Call this business" data-testid="button-business-call">
+            <Phone className="w-5 h-5" />
+          </Button>
+        </div>
         {preferencesQuery.data?.known && (
-          <label className="ml-auto flex items-center gap-2 text-sm text-muted-foreground shrink-0">
+          <label className="flex items-center gap-1.5 text-xs sm:text-sm text-muted-foreground shrink-0">
             <span>Offers</span>
             <Switch
               checked={preferencesQuery.data.promotions}
@@ -421,7 +499,13 @@ export default function BusinessChatPage() {
                       <ChatMessage
                         key={message.id}
                         role={isMine ? "user" : "assistant"}
-                        content={message.content}
+                        content={message.translatedContent || message.content}
+                        secondaryContent={message.translatedContent ? message.content : null}
+                        messageType={message.attachments?.length ? "attachment" : "text"}
+                        attachmentUrl={message.attachments?.[0]?.url ?? null}
+                        attachmentMime={message.attachments?.[0]?.mimeType ?? null}
+                        attachmentSize={message.attachments?.[0]?.sizeBytes ?? null}
+                        attachmentTitle={message.attachments?.length ? message.content : null}
                         timestamp={new Date(message.createdAt)}
                         // Never the consumer's own username on a business
                         // reply. Only a consumer-safe business identity
@@ -446,6 +530,28 @@ export default function BusinessChatPage() {
 
             <div className="border-t bg-background/80 backdrop-blur-md p-4">
               <div className="max-w-2xl mx-auto flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,video/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) sendFileMutation.mutate(file);
+                  }}
+                  data-testid="input-business-chat-file"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading || sendFileMutation.isPending}
+                  aria-label="Attach a photo or file"
+                  data-testid="button-business-chat-attach"
+                >
+                  {isUploading || sendFileMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                </Button>
                 <Input
                   value={messageInput}
                   onChange={(event) => setMessageInput(event.target.value)}
@@ -472,6 +578,36 @@ export default function BusinessChatPage() {
           </>
         )}
       </main>
+
+      <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{headerName} — catalog</DialogTitle></DialogHeader>
+          <ul className="space-y-3" data-testid="list-business-catalog">
+            {catalog.map((item) => (
+              <li key={item.id} className="flex gap-3 rounded-lg border p-3">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt="" className="w-16 h-16 rounded-md object-cover shrink-0" />
+                ) : (
+                  <div className="w-16 h-16 rounded-md bg-muted flex items-center justify-center shrink-0"><ShoppingBag className="w-6 h-6 text-muted-foreground" /></div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{item.name}</p>
+                  <p className="text-sm text-primary">{rupees(item.pricePaise)}</p>
+                  {item.description && <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2"
+                    onClick={() => { setMessageInput(`Hi, I am interested in ${item.name} (${rupees(item.pricePaise)}).`); setCatalogOpen(false); }}
+                  >
+                    Ask about this
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

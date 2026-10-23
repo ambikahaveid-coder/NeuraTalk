@@ -30,6 +30,9 @@ export function MobileNav() {
   const isWebsitePage = location === "/" || location === "/login" ||
     WEBSITE_PATH_PREFIXES.some(p => location === p || location.startsWith(p + "/"));
   if (isWebsitePage) return null;
+  // Inside a business chat the composer sits at the bottom of the screen,
+  // as in any messaging app; the tab bar would cover it.
+  if (location.startsWith("/business-chat/")) return null;
 
   return (
     <nav 

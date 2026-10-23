@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Loader2 } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, Loader2, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +62,13 @@ export default function BusinessMessagesPage() {
   }, [queryClient]);
 
   const threads = threadsQuery.data?.threads ?? [];
+  const [query, setQuery] = useState("");
+  const searchQuery = useQuery<{ success: true; businesses: Array<{ id: number; name: string; logoUrl: string | null; category: string | null; city: string | null; verified: boolean }> }>({
+    queryKey: ["/api/messaging/businesses", query.trim()],
+    queryFn: async () => (await apiRequest("GET", `/api/messaging/businesses?q=${encodeURIComponent(query.trim())}`)).json(),
+    enabled: query.trim().length >= 2,
+  });
+  const found = searchQuery.data?.businesses ?? [];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -73,7 +81,43 @@ export default function BusinessMessagesPage() {
         <h1 className="font-semibold text-lg">Business messages</h1>
       </div>
 
-      <main className="flex-1 w-full max-w-2xl mx-auto p-4">
+      <main className="flex-1 w-full max-w-2xl mx-auto p-4 space-y-4">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find a business by name, type or city"
+            className="pl-9"
+            aria-label="Find a business"
+            data-testid="input-find-business"
+          />
+        </div>
+        {query.trim().length >= 2 && (
+          <section aria-label="Businesses found">
+            {searchQuery.isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin mx-auto text-muted-foreground" />
+            ) : found.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No business found for “{query.trim()}”.</p>
+            ) : (
+              <ul className="divide-y rounded-lg border bg-card" data-testid="list-found-businesses">
+                {found.map((b) => (
+                  <li key={b.id}>
+                    <Link href={`/business-chat/${b.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50 outline-none focus-visible:bg-muted/50">
+                      {b.logoUrl ? <img src={b.logoUrl} alt="" className="w-10 h-10 rounded-full object-cover" /> : (
+                        <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center"><Building2 className="w-5 h-5" /></div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium flex items-center gap-1 truncate">{b.name}{b.verified && <BadgeCheck className="w-4 h-4 text-primary shrink-0" aria-label="Verified" />}</p>
+                        <p className="text-xs text-muted-foreground truncate">{[b.category, b.city].filter(Boolean).join(" · ") || "Business"}</p>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         {threadsQuery.isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -85,7 +129,7 @@ export default function BusinessMessagesPage() {
             <CardContent className="py-12 text-center text-muted-foreground">
               <Building2 className="w-10 h-10 mx-auto mb-3 opacity-50" />
               <p className="font-medium text-foreground">No business messages yet</p>
-              <p className="text-sm mt-1">Order updates, verification codes and offers from businesses you use will show up here.</p>
+              <p className="text-sm mt-1">Order updates, verification codes and offers from businesses you use will show up here. Search above to message a business.</p>
             </CardContent>
           </Card>
         ) : (

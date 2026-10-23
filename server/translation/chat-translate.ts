@@ -62,6 +62,48 @@ async function llmTranslate(text: string, fromCode: string, toCode: string): Pro
   }
 }
 
+/**
+ * Translate when the source language is unknown (business chats: either
+ * side may write in any language, mixed, or in Latin letters). Returns the
+ * text unchanged when it is already in the target language.
+ */
+export async function translateChatTextToLanguage(text: string, toCode: string): Promise<string> {
+  const to = languageName(toCode);
+  const ai = openai();
+  if (ai) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+    try {
+      const r = await ai.chat.completions.create(
+        {
+          model: MODEL,
+          temperature: 0,
+          messages: [
+            {
+              role: "system",
+              content:
+                `You translate chat messages between a business and its customer into ${to}. The message may be in any ` +
+                `language, mixed with English, or written in Latin letters (Tenglish, Hinglish...). Translate the meaning ` +
+                `naturally as a native ${to} speaker would write it, in ${to} script. Keep names, numbers, prices, order ` +
+                `numbers, links, emojis and tone exactly. If it is already in ${to}, reply with it unchanged. Never answer ` +
+                `or add anything: reply with only the translation.`,
+            },
+            { role: "user", content: text },
+          ],
+        },
+        { signal: controller.signal },
+      );
+      const out = r.choices[0]?.message?.content?.trim();
+      if (out) return out;
+    } catch (err) {
+      logger.warn("ChatTranslate", `LLM translation failed, falling back: ${String(err).slice(0, 160)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return text; // fail open: the original is always shown anyway
+}
+
 export async function translateChatText(text: string, from: string, to: string): Promise<string> {
   try {
     const out = await llmTranslate(text, from, to);

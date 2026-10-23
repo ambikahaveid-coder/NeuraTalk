@@ -1,13 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
+import '../services/call_service.dart';
+import '../services/media_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/attachment_picker.dart';
+import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
+import 'call_screen.dart';
 
-/// Messages from businesses: order updates, verification codes, offers, and
-/// two-way chats with a business's team (server/modules/messaging).
+/// Messages from businesses (NeuraTalk's own business chat): order updates,
+/// verification codes, offers and two-way chats, in your own language.
 class BusinessMessagesScreen extends StatefulWidget {
   const BusinessMessagesScreen({super.key});
 
@@ -17,9 +23,13 @@ class BusinessMessagesScreen extends StatefulWidget {
 
 class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
   List<Map<String, dynamic>> _threads = [];
+  List<Map<String, dynamic>> _found = [];
   bool _loading = true;
+  bool _searching = false;
   String? _error;
+  String _query = '';
   Timer? _refresh;
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -31,6 +41,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
   @override
   void dispose() {
     _refresh?.cancel();
+    _debounce?.cancel();
     super.dispose();
   }
 
@@ -54,33 +65,96 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
     }
   }
 
+  void _onSearch(String value) {
+    setState(() => _query = value);
+    _debounce?.cancel();
+    if (value.trim().length < 2) {
+      setState(() => _found = []);
+      return;
+    }
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      setState(() => _searching = true);
+      try {
+        final res = await ApiService.get('/api/messaging/businesses?q=${Uri.encodeQueryComponent(value.trim())}');
+        final list = (res is Map ? res['businesses'] : null) as List? ?? const [];
+        if (mounted) setState(() => _found = list.whereType<Map>().map((b) => Map<String, dynamic>.from(b)).toList());
+      } catch (_) {
+        if (mounted) setState(() => _found = []);
+      } finally {
+        if (mounted) setState(() => _searching = false);
+      }
+    });
+  }
+
+  Future<void> _open(int businessId, String name) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => BusinessChatScreen(businessId: businessId, businessName: name)));
+    _load(quiet: true);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final searchingNow = _query.trim().length >= 2;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Business messages')),
       body: RefreshIndicator(
         onRefresh: _load,
         color: AppColors.cyan,
-        child: _loading
-            ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
-            : _error != null
-                ? ListView(children: [
-                    NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load business messages", message: _error!, error: true, actionLabel: 'Try again', onAction: _load),
-                  ])
-                : _threads.isEmpty
-                    ? ListView(children: const [
-                        NtEmptyState(
-                          icon: Icons.storefront_outlined,
-                          title: 'No business messages yet',
-                          message: 'Order updates, verification codes and offers from businesses you use will show up here.',
-                        ),
-                      ])
-                    : ListView.separated(
-                        itemCount: _threads.length,
-                        separatorBuilder: (_, __) => Divider(height: 1, color: AppColors.border),
-                        itemBuilder: (_, i) => _tile(_threads[i]),
-                      ),
+        child: ListView(
+          padding: const EdgeInsets.only(bottom: 32),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: TextField(
+                onChanged: _onSearch,
+                decoration: InputDecoration(
+                  hintText: 'Find a business by name, type or city',
+                  prefixIcon: Icon(Icons.search, color: AppColors.textMuted),
+                  isDense: true,
+                  contentPadding: NtSearch.padding,
+                  prefixIconConstraints: NtSearch.iconBox,
+                  border: NtSearch.border(AppColors.border),
+                  enabledBorder: NtSearch.border(AppColors.border),
+                  focusedBorder: NtSearch.border(AppColors.cyan, 1.5),
+                ),
+              ),
+            ),
+            if (searchingNow) ...[
+              if (_searching)
+                Padding(padding: const EdgeInsets.all(16), child: Center(child: CircularProgressIndicator(color: AppColors.cyan)))
+              else if (_found.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(child: Text('No business found for "${_query.trim()}"', style: TextStyle(color: AppColors.textMuted))),
+                )
+              else
+                for (final b in _found)
+                  ListTile(
+                    leading: NtAvatar(name: b['name']?.toString() ?? 'Business', avatarUrl: b['logoUrl'] as String?),
+                    title: Row(children: [
+                      Flexible(child: Text(b['name']?.toString() ?? '', overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600))),
+                      if (b['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan)),
+                    ]),
+                    subtitle: Text([b['category'], b['city']].where((v) => v != null && '$v'.isNotEmpty).join(' · '),
+                        style: TextStyle(color: AppColors.textSecondary)),
+                    onTap: () => _open((b['id'] as num).toInt(), b['name']?.toString() ?? 'Business'),
+                  ),
+              Divider(color: AppColors.border),
+            ],
+            if (_loading)
+              Padding(padding: const EdgeInsets.all(32), child: Center(child: CircularProgressIndicator(color: AppColors.cyan)))
+            else if (_error != null)
+              NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load business messages", message: _error!, error: true, actionLabel: 'Try again', onAction: _load)
+            else if (_threads.isEmpty && !searchingNow)
+              const NtEmptyState(
+                icon: Icons.storefront_outlined,
+                title: 'No business messages yet',
+                message: 'Order updates, verification codes and offers from businesses you use will show up here. Search above to message a business.',
+              )
+            else
+              for (final t in _threads) _tile(t),
+          ],
+        ),
       ),
     );
   }
@@ -108,10 +182,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
             child: Text('$unread', semanticsLabel: '$unread unread', style: const TextStyle(color: AppColors.onAccent, fontSize: 12, fontWeight: FontWeight.w700)),
           ),
       ]),
-      onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => BusinessChatScreen(businessId: (t['businessId'] as num).toInt(), businessName: name)));
-        _load(quiet: true);
-      },
+      onTap: () => _open((t['businessId'] as num).toInt(), name),
     );
   }
 }
@@ -127,8 +198,10 @@ String formatBusinessTime(dynamic raw) {
   return '${dt.day}/${dt.month}/${dt.year % 100}';
 }
 
-/// One business chat. Opening it marks the business's messages as seen;
-/// your own messages show Sent / Delivered / Seen.
+String _rupees(dynamic paise) => paise == null ? 'Price on request' : '₹${((paise as num) / 100).toStringAsFixed((paise % 100) == 0 ? 0 : 2)}';
+
+/// One business chat: messages in your language (tap to see the original),
+/// photos and files, the business's catalog, and a translated call.
 class BusinessChatScreen extends StatefulWidget {
   const BusinessChatScreen({super.key, required this.businessId, this.businessName});
 
@@ -144,10 +217,14 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 
   final _input = TextEditingController();
   List<Map<String, dynamic>> _messages = [];
+  List<Map<String, dynamic>> _catalog = [];
+  Map<String, dynamic>? _profile;
+  final Set<int> _showOriginal = {};
   int? _me;
   String? _name;
   bool _loading = true;
   bool _sending = false;
+  bool _calling = false;
   String? _error;
   bool? _offers;
   int? _lastReadId;
@@ -157,9 +234,10 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
   void initState() {
     super.initState();
     _name = widget.businessName;
-    _loadIdentity();
+    _loadProfile();
     _load();
     _loadPreferences();
+    _loadCatalog();
     // Live enough for a chat; push notifications cover the closed app.
     _poll = Timer.periodic(const Duration(seconds: 4), (_) => _load(quiet: true));
   }
@@ -173,11 +251,30 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 
   String get _base => '/api/messaging/business/${widget.businessId}';
 
-  Future<void> _loadIdentity() async {
-    if (_name != null) return;
+  Future<void> _loadProfile() async {
     try {
-      final res = await ApiService.get(_base);
-      if (mounted) setState(() => _name = (res['business'] as Map?)?['name']?.toString());
+      final res = await ApiService.get('$_base/profile');
+      final b = res['business'];
+      if (mounted && b is Map) {
+        setState(() {
+          _profile = Map<String, dynamic>.from(b);
+          _name ??= _profile!['name']?.toString();
+        });
+      }
+    } catch (_) {
+      if (_name != null) return;
+      try {
+        final res = await ApiService.get(_base);
+        if (mounted) setState(() => _name = (res['business'] as Map?)?['name']?.toString());
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _loadCatalog() async {
+    try {
+      final res = await ApiService.get('$_base/catalog');
+      final list = (res['items'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      if (mounted) setState(() => _catalog = list);
     } catch (_) {}
   }
 
@@ -213,12 +310,12 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
-  Future<void> _send() async {
+  Future<void> _send({Map<String, dynamic>? attachment}) async {
     final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
+    if ((text.isEmpty && attachment == null) || _sending) return;
     setState(() => _sending = true);
     try {
-      await ApiService.post('$_base/messages', {'content': text});
+      await ApiService.post('$_base/messages', {'content': text, if (attachment != null) 'attachment': attachment});
       _input.clear();
       await _load(quiet: true);
     } catch (e) {
@@ -228,6 +325,84 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<void> _attach() async {
+    final picked = await AttachmentPicker.show(context);
+    for (final (file, name) in picked.take(5)) {
+      try {
+        setState(() => _sending = true);
+        final path = await MediaStore.upload(file, name);
+        final size = await file.length();
+        if (mounted) setState(() => _sending = false);
+        await _send(attachment: {'url': path, 'mimeType': MediaStore.contentTypeFor(name), 'sizeBytes': size, 'title': name});
+      } catch (_) {
+        if (mounted) {
+          setState(() => _sending = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not send that file. Try again.')));
+        }
+      }
+    }
+  }
+
+  Future<void> _call() async {
+    if (_calling) return;
+    setState(() => _calling = true);
+    final callService = context.read<CallService>();
+    try {
+      final target = await ApiService.get('$_base/call-target');
+      final session = await callService.startCall(calleeIdentifier: target['calleeIdentifier'].toString(), callType: 'voice');
+      if (!mounted) return;
+      Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(e is ApiException ? e.message : "Can't call right now. Send a message instead.")));
+      }
+    } finally {
+      if (mounted) setState(() => _calling = false);
+    }
+  }
+
+  void _openCatalog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheet) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        builder: (_, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('${_name ?? 'Business'} — catalog', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            for (final item in _catalog)
+              Card(
+                color: AppColors.background,
+                child: ListTile(
+                  leading: item['imageUrl'] is String
+                      ? SizedBox(width: 52, height: 52, child: ChatImageAttachment(objectPath: item['imageUrl'] as String, name: item['name']?.toString() ?? 'item'))
+                      : Icon(Icons.shopping_bag_outlined, color: AppColors.cyan),
+                  title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                  subtitle: Text([_rupees(item['pricePaise']), if (item['description'] != null) item['description']].join('\n'),
+                      style: TextStyle(color: AppColors.textSecondary)),
+                  isThreeLine: item['description'] != null,
+                  trailing: TextButton(
+                    onPressed: () {
+                      _input.text = 'Hi, I am interested in ${item['name']} (${_rupees(item['pricePaise'])}).';
+                      Navigator.pop(sheet);
+                    },
+                    child: const Text('Ask'),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _setOffers(bool value) async {
@@ -246,11 +421,26 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final p = _profile;
+    final subtitle = p == null ? null : [p['category'], p['city'], p['openNow'] == true ? 'Open now' : 'Closed now'].where((v) => v != null && '$v'.isNotEmpty).join(' · ');
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(_name ?? 'Business'),
+        titleSpacing: 0,
+        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Flexible(child: Text(_name ?? 'Business', overflow: TextOverflow.ellipsis)),
+            if (p?['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan, semanticLabel: 'Verified business')),
+          ]),
+          if (subtitle != null) Text(subtitle, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+        ]),
         actions: [
+          if (_catalog.isNotEmpty) IconButton(tooltip: 'Catalog', icon: const Icon(Icons.shopping_bag_outlined), onPressed: _openCatalog),
+          IconButton(
+            tooltip: 'Call',
+            icon: _calling ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.call_outlined),
+            onPressed: _calling ? null : _call,
+          ),
           if (_offers != null)
             PopupMenuButton<String>(
               tooltip: 'More',
@@ -268,7 +458,8 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               : _error != null
                   ? NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load this chat", message: _error!, error: true, actionLabel: 'Try again', onAction: _load)
                   : _messages.isEmpty
-                      ? const NtEmptyState(icon: Icons.storefront_outlined, title: 'No messages yet', message: 'Say hello to get started.')
+                      ? NtEmptyState(icon: Icons.storefront_outlined, title: 'No messages yet',
+                          message: (p?['description'] as String?)?.isNotEmpty == true ? p!['description'] as String : 'Say hello to get started.')
                       : ListView.builder(
                           reverse: true,
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -279,9 +470,10 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
         SafeArea(
           top: false,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+            padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
             decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
             child: Row(children: [
+              IconButton(tooltip: 'Attach a photo or file', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -295,7 +487,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               ),
               IconButton(
                 tooltip: 'Send',
-                onPressed: _sending ? null : _send,
+                onPressed: _sending ? null : () => _send(),
                 icon: _sending
                     ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan))
                     : Icon(Icons.send, color: AppColors.cyan),
@@ -307,11 +499,30 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     );
   }
 
+  Widget _attachment(Map<String, dynamic> a, String label) {
+    final path = a['url'] as String;
+    final mime = a['mimeType'] as String?;
+    final size = (a['sizeBytes'] as num?)?.toInt();
+    final type = a['type'] as String?;
+    if (type == 'image' || (mime?.startsWith('image/') ?? false)) {
+      return ChatImageAttachment(objectPath: path, name: label);
+    }
+    if (type == 'video' || (mime?.startsWith('video/') ?? false)) {
+      return ChatVideoAttachment(objectPath: path, name: label, size: size);
+    }
+    return ChatFileAttachment(objectPath: path, name: label.replaceFirst(RegExp(r'^\S+\s'), ''), size: size, mime: mime);
+  }
+
   Widget _bubble(Map<String, dynamic> m) {
+    final id = (m['id'] as num).toInt();
     final mine = _me != null && (m['senderParticipantId'] as num?)?.toInt() == _me;
     final isCode = m['category'] == 'authentication';
     final tick = mine ? _ticks[m['deliveryToBusiness']] : null;
-    final content = m['content']?.toString() ?? '';
+    final original = m['content']?.toString() ?? '';
+    final translated = m['translatedContent'] as String?;
+    final showingOriginal = _showOriginal.contains(id);
+    final shown = translated != null && !showingOriginal ? translated : original;
+    final attachments = (m['attachments'] as List? ?? const []).whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList();
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -333,7 +544,18 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                 Text('Verification code — never share it', style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w600)),
               ]),
             ),
-          SelectableText(content, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          for (final a in attachments) Padding(padding: const EdgeInsets.only(bottom: 6), child: _attachment(a, original)),
+          if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
+            SelectableText(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          if (translated != null)
+            GestureDetector(
+              onTap: () => setState(() => showingOriginal ? _showOriginal.remove(id) : _showOriginal.add(id)),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(showingOriginal ? 'Show translation' : 'Translated · show original',
+                    style: TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
+            ),
           const SizedBox(height: 2),
           Text(
             [formatBusinessTime(m['createdAt']), if (tick != null) tick].join(' · '),
