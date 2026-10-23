@@ -36,7 +36,8 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     // First login on this device: ask which language to translate into (brand mockup 03).
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (await LanguagePreferencesScreen.needsFirstRunChoice() && mounted) {
+      final needsLanguage = await LanguagePreferencesScreen.needsFirstRunChoice().catchError((_) => false);
+      if (needsLanguage && mounted) {
         await Navigator.of(context).push(MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => const LanguagePreferencesScreen(firstRun: true),

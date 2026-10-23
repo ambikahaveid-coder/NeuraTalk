@@ -922,6 +922,14 @@ export async function reject(req: Request, res: Response) {
   }
 }
 
+// The callee's join details for one ringing call, by call id -- used when the
+// person answers from the lock screen (does not depend on the read-once queue).
+export async function incomingById(req: Request, res: Response) {
+  const entry = await svc.getIncomingCallForCallee(String(req.user!.id), String(req.params.callId));
+  if (!entry) return res.status(404).json({ error: "This call is no longer ringing for you" });
+  res.json({ incoming: entry });
+}
+
 export async function incoming(req: Request, res: Response) {
   const next = await svc.popIncomingCall(String(req.user!.id));
   res.json({ incoming: next });

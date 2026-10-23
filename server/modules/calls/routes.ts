@@ -67,6 +67,7 @@ export function registerCallsRoutes(app: Express): void {
   app.post("/api/calls/:id/reject", loadUser, requireAuth, requireCallAccess, ctrl.reject);
   app.post("/api/calls/:id/transfer", loadUser, requireAuth, requireCallAccess, ctrl.transferCall);
   app.get("/api/calls/incoming", loadUser, requireAuth, requireCallAccess, ctrl.incoming);
+  app.get("/api/calls/incoming/:callId", loadUser, requireAuth, requireCallAccess, ctrl.incomingById);
   app.get("/api/calls/incoming/stream", loadUser, requireAuth, requireCallAccess, ctrl.incomingStream);
 
   app.post("/api/calls/:id/msg91-webhook", ctrl.msg91Webhook);

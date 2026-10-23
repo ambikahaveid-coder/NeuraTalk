@@ -15,17 +15,39 @@ import '../theme/app_theme.dart';
 class CallReadiness {
   static const _askedKey = 'call_readiness_asked_v1';
 
+  /// Each check on its own: a phone where one of them throws must still get
+  /// the question (that was why the prompt never appeared on a OnePlus).
+  static Future<bool> _check(Future<bool> Function() check) async {
+    try {
+      return await check();
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> _ready() async {
-    final notifications = await Permission.notification.isGranted;
-    final battery = await Permission.ignoreBatteryOptimizations.isGranted;
-    final fullScreen = (await FlutterCallkitIncoming.canUseFullScreenIntent()) != false;
+    final notifications = await _check(() => Permission.notification.isGranted);
+    final battery = await _check(() => Permission.ignoreBatteryOptimizations.isGranted);
+    final fullScreen = await _check(() async => (await FlutterCallkitIncoming.canUseFullScreenIntent()) != false);
     return notifications && battery && fullScreen;
+  }
+
+  static Future<void> _step(Future<void> Function() action) async {
+    try {
+      await action();
+    } catch (_) {
+      // That screen isn't available on this phone; the other steps still run.
+    }
   }
 
   static Future<void> ensure(BuildContext context, {bool force = false}) async {
     if (!Platform.isAndroid) return;
     final prefs = await SharedPreferences.getInstance();
-    if (!force && prefs.getBool(_askedKey) == true) return;
+    // Asked before but still not allowed (e.g. "Later"): ask again after a
+    // week -- calls that never ring are worse than one more question.
+    final askedAt = prefs.getInt('${_askedKey}_at') ?? 0;
+    final recentlyAsked = DateTime.now().millisecondsSinceEpoch - askedAt < const Duration(days: 7).inMilliseconds;
+    if (!force && prefs.getBool(_askedKey) == true && recentlyAsked) return;
     if (await _ready()) {
       await prefs.setBool(_askedKey, true);
       return;
@@ -51,17 +73,18 @@ class CallReadiness {
       ),
     );
     await prefs.setBool(_askedKey, true);
+    await prefs.setInt('${_askedKey}_at', DateTime.now().millisecondsSinceEpoch);
     if (go != true) return;
-    try {
-      await Permission.notification.request();
+    await _step(() async { await Permission.notification.request(); });
+    await _step(() async {
       if ((await FlutterCallkitIncoming.canUseFullScreenIntent()) == false) {
         await FlutterCallkitIncoming.requestFullIntentPermission();
       }
+    });
+    await _step(() async {
       if (!await Permission.ignoreBatteryOptimizations.isGranted) {
         await Permission.ignoreBatteryOptimizations.request();
       }
-    } catch (_) {
-      // Best effort: some phones don't support one of these screens.
-    }
+    });
   }
 }

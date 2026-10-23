@@ -106,6 +106,19 @@ class CallService extends ChangeNotifier {
   Future<CallSession?> fetchAndAnswerIncoming(String callId) async {
     CallSession? session = _incomingCall?.callId == callId ? _incomingCall : null;
     if (session == null) {
+      // Ask for THIS call. The general incoming list is read-once, and the
+      // app's own background check (or another device) may already have
+      // taken it -- that is why accepting from the lock screen never
+      // connected.
+      try {
+        final res = await ApiService.get('/api/calls/incoming/$callId') as Map<String, dynamic>;
+        final incoming = res['incoming'];
+        if (incoming is Map<String, dynamic>) session = CallSession.fromIncomingPayload(incoming);
+      } catch (_) {
+        // Older server, or the call already stopped ringing: fall through.
+      }
+    }
+    if (session == null) {
       final res = await ApiService.get('/api/calls/incoming') as Map<String, dynamic>;
       final incoming = res['incoming'];
       if (incoming is Map<String, dynamic> && incoming['callId'] == callId) {

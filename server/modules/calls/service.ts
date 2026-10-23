@@ -175,8 +175,43 @@ async function removeIncomingCallFromRedis(userId: string, callId: string): Prom
   }
 }
 
+// Each ringing call's join details, readable by its callee by call id. The
+// queue above is read-once ("pop"): with the app, a lock-screen Accept and
+// a web tab all checking it, one of them took the entry and the device the
+// person actually answered on found nothing -- the call never connected.
+const INCOMING_BY_CALL_KEY_PREFIX = "incoming_call:";
+const incomingByCall = new Map<string, { userId: string; entry: IncomingCallEntry }>();
+
+async function rememberIncomingCall(userId: string, entry: IncomingCallEntry): Promise<void> {
+  incomingByCall.set(entry.callId, { userId, entry });
+  setTimeout(() => {
+    if (incomingByCall.get(entry.callId)?.entry === entry) incomingByCall.delete(entry.callId);
+  }, INCOMING_TTL_MS * 2).unref?.();
+  try {
+    await getRedisClient().set(`${INCOMING_BY_CALL_KEY_PREFIX}${entry.callId}`, JSON.stringify({ userId, entry }), "EX", INCOMING_QUEUE_TTL_SECONDS);
+  } catch (error) {
+    logger.warn("CallsService", `incoming call record Redis write failed for ${entry.callId}: ${String(error)}`);
+  }
+}
+
+/** The join details of a call ringing for this user (null if not theirs / expired). */
+export async function getIncomingCallForCallee(userId: string, callId: string): Promise<IncomingCallEntry | null> {
+  let record = incomingByCall.get(callId) ?? null;
+  if (!record) {
+    try {
+      const raw = await getRedisClient().get(`${INCOMING_BY_CALL_KEY_PREFIX}${callId}`);
+      record = raw ? JSON.parse(raw) : null;
+    } catch {
+      record = null;
+    }
+  }
+  if (!record || record.userId !== userId) return null;
+  return record.entry;
+}
+
 export async function queueIncomingCall(userId: string, payload: Omit<IncomingCallEntry, "expiresAt">): Promise<void> {
   const entry: IncomingCallEntry = { ...payload, expiresAt: Date.now() + INCOMING_TTL_MS };
+  await rememberIncomingCall(userId, entry);
   const persisted = await queueIncomingCallInRedis(userId, entry);
   if (!persisted) {
     queueIncomingCallInMemory(userId, entry);
