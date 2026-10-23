@@ -27,32 +27,13 @@ const AZURE_STT_VAD_THRESHOLD = parsePositiveFloat(process.env.AZURE_STREAMING_S
 const MAX_PENDING_AUDIO_BYTES = Math.round((PCM_SAMPLE_RATE * PCM_CHANNELS * (PCM_BITS_PER_SAMPLE / 8) * AZURE_STT_MAX_PENDING_AUDIO_MS) / 1000);
 
 const AZURE_LOCALE_MAP: Record<string, string> = {
-  en: "en-IN",
-  hi: "hi-IN",
-  te: "te-IN",
-  ta: "ta-IN",
-  kn: "kn-IN",
-  ml: "ml-IN",
-  mr: "mr-IN",
-  bn: "bn-IN",
-  gu: "gu-IN",
-  pa: "pa-IN",
-  ur: "ur-IN",
-  es: "es-ES",
-  fr: "fr-FR",
-  de: "de-DE",
-  ja: "ja-JP",
-  ko: "ko-KR",
-  zh: "zh-CN",
-  ar: "ar-SA",
-  pt: "pt-BR",
-  ru: "ru-RU",
+  af: "af-ZA", am: "am-ET", ar: "ar-SA", as: "as-IN", az: "az-AZ", be: "be-BY", bg: "bg-BG", bn: "bn-IN", bs: "bs-BA", ca: "ca-ES", cs: "cs-CZ", cy: "cy-GB", da: "da-DK", de: "de-DE", el: "el-GR", en: "en-IN", es: "es-ES", et: "et-EE", eu: "eu-ES", fa: "fa-IR", fi: "fi-FI", fil: "fil-PH", fr: "fr-FR", ga: "ga-IE", gl: "gl-ES", gu: "gu-IN", he: "he-IL", hi: "hi-IN", hr: "hr-HR", hu: "hu-HU", hy: "hy-AM", id: "id-ID", is: "is-IS", it: "it-IT", ja: "ja-JP", jv: "jv-ID", ka: "ka-GE", kk: "kk-KZ", km: "km-KH", kn: "kn-IN", ko: "ko-KR", lo: "lo-LA", lt: "lt-LT", lv: "lv-LV", ml: "ml-IN", mn: "mn-MN", mr: "mr-IN", ms: "ms-MY", mt: "mt-MT", my: "my-MM", nb: "nb-NO", ne: "ne-NP", nl: "nl-NL", or: "or-IN", pa: "pa-IN", pl: "pl-PL", ps: "ps-AF", pt: "pt-BR", ro: "ro-RO", ru: "ru-RU", si: "si-LK", sk: "sk-SK", sl: "sl-SI", sq: "sq-AL", sr: "sr-RS", sv: "sv-SE", sw: "sw-KE", ta: "ta-IN", te: "te-IN", th: "th-TH", tr: "tr-TR", uk: "uk-UA", ur: "ur-IN", uz: "uz-UZ", vi: "vi-VN", yue: "yue-CN", zh: "zh-CN",
 };
 
-// Azure continuous language identification accepts at most 10 candidates, and
-// each extra candidate costs some accuracy, so "auto" covers the ten most used
-// Indian languages. Speakers of any other supported language should pick it
-// explicitly. Override with AZURE_STT_AUTO_DETECT_LOCALES (comma-separated).
+// Azure continuous language identification accepts at most 10 candidates, so
+// the default covers the ten most used Indian languages (our users). When the
+// call's languages are known, callLanguageCandidates() narrows this list to
+// the actual participants, which is how other languages get detected.
 const AZURE_AUTO_DETECT_LOCALES = (process.env.AZURE_STT_AUTO_DETECT_LOCALES
   || "en-IN,hi-IN,te-IN,ta-IN,kn-IN,ml-IN,mr-IN,bn-IN,gu-IN,pa-IN")
   .split(",")
@@ -94,14 +75,14 @@ function resolveAzureLocales(language: string, candidateLanguages?: string[]): s
   const normalized = normalizeLanguage(language);
   if (normalized === "auto" || normalized === "mixed" || normalized === "multilingual") {
     // Identifying among the call's own languages (e.g. Telugu + English)
-    // instead of all ten was faster and stopped short Telugu sentences being
-    // recognised as English. Needs two or more to identify at all.
+    // instead of all candidates is faster and avoids short utterance confusion.
+    // Needs two or more supported locales to identify.
     const narrowed = Array.from(new Set((candidateLanguages ?? [])
-      .map((code) => AZURE_LOCALE_MAP[normalizeLanguage(code)])
+      .map((code) => AZURE_LOCALE_MAP[normalizeLanguage(code).split(/[-_]/)[0]])
       .filter((locale): locale is string => Boolean(locale))));
     return narrowed.length >= 2 ? narrowed : AZURE_AUTO_DETECT_LOCALES;
   }
-  return [AZURE_LOCALE_MAP[normalized] || DEFAULT_AUDIO_LOCALE];
+  return [AZURE_LOCALE_MAP[normalized.split(/[-_]/)[0]] || DEFAULT_AUDIO_LOCALE];
 }
 
 function isTelemetrySafeReconnectError(error: Error): boolean {

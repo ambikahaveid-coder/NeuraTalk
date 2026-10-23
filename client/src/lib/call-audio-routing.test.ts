@@ -23,9 +23,13 @@ describe("translatedSpeakerFor", () => {
 describe("decideAudioRouting", () => {
   const caller = { participantIdentity: "user-1", isBot: false };
 
-  it("plays the translation and silences the original while a translation track exists", () => {
+  it("keeps original voice until translated speech is confirmed", () => {
+    expect(decideAudioRouting([caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forMeFromCaller, translationReady: false }], me, true)).toEqual([true, false]);
+  });
+
+  it("plays translation after translated speech is confirmed", () => {
     const routing = decideAudioRouting(
-      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forMeFromCaller }],
+      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forMeFromCaller, translationReady: true }],
       me,
       true,
     );
@@ -38,7 +42,7 @@ describe("decideAudioRouting", () => {
 
   it("plays only the original voice outside voice mode", () => {
     const routing = decideAudioRouting(
-      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forMeFromCaller }],
+      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forMeFromCaller, translationReady: true }],
       me,
       false,
     );
@@ -47,7 +51,7 @@ describe("decideAudioRouting", () => {
 
   it("never plays the listener's own words translated back", () => {
     const routing = decideAudioRouting(
-      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forCallerFromMe }],
+      [caller, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forCallerFromMe, translationReady: true }],
       me,
       true,
     );

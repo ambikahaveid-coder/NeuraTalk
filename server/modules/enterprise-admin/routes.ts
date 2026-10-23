@@ -14,11 +14,18 @@ import {
 } from "@shared/schema";
 import { logAuditEvent } from "../../audit-logging";
 import { logger } from "../../observability";
+import { encryptTenantSecret } from "../../tenant-secrets";
 
 function requireOrgAdmin(req: any, res: any, next: any) {
   const role = req.user?.role as string | undefined;
-  if (role === "super_admin" || role === "company_admin") return next();
-  return res.status(403).json({ error: "Company admin or above required" });
+  if (role === "super_admin") return next();
+  if (role !== "company_admin" || !Number.isInteger(req.user?.organizationId) || req.user.organizationId <= 0) {
+    return res.status(403).json({ error: "An organization administrator account is required" });
+  }
+  if (req.user?.organization?.status !== "approved") {
+    return res.status(403).json({ error: "Your company must be approved and active to manage enterprise settings" });
+  }
+  return next();
 }
 
 const guard = [requireAuth, requireOrgAdmin];
@@ -463,7 +470,11 @@ async function listPbxIntegrations(req: Request, res: Response) {
 async function createPbxIntegration(req: Request, res: Response) {
   const parsed = insertPbxIntegrationSchema.safeParse({ ...req.body, organizationId: orgId(req) });
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const [row] = await db.insert(pbxIntegrations).values(parsed.data).returning();
+  const [row] = await db.insert(pbxIntegrations).values({
+    ...parsed.data,
+    password: encryptTenantSecret(parsed.data.password),
+    apiKey: encryptTenantSecret(parsed.data.apiKey),
+  }).returning();
   await logAuditEvent({ userId: actorId(req), organizationId: orgId(req), action: "admin_action", details: { entity: "pbx_integration", entityId: row.id, op: "create" } });
   res.status(201).json({ ...row, password: row.password ? "••••••••" : null, apiKey: row.apiKey ? "••••••••" : null });
 }
@@ -477,6 +488,8 @@ async function updatePbxIntegration(req: Request, res: Response) {
   const update: Record<string, unknown> = { ...parsed.data, updatedAt: new Date() };
   if (update.password === "••••••••") delete update.password;
   if (update.apiKey === "••••••••") delete update.apiKey;
+  if (typeof update.password === "string") update.password = encryptTenantSecret(update.password);
+  if (typeof update.apiKey === "string") update.apiKey = encryptTenantSecret(update.apiKey);
   const [row] = await db.update(pbxIntegrations).set(update).where(and(eq(pbxIntegrations.id, id), eq(pbxIntegrations.organizationId, orgId(req)))).returning();
   res.json({ ...row, password: row.password ? "••••••••" : null, apiKey: row.apiKey ? "••••••••" : null });
 }

@@ -62,7 +62,7 @@ export default function DemoPage() {
           <Badge variant="outline" className="mb-4">How a call works</Badge>
           <h1 className="text-4xl md:text-5xl font-bold mb-4" data-testid="text-demo-title">Ravi speaks Telugu. Sarah speaks English.</h1>
           <p className="text-lg text-muted-foreground">
-            Press play to follow one short call. Each of them just talks — and hears the other in their own language, in the other person's own voice.
+            Press play to follow a scripted Telugu-English example. Real call voice and language support depend on the configured providers and voice profiles.
           </p>
         </div>
       </section>
@@ -143,8 +143,7 @@ export default function DemoPage() {
           <div className="mt-8 flex items-start gap-3 rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
             <Info className="w-4 h-4 mt-0.5 shrink-0" />
             <p>
-              The words are written here only so you can follow along. On a real call nothing appears on screen —
-              you simply hear the other person. The translation starts about half a second after each sentence ends.
+              This is a scripted text example, not live call audio. In a real call, translated speech or captions depend on language and provider availability.
             </p>
           </div>
         </div>
@@ -153,9 +152,9 @@ export default function DemoPage() {
       <section className="py-16 px-4 bg-muted/30">
         <div className="max-w-5xl mx-auto grid md:grid-cols-3 gap-6">
           {[
-            { title: "Nobody picked a language", desc: "NeuraTalk recognised Telugu and English from their voices." },
-            { title: "Nobody read anything", desc: "They looked at each other — or at nothing — like any other call." },
-            { title: "Nobody heard a robot", desc: "Each heard the other's own voice, recorded once in the app." },
+            { title: "Languages can be selected", desc: "Supported languages can be detected automatically, or selected before calling." },
+            { title: "Captions are optional", desc: "Listeners can choose translated voice or captions." },
+            { title: "Nobody heard a robot", desc: "Each heard the other's own voice, recorded once in the app. Without a recording, captions are shown instead." },
           ].map((p) => (
             <div key={p.title} className="flex gap-3">
               <AudioLines className="w-5 h-5 text-primary mt-0.5 shrink-0" />

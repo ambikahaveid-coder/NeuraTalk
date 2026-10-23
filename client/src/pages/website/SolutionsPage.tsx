@@ -55,7 +55,7 @@ export default function SolutionsPage() {
               <CardContent>
                 <p className="text-muted-foreground mb-4">
                   Help patients explain symptoms in their language. 
-                  The doctor hears them in their language, in the patient's own voice.
+                  The doctor hears them in their language — in the patient's own voice once recorded, or as captions until then.
                 </p>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   <li>Patient-doctor translation</li>

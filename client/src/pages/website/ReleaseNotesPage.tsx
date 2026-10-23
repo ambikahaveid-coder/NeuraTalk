@@ -5,11 +5,11 @@ export default function ReleaseNotesPage() {
       date: "October 2026",
       type: "major",
       highlights: [
-        "Translated calls in your own voice — record three short passages in Settings → Your voice",
-        "No language settings: each person's language is recognised from their voice; same language means no translation",
-        "No captions during calls by default — you just listen",
-        "Translation reaches the other person about half a second after you finish a sentence (was 1.5–2.5 s)",
-        "Background noise removed on your device, in voice and video calls",
+        "Voice profiles can speak translated calls when approved, enabled and supported",
+        "Language settings with automatic detection for supported speech languages",
+        "Choose translated speech or captions in calls",
+        "Live translation latency varies by language, provider and network",
+        "Noise processing is available for voice and video calls",
       ],
     },
     {

@@ -29,8 +29,7 @@ export default function AboutPage() {
               feels like a normal call, not like using a translator.
             </p>
             <p>
-              What makes us different? We care about the call feeling human: no robot voice, no
-              captions to read, no language settings, and as little delay as we can manage.
+              We aim to make translated calls feel natural, with voice and caption options. Voice, language detection and delay depend on the selected language and available providers.
             </p>
           </div>
         </div>
@@ -90,9 +89,7 @@ export default function AboutPage() {
               language, it is translated, and it is spoken in your cloned voice to the other person.
             </p>
             <p>
-              We use Microsoft Azure for speech recognition and translation, ElevenLabs for your
-              voice, and LiveKit for the call itself. We measure each step on real calls and keep
-              a backup for when a provider is slow, so one hiccup doesn't drop the conversation.
+              NeuraTalk integrates speech and translation providers with LiveKit calling. Provider availability and language coverage determine the voice and fallback used during a call.
             </p>
           </div>
         </div>

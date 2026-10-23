@@ -149,7 +149,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <LogoWithIcon size="sm" />
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Calls that translate themselves — in your own voice, in your own language.
+                Voice and video calls with live translation for supported languages.
               </p>
               <div className="flex gap-3">
                 <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">

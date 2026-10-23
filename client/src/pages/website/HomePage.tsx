@@ -15,37 +15,39 @@ const fadeUp = {
   transition: { duration: 0.5 },
 };
 
-/** English + the nine Indian languages calls detect from the voice today. */
+/** Languages exposed for live voice and translated captions today. */
 export const CALL_LANGUAGES = [
-  "English", "Hindi", "Telugu", "Tamil", "Kannada",
-  "Malayalam", "Marathi", "Bengali", "Gujarati", "Punjabi",
+  "English", "Hindi", "Telugu", "Tamil", "Kannada", "Malayalam",
+  "Marathi", "Bengali", "Gujarati", "Punjabi", "Urdu", "Spanish",
+  "French", "German", "Japanese", "Korean", "Chinese", "Arabic",
+  "Portuguese", "Russian",
 ];
 
 const FEATURES = [
   {
     icon: UserRound,
     title: "Your own voice",
-    desc: "Record yourself once in the app. After that, people hear your translated words in your voice — not a robot's.",
+    desc: "Record yourself once in the app. After that, people hear your translated words in your voice. Until then, they hear your original voice with translated captions.",
   },
   {
     icon: Languages,
-    title: "No language settings",
-    desc: "NeuraTalk works out which language each person is speaking from their voice, so nobody has to pick one before a call.",
+    title: "Language-aware calls",
+    desc: "NeuraTalk auto-detects supported spoken languages. You can also choose your language before calling.",
   },
   {
     icon: EyeOff,
-    title: "Nothing to read",
-    desc: "No captions popping up while you talk. You look at each other, or at nothing at all — like a normal call.",
+    title: "Captions when needed",
+    desc: "Prefer reading? Switch to captions. And if your voice isn't recorded yet, captions appear automatically so nothing is lost.",
   },
   {
     icon: Timer,
-    title: "About half a second",
-    desc: "In our tests the other person starts hearing you within 0.6 seconds of you finishing a sentence.",
+    title: "Realtime translation",
+    desc: "Speech recognition, translation and speech synthesis run during the call. Actual delay depends on the language pair, connection and provider.",
   },
   {
     icon: MicOff,
     title: "Background noise removed",
-    desc: "Traffic, fans and TV are cleaned out on your phone before your voice is sent, so it's understood the first time.",
+    desc: "Noise processing can help call audio come through clearly. Recognition quality still depends on the microphone and environment.",
   },
   {
     icon: Video,
@@ -120,14 +122,13 @@ export default function HomePage() {
         <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-background" aria-hidden />
         <div className="relative max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <Badge variant="secondary" className="mb-5 px-3 py-1 text-sm">Translated calls, in your own voice</Badge>
+            <Badge variant="secondary" className="mb-5 px-3 py-1 text-sm">Translated calls across languages</Badge>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.1] tracking-tight mb-5" data-testid="text-hero-title">
               Speak your language.
               <span className="block text-primary">They hear you in theirs.</span>
             </h1>
             <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-xl leading-relaxed">
-              NeuraTalk translates your call while you talk, and the other person hears it in your own voice.
-              No captions to read, no language to choose, no robot voice — just a normal conversation.
+              NeuraTalk translates your call while you talk. Once you record your voice, the other person hears your translated words in your own voice — never a robot. Until then, they see translated captions.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-8">
               <Link href="/login">
@@ -165,9 +166,9 @@ export default function HomePage() {
           </motion.div>
           <div className="grid md:grid-cols-3 gap-6">
             {[
-              { icon: PhoneCall, step: "1", title: "Call like you always do", desc: "Pick a contact and call. Voice or video. No language menu, no translation switch." },
+              { icon: PhoneCall, step: "1", title: "Call like you always do", desc: "Pick a contact, then choose voice or video and your translation language settings." },
               { icon: Mic, step: "2", title: "Talk in your language", desc: "Each person speaks the way they normally do. NeuraTalk hears which language it is." },
-              { icon: Headphones, step: "3", title: "They hear you, in your voice", desc: "Your words reach them translated, in your own voice. If you both speak the same language, nothing is translated." },
+              { icon: Headphones, step: "3", title: "They hear you, in your voice", desc: "Your words reach them translated, in your own voice. Not recorded yet? They see captions instead. Same language? Nothing is translated." },
             ].map((item, i) => (
               <motion.div key={item.step} {...fadeUp} transition={{ duration: 0.5, delay: i * 0.08 }}>
                 <Card className="h-full">
@@ -223,7 +224,7 @@ export default function HomePage() {
               {[
                 "Only used to speak your own words in your own calls",
                 "Switch it off or delete it any time",
-                "Until you record, people hear a natural standard voice",
+                "Until you record, people see translated captions — never a robot voice",
               ].map((t) => (
                 <li key={t} className="flex items-start gap-2 text-sm">
                   <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 shrink-0" />{t}
@@ -255,7 +256,7 @@ export default function HomePage() {
           <motion.div {...fadeUp}>
             <h2 className="text-3xl md:text-4xl font-bold mb-3">Languages</h2>
             <p className="text-muted-foreground text-lg mb-8">
-              Any pair of these, in either direction — detected from the voice and spoken in your own voice.
+              Any pair of these, in either direction. Your recorded voice can speak all of them.
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {CALL_LANGUAGES.map((l) => (

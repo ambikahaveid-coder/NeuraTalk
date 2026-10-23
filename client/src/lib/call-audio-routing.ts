@@ -12,6 +12,7 @@ export interface RemoteAudioTrackInfo {
   participantIdentity: string;
   isBot: boolean;
   trackName?: string;
+  translationReady?: boolean;
 }
 
 /** The speaker a translated track carries for this listener, or null. */
@@ -36,14 +37,17 @@ export function decideAudioRouting(
     for (const track of tracks) {
       if (!track.isBot) continue;
       const speaker = translatedSpeakerFor(track.trackName, localIdentity);
-      if (speaker) translatedSpeakers.add(speaker);
+      // A published track is not proof that it contains usable speech. The
+      // bot publishes the channel before the first translation is ready.
+      // Wait for tts_ready confirmation before suppressing a human voice.
+      if (speaker && track.translationReady) translatedSpeakers.add(speaker);
     }
   }
 
   return tracks.map((track) => {
     if (track.isBot) {
       // Translations meant for someone else (including our own words) never play.
-      return voiceMode && translatedSpeakerFor(track.trackName, localIdentity) !== null;
+      return voiceMode && track.translationReady === true && translatedSpeakerFor(track.trackName, localIdentity) !== null;
     }
     return !translatedSpeakers.has(track.participantIdentity);
   });

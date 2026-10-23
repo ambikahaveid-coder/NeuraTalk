@@ -52,6 +52,15 @@ const LANGUAGES = [
   { code: "ko", name: "Korean" },
   { code: "zh", name: "Chinese" },
   { code: "ar", name: "Arabic" },
+  { code: "pt", name: "Portuguese" },
+  { code: "ru", name: "Russian" },
+  { code: "ur", name: "Urdu" },
+  { code: "bn", name: "Bengali" },
+  { code: "ml", name: "Malayalam" },
+  { code: "mr", name: "Marathi" },
+  { code: "gu", name: "Gujarati" },
+  { code: "pa", name: "Punjabi" },
+  { code: "or", name: "Odia" },
 ];
 
 function looksLikePhoneTarget(identifier: string) {
@@ -198,6 +207,26 @@ export default function C2CCallPage({
     staleTime: 60_000,
   });
   const isActive = call.status === "active";
+
+  // Translated captions, shown when the listener asked for subtitles or when
+  // the speaker's own voice can't be used (no recorded voice / speech failed),
+  // so a translated call never leaves the listener with nothing.
+  const liveCaption = useMemo(() => {
+    let voiceUnavailable = false;
+    let text: string | null = null;
+    for (const msg of (call.dataMessages ?? []) as Array<{ type?: string; payload?: any }>) {
+      const payload = msg.payload;
+      if (!payload || typeof payload !== "object") continue;
+      if (msg.type === "translation-fallback") voiceUnavailable = true;
+      if (msg.type === "translation" && payload.type === "tts_ready") voiceUnavailable = false;
+      if (typeof payload.translatedText === "string" && payload.translatedText.trim()
+        && (payload.type === "translation.ready" || payload.type === "tts_failed")) {
+        text = payload.translatedText.trim();
+      }
+    }
+    const show = translationEnabled && (translationMode === "subtitles" || voiceUnavailable);
+    return show ? text : null;
+  }, [call.dataMessages, translationEnabled, translationMode]);
 
   useEffect(() => {
     let timer: any;
@@ -564,6 +593,15 @@ export default function C2CCallPage({
                             {remoteVideoWaitingDescription}
                           </p>
                         </div>
+                      </div>
+                    )}
+                    {isActive && liveCaption && (
+                      <div
+                        className="absolute bottom-4 left-4 right-40 rounded-lg bg-black/70 px-3 py-2 text-sm text-white"
+                        aria-live="polite"
+                        data-testid="text-live-caption"
+                      >
+                        {liveCaption}
                       </div>
                     )}
                     <div className="absolute bottom-4 right-4 w-32 aspect-video rounded-lg overflow-hidden border-2 border-background shadow-lg">

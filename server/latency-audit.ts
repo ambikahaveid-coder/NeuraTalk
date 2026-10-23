@@ -15,6 +15,7 @@ export interface LatencySnapshot {
     translationLatencyMs: number | null;
     ttsLatencyMs: number | null;
     networkLatencyMs: number | null;
+    /** Source speech start to actual remote listener playback, when observed. */
     totalPipelineLatencyMs: number | null;
   };
   batchStages: BatchStage[];
@@ -53,7 +54,7 @@ export class LatencyTrace {
   readonly callId: string;
   readonly direction: string;
 
-  private readonly originNs = nowNs();
+  private readonly originNs: bigint;
   private readonly marksNs = new Map<string, bigint>();
   private readonly batchStages = new Set<BatchStage>();
   private readonly fallbackReasons = new Set<string>();
@@ -66,11 +67,16 @@ export class LatencyTrace {
     callId: string | number;
     direction: string;
     traceId?: string;
+    startedAtMs?: number;
   }) {
     this.traceId = opts.traceId || randomUUID();
     this.mode = opts.mode;
     this.callId = String(opts.callId);
     this.direction = opts.direction;
+    const elapsedSinceStartMs = opts.startedAtMs && Number.isFinite(opts.startedAtMs)
+      ? Math.max(0, Date.now() - opts.startedAtMs)
+      : 0;
+    this.originNs = nowNs() - BigInt(Math.round(elapsedSinceStartMs * 1_000_000));
   }
 
   mark(name: string, force = false): void {
@@ -79,6 +85,12 @@ export class LatencyTrace {
     }
 
     this.marksNs.set(name, nowNs());
+  }
+
+  markAt(name: string, timestampMs: number): void {
+    if (!name.trim() || !Number.isFinite(timestampMs)) return;
+    const elapsedMs = Date.now() - timestampMs;
+    this.marksNs.set(name, nowNs() - BigInt(Math.round(elapsedMs * 1_000_000)));
   }
 
   hasMark(name: string): boolean {
@@ -122,10 +134,14 @@ export class LatencyTrace {
       Array.from(this.marksNs.entries()).map(([key, value]) => [key, roundMs(nsToMs(value - this.originNs)) ?? 0]),
     );
 
-    const playbackStart = this.elapsedBetween("speech_start", "playback_start")
-      ?? this.elapsedBetween("speech_start", "first_audio_frame");
-    const totalPipeline = this.elapsedBetween("speech_start", "final_playback_end")
-      ?? this.elapsedBetween("speech_start", "first_audio_frame");
+    // A server-side publish is not proof that the remote listener actually
+    // started playback. Keep that distinction explicit in the reported data.
+    // Time to first audio is when the translated audio left the server (no
+    // client reports listener playback yet); total stays listener-confirmed only.
+    const playbackStart = this.elapsedBetween("speech_start", "listener_playback_start")
+      ?? this.elapsedBetween("speech_start", "playback_start");
+    // Local queue completion / publishing is not remote playback confirmation.
+    const totalPipeline = this.elapsedBetween("speech_start", "listener_playback_start");
 
     const snapshot: LatencySnapshot = {
       traceId: this.traceId,
@@ -193,6 +209,7 @@ export function createLatencyTrace(opts: {
   callId: string | number;
   direction: string;
   traceId?: string;
+  startedAtMs?: number;
 }): LatencyTrace {
   return new LatencyTrace(opts);
 }

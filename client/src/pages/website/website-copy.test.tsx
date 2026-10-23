@@ -44,8 +44,8 @@ describe("public website copy", () => {
     const { container } = render(<HomePage />);
     expect(screen.getByTestId("text-hero-title").textContent).toMatch(/They hear you in theirs/);
     expect(screen.getByText("Your own voice")).toBeInTheDocument();
-    expect(screen.getByText("No language settings")).toBeInTheDocument();
-    expect(screen.getByText("Nothing to read")).toBeInTheDocument();
+    expect(screen.getByText("Language-aware calls")).toBeInTheDocument();
+    expect(screen.getByText("Captions when needed")).toBeInTheDocument();
     for (const language of CALL_LANGUAGES) expect(screen.getByText(language)).toBeInTheDocument();
     expectNoBannedClaims(container);
   });

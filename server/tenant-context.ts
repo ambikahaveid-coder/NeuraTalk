@@ -152,7 +152,17 @@ export async function loadTenantContext(
     next();
   } catch (error) {
     logger.error("TenantContext", "Failed to resolve tenant context", error as Error);
-    next();
+    // Never let a tenant-scoped API request continue without a verified tenant
+    // context when the organization or isolation-policy lookup failed. Page
+    // and asset requests carry no tenant data, so they still load.
+    if (!req.path.startsWith("/api")) {
+      next();
+      return;
+    }
+    res.status(503).json({
+      success: false,
+      message: "Tenant workspace is temporarily unavailable",
+    });
   }
 }
 

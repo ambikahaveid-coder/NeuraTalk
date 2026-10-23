@@ -64,6 +64,7 @@ class _CallScreenState extends State<CallScreen> {
   // voice is currently playing for us (mirrors the web client, so a listener
   // doesn't hear the original and the translation on top of each other).
   final Set<String> _suppressedSpeakers = {};
+  final Set<String> _readyTranslationSpeakers = {};
 
   // Outbound-call waiting phase — the caller must not join the LiveKit room
   // (and therefore must not show "Connected") until the callee has actually
@@ -485,29 +486,56 @@ class _CallScreenState extends State<CallScreen> {
     final participant = _room.remoteParticipants.values
         .where((p) => p.identity == speaker)
         .firstOrNull;
-    if (subscribed) {
+    // A published track is not proof of speech: keep the original voice
+    // until the bot confirms translated audio is flowing (tts_ready).
+    final suppress = subscribed && _readyTranslationSpeakers.contains(speaker);
+    if (suppress) {
       _suppressedSpeakers.add(speaker);
     } else {
       _suppressedSpeakers.remove(speaker);
     }
     if (participant == null) return;
     for (final pub in participant.audioTrackPublications) {
-      unawaited(subscribed ? pub.disable() : pub.enable());
+      unawaited(suppress ? pub.disable() : pub.enable());
     }
+  }
+
+  void _restoreOriginalVoice(String speaker) {
+    _readyTranslationSpeakers.remove(speaker);
+    _suppressedSpeakers.remove(speaker);
+    final participant = _room.remoteParticipants.values
+        .where((p) => p.identity == speaker)
+        .firstOrNull;
+    participant?.audioTrackPublications.forEach((pub) => unawaited(pub.enable()));
   }
 
   void _onDataReceived(lk.DataReceivedEvent event) {
     if (event.topic != null && event.topic != 'translation') return;
     try {
       final msg = jsonDecode(utf8.decode(event.data));
-      if (msg is! Map || msg['type'] != 'translation') return;
+      if (msg is! Map || (msg['type'] != 'translation' && msg['type'] != 'translation-fallback')) return;
       final payload = msg['payload'];
       if (payload is! Map) return;
       final type = payload['type'];
       final me = _room.localParticipant?.identity;
       if (payload['targetIdentity'] != null && payload['targetIdentity'] != me) return;
 
-      if (type == 'translation.partial' || type == 'translation.ready' || type == 'translation_failed' || type == 'tts_failed') {
+      // Audio routing first: these events may carry no caption text.
+      final speaker = payload['sourceIdentity'];
+      if (speaker is String && type == 'tts_ready' && !_readyTranslationSpeakers.contains(speaker)) {
+        _readyTranslationSpeakers.add(speaker);
+        _applyTranslatedTrack('translated-for-${Uri.encodeComponent(me ?? '')}-from-${Uri.encodeComponent(speaker)}', subscribed: true);
+      }
+      if (speaker is String && type == 'tts_failed') {
+        _restoreOriginalVoice(speaker);
+        // No translated voice for this speaker: the caption is all the
+        // listener gets, so make sure it is visible.
+        if (msg['type'] == 'translation-fallback' && !_showCaptions && mounted) {
+          setState(() => _showCaptions = true);
+        }
+      }
+
+      if (type == 'translation.partial' || type == 'translation.ready' || type == 'translation_failed' || type == 'tts_failed' || type == 'tts_ready') {
         final translated = (payload['translatedText'] as String?)?.trim();
         if (translated == null || translated.isEmpty) return;
         final original = (payload['originalText'] as String?)?.trim();
@@ -525,18 +553,6 @@ class _CallScreenState extends State<CallScreen> {
           _captionFromLang = (payload['sourceLanguage'] as String?) ?? _captionFromLang;
           _captionToLang = (payload['targetLanguage'] as String?) ?? _captionToLang;
         });
-        // If speech synthesis failed, the text caption is all the listener
-        // gets for that sentence — let them hear the original voice again.
-        if (type == 'tts_failed') {
-          final speaker = payload['sourceIdentity'];
-          if (speaker is String) {
-            final participant = _room.remoteParticipants.values
-                .where((p) => p.identity == speaker)
-                .firstOrNull;
-            participant?.audioTrackPublications.forEach((pub) => unawaited(pub.enable()));
-            _suppressedSpeakers.remove(speaker);
-          }
-        }
         _captionClearTimer?.cancel();
         _captionClearTimer = Timer(const Duration(seconds: 20), () {
           if (mounted) setState(() { _captionOriginal = null; _transcript.clear(); });
@@ -679,6 +695,8 @@ class _CallScreenState extends State<CallScreen> {
     _ringingTimeoutTimer?.cancel();
     _ringback.dispose();
     _captionClearTimer?.cancel();
+    _readyTranslationSpeakers.clear();
+    _suppressedSpeakers.clear();
     _listener?.dispose();
     _room.disconnect();
     if (widget.callService.activeCallSession?.callId == widget.session.callId) {

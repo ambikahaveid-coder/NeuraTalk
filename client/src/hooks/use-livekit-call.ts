@@ -105,7 +105,7 @@ interface IncomingCallData {
 }
 
 interface DataMessage {
-  type: "chat" | "translation" | "emotion" | "language-change" | "translation-mode";
+  type: "chat" | "translation" | "translation-fallback" | "emotion" | "language-change" | "translation-mode";
   from: string;
   payload: any;
   ts: number;
@@ -134,6 +134,7 @@ export function useLiveKitCall() {
   const [error, setError] = useState<string | null>(null);
 
   const roomRef = useRef<Room | null>(null);
+  const readyTranslationTracksRef = useRef(new Set<string>());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
@@ -180,6 +181,7 @@ export function useLiveKitCall() {
   }, [clearMediaElements]);
 
   const resetCallUiState = useCallback((nextStatus: CallStatus = "idle") => {
+    readyTranslationTracksRef.current.clear();
     setCallId(null);
     setParticipants([]);
     setDataMessages([]);
@@ -275,12 +277,12 @@ export function useLiveKitCall() {
     if (!room) return;
     const settings = translationSettingsRef.current;
     const voiceMode = settings.enabled && settings.mode === "voice";
-    const entries: Array<{ track: RemoteTrack; info: { participantIdentity: string; isBot: boolean; trackName?: string } }> = [];
+    const entries: Array<{ track: RemoteTrack; info: { participantIdentity: string; isBot: boolean; trackName?: string; translationReady?: boolean } }> = [];
     for (const participant of Array.from(room.remoteParticipants.values())) {
       const isBot = isTranslatorBotParticipant(participant);
       for (const pub of Array.from(participant.audioTrackPublications.values())) {
         if (!pub.track) continue;
-        entries.push({ track: pub.track, info: { participantIdentity: participant.identity, isBot, trackName: pub.trackName } });
+        entries.push({ track: pub.track, info: { participantIdentity: participant.identity, isBot, trackName: pub.trackName, translationReady: readyTranslationTracksRef.current.has(pub.trackName || "") } });
       }
     }
     const routing = decideAudioRouting(entries.map((entry) => entry.info), room.localParticipant.identity, voiceMode);
@@ -396,6 +398,20 @@ export function useLiveKitCall() {
         try {
           const text = new TextDecoder().decode(payload);
           const msg: DataMessage = JSON.parse(text);
+          if (msg.type === "translation" && msg.from === "neuratalk-translator" && msg.payload?.type === "tts_ready") {
+            const targetIdentity = room.localParticipant.identity;
+            const sourceIdentity = String(msg.payload.sourceIdentity || "");
+            if (targetIdentity && sourceIdentity) {
+              readyTranslationTracksRef.current.add(`translated-for-${encodeURIComponent(targetIdentity)}-from-${encodeURIComponent(sourceIdentity)}`);
+              applyAudioRouting(room);
+            }
+          }
+          if (msg.type === "translation-fallback" && msg.from === "neuratalk-translator") {
+            const targetIdentity = room.localParticipant.identity;
+            const sourceIdentity = String(msg.payload?.sourceIdentity || "");
+            if (targetIdentity && sourceIdentity) readyTranslationTracksRef.current.delete(`translated-for-${encodeURIComponent(targetIdentity)}-from-${encodeURIComponent(sourceIdentity)}`);
+            applyAudioRouting(room);
+          }
           setDataMessages(prev => [...prev.slice(-49), msg]);
         } catch {}
       });

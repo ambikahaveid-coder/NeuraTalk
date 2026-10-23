@@ -236,8 +236,12 @@ export async function* streamAzureTtsFrames(
     throw new Error("AZURE_SPEECH_KEY not configured");
   }
 
-  const voice = getAzureVoice(language, opts.gender ?? "female");
-  const locale = toAzureLocale(language);
+  const normalizedLanguage = language.trim().toLowerCase().split(/[-_]/)[0];
+  if (!canSpeakWithAzureVoice(normalizedLanguage)) {
+    throw new Error(`Azure TTS does not have a configured real-time voice for ${normalizedLanguage}`);
+  }
+  const voice = getAzureVoice(normalizedLanguage, opts.gender ?? "female");
+  const locale = toAzureLocale(normalizedLanguage);
   const prosody = toAzureProsody(opts.emotion);
   const ssml = `<speak version='1.0' xml:lang='${locale}'><voice name='${voice}'><prosody rate='${prosody.rate}' pitch='${prosody.pitch}' volume='${prosody.volume}'>${escapeXml(
     text,
@@ -437,7 +441,7 @@ export function toDeepgramLanguage(language: string): string {
     ru: "ru",
     it: "it",
   };
-  return languageMap[language] || "en-US";
+  return languageMap[language.trim().toLowerCase().split(/[-_]/)[0]] || "en-US";
 }
 
 export function toAzureLocale(language: string): string {
@@ -463,8 +467,15 @@ export function toAzureLocale(language: string): string {
     pt: "pt-BR",
     ru: "ru-RU",
     it: "it-IT",
+    nl: "nl-NL",
+    or: "or-IN",
   };
-  return localeMap[language] || "en-IN";
+  return localeMap[language.trim().toLowerCase().split(/[-_]/)[0]] || "";
+}
+
+/** Languages with a matching Azure neural voice configured for live calls. */
+export function canSpeakWithAzureVoice(language: string): boolean {
+  return Boolean(toAzureLocale(language));
 }
 
 export function toAzureProsody(emotion?: ProsodyEmotionLike | null): { rate: string; pitch: string; volume: string } {
@@ -552,6 +563,8 @@ export const ELEVENLABS_REALTIME_LANGUAGES = new Set([
 export function canSpeakInClonedVoice(language: string): boolean {
   return ELEVENLABS_REALTIME_LANGUAGES.has(language.trim().toLowerCase().split(/[-_]/)[0]);
 }
+
+
 
 /** Same 20 ms 16 kHz PCM frames as streamAzureTtsFrames, in a cloned ElevenLabs voice. */
 export async function* streamElevenLabsTtsFrames(

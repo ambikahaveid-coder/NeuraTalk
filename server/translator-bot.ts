@@ -411,6 +411,7 @@ class LiveKitRealtimeTranslatorBot {
   private closed = false;
   private readonly speakerPipelines = new Map<string, SpeakerPipeline>();
   private readonly outputChannels = new Map<string, OutputChannel>();
+  private readonly noVoiceNoticesSent = new Set<string>();
   /** Channels being published right now, so concurrent transcripts share one track. */
   private readonly pendingOutputChannels = new Map<string, Promise<OutputChannel>>();
   /** Publishes one track at a time: back-to-back publishes left the second track silent for everyone. */
@@ -1013,12 +1014,42 @@ class LiveKitRealtimeTranslatorBot {
       });
       if (!resolved) continue;
 
+      // Translated speech is only ever spoken in the SPEAKER's own approved
+      // voice. Without one, the listener keeps the original voice and gets
+      // translated captions instead. (`pipeline` above is the listener's.)
+      const speakerPipeline = this.speakerPipelines.get(sourceIdentity);
+      const speakerHasClonedVoice = Boolean(speakerPipeline?.clonedVoiceId && canSpeakInClonedVoice(resolved.targetLanguage));
+      const targetMode = mode === "voice" && !speakerHasClonedVoice ? "subtitles" : mode;
+      if (mode === "voice" && targetMode === "subtitles") {
+        if (!resolved.translationActive) continue;
+        // Tell the listener once per speaker, not on every sentence.
+        const noticeKey = `${sourceIdentity}=>${participant.identity}:${resolved.targetLanguage}`;
+        if (this.noVoiceNoticesSent.has(noticeKey)) {
+          targets.push({ identity: participant.identity, language: resolved.targetLanguage, mode: targetMode });
+          continue;
+        }
+        this.noVoiceNoticesSent.add(noticeKey);
+        void this.publishTranslationMessage({
+          type: "translation-fallback",
+          from: this.botIdentity,
+          payload: buildTtsFailedEvent({
+            sourceIdentity,
+            targetIdentity: participant.identity,
+            reason: `Live translated speech is unavailable for ${resolved.targetLanguage}; translated captions will be shown while the original voice remains audible.`,
+            translationMode: "voice",
+          }),
+          ts: Date.now(),
+        }, [participant.identity]);
+        targets.push({ identity: participant.identity, language: resolved.targetLanguage, mode: targetMode });
+        continue;
+      }
+
       if (!resolved.translationActive) {
         // Once a listener has this speaker's translated track, their client
         // silences the speaker's own voice. Skipping a sentence that is
         // already in the listener's language would leave them hearing
         // nothing, so it is spoken through unchanged instead.
-        const listenerHearsTranslatedTrack = shouldDeliverVoiceTranslation(mode)
+        const listenerHearsTranslatedTrack = shouldDeliverVoiceTranslation(targetMode)
           && this.outputChannels.has(`${sourceIdentity}=>${participant.identity}`);
         if (!listenerHearsTranslatedTrack) continue;
       }
@@ -1026,7 +1057,7 @@ class LiveKitRealtimeTranslatorBot {
       targets.push({
         identity: participant.identity,
         language: resolved.targetLanguage,
-        mode,
+        mode: targetMode,
       });
     }
 
@@ -1366,18 +1397,15 @@ class LiveKitRealtimeTranslatorBot {
 
     try {
       const speakerPipeline = this.speakerPipelines.get(channel.sourceIdentity) ?? pipeline;
-      const speakerGender = speakerPipeline.voiceGender.resolve();
-      // The speaker's own cloned voice when they have one and ElevenLabs can
-      // speak this language in real time; otherwise (or if it fails before
-      // any audio) the standard voice, so the listener always hears it.
+      // Translated speech must sound like this participant. No provider's
+      // stock voice is ever used as a fallback in the live call.
       const clonedVoiceId = speakerPipeline.clonedVoiceId && canSpeakInClonedVoice(targetLanguage) ? speakerPipeline.clonedVoiceId : null;
-      let ttsProvider = clonedVoiceId ? "elevenlabs-tts" : "azure-tts";
+      if (!clonedVoiceId) {
+        throw new Error(`The participant's approved voice is not available for ${targetLanguage}`);
+      }
+      const ttsProvider = "elevenlabs-tts";
       const ttsSignal = channel.ttsAbort.signal;
       const ttsOptions = {
-          gender: speakerGender,
-          onResponseHeaders: (latencyMs: number) => {
-            trace?.addObservedNetworkLatency("azure_tts_headers", latencyMs);
-          },
           onFirstByte: () => {
             firstByteObserved = true;
             const firstAudioAt = Date.now();
@@ -1387,7 +1415,7 @@ class LiveKitRealtimeTranslatorBot {
               pipeline.turn.ttsLogged = true;
               pipeline.turn.firstAudioAt = firstAudioAt;
               recordStageLatency(this.callId, "tts", firstAudioAt - pipeline.turn.ttsStartedAt);
-              recordVoiceCounter(ttsProvider === "elevenlabs-tts" ? "own_voice_turns" : "fallback_voice_turns");
+              recordVoiceCounter("own_voice_turns");
               if (pipeline.turn.lastVoicedAt) {
                 // 0 when the translation starts while they are still talking.
                 recordStageLatency(this.callId, "response", Math.max(0, firstAudioAt - pipeline.turn.lastVoicedAt));
@@ -1419,17 +1447,7 @@ class LiveKitRealtimeTranslatorBot {
           emotion: pipeline.latestEmotion,
           userAgent: "NeuraTalk/TranslatorBot",
       };
-      const frames = clonedVoiceId
-        ? withFallbackVoice(
-            () => streamElevenLabsTtsFrames(text, targetLanguage, clonedVoiceId, ttsSignal, ttsOptions),
-            () => streamAzureTtsFrames(text, targetLanguage, ttsSignal, ttsOptions),
-            (error) => {
-              ttsProvider = "azure-tts";
-              trace?.markFallback(`cloned_voice_failed:${String(error).slice(0, 80)}`);
-              logger.warn("TranslatorBot", `[${this.callId}] cloned voice unavailable for ${channel.key}, using standard voice: ${String(error)}`);
-            },
-          )
-        : streamAzureTtsFrames(text, targetLanguage, ttsSignal, ttsOptions);
+      const frames = streamElevenLabsTtsFrames(text, targetLanguage, clonedVoiceId, ttsSignal, ttsOptions);
       // Voices start with a short silence; the listener noticed it as extra
       // delay. Skip leading quiet frames (capped, so a softly spoken first
       // word is never cut).
@@ -1455,7 +1473,7 @@ class LiveKitRealtimeTranslatorBot {
       const retryingAfterTimeout = timeoutFallbackTriggered && attempt === 0;
       if (message !== "This operation was aborted" && !retryingAfterTimeout) {
         trace?.markFallback(`tts_failed:${message}`);
-        logger.warn("TranslatorBot", `[${this.callId}] Azure TTS failed for ${channel.key}: ${message}`);
+        logger.warn("TranslatorBot", `[${this.callId}] own-voice TTS failed for ${channel.key}: ${message}`);
         recordVoiceCounter("translation_fallbacks");
         await this.publishTranslationMessage({
           type: "translation-fallback",
@@ -1739,8 +1757,11 @@ class LiveKitRealtimeTranslatorBot {
       mode: "APP_TO_APP",
       callId: this.callId,
       direction: `${pipeline.identity}->${channel.targetIdentity}`,
+      startedAtMs: pipeline.turn.speechStartedAt,
     });
-    trace.mark("speech_start", true);
+    // Trace creation may happen after the first transcript arrives; mark the
+    // actual VAD start so reported STT/translation durations include that time.
+    trace.markAt("speech_start", pipeline.turn.speechStartedAt);
     trace.addProvider(`${getDefaultSttProviderName()}-stream`);
     if (pipeline.lastDeepgramSocketLatencyMs != null) {
       trace.addObservedNetworkLatency("stt_socket_open", pipeline.lastDeepgramSocketLatencyMs);

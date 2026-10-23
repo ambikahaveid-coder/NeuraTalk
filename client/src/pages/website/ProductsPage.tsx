@@ -8,8 +8,8 @@ const PRODUCTS = [
   {
     icon: Phone,
     title: "Translated voice calls",
-    desc: "Call anyone on NeuraTalk. Each of you speaks your own language; each of you hears the other in yours.",
-    points: ["Language detected from the voice", "No captions to read", "Same language? Nothing is translated"],
+    desc: "Call anyone on NeuraTalk. Speech and captions are translated for supported language pairs.",
+    points: ["Choose a language or use supported automatic detection", "Speech or caption output", "Same language? Nothing is translated"],
   },
   {
     icon: Video,
@@ -20,7 +20,7 @@ const PRODUCTS = [
   {
     icon: Mic,
     title: "Your own voice",
-    desc: "Record three short passages once. From then on, your translated words are spoken in your voice.",
+    desc: "Record three short passages once. From then on, your translated words are spoken in your voice. Until then, people see captions.",
     points: ["About two minutes to set up", "Used only for your own words", "Switch off or delete any time"],
   },
   {
@@ -49,7 +49,7 @@ export default function ProductsPage() {
       <section className="py-16 px-4 bg-gradient-to-b from-primary/5 to-background">
         <div className="max-w-4xl mx-auto text-center">
           <Badge variant="outline" className="mb-4">Products</Badge>
-          <h1 className="text-4xl font-bold mb-4">Talk to anyone, in your own language and your own voice</h1>
+          <h1 className="text-4xl font-bold mb-4">Talk across languages with live translation</h1>
           <p className="text-lg text-muted-foreground">Calls, video and chat that translate themselves — so the conversation stays human.</p>
         </div>
       </section>

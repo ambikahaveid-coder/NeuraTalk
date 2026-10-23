@@ -98,6 +98,9 @@ const AZURE_VOICES: Record<string, { male: string; female: string }> = {
   ko: { male: "ko-KR-InJoonNeural", female: "ko-KR-SunHiNeural" },
   pt: { male: "pt-BR-AntonioNeural", female: "pt-BR-FranciscaNeural" },
   ru: { male: "ru-RU-DmitryNeural", female: "ru-RU-SvetlanaNeural" },
+  it: { male: "it-IT-DiegoNeural", female: "it-IT-ElsaNeural" },
+  nl: { male: "nl-NL-MaartenNeural", female: "nl-NL-ColetteNeural" },
+  or: { male: "or-IN-SukantNeural", female: "or-IN-SubhasiniNeural" },
 };
 
 // Azure locale mapping — used for both STT and TTS SSML xml:lang
@@ -224,8 +227,10 @@ export async function azureTTS(
   // MP3 decode adds ~30–80ms in the bot and doubles CPU vs raw PCM. Default
   // flipped to raw PCM; callers that need MP3 for download can opt in.
   const outputFormat = options.outputFormat || "raw-16khz-16bit-mono-pcm";
-  const voice = getAzureVoice(language, gender);
-  const locale = AZURE_LOCALES[language] || `${language}-${language.toUpperCase()}`;
+  const normalizedLanguage = language.trim().toLowerCase().split(/[-_]/)[0];
+  const voice = getAzureVoice(normalizedLanguage, gender);
+  const locale = AZURE_LOCALES[normalizedLanguage];
+  if (!locale) throw new Error(`Azure TTS does not have a configured voice for ${normalizedLanguage}`);
 
   const ssml = `<speak version='1.0' xml:lang='${locale}'>
   <voice name='${voice}'>
@@ -346,8 +351,15 @@ export function getAzureVoice(
   language: string,
   gender: "male" | "female" = "female"
 ): string {
-  const voices = AZURE_VOICES[language] || AZURE_VOICES["en"];
+  const normalizedLanguage = language.trim().toLowerCase().split(/[-_]/)[0];
+  const voices = AZURE_VOICES[normalizedLanguage];
+  if (!voices) throw new Error(`Azure TTS does not have a configured voice for ${normalizedLanguage}`);
   return gender === "male" ? voices.male : voices.female;
+}
+
+/** Languages with an explicit Azure neural voice configured in this app. */
+export function getAzureSpeechVoiceLanguages(): string[] {
+  return Object.keys(AZURE_VOICES);
 }
 
 /**

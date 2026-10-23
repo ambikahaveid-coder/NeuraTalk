@@ -29,6 +29,8 @@ const _all = [
   LanguageInfo('zh', 'Chinese', '中文', '🇨🇳'),
   LanguageInfo('pt', 'Portuguese', 'Português', '🇧🇷'),
   LanguageInfo('ru', 'Russian', 'Русский', '🇷🇺'),
+  LanguageInfo('it', 'Italian', 'Italiano', '🇮🇹'),
+  LanguageInfo('nl', 'Dutch', 'Nederlands', '🇳🇱'),
 ];
 
 class Languages {

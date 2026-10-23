@@ -13,32 +13,32 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "what-is",
         q: "What is NeuraTalk?",
-        a: "An app for voice and video calls between people who speak different languages. While you talk, your words are translated and the other person hears them in your own voice — so it feels like a normal call.",
+        a: "An app for voice and video calls with live speech and text translation. What you hear depends on language support and your translation settings.",
       },
       {
         id: "settings",
         q: "Do I have to choose a language before calling?",
-        a: "No. NeuraTalk works out which language each person is speaking from their voice. If you both speak the same language, nothing is translated and you just hear each other directly.",
+        a: "You can choose a language before the call. Automatic detection is available for supported languages; detection quality depends on speech and the connection.",
       },
       {
         id: "own-voice",
         q: "Will they hear a robot voice?",
-        a: "Not once you've recorded your voice. In the app, open Settings → Your voice and read three short passages (about two minutes). After that, your translated words are spoken in your voice. Until then, a natural standard voice is used.",
+        a: "No. In the app, open Settings → Your voice and read three short passages (about two minutes). After that, your translated words are spoken in your voice. Until then, the other person hears your original voice and sees translated captions — we never use a robot voice.",
       },
       {
         id: "captions",
         q: "Do I need to read anything on screen?",
-        a: "No. There are no captions during calls by default — you just listen. If you want them, you can turn captions on from the call screen.",
+        a: "You can choose translated captions or translated speech in call settings. If the other person hasn't recorded their voice yet, captions turn on automatically and you still hear their original voice.",
       },
       {
         id: "delay",
         q: "How long is the delay?",
-        a: "In our tests the other person starts hearing you within about 0.6 seconds of you finishing a sentence. A weak network or a lot of background noise can make it a little longer.",
+        a: "Delay varies with language pair, network, microphone and provider. The live call pipeline processes speech, translation and audio as they become available.",
       },
       {
         id: "noise",
         q: "What if I'm somewhere noisy?",
-        a: "Background noise is removed on your device before your voice is sent, which helps the translation understand you the first time.",
+        a: "Noise processing may help. Recognition can still be affected by background noise, device quality and language coverage.",
       },
       {
         id: "video-calls",
