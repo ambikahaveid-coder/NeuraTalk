@@ -113,9 +113,12 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
       .where(eq(messagingDeliveries.messageId, message.id));
 
     const [customer] = bizConv.customerId
-      ? await db.select({ id: customers.id, linkedUserId: customers.linkedUserId }).from(customers).where(eq(customers.id, bizConv.customerId))
+      ? await db.select({ id: customers.id, linkedUserId: customers.linkedUserId, blockedAt: customers.blockedByCustomerAt })
+        .from(customers).where(eq(customers.id, bizConv.customerId))
       : [];
-    const consumerUserId = customer?.linkedUserId ?? null;
+    // A person who blocked this business gets nothing from it (no message, no ping).
+    const blockedByCustomer = Boolean(customer?.blockedAt);
+    const consumerUserId = blockedByCustomer ? null : customer?.linkedUserId ?? null;
 
     const now = new Date();
     const toSent: number[] = [];
@@ -150,7 +153,7 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
     }
     if (toFailed.length) {
       await db.update(messagingDeliveries)
-        .set({ status: MESSAGE_DELIVERY_STATUS.FAILED, statusAt: now, failureReason: CUSTOMER_NOT_ON_NEURATALK })
+        .set({ status: MESSAGE_DELIVERY_STATUS.FAILED, statusAt: now, failureReason: blockedByCustomer ? "blocked_by_customer" : CUSTOMER_NOT_ON_NEURATALK })
         .where(and(inArray(messagingDeliveries.id, toFailed), eq(messagingDeliveries.status, MESSAGE_DELIVERY_STATUS.QUEUED)));
     }
 
@@ -354,9 +357,8 @@ async function notifyBusinessTeam(
       ? [assignedToUserId]
       : team.map((u) => u.id);
     if (recipients.length === 0) return;
-    const [customer] = customerId
-      ? await db.select({ name: customers.name, phone: customers.phone }).from(customers).where(eq(customers.id, customerId))
-      : [];
+    const { customerCard } = await import("./service");
+    const customer = customerId ? await customerCard(customerId) : null;
     const title = customer?.name || customer?.phone || "New customer message";
     const body = notificationPreview({ content });
     await Promise.allSettled(recipients.map((userId) => sendPushNotification(userId, {

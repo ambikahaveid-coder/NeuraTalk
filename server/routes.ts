@@ -64,6 +64,7 @@ import { registerRateLimitAdminRoutes } from "./modules/rate-limits/routes";
 import { registerMessagingRoutes } from "./modules/messaging/routes";
 import { registerBusinessRbacRoutes } from "./business-rbac-routes";
 import { registerBusinessProfileRoutes } from "./modules/business-profile/routes";
+import { registerBusinessAppRoutes } from "./modules/business-app/routes";
 import { registerTemplateRoutes } from "./modules/templates/routes";
 import "./modules/templates/approval-policy"; // side-effect: registers "template_version" with the Approval Center
 import { registerApprovalRoutes } from "./modules/approvals/routes";
@@ -197,6 +198,7 @@ export async function registerRoutes(
   registerMessagingRoutes(app); console.log("[Routes] ✓ Canonical business messaging routes (Phase 0)");
   registerBusinessRbacRoutes(app); console.log("[Routes] ✓ Business-platform RBAC grant routes (P0-5 fix)");
   registerBusinessProfileRoutes(app); console.log("[Routes] ✓ Business profile + branding routes (Phase 1)");
+  registerBusinessAppRoutes(app); console.log("[Routes] ✓ NeuraTalk Business app routes");
   registerTemplateRoutes(app); console.log("[Routes] ✓ Business message template engine routes (Phase 2)");
   registerApprovalRoutes(app); console.log("[Routes] ✓ Generic approval center routes (Phase 3)");
   registerCustomerRoutes(app); console.log("[Routes] ✓ Business customers routes (Phase 4)");

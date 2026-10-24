@@ -23,6 +23,7 @@ import {
   NotYourAssignmentError,
   InvalidAssigneeError,
   type ConversationAssignmentFilter,
+  BusinessBlockedError,
 } from "./service";
 import { subscribeToBusinessEvents, subscribeToConsumerEvents, type MessagingRealtimeEvent } from "./realtime";
 import { MESSAGING_PARTICIPANT_TYPE, CUSTOMER_CONSENT_CHANNEL, customers } from "@shared/schema";
@@ -280,6 +281,8 @@ export async function sendUserMessage(req: Request, res: Response) {
   } catch (error) {
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
     if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
+    // Blocked this business: unblock first (as in WhatsApp).
+    if (error instanceof BusinessBlockedError) return res.status(409).json({ success: false, code: "BUSINESS_BLOCKED", error: error.message });
     // Not expected on this path (sendUserInitiatedMessage always resolves/
     // creates the caller's own participant before creating the message),
     // but mapped defensively for consistency with postMessage above rather
@@ -522,10 +525,10 @@ export async function getUserBusinessPreferences(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
   if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
   const customer = await findOwnCustomerRecord(businessId, req.user!.id);
-  if (!customer) return res.json({ success: true, promotions: false, known: false });
+  if (!customer) return res.json({ success: true, promotions: false, known: false, blocked: false });
   const consents = await getCustomerConsents(businessId, customer.id);
   const marketing = consents.find((row: any) => row.channel === CUSTOMER_CONSENT_CHANNEL.MARKETING);
-  return res.json({ success: true, known: true, promotions: marketing?.status === "granted" });
+  return res.json({ success: true, known: true, promotions: marketing?.status === "granted", blocked: Boolean(customer.blockedByCustomerAt) });
 }
 
 const preferencesSchema = z.object({ promotions: z.boolean() });

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_service.dart';
 import '../services/call_service.dart';
@@ -167,8 +168,10 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
     return ListTile(
       leading: NtAvatar(name: name, avatarUrl: t['logoUrl'] as String?),
       title: Row(children: [
-        Expanded(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+        Flexible(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
             style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600))),
+        if (t['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan)),
+        const Spacer(),
         Text(formatBusinessTime(last['createdAt']), style: TextStyle(color: unread > 0 ? AppColors.cyan : AppColors.textMuted, fontSize: 12)),
       ]),
       subtitle: Row(children: [
@@ -227,6 +230,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
   bool _calling = false;
   String? _error;
   bool? _offers;
+  bool _blocked = false;
   int? _lastReadId;
   Timer? _poll;
 
@@ -281,7 +285,12 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
   Future<void> _loadPreferences() async {
     try {
       final res = await ApiService.get('$_base/preferences');
-      if (mounted && res['known'] == true) setState(() => _offers = res['promotions'] == true);
+      if (mounted && res['known'] == true) {
+        setState(() {
+          _offers = res['promotions'] == true;
+          _blocked = res['blocked'] == true;
+        });
+      }
     } catch (_) {}
   }
 
@@ -405,6 +414,49 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     );
   }
 
+  Future<void> _setBlocked(bool value) async {
+    if (value) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text('Block ${_name ?? 'this business'}?'),
+          content: const Text('They will not be able to send you messages, offers or codes. You can unblock any time.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(d, true), child: Text('Block', style: TextStyle(color: AppColors.red))),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+    try {
+      await ApiService.put('$_base/block', {'blocked': value});
+      if (mounted) {
+        setState(() => _blocked = value);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value ? 'Blocked' : 'Unblocked')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not change that. Try again.')));
+    }
+  }
+
+  void _openInfo() {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => BusinessInfoScreen(
+        businessId: widget.businessId,
+        profile: _profile,
+        name: _name,
+        catalogCount: _catalog.length,
+        onCatalog: _catalog.isEmpty ? null : _openCatalog,
+        onCall: _call,
+        offers: _offers,
+        onOffers: _offers == null ? null : _setOffers,
+        blocked: _blocked,
+        onBlock: _offers == null ? null : _setBlocked,
+      ),
+    ));
+  }
+
   Future<void> _setOffers(bool value) async {
     setState(() => _offers = value);
     try {
@@ -427,13 +479,23 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         titleSpacing: 0,
-        title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            Flexible(child: Text(_name ?? 'Business', overflow: TextOverflow.ellipsis)),
-            if (p?['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan, semanticLabel: 'Verified business')),
+        title: InkWell(
+          onTap: _openInfo,
+          child: Row(children: [
+            NtAvatar(name: _name ?? 'Business', avatarUrl: p?['logoUrl'] as String?, size: 38),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  Flexible(child: Text(_name ?? 'Business', overflow: TextOverflow.ellipsis)),
+                  if (p?['verified'] == true)
+                    Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan, semanticLabel: 'Verified business')),
+                ]),
+                if (subtitle != null) Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+              ]),
+            ),
           ]),
-          if (subtitle != null) Text(subtitle, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
-        ]),
+        ),
         actions: [
           if (_catalog.isNotEmpty) IconButton(tooltip: 'Catalog', icon: const Icon(Icons.shopping_bag_outlined), onPressed: _openCatalog),
           IconButton(
@@ -441,14 +503,20 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
             icon: _calling ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.call_outlined),
             onPressed: _calling ? null : _call,
           ),
-          if (_offers != null)
-            PopupMenuButton<String>(
-              tooltip: 'More',
-              onSelected: (_) => _setOffers(!(_offers ?? false)),
-              itemBuilder: (_) => [
-                CheckedPopupMenuItem(value: 'offers', checked: _offers ?? false, child: const Text('Receive offers')),
-              ],
-            ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            onSelected: (v) {
+              if (v == 'info') _openInfo();
+              if (v == 'offers') _setOffers(!(_offers ?? false));
+              if (v == 'block') _setBlocked(!_blocked);
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'info', child: Text('Business info')),
+              if (_offers != null) CheckedPopupMenuItem(value: 'offers', checked: _offers ?? false, child: const Text('Receive offers')),
+              if (_offers != null)
+                PopupMenuItem(value: 'block', child: Text(_blocked ? 'Unblock' : 'Block', style: TextStyle(color: _blocked ? null : AppColors.red))),
+            ],
+          ),
         ],
       ),
       body: Column(children: [
@@ -472,6 +540,22 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                           },
                         ),
         ),
+        if (_blocked)
+          SafeArea(
+            top: false,
+            child: Material(
+              color: AppColors.surface,
+              child: InkWell(
+                onTap: () => _setBlocked(false),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('You blocked this business. Tap to unblock.', textAlign: TextAlign.center,
+                      style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ),
+          )
+        else
         SafeArea(
           top: false,
           child: Container(
@@ -576,4 +660,163 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 String? _cap(Object? v) {
   final t = v?.toString().trim() ?? '';
   return t.isEmpty ? null : t[0].toUpperCase() + t.substring(1);
+}
+
+/// Business info (tap the chat header): logo, verified tick, about, address,
+/// hours, website, catalog, call, offers and block -- like WhatsApp.
+class BusinessInfoScreen extends StatelessWidget {
+  const BusinessInfoScreen({
+    super.key,
+    required this.businessId,
+    this.profile,
+    this.name,
+    this.catalogCount = 0,
+    this.onCatalog,
+    this.onCall,
+    this.offers,
+    this.onOffers,
+    this.blocked = false,
+    this.onBlock,
+  });
+
+  final int businessId;
+  final Map<String, dynamic>? profile;
+  final String? name;
+  final int catalogCount;
+  final VoidCallback? onCatalog;
+  final VoidCallback? onCall;
+  final bool? offers;
+  final ValueChanged<bool>? onOffers;
+  final bool blocked;
+  final ValueChanged<bool>? onBlock;
+
+  static const _days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  String _hhmm(Object? v) {
+    final p = '${v ?? ''}'.split(':');
+    final h = int.tryParse(p.first) ?? 0;
+    return '${h % 12 == 0 ? 12 : h % 12}:${p.length > 1 ? p[1] : '00'} ${h < 12 ? 'AM' : 'PM'}';
+  }
+
+  String _dayLine(Map hours, int day) {
+    final h = hours['$day'];
+    return '${_days[day]}: ${h is Map ? '${_hhmm(h['open'])} – ${_hhmm(h['close'])}' : 'Closed'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = profile ?? const {};
+    final title = name ?? p['name']?.toString() ?? 'Business';
+    final verified = p['verified'] == true;
+    final hours = (p['hours'] as Map?) ?? const {};
+    final openNow = p['openNow'] == true || hours.isEmpty;
+    final website = p['website']?.toString();
+    final address = (p['address'] ?? p['city'])?.toString();
+    final about = p['description']?.toString();
+    final category = _cap(p['category']);
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text('Business info')),
+      body: ListView(padding: const EdgeInsets.only(bottom: 32), children: [
+        const SizedBox(height: 12),
+        Center(child: NtAvatar(name: title, avatarUrl: p['logoUrl'] as String?, size: 112, openOnTap: p['logoUrl'] != null)),
+        const SizedBox(height: 12),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Flexible(child: Text(title, textAlign: TextAlign.center, style: TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w800))),
+            if (verified) Padding(padding: const EdgeInsets.only(left: 6), child: Icon(Icons.verified, color: AppColors.cyan)),
+          ]),
+        ),
+        if (category != null) Center(child: Text(category, style: TextStyle(color: AppColors.textSecondary))),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            verified ? 'Verified business — NeuraTalk checked this business' : 'Business account — not verified by NeuraTalk yet',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: verified ? AppColors.cyan : AppColors.textMuted, fontSize: 12.5),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Wrap(alignment: WrapAlignment.center, children: [
+          if (onCall != null) _action(Icons.call_outlined, 'Call', () { Navigator.pop(context); onCall!(); }),
+          if (onCatalog != null) _action(Icons.shopping_bag_outlined, 'Catalog', () { Navigator.pop(context); onCatalog!(); }),
+          _action(Icons.chat_outlined, 'Message', () => Navigator.pop(context)),
+        ]),
+        Divider(color: AppColors.border, height: 32),
+        if (about != null && about.isNotEmpty)
+          ListTile(leading: const Icon(Icons.info_outline), title: Text(about, style: TextStyle(color: AppColors.ink))),
+        if (address != null && address.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.location_on_outlined),
+            title: Text(address, style: TextStyle(color: AppColors.ink)),
+            onTap: () => launchUrl(
+              Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent('$title $address')}'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ListTile(
+          leading: const Icon(Icons.schedule),
+          title: Text(openNow ? 'Open now' : 'Closed now',
+              style: TextStyle(color: openNow ? AppColors.green : AppColors.orange, fontWeight: FontWeight.w600)),
+          subtitle: hours.isEmpty
+              ? null
+              : Text([for (var d = 1; d <= 7; d++) _dayLine(hours, d % 7)].join('\n'),
+                  style: TextStyle(color: AppColors.textSecondary, height: 1.5)),
+        ),
+        if (website != null && website.isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.language),
+            title: Text(website, style: TextStyle(color: AppColors.cyan)),
+            onTap: () => launchUrl(Uri.parse(website), mode: LaunchMode.externalApplication),
+          ),
+        if (onCatalog != null)
+          ListTile(
+            leading: const Icon(Icons.shopping_bag_outlined),
+            title: Text('Catalog · $catalogCount ${catalogCount == 1 ? 'item' : 'items'}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () { Navigator.pop(context); onCatalog!(); },
+          ),
+        Divider(color: AppColors.border, height: 24),
+        if (onOffers != null && offers != null)
+          SwitchListTile(
+            secondary: const Icon(Icons.local_offer_outlined),
+            value: offers!,
+            onChanged: (v) { onOffers!(v); Navigator.pop(context); },
+            title: const Text('Receive offers'),
+            subtitle: const Text('Order updates and codes always arrive'),
+          ),
+        if (onBlock != null)
+          ListTile(
+            leading: Icon(Icons.block, color: blocked ? AppColors.textSecondary : AppColors.red),
+            title: Text(blocked ? 'Unblock $title' : 'Block $title', style: TextStyle(color: blocked ? AppColors.ink : AppColors.red)),
+            onTap: () { Navigator.pop(context); onBlock!(!blocked); },
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Text('Messages with this business are translated into your language. The business sees your name and profile photo.',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+        ),
+      ]),
+    );
+  }
+
+  Widget _action(IconData icon, String label, VoidCallback onTap) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Container(
+            width: 88,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(16)),
+            child: Column(children: [
+              Icon(icon, color: AppColors.cyan),
+              const SizedBox(height: 4),
+              Text(label, style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ),
+      );
 }

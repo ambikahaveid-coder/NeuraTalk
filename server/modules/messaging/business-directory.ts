@@ -71,7 +71,10 @@ export interface PublicBusinessProfile {
   description: string | null;
   category: string | null;
   city: string | null;
+  /** Street address + city, for the business info page. */
+  address: string | null;
   website: string | null;
+  /** Blue tick: a NeuraTalk admin checked this business (not just signed up). */
   verified: boolean;
   openNow: boolean;
   hours: BusinessMessagingSettings["away"]["hours"];
@@ -86,7 +89,9 @@ const publicColumns = {
   industry: organizations.industry,
   addressCity: organizations.addressCity,
   addressState: organizations.addressState,
+  address: organizations.address,
   website: organizations.website,
+  verifiedAt: organizations.verifiedAt,
   status: organizations.status,
   isActive: organizations.isActive,
   settings: organizations.settings,
@@ -94,7 +99,8 @@ const publicColumns = {
 
 type PublicRow = { [K in keyof typeof publicColumns]: unknown } & {
   id: number; name: string; slug: string; logoUrl: string | null; description: string | null; industry: string | null;
-  addressCity: string | null; addressState: string | null; website: string | null; status: string | null; isActive: boolean | null;
+  addressCity: string | null; addressState: string | null; address: string | null; website: string | null;
+  verifiedAt: Date | null; status: string | null; isActive: boolean | null;
 };
 
 function toPublic(row: PublicRow): PublicBusinessProfile {
@@ -107,8 +113,9 @@ function toPublic(row: PublicRow): PublicBusinessProfile {
     description: row.description,
     category: row.industry,
     city: [row.addressCity, row.addressState].filter(Boolean).join(", ") || null,
+    address: [row.address, row.addressCity, row.addressState].filter(Boolean).join(", ") || null,
     website: row.website,
-    verified: row.status === "approved",
+    verified: Boolean(row.verifiedAt) && row.status === "approved",
     openNow: isWithinOpeningHours(settings),
     hours: settings.away.hours,
   };

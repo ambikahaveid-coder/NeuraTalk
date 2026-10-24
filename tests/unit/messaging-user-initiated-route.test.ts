@@ -51,6 +51,7 @@ vi.mock("../../server/modules/messaging/service", () => ({
   NotFoundError: class NotFoundError extends Error {},
   NotAParticipantError: class NotAParticipantError extends Error {},
   SenderIdentityMismatchError: class SenderIdentityMismatchError extends Error {},
+  BusinessBlockedError: class BusinessBlockedError extends Error {},
 }));
 
 beforeEach(() => {

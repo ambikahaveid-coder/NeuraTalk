@@ -78,6 +78,34 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     return filtered;
   }
 
+  /// People and businesses in one list (like WhatsApp): pinned first, then newest.
+  List<Map<String, dynamic>> _visibleItems(PersonalChatProvider provider) {
+    final personal = _visibleThreads(provider);
+    if (_showArchived) return personal;
+    final q = _query.trim().toLowerCase();
+    final business = provider.businessThreads
+        .where((b) => q.isEmpty || '${b['businessName'] ?? ''} ${(b['lastMessage'] as Map?)?['content'] ?? ''}'.toLowerCase().contains(q))
+        .map((b) => {...b, '_business': true});
+    final all = [...personal, ...business];
+    DateTime timeOf(Map<String, dynamic> t) {
+      final last = t['lastMessage'] as Map?;
+      final Object? raw;
+      if (t['_business'] == true) {
+        raw = last == null ? null : last['createdAt'];
+      } else {
+        raw = t['lastMessageAt'];
+      }
+      return DateTime.tryParse(raw?.toString() ?? '') ?? DateTime(1970);
+    }
+    all.sort((a, b) {
+      final aPinned = a['isPinned'] == true;
+      final bPinned = b['isPinned'] == true;
+      if (aPinned != bPinned) return aPinned ? -1 : 1;
+      return timeOf(b).compareTo(timeOf(a));
+    });
+    return all;
+  }
+
   void _showThreadActions(Map<String, dynamic> thread) {
     final threadId = thread['id'] as int;
     final isPinned = thread['isPinned'] == true;
@@ -124,7 +152,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PersonalChatProvider>();
-    final visible = _visibleThreads(provider);
+    final visible = _visibleItems(provider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -188,7 +216,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                     NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load your chats", message: provider.threadsError!, error: true,
                         actionLabel: 'Try again', onAction: provider.loadThreads),
                   ])
-                : provider.threads.isEmpty && !_showArchived
+                : provider.threads.isEmpty && provider.businessThreads.isEmpty && !_showArchived
                     ? _emptyState()
                     : ListView(
                         padding: const EdgeInsets.only(bottom: 96),
@@ -217,7 +245,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                                     style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
                               ),
                             ),
-                          for (final t in visible) _threadTile(t),
+                          for (final t in visible) t['_business'] == true ? _businessTile(t) : _threadTile(t),
                         ],
                       ),
       ),
@@ -254,6 +282,60 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// A business chat: its logo, name and verified tick (never a bare number).
+  Widget _businessTile(Map<String, dynamic> t) {
+    final last = (t['lastMessage'] as Map?) ?? const {};
+    final unread = (t['unreadCount'] as num?)?.toInt() ?? 0;
+    final name = t['businessName']?.toString() ?? 'Business';
+    final preview = '${last['fromBusiness'] == false ? 'You: ' : ''}${last['content'] ?? ''}';
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: NtAvatar(name: name, avatarUrl: t['logoUrl'] as String?, size: 50),
+      title: Row(children: [
+        Flexible(
+          child: Text(name, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600)),
+        ),
+        if (t['verified'] == true)
+          Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan, semanticLabel: 'Verified business')),
+      ]),
+      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 2),
+          child: Row(children: [
+            Icon(Icons.storefront_outlined, size: 13, color: AppColors.textMuted),
+            const SizedBox(width: 4),
+            Text(t['blocked'] == true ? 'Business · blocked' : 'Business', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5)),
+          ]),
+        ),
+        Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: unread > 0 ? AppColors.textPrimary : AppColors.textSecondary, fontSize: 14.5)),
+      ]),
+      trailing: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(_formatTime(last['createdAt']), style: TextStyle(color: unread > 0 ? AppColors.cyan : AppColors.textMuted, fontSize: 12, fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.w400)),
+          if (unread > 0) ...[
+            const SizedBox(height: 6),
+            Container(
+              constraints: const BoxConstraints(minWidth: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: AppColors.cyan, borderRadius: BorderRadius.circular(10)),
+              child: Text(unread > 99 ? '99+' : '$unread', textAlign: TextAlign.center, style: const TextStyle(color: AppColors.onAccent, fontSize: 11, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ],
+      ),
+      onTap: () async {
+        await Navigator.push(context, MaterialPageRoute(
+          builder: (_) => BusinessChatScreen(businessId: (t['businessId'] as num).toInt(), businessName: name),
+        ));
+        if (mounted) context.read<PersonalChatProvider>().loadBusinessThreads();
+      },
     );
   }
 

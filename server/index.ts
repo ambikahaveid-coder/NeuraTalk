@@ -377,6 +377,25 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "business_otp_challenges" ADD COLUMN IF NOT EXISTS "delivery_ciphertext" text`);
     // Permission to learn the caller's own voice from their calls (additive).
     await _db.execute(_sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "voice_learning_consent_at" timestamp`);
+    // Business verified badge, chat labels, customer-side block (additive).
+    // Businesses a super admin created and approved before the badge existed
+    // were vetted by that admin, so they keep their tick -- once, when the
+    // column is first added.
+    await _db.execute(_sql`ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "verified_by" integer`);
+    await _db.execute(_sql`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'verified_at') THEN
+          ALTER TABLE "organizations" ADD COLUMN "verified_at" timestamp;
+          UPDATE "organizations" SET "verified_at" = coalesce("approved_at", now()), "verified_by" = NULL
+            WHERE "status" = 'approved' AND "approved_by" IS NOT NULL;
+        END IF;
+      END $$
+    `).catch(async () => {
+      await _db.execute(_sql`ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "verified_at" timestamp`);
+    });
+    await _db.execute(_sql`ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "verification_requested_at" timestamp`);
+    await _db.execute(_sql`ALTER TABLE "business_conversations" ADD COLUMN IF NOT EXISTS "labels" jsonb DEFAULT '[]'::jsonb`);
+    await _db.execute(_sql`ALTER TABLE "customers" ADD COLUMN IF NOT EXISTS "blocked_by_customer_at" timestamp`);
     // App users stay signed in (90-day rolling sessions). Sessions created
     // under the old 24 h rule are moved to the long window once; super-admins
     // keep 24 h. Idempotent: only touches still-valid sessions.

@@ -274,11 +274,11 @@ vi.mock("@shared/schema", async (importOriginal) => {
     Object.fromEntries(fields.map((f) => [f, col(table, f)]));
   return {
     ...actual,
-    organizations: mkTable("organizations", ["id", "name", "logoUrl", "description", "email", "phone", "status"]),
-    users: mkTable("users", ["id", "username", "organizationId", "isActive", "phone", "email", "displayName"]),
-    customers: mkTable("customers", ["id", "businessId", "linkedUserId", "name", "status", "source", "createdBy", "phone", "normalizedPhone", "email", "normalizedEmail", "updatedAt"]),
+    organizations: mkTable("organizations", ["id", "name", "logoUrl", "description", "email", "phone", "status", "verifiedAt"]),
+    users: mkTable("users", ["id", "username", "organizationId", "isActive", "phone", "email", "displayName", "avatarUrl"]),
+    customers: mkTable("customers", ["id", "businessId", "linkedUserId", "name", "status", "source", "createdBy", "phone", "normalizedPhone", "email", "normalizedEmail", "updatedAt", "blockedByCustomerAt"]),
     messagingConversations: mkTable("messagingConversations", ["id", "type", "organizationId", "metadata", "isArchived", "createdAt", "updatedAt"]),
-    businessConversations: mkTable("businessConversations", ["id", "conversationId", "businessId", "customerId", "status", "assignedToUserId", "createdAt"]),
+    businessConversations: mkTable("businessConversations", ["id", "conversationId", "businessId", "customerId", "status", "assignedToUserId", "createdAt", "labels"]),
     messagingParticipants: mkTable("messagingParticipants", ["id", "conversationId", "participantType", "participantId", "role", "joinedAt", "leftAt"]),
     messagingMessages: mkTable("messagingMessages", ["id", "conversationId", "senderParticipantId", "messageType", "category", "content", "templateId", "replyToMessageId", "createdAt", "editedAt", "deletedAt"]),
     messagingDeliveries: mkTable("messagingDeliveries", ["id", "messageId", "participantId", "status", "statusAt", "failureReason", "providerRef"]),
@@ -1267,7 +1267,7 @@ describe("P1-6: claimConversation (self-claim, atomic, unassigned-only)", () => 
     const result = await claimConversation(1, conv.businessConversation.id, 100);
     expect(Object.keys(result).sort()).toEqual([
       "assignedToUserId", "assignedToUsername", "conversationId", "createdAt",
-      "customerId", "customerName", "id", "lastMessage", "status",
+      "customerAvatarUrl", "customerId", "customerName", "customerPhone", "id", "labels", "lastMessage", "status",
     ]);
     expect(result.assignedToUsername).toBe("agent_alice");
   });
@@ -1513,7 +1513,7 @@ describe("P1-7: adminSetConversationAssignment (company_admin/super_admin only, 
     const result = await adminSetConversationAssignment(1, conv.businessConversation.id, 9, 100);
     expect(Object.keys(result).sort()).toEqual([
       "assignedToUserId", "assignedToUsername", "conversationId", "createdAt",
-      "customerId", "customerName", "id", "lastMessage", "status",
+      "customerAvatarUrl", "customerId", "customerName", "customerPhone", "id", "labels", "lastMessage", "status",
     ]);
   });
 

@@ -17,7 +17,7 @@ import {
   Trash2, Eye, FileText, Download, Radio, Key, AlertTriangle,
   CheckCircle, XCircle, RefreshCw, History, Globe, Scale,
   HeartPulse, Flag, Headphones, Server, Zap, Lock, PhoneCall,
-  Languages, BookOpen, HelpCircle, ToggleLeft, Gauge, MonitorCheck, Video
+  Languages, BookOpen, HelpCircle, ToggleLeft, Gauge, MonitorCheck, Video, BadgeCheck, Smartphone
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -415,7 +415,7 @@ function CompaniesSection() {
   const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
   const [walletAmountRupees, setWalletAmountRupees] = useState("");
-  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected" | "suspended" | "deactivated">("all");
+  const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected" | "suspended" | "deactivated" | "verification">("all");
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [newCompany, setNewCompany] = useState({
     companyName: "",
@@ -547,6 +547,27 @@ function CompaniesSection() {
     },
   });
 
+  // Blue verified tick customers see next to the business name.
+  const verifyMutation = useMutation({
+    mutationFn: async ({ companyId, verified }: { companyId: number; verified: boolean }) => {
+      const token = getAuthToken();
+      const res = await fetch(`/api/admin/companies/${companyId}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ verified }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.message || "Failed to change verification");
+      return res.json();
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      toast({ title: vars.verified ? "Business verified" : "Verified tick removed" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const adjustWalletMutation = useMutation({
     mutationFn: async ({ companyId, amount, reason }: { companyId: number; amount: number; reason: string }) => {
       const token = getAuthToken();
@@ -614,9 +635,13 @@ function CompaniesSection() {
   });
 
   const companies = companiesData?.companies || [];
-  const filteredCompanies = filter === "all" 
-    ? companies 
-    : companies.filter((c: any) => c.status === filter);
+  const awaitingVerification = (c: any) => c.status === "approved" && !c.verifiedAt && !!c.verificationRequestedAt;
+  const filteredCompanies = filter === "all"
+    ? companies
+    : filter === "verification"
+      ? companies.filter(awaitingVerification)
+      : companies.filter((c: any) => c.status === filter);
+  const verificationCount = companies.filter(awaitingVerification).length;
 
   const pendingCount = companies.filter((c: any) => c.status === "pending").length;
   const approvedCount = companies.filter((c: any) => c.status === "approved").length;
@@ -675,7 +700,7 @@ function CompaniesSection() {
 
       <div className="flex flex-wrap gap-2 items-center justify-between">
         <div className="flex gap-2">
-          {(["all", "pending", "approved", "rejected", "suspended", "deactivated"] as const).map((f) => (
+          {(["all", "pending", "approved", "verification", "rejected", "suspended", "deactivated"] as const).map((f) => (
             <Button
               key={f}
               variant={filter === f ? "default" : "outline"}
@@ -683,9 +708,12 @@ function CompaniesSection() {
               onClick={() => setFilter(f)}
               data-testid={`filter-${f}`}
             >
-              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === "verification" ? "Verification requests" : f.charAt(0).toUpperCase() + f.slice(1)}
               {f === "pending" && pendingCount > 0 && (
                 <Badge variant="secondary" className="ml-2">{pendingCount}</Badge>
+              )}
+              {f === "verification" && verificationCount > 0 && (
+                <Badge variant="secondary" className="ml-2">{verificationCount}</Badge>
               )}
             </Button>
           ))}
@@ -870,14 +898,27 @@ function CompaniesSection() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
+                        {company.logoUrl ? (
+                          <img src={company.logoUrl} alt="" className="w-7 h-7 rounded-full object-cover border" />
+                        ) : null}
                         <h3 className="font-semibold truncate">{company.name}</h3>
+                        {company.verifiedAt && (
+                          <BadgeCheck className="w-5 h-5 text-blue-600 shrink-0" aria-label="Verified business" data-testid={`verified-${company.id}`} />
+                        )}
                         <Badge variant={
                           company.status === "approved" ? "default" :
                           company.status === "pending" ? "secondary" : "destructive"
                         }>
                           {company.status}
                         </Badge>
+                        {company.settings?.selfServe && (
+                          <Badge variant="outline" className="gap-1"><Smartphone className="w-3 h-3" />Signed up in app</Badge>
+                        )}
+                        {awaitingVerification(company) && (
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">Wants verification</Badge>
+                        )}
                       </div>
+                      {company.description && <p className="text-sm text-muted-foreground line-clamp-2">{company.description}</p>}
                       <p className="text-sm text-muted-foreground">{company.industry || "No industry"}</p>
                       <div className="flex flex-wrap gap-4 mt-2 text-xs text-muted-foreground">
                         <span>Email: {company.contactEmail || company.email || "Not provided"}</span>
@@ -890,7 +931,19 @@ function CompaniesSection() {
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      {company.status === "approved" && (
+                        <Button
+                          size="sm"
+                          variant={company.verifiedAt ? "outline" : "default"}
+                          onClick={() => verifyMutation.mutate({ companyId: company.id, verified: !company.verifiedAt })}
+                          disabled={verifyMutation.isPending}
+                          data-testid={`button-verify-${company.id}`}
+                        >
+                          <BadgeCheck className="w-4 h-4 mr-1" />
+                          {company.verifiedAt ? "Remove tick" : "Verify"}
+                        </Button>
+                      )}
                       {company.status === "pending" && (
                         <>
                           {rejectingId === company.id ? (

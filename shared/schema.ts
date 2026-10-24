@@ -73,6 +73,12 @@ export const organizations = pgTable("organizations", {
   rejectedAt: timestamp("rejected_at"),
   rejectedBy: integer("rejected_by"), // Super Admin user ID
   rejectionReason: text("rejection_reason"),
+  // Verified badge (blue tick) customers see. Separate from approval: a
+  // business that signs up in the NeuraTalk Business app can chat straight
+  // away, but only a super admin who has checked it grants the tick.
+  verifiedAt: timestamp("verified_at"),
+  verifiedBy: integer("verified_by"),
+  verificationRequestedAt: timestamp("verification_requested_at"),
   // Lifecycle governance (P1 foundation hardening, 2026-08-23): suspend/reactivate/deactivate.
   // status remains free-text for backward compatibility with existing `=== "approved"` gates
   // across the codebase (auth, billing, API-key middleware) -- "approved" continues to mean
@@ -3535,6 +3541,8 @@ export const businessConversations = pgTable("business_conversations", {
   customerId: integer("customer_id").references(() => customers.id), // Phase 4: wired to the real `customers` table below (Drizzle's `.references()` is a lazy closure, so a table defined later in this file is a valid target) -- see doc 29 section 3
   status: text("status").notNull().default(BUSINESS_CONVERSATION_STATUS.OPEN),
   assignedToUserId: integer("assigned_to_user_id").references(() => users.id),
+  // WhatsApp-Business-style chat labels ("New order", "Paid", ...), set by the team.
+  labels: jsonb("labels").$type<string[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   index("business_conversations_business_idx").on(t.businessId),
@@ -3852,6 +3860,9 @@ export const customers = pgTable("customers", {
   updatedAt: timestamp("updated_at").defaultNow(),
   archivedBy: integer("archived_by").references(() => users.id),
   archivedAt: timestamp("archived_at"),
+  // The person blocked this business in their NeuraTalk app: nothing the
+  // business sends reaches them until they unblock it.
+  blockedByCustomerAt: timestamp("blocked_by_customer_at"),
 }, (t) => [
   index("customers_business_idx").on(t.businessId),
   index("customers_business_status_idx").on(t.businessId, t.status),

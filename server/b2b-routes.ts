@@ -125,7 +125,7 @@ async function getDefaultB2BPlan() {
   return plan ?? null;
 }
 
-async function ensureOrganizationBillingReady(
+export async function ensureOrganizationBillingReady(
   organizationId: number,
   actorUserId: number,
   openingBalancePaise = 0,
@@ -641,6 +641,9 @@ export function registerB2BRoutes(app: Express): void {
         isActive: data.autoApprove,
         approvedAt: data.autoApprove ? new Date() : null,
         approvedBy: data.autoApprove ? req.user!.id : null,
+        // Created and checked by a super admin: verified from the start.
+        verifiedAt: data.autoApprove ? new Date() : null,
+        verifiedBy: data.autoApprove ? req.user!.id : null,
       }).returning();
 
       // Create company admin user
@@ -727,6 +730,8 @@ export function registerB2BRoutes(app: Express): void {
           approvedAt: new Date(),
           approvedBy: req.user!.id,
           isActive: true,
+          verifiedAt: new Date(),
+          verifiedBy: req.user!.id,
         })
         .where(eq(organizations.id, companyId));
 
@@ -744,6 +749,30 @@ export function registerB2BRoutes(app: Express): void {
     } catch (err) {
       logger.error("B2BRoutes", "Failed to approve company", err as Error);
       res.status(500).json({ success: false, message: "Failed to approve company" });
+    }
+  });
+
+  /**
+   * Verified badge (Super Admin): the blue tick customers see next to the
+   * business name. Granted after a person has checked the business; can be
+   * taken away again without touching whether the business may operate.
+   */
+  app.post("/api/admin/companies/:id/verify", requireAuth, requireSuperAdmin, async (req, res) => {
+    const companyId = parseInt(req.params.id);
+    const verified = req.body?.verified !== false;
+    try {
+      const [updated] = await db.update(organizations)
+        .set(verified
+          ? { verifiedAt: new Date(), verifiedBy: req.user!.id }
+          : { verifiedAt: null, verifiedBy: null })
+        .where(eq(organizations.id, companyId))
+        .returning({ id: organizations.id, verifiedAt: organizations.verifiedAt });
+      if (!updated) return res.status(404).json({ success: false, message: "Company not found" });
+      await AuditHelpers.logSettingsChange(req.user!.id, `business_verification:${companyId}`, {}, { verified });
+      res.json({ success: true, verified, verifiedAt: updated.verifiedAt });
+    } catch (err) {
+      logger.error("B2BRoutes", "Failed to change verification", err as Error);
+      res.status(500).json({ success: false, message: "Failed to change verification" });
     }
   });
 

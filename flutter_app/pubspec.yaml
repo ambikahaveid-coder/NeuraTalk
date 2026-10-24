@@ -82,6 +82,8 @@ dependencies:
   # Save/share exported transcript files
   path_provider: ^2.1.5
   share_plus: ^10.1.4
+  # Business chat link as a QR code (NeuraTalk Business)
+  qr_flutter: ^4.1.0
   flutter_secure_storage: ^10.3.1
   webview_flutter: ^4.13.1
   webview_flutter_android: ^4.12.0

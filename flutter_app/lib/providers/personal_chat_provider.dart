@@ -25,6 +25,34 @@ class PersonalChatProvider extends ChangeNotifier {
   // ---- On-device copy (like WhatsApp): chats open instantly from the last
   // saved state, then refresh from the server in the background.
   static const _threadsCacheKey = 'chat_threads_cache_v1';
+  // Starts with the threads key so signing out clears it too.
+  static const _businessCacheKey = 'chat_threads_cache_v1_business';
+
+  /// Chats with businesses (their name, logo and verified tick), shown in the
+  /// same Chats list as people -- like WhatsApp.
+  List<Map<String, dynamic>> businessThreads = [];
+
+  Future<void> loadBusinessThreads() async {
+    if (businessThreads.isEmpty) {
+      final prefs = await _prefs();
+      try {
+        final raw = prefs?.getString(_businessCacheKey);
+        if (raw != null) {
+          businessThreads = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
+    try {
+      final res = await ApiService.get('/api/messaging/business-threads');
+      businessThreads = ((res is Map ? res['threads'] : null) as List? ?? const []).whereType<Map>().map((t) => Map<String, dynamic>.from(t)).toList();
+      notifyListeners();
+      final prefs = await _prefs();
+      await prefs?.setString(_businessCacheKey, jsonEncode(businessThreads));
+    } catch (_) {
+      // Offline: keep the saved list.
+    }
+  }
   static String _messagesCacheKey(int threadId) => 'chat_messages_cache_v1_$threadId';
   static const _translationOffKey = 'chat_translation_off_v1';
   static const _maxCachedMessages = 60;
@@ -63,6 +91,7 @@ class PersonalChatProvider extends ChangeNotifier {
   /// Signed out: forget the previous person's chats held in memory.
   void reset() {
     threads = [];
+    businessThreads = [];
     messages = [];
     activeThread = null;
     _translationOff = {};
@@ -103,6 +132,7 @@ class PersonalChatProvider extends ChangeNotifier {
     threadsError = null;
     notifyListeners();
     try {
+      unawaited(loadBusinessThreads());
       final res = await ApiService.get('/api/personal-chats') as Map<String, dynamic>;
       threads = (res['threads'] as List).cast<Map<String, dynamic>>();
       unawaited(_saveThreads());
@@ -468,6 +498,10 @@ class PersonalChatProvider extends ChangeNotifier {
       case 'thread_created':
       case 'thread_updated':
         loadThreads();
+        break;
+      // A business wrote to this person: refresh the business chats.
+      case 'business.message':
+        loadBusinessThreads();
         break;
     }
   }

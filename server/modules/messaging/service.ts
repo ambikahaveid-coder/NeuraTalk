@@ -49,6 +49,14 @@ export class NotFoundError extends Error {
   }
 }
 /** The authenticated caller has no participant record in this conversation. */
+/** The person blocked this business; they must unblock it to write to it. */
+export class BusinessBlockedError extends Error {
+  constructor() {
+    super("You blocked this business. Unblock it to send a message.");
+    this.name = "BusinessBlockedError";
+  }
+}
+
 export class NotAParticipantError extends Error {
   constructor() {
     super("You are not a participant in this conversation");
@@ -617,6 +625,7 @@ export async function sendUserInitiatedMessage(
     if (!business) throw new NotFoundError("Business not found");
 
     const customer = await findOrCreateCustomerByLinkedUser(input.businessId, input.authenticatedUserId, tx);
+    if (customer.blockedByCustomerAt) throw new BusinessBlockedError();
 
     const { businessConversation } = await findOrCreateCustomerConversation(tx, input.businessId, customer.id);
     businessConversationId = businessConversation.id;
@@ -816,6 +825,9 @@ export interface UserBusinessThread {
   businessId: number;
   businessName: string;
   logoUrl: string | null;
+  verified: boolean;
+  /** The person blocked this business. */
+  blocked: boolean;
   lastMessage: { content: string; createdAt: Date | null; fromBusiness: boolean } | null;
   unreadCount: number;
 }
@@ -832,6 +844,9 @@ export async function listUserBusinessThreads(authenticatedUserId: number): Prom
     customerId: customers.id,
     businessName: organizations.name,
     logoUrl: organizations.logoUrl,
+    verifiedAt: organizations.verifiedAt,
+    orgStatus: organizations.status,
+    blockedAt: customers.blockedByCustomerAt,
   })
     .from(customers)
     .innerJoin(businessConversations, and(eq(businessConversations.customerId, customers.id), eq(businessConversations.businessId, customers.businessId)))
@@ -868,6 +883,8 @@ export async function listUserBusinessThreads(authenticatedUserId: number): Prom
       businessId: row.businessId,
       businessName: row.businessName,
       logoUrl: row.logoUrl ?? null,
+      verified: Boolean(row.verifiedAt) && row.orgStatus === "approved",
+      blocked: Boolean(row.blockedAt),
       lastMessage: { content: shown.content, createdAt: last.createdAt, fromBusiness: !mine.has(last.senderParticipantId) },
       unreadCount: unread?.count ?? 0,
     });
@@ -880,6 +897,10 @@ export interface BusinessConversationSummary {
   conversationId: number;
   customerId: number | null;
   customerName: string | null;
+  /** The customer's own NeuraTalk profile photo, when they have one. */
+  customerAvatarUrl: string | null;
+  customerPhone: string | null;
+  labels: string[];
   status: string;
   assignedToUserId: number | null;
   assignedToUsername: string | null;
@@ -917,10 +938,11 @@ export type ConversationAssignmentFilter = "all" | "mine" | "unassigned";
  * this filter could see a row outside the tenant scope the initial SELECT
  * already established.
  */
-/** The name a team sees for each customer. A name the business typed wins;
- * a record auto-created from a phone number (name = the number) shows the
- * person's own NeuraTalk profile name instead, like WhatsApp Business does. */
-async function customerDisplayNames(customerIds: number[]): Promise<Map<number, string | null>> {
+/** How a team sees each customer: a name the business typed wins; a record
+ * auto-created from a phone number (name = the number) shows the person's
+ * own NeuraTalk profile name and photo instead, like WhatsApp Business does. */
+interface CustomerCard { name: string | null; avatarUrl: string | null; phone: string | null }
+async function customerCards(customerIds: number[]): Promise<Map<number, CustomerCard>> {
   if (customerIds.length === 0) return new Map();
   const customerRows = await db.select({
     id: customers.id,
@@ -931,17 +953,28 @@ async function customerDisplayNames(customerIds: number[]): Promise<Map<number, 
   }).from(customers).where(inArray(customers.id, customerIds));
   const linkedIds = customerRows.map((r) => r.linkedUserId).filter((id): id is number => id != null);
   const profiles = linkedIds.length
-    ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, linkedIds))
+    ? await db.select({ id: users.id, displayName: users.displayName, avatarUrl: users.avatarUrl, phone: users.phone })
+      .from(users).where(inArray(users.id, linkedIds))
     : [];
-  const profileById = new Map(profiles.map((u) => [u.id, u.displayName]));
-  const rows = customerRows.map((r) => ({ ...r, profileName: r.linkedUserId != null ? profileById.get(r.linkedUserId) ?? null : null }));
-  const digits = (v: string | null) => (v ?? "").replace(/\D/g, "");
-  return new Map(rows.map((r) => {
+  const profileById = new Map(profiles.map((u) => [u.id, u]));
+  const digits = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "");
+  return new Map(customerRows.map((r) => {
+    const profile = r.linkedUserId != null ? profileById.get(r.linkedUserId) : undefined;
     const typed = r.name?.trim() || null;
     const nameIsJustTheNumber = !typed || (digits(typed).length >= 6 && /^[+\d\s()-]+$/.test(typed));
-    const profile = r.profileName?.trim() || null;
-    return [r.id, nameIsJustTheNumber && profile ? profile : (typed ?? r.phone ?? r.normalizedPhone ?? null)];
+    const profileName = profile?.displayName?.trim() || null;
+    const phone = r.phone ?? r.normalizedPhone ?? profile?.phone ?? null;
+    return [r.id, {
+      name: nameIsJustTheNumber && profileName ? profileName : (typed ?? phone),
+      avatarUrl: profile?.avatarUrl ?? null,
+      phone,
+    }];
   }));
+}
+
+/** One customer as the team sees them (name / photo / number). */
+export async function customerCard(customerId: number): Promise<CustomerCard | null> {
+  return (await customerCards([customerId])).get(customerId) ?? null;
 }
 
 /** Team members by their profile name, not the internal account handle. */
@@ -965,7 +998,7 @@ export async function listBusinessConversations(
   if (conversations.length === 0) return [];
 
   const customerIds = conversations.map((c) => c.customerId).filter((id): id is number => id !== null);
-  const customerNameById = await customerDisplayNames(customerIds);
+  const cardById = await customerCards(customerIds);
 
   const assigneeIds = conversations.map((c) => c.assignedToUserId).filter((id): id is number => id !== null);
   const assigneeUsernameById = await userDisplayNames(assigneeIds);
@@ -995,7 +1028,10 @@ export async function listBusinessConversations(
       id: c.id,
       conversationId: c.conversationId,
       customerId: c.customerId,
-      customerName: c.customerId ? (customerNameById.get(c.customerId) ?? null) : null,
+      customerName: c.customerId ? (cardById.get(c.customerId)?.name ?? null) : null,
+      customerAvatarUrl: c.customerId ? (cardById.get(c.customerId)?.avatarUrl ?? null) : null,
+      customerPhone: c.customerId ? (cardById.get(c.customerId)?.phone ?? null) : null,
+      labels: Array.isArray(c.labels) ? c.labels : [],
       status: c.status,
       assignedToUserId: c.assignedToUserId,
       assignedToUsername: c.assignedToUserId ? (assigneeUsernameById.get(c.assignedToUserId) ?? null) : null,
@@ -1016,7 +1052,7 @@ async function summarizeConversation(businessId: number, businessConversationId:
   const [c] = await db.select().from(businessConversations)
     .where(and(eq(businessConversations.id, businessConversationId), eq(businessConversations.businessId, businessId)));
 
-  const customerName = c.customerId ? (await customerDisplayNames([c.customerId])).get(c.customerId) ?? null : null;
+  const card = c.customerId ? (await customerCards([c.customerId])).get(c.customerId) : undefined;
   const assignedToUsername = c.assignedToUserId
     ? (await userDisplayNames([c.assignedToUserId])).get(c.assignedToUserId) ?? null
     : null;
@@ -1030,7 +1066,10 @@ async function summarizeConversation(businessId: number, businessConversationId:
     id: c.id,
     conversationId: c.conversationId,
     customerId: c.customerId,
-    customerName,
+    customerName: card?.name ?? null,
+    customerAvatarUrl: card?.avatarUrl ?? null,
+    customerPhone: card?.phone ?? null,
+    labels: Array.isArray(c.labels) ? c.labels : [],
     status: c.status,
     assignedToUserId: c.assignedToUserId,
     assignedToUsername,
