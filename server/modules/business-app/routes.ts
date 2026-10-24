@@ -121,7 +121,11 @@ async function selfSignup(req: Request, res: Response) {
         settings,
       }).returning();
       await tx.update(users).set({ role: USER_ROLES.COMPANY_ADMIN, organizationId: org.id }).where(eq(users.id, user.id));
-      await tx.insert(orgMembers).values({ organizationId: org.id, userId: user.id, memberRole: "owner" });
+      // The owner gets the whole Business toolset straight away (customers,
+      // audiences, templates, campaigns, codes) -- what "Turn on" grants on
+      // the web; there is nobody else to switch it on for them.
+      const { GRANTABLE_BUSINESS_PERMISSIONS } = await import("../../business-rbac-routes");
+      await tx.insert(orgMembers).values({ organizationId: org.id, userId: user.id, memberRole: "owner", permissions: GRANTABLE_BUSINESS_PERMISSIONS });
       return org;
     });
 
