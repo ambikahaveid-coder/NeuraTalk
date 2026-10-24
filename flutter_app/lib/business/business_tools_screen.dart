@@ -20,7 +20,10 @@ class BusinessToolsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final account = context.watch<BusinessAccount>();
-    void open(Widget screen) => Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    // Pushed screens sit above the shell's provider: hand the account on.
+    void open(Widget screen) => Navigator.push(context, MaterialPageRoute(
+          builder: (_) => ChangeNotifierProvider<BusinessAccount>.value(value: account, child: screen),
+        ));
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Tools')),

@@ -16,6 +16,7 @@ import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 import 'business_categories.dart';
 import 'business_onboarding_screen.dart';
+import 'business_profile_screen.dart';
 import 'business_tools_screen.dart';
 
 /// NeuraTalk Business: like WhatsApp Business, inside NeuraTalk. Chats with
@@ -89,7 +90,14 @@ class _BusinessSettings extends StatelessWidget {
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(children: [
-        const BusinessIdentityCard(),
+        BusinessIdentityCard(
+          onTap: () {
+            final account = context.read<BusinessAccount>();
+            Navigator.push(context, MaterialPageRoute(
+              builder: (_) => ChangeNotifierProvider<BusinessAccount>.value(value: account, child: const BusinessProfileScreen()),
+            ));
+          },
+        ),
         Divider(color: AppColors.border),
         ListTile(
           leading: const Icon(Icons.person_outline),
