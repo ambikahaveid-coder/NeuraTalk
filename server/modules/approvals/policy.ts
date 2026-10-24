@@ -23,6 +23,18 @@ export interface ApprovalPolicy {
   decidePermission: string;
   /** Separation of duties: if true, the submitter can never also decide their own request (super_admin exempted, see approvals/service.ts). */
   selfApprovalForbidden: boolean;
+  /**
+   * Decided by NeuraTalk (a super admin), never by the business itself --
+   * the way Meta reviews every WhatsApp message template. The business can
+   * only submit and cancel.
+   */
+  platformReviewed?: boolean;
+  /**
+   * A business with nobody else on its team may decide its own request
+   * (otherwise a one-person business could never send). Ignored for
+   * platform-reviewed resources.
+   */
+  soleMemberMaySelfApprove?: boolean;
   /** Resolves which business owns this resource, or null if it doesn't exist. Never trust a client-supplied businessId -- this is the source of truth. */
   resolveOwnership(resourceId: number, tx: TxLike): Promise<{ businessId: number } | null>;
   /** Is the resource currently in a state that can be submitted for approval? */

@@ -25,6 +25,10 @@ registerApprovalPolicy({
   submitPermission: PERMISSIONS.TEMPLATES_MANAGE,
   decidePermission: PERMISSIONS.TEMPLATES_APPROVE,
   selfApprovalForbidden: true,
+  // Like Meta for WhatsApp: NeuraTalk checks every template (and that a
+  // "utility" or "authentication" template is not marketing in disguise)
+  // before any business can send it.
+  platformReviewed: true,
 
   async resolveOwnership(resourceId, tx) {
     const info = await getVersionBusinessId(resourceId, tx as any);

@@ -157,6 +157,16 @@ export async function updateCampaign(businessId: number, actorUserId: number, ca
   if (input.category !== undefined) {
     assertValidCategory(input.category);
     patch.category = input.category;
+    // Changing the category of a campaign that already has a template.
+    if (input.templateVersionId === undefined && existing.templateVersionId) {
+      const [boundVersion] = await db.select().from(templateVersions).where(eq(templateVersions.id, existing.templateVersionId));
+      const [bound] = boundVersion
+        ? await db.select().from(templates).where(eq(templates.id, boundVersion.templateId))
+        : [];
+      if (bound && bound.category !== input.category) {
+        throw new ValidationError(`The bound template is a ${bound.category} template; choose a ${input.category} template first`);
+      }
+    }
   }
 
   if (input.templateVersionId !== undefined) {
@@ -166,6 +176,11 @@ export async function updateCampaign(businessId: number, actorUserId: number, ca
     if (!template || template.businessId !== businessId) throw new NotFoundError("Template version not found");
     if (version.status !== TEMPLATE_VERSION_STATUS.APPROVED) {
       throw new ValidationError("Campaign can only be bound to an APPROVED template version");
+    }
+    // A marketing message can't go out as "utility" (no consent, no caps).
+    const campaignCategory = input.category ?? existing.category;
+    if (template.category !== campaignCategory) {
+      throw new ValidationError(`This template is a ${template.category} template; a ${campaignCategory} campaign needs a ${campaignCategory} template`);
     }
     assertSupportedVariables((version.variables as TemplateVariableDeclaration[]) ?? []);
     patch.templateVersionId = input.templateVersionId;
@@ -237,6 +252,10 @@ export async function assertReadyToGoLive(businessId: number, campaign: typeof c
   if (!version) throw new ValidationError("Bound template version no longer exists");
   if (version.status !== TEMPLATE_VERSION_STATUS.APPROVED) {
     throw new ValidationError(`Bound template version is no longer APPROVED (currently ${version.status})`);
+  }
+  const [template] = await dbClient.select().from(templates).where(eq(templates.id, version.templateId));
+  if (template && template.category !== campaign.category) {
+    throw new ValidationError(`Template category (${template.category}) does not match the campaign (${campaign.category})`);
   }
 
   const [audience] = await dbClient.select().from(audiences).where(and(eq(audiences.id, campaign.audienceId), eq(audiences.businessId, businessId)));

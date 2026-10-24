@@ -6,7 +6,7 @@ import { getApprovalPolicy, listRegisteredResourceTypes } from "./policy";
 import {
   createApprovalRequest, listApprovalRequests, getApprovalRequest,
   approveRequest, rejectRequest, cancelRequest,
-  NotFoundError, ValidationError, UnknownResourceTypeError, SelfApprovalError, AlreadyDecidedError, ForbiddenError,
+  NotFoundError, ValidationError, UnknownResourceTypeError, SelfApprovalError, AlreadyDecidedError, ForbiddenError, PlatformReviewRequiredError,
 } from "./service";
 import { APPROVAL_REQUEST_STATUS } from "@shared/schema";
 
@@ -28,6 +28,7 @@ function handleServiceError(res: Response, error: unknown, fallbackMessage: stri
   if (error instanceof SelfApprovalError) return forbidden(res, error.message);
   if (error instanceof ForbiddenError) return forbidden(res, error.message);
   if (error instanceof AlreadyDecidedError) return res.status(409).json({ success: false, error: error.message });
+  if (error instanceof PlatformReviewRequiredError) return res.status(403).json({ success: false, code: "PLATFORM_REVIEW", error: error.message });
   logger.error("Approvals", fallbackMessage, error as Error);
   return res.status(500).json({ success: false, error: fallbackMessage });
 }

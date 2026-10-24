@@ -27,6 +27,9 @@ registerApprovalPolicy({
   // asked to avoid unless clearly necessary.
   decidePermission: PERMISSIONS.CAMPAIGNS_EXECUTE,
   selfApprovalForbidden: true,
+  // The template inside was already checked by NeuraTalk; a one-person
+  // business approves its own send.
+  soleMemberMaySelfApprove: true,
 
   async resolveOwnership(resourceId, tx: TxLike) {
     const businessId = await getCampaignBusinessId(resourceId, tx as any);

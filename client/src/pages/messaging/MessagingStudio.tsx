@@ -398,14 +398,18 @@ function ApprovalsSection(props: SectionProps) {
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">Waiting for approval ({pending.length})</CardTitle>
-        <CardDescription>Someone other than the author must approve each template and campaign.</CardDescription></CardHeader>
+        <CardDescription>
+          Templates (marketing, utility, codes) are checked by NeuraTalk before you can send them — like WhatsApp.
+          Campaigns are approved by someone else on your team; with no teammates, you approve your own.
+        </CardDescription></CardHeader>
       <CardContent className="space-y-4">
         {pending.length === 0 ? <Empty>Nothing waiting.</Empty> : pending.map((r) => {
           const own = r.requestedBy === user?.id;
+          const platform = r.resourceType === "template_version";
           return (
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3" data-testid={`approval-row-${r.id}`}>
               <div className="min-w-0"><p className="font-medium break-words">{label(r)}</p><p className="text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</p></div>
-              {own ? <span className="text-xs text-muted-foreground">You submitted this — another admin must approve it</span> : (
+              {platform ? <span className="text-xs text-muted-foreground" data-testid={`platform-review-${r.id}`}>Waiting for NeuraTalk review</span> : (
                 <div className="flex gap-2">
                   <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "approve" })} data-testid={`button-approve-${r.id}`}><CheckCircle2 className="w-4 h-4 mr-1" />Approve</Button>
                   <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, decision: "reject" })}><XCircle className="w-4 h-4 mr-1" />Reject</Button>
@@ -417,7 +421,12 @@ function ApprovalsSection(props: SectionProps) {
         {done.length > 0 && (
           <div>
             <p className="text-sm font-medium mb-2">Recent decisions</p>
-            <ul className="space-y-1 text-sm">{done.map((r) => <li key={r.id} className="flex justify-between"><span>{label(r)}</span>{statusBadge(r.status)}</li>)}</ul>
+            <ul className="space-y-2 text-sm">{done.map((r) => (
+              <li key={r.id} className="flex justify-between gap-2">
+                <span className="min-w-0 break-words">{label(r)}{r.reason ? <span className="block text-xs text-muted-foreground">Reason: {r.reason}</span> : null}</span>
+                {statusBadge(r.status)}
+              </li>
+            ))}</ul>
           </div>
         )}
       </CardContent>

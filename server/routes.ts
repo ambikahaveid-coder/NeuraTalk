@@ -68,6 +68,7 @@ import { registerBusinessAppRoutes } from "./modules/business-app/routes";
 import { registerTemplateRoutes } from "./modules/templates/routes";
 import "./modules/templates/approval-policy"; // side-effect: registers "template_version" with the Approval Center
 import { registerApprovalRoutes } from "./modules/approvals/routes";
+import { registerTemplateReviewRoutes } from "./modules/approvals/admin-review";
 import { registerCustomerRoutes } from "./modules/customers/routes";
 import { registerAudienceRoutes } from "./modules/audiences/routes";
 import "./modules/campaigns/approval-policy"; // side-effect: registers "campaign" with the Approval Center
@@ -201,6 +202,7 @@ export async function registerRoutes(
   registerBusinessAppRoutes(app); console.log("[Routes] ✓ NeuraTalk Business app routes");
   registerTemplateRoutes(app); console.log("[Routes] ✓ Business message template engine routes (Phase 2)");
   registerApprovalRoutes(app); console.log("[Routes] ✓ Generic approval center routes (Phase 3)");
+  registerTemplateReviewRoutes(app); console.log("[Routes] ✓ NeuraTalk template review (super admin)");
   registerCustomerRoutes(app); console.log("[Routes] ✓ Business customers routes (Phase 4)");
   registerAudienceRoutes(app); console.log("[Routes] ✓ Business audiences routes (Phase 4)");
   registerCampaignRoutes(app); console.log("[Routes] ✓ Business campaign engine routes (Phase 5)");

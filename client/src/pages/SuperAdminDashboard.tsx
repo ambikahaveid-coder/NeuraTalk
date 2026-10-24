@@ -547,6 +547,16 @@ function CompaniesSection() {
     },
   });
 
+  // Business messaging per company, by category (last 30 days).
+  const { data: overviewData } = useQuery<{ byBusiness: Record<string, { marketing: number; utility: number; otp: number; chat: number; blocked: number; pendingTemplates: number }> }>({
+    queryKey: ["/api/admin/messaging-overview"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/messaging-overview", { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Failed to load messaging overview");
+      return res.json();
+    },
+  });
+
   // Blue verified tick customers see next to the business name.
   const verifyMutation = useMutation({
     mutationFn: async ({ companyId, verified }: { companyId: number; verified: boolean }) => {
@@ -880,6 +890,8 @@ function CompaniesSection() {
         </DialogContent>
       </Dialog>
 
+      <TemplateReviewsCard />
+
       <Card>
         <CardHeader>
           <CardTitle>Companies</CardTitle>
@@ -929,6 +941,21 @@ function CompaniesSection() {
                         )}
                         {company.activeSubscription?.planName && <span>Plan: {company.activeSubscription.planName}</span>}
                       </div>
+                      {overviewData?.byBusiness?.[company.id] && (
+                        <div className="flex flex-wrap gap-2 mt-2 text-xs" data-testid={`messaging-mix-${company.id}`}>
+                          <span className="text-muted-foreground">Last 30 days:</span>
+                          <Badge variant="outline">Marketing {overviewData.byBusiness[company.id].marketing}</Badge>
+                          <Badge variant="outline">Utility {overviewData.byBusiness[company.id].utility}</Badge>
+                          <Badge variant="outline">OTP {overviewData.byBusiness[company.id].otp}</Badge>
+                          <Badge variant="outline">Chat {overviewData.byBusiness[company.id].chat}</Badge>
+                          {overviewData.byBusiness[company.id].blocked > 0 && (
+                            <Badge variant="destructive">Blocked by {overviewData.byBusiness[company.id].blocked} customer(s)</Badge>
+                          )}
+                          {overviewData.byBusiness[company.id].pendingTemplates > 0 && (
+                            <Badge variant="secondary">{overviewData.byBusiness[company.id].pendingTemplates} template(s) to review</Badge>
+                          )}
+                        </div>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
@@ -3961,5 +3988,91 @@ function SettingsSection() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * NeuraTalk reviews every business message template (marketing, utility,
+ * codes) before it can be sent -- like Meta does for WhatsApp. Check that a
+ * "utility" template is really a transactional update, not an offer.
+ */
+function TemplateReviewsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [rejecting, setRejecting] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const { data, isLoading } = useQuery<{ reviews: any[] }>({
+    queryKey: ["/api/admin/template-reviews"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/template-reviews?status=pending", { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Failed to load template reviews");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+  const decide = useMutation({
+    mutationFn: async ({ requestId, approve, why }: { requestId: number; approve: boolean; why?: string }) => {
+      const res = await fetch(`/api/admin/template-reviews/${requestId}/${approve ? "approve" : "reject"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify(approve ? {} : { reason: why }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || "Could not save the decision");
+      return body;
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/template-reviews"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/messaging-overview"] });
+      setRejecting(null);
+      setReason("");
+      toast({ title: vars.approve ? "Template approved" : "Template rejected" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+  const reviews = data?.reviews ?? [];
+  const categoryLabel: Record<string, string> = { marketing: "Marketing", utility: "Utility", authentication: "OTP / code" };
+
+  return (
+    <Card data-testid="card-template-reviews">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">Templates waiting for NeuraTalk review {reviews.length > 0 && <Badge variant="secondary">{reviews.length}</Badge>}</CardTitle>
+        <CardDescription>
+          Businesses can only send a template after you approve it. Reject a &quot;utility&quot; or &quot;OTP&quot; template that is really an offer.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : reviews.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nothing to review.</p>
+        ) : reviews.map((r) => (
+          <div key={r.requestId} className="rounded-lg border p-3 space-y-2" data-testid={`template-review-${r.requestId}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{r.business?.name ?? `Business ${r.business?.id}`}</span>
+              {r.business?.verified && <BadgeCheck className="w-4 h-4 text-blue-600" aria-label="Verified business" />}
+              <Badge>{categoryLabel[r.template?.category] ?? r.template?.category}</Badge>
+              <span className="text-xs text-muted-foreground">{r.template?.name} · v{r.template?.version} · {r.template?.language} · {r.requestedBy ?? ""} · {new Date(r.requestedAt).toLocaleString()}</span>
+            </div>
+            {r.template?.title && <p className="text-sm font-medium">{r.template.title}</p>}
+            <p className="text-sm whitespace-pre-wrap rounded bg-muted p-2">{r.template?.content}</p>
+            {rejecting === r.requestId ? (
+              <div className="flex flex-wrap gap-2">
+                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? e.g. This is marketing, not utility" className="flex-1 min-w-[220px]" />
+                <Button size="sm" variant="destructive" disabled={!reason.trim() || decide.isPending} onClick={() => decide.mutate({ requestId: r.requestId, approve: false, why: reason.trim() })}>Reject</Button>
+                <Button size="sm" variant="ghost" onClick={() => setRejecting(null)}>Cancel</Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate({ requestId: r.requestId, approve: true })} data-testid={`button-approve-template-${r.requestId}`}>
+                  <Check className="w-4 h-4 mr-1" />Approve
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setRejecting(r.requestId); setReason(""); }} data-testid={`button-reject-template-${r.requestId}`}>
+                  <X className="w-4 h-4 mr-1" />Reject
+                </Button>
+              </div>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

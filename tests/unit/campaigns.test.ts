@@ -221,7 +221,7 @@ vi.mock("@shared/schema", async (importOriginal) => {
   return {
     ...actual,
     organizations: mkTable("organizations", ["id"]),
-    users: mkTable("users", ["id"]),
+    users: mkTable("users", ["id", "organizationId", "isActive"]),
     customers: mkTable("customers", [
       "id", "businessId", "linkedUserId", "name", "phone", "normalizedPhone", "email", "normalizedEmail",
       "externalRef", "notes", "status", "source", "createdBy", "createdAt", "updatedAt", "archivedBy", "archivedAt",
@@ -273,9 +273,9 @@ const OTHER_BIZ = 2;
 const AUTHOR = 10;
 const APPROVER = 20;
 
-async function makeApprovedTemplateVersion(businessId = BIZ, vars: any[] = [{ name: "name", type: "text", required: false }]) {
+async function makeApprovedTemplateVersion(businessId = BIZ, vars: any[] = [{ name: "name", type: "text", required: false }], category = "marketing") {
   const { createTemplate, createOrEditDraftVersion } = await import("../../server/modules/templates/service");
-  const t = await createTemplate(businessId, AUTHOR, { name: `tpl_${Date.now()}_${Math.random()}`, category: "marketing" });
+  const t = await createTemplate(businessId, AUTHOR, { name: `tpl_${Date.now()}_${Math.random()}`, category });
   const content = vars.length ? vars.map((v) => `Hi {{${v.name}}}`).join(" ") : "Hi there";
   const v = await createOrEditDraftVersion(businessId, AUTHOR, t.id, { content, variables: vars });
   // Directly promote to APPROVED for test setup convenience -- template's
@@ -312,7 +312,7 @@ async function makeReadyCampaign(opts: { businessId?: number; category?: string;
   const { createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
   const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
 
-  const { version } = await makeApprovedTemplateVersion(businessId, opts.vars);
+  const { version } = await makeApprovedTemplateVersion(businessId, opts.vars, category);
   const { audience, customer } = await makeActiveAudienceWithCustomer(businessId, opts.customerOverrides);
   if (opts.grantConsent !== false) await grantMarketingConsent(businessId, customer.id);
 
@@ -708,15 +708,39 @@ describe("Approval Center integration", () => {
     await expect(createApprovalRequest(BIZ, AUTHOR, "campaign", c.id)).rejects.toThrow(ValidationError);
   });
 
-  it("self-approval is forbidden for campaigns (same as templates)", async () => {
+  it("self-approval is forbidden for campaigns when the business has another team member", async () => {
     const { createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
     const { createApprovalRequest, approveRequest, SelfApprovalError } = await import("../../server/modules/approvals/service");
+    tables.get("users")!.push({ id: AUTHOR, organizationId: BIZ, isActive: true }, { id: APPROVER, organizationId: BIZ, isActive: true });
     const { version } = await makeApprovedTemplateVersion();
     const { audience } = await makeActiveAudienceWithCustomer();
     const c = await createCampaign(BIZ, AUTHOR, { name: "X", category: "marketing" });
     await updateCampaign(BIZ, AUTHOR, c.id, { templateVersionId: version.id, audienceId: audience.id });
     const req = await createApprovalRequest(BIZ, AUTHOR, "campaign", c.id);
     await expect(approveRequest(BIZ, AUTHOR, req.id, false)).rejects.toThrow(SelfApprovalError);
+  });
+
+  it("a one-person business approves its own campaign (nobody else to ask)", async () => {
+    const { createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
+    const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
+    tables.get("users")!.push({ id: AUTHOR, organizationId: BIZ, isActive: true });
+    const { version } = await makeApprovedTemplateVersion();
+    const { audience } = await makeActiveAudienceWithCustomer();
+    const c = await createCampaign(BIZ, AUTHOR, { name: "Solo", category: "marketing" });
+    await updateCampaign(BIZ, AUTHOR, c.id, { templateVersionId: version.id, audienceId: audience.id });
+    const req = await createApprovalRequest(BIZ, AUTHOR, "campaign", c.id);
+    const decided = await approveRequest(BIZ, AUTHOR, req.id, false);
+    expect(decided.status).toBe("approved");
+  });
+
+  it("a campaign can't use a template of another category (marketing can't go out as utility)", async () => {
+    const { createCampaign, updateCampaign } = await import("../../server/modules/campaigns/service");
+    const { version } = await makeApprovedTemplateVersion(BIZ, undefined, "marketing");
+    const c = await createCampaign(BIZ, AUTHOR, { name: "Disguised", category: "utility" });
+    await expect(updateCampaign(BIZ, AUTHOR, c.id, { templateVersionId: version.id })).rejects.toThrow(/marketing template/);
+    const ok = await createCampaign(BIZ, AUTHOR, { name: "Honest", category: "marketing" });
+    await updateCampaign(BIZ, AUTHOR, ok.id, { templateVersionId: version.id });
+    await expect(updateCampaign(BIZ, AUTHOR, ok.id, { category: "utility" })).rejects.toThrow(/marketing template/);
   });
 
   it("approving sets campaigns.approvedBy/approvedAt (denormalized fast-read, not a second source of truth)", async () => {

@@ -210,7 +210,7 @@ describe("4-6. Approve / Reject / Rejection reason", () => {
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
 
-    const decided = await approveRequest(1, 99, request.id, false);
+    const decided = await approveRequest(1, 99, request.id, true);
     expect(decided.status).toBe("approved");
     expect(decided.decidedBy).toBe(99);
 
@@ -223,7 +223,7 @@ describe("4-6. Approve / Reject / Rejection reason", () => {
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
 
-    const decided = await rejectRequest(1, 99, request.id, "Not good enough", false);
+    const decided = await rejectRequest(1, 99, request.id, "Not good enough", true);
     expect(decided.status).toBe("rejected");
 
     const versionRow = tables.get("templateVersions")!.find((v) => v.id === version.id)!;
@@ -234,7 +234,7 @@ describe("4-6. Approve / Reject / Rejection reason", () => {
     const { createApprovalRequest, rejectRequest, ValidationError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await expect(rejectRequest(1, 99, request.id, "", false)).rejects.toThrow(ValidationError);
+    await expect(rejectRequest(1, 99, request.id, "", true)).rejects.toThrow(ValidationError);
   });
 });
 
@@ -243,9 +243,9 @@ describe("7. Approval history", () => {
     const { createApprovalRequest, approveRequest, getApprovalRequest, AlreadyDecidedError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await approveRequest(1, 99, request.id, false);
+    await approveRequest(1, 99, request.id, true);
 
-    await expect(approveRequest(1, 99, request.id, false)).rejects.toThrow(AlreadyDecidedError);
+    await expect(approveRequest(1, 99, request.id, true)).rejects.toThrow(AlreadyDecidedError);
 
     const fetched = await getApprovalRequest(1, request.id);
     expect(fetched!.status).toBe("approved");
@@ -276,28 +276,28 @@ describe("8-9-10. Tenant isolation, unauthorized viewer/approver (service-level 
   });
 });
 
-describe("11. Self-approval blocked (P0, enforced at the Approval Center)", () => {
-  it("the submitter cannot approve their own request", async () => {
-    const { createApprovalRequest, approveRequest, SelfApprovalError } = await import("../../server/modules/approvals/service");
+describe("11. Templates are reviewed by NeuraTalk, never by the business itself (like Meta for WhatsApp)", () => {
+  it("a business member -- even a different one -- cannot approve a template", async () => {
+    const { createApprovalRequest, approveRequest, rejectRequest, PlatformReviewRequiredError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion(1, 42);
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await expect(approveRequest(1, 42, request.id, false)).rejects.toThrow(SelfApprovalError);
+    await expect(approveRequest(1, 42, request.id, false)).rejects.toThrow(PlatformReviewRequiredError);
+    await expect(approveRequest(1, 99, request.id, false)).rejects.toThrow(PlatformReviewRequiredError);
+    await expect(rejectRequest(1, 99, request.id, "no", false)).rejects.toThrow(PlatformReviewRequiredError);
   });
 
-  it("super_admin is exempted from the self-approval guard", async () => {
+  it("NeuraTalk (super admin) approves it", async () => {
     const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion(1, 42);
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    const decided = await approveRequest(1, 42, request.id, true); // same submitter, isSuperAdmin=true
+    const decided = await approveRequest(1, 99, request.id, true);
     expect(decided.status).toBe("approved");
   });
 
-  it("a different user CAN approve someone else's request", async () => {
-    const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
-    const { version } = await makeSubmittedVersion(1, 42);
-    const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    const decided = await approveRequest(1, 99, request.id, false);
-    expect(decided.status).toBe("approved");
+  it("the real template policy is platform-reviewed", async () => {
+    await import("../../server/modules/templates/approval-policy");
+    const { getApprovalPolicy } = await import("../../server/modules/approvals/policy");
+    expect(getApprovalPolicy("template_version")?.platformReviewed).toBe(true);
   });
 });
 
@@ -325,8 +325,8 @@ describe("14. Invalid state transition -> proper conflict handling", () => {
     const { createApprovalRequest, approveRequest, AlreadyDecidedError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await approveRequest(1, 99, request.id, false);
-    await expect(approveRequest(1, 99, request.id, false)).rejects.toThrow(AlreadyDecidedError);
+    await approveRequest(1, 99, request.id, true);
+    await expect(approveRequest(1, 99, request.id, true)).rejects.toThrow(AlreadyDecidedError);
   });
 });
 
@@ -335,24 +335,24 @@ describe("15-16. Duplicate approval / duplicate rejection", () => {
     const { createApprovalRequest, approveRequest, AlreadyDecidedError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await approveRequest(1, 99, request.id, false);
-    await expect(approveRequest(1, 98, request.id, false)).rejects.toThrow(AlreadyDecidedError);
+    await approveRequest(1, 99, request.id, true);
+    await expect(approveRequest(1, 98, request.id, true)).rejects.toThrow(AlreadyDecidedError);
   });
 
   it("16. cannot reject the same request twice", async () => {
     const { createApprovalRequest, rejectRequest, AlreadyDecidedError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await rejectRequest(1, 99, request.id, "no", false);
-    await expect(rejectRequest(1, 98, request.id, "no again", false)).rejects.toThrow(AlreadyDecidedError);
+    await rejectRequest(1, 99, request.id, "no", true);
+    await expect(rejectRequest(1, 98, request.id, "no again", true)).rejects.toThrow(AlreadyDecidedError);
   });
 
   it("cannot approve after rejecting (terminal states don't cross-transition)", async () => {
     const { createApprovalRequest, approveRequest, rejectRequest, AlreadyDecidedError } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await rejectRequest(1, 99, request.id, "no", false);
-    await expect(approveRequest(1, 98, request.id, false)).rejects.toThrow(AlreadyDecidedError);
+    await rejectRequest(1, 99, request.id, "no", true);
+    await expect(approveRequest(1, 98, request.id, true)).rejects.toThrow(AlreadyDecidedError);
   });
 });
 
@@ -368,8 +368,8 @@ describe("17. Concurrent approval/rejection -- only one valid terminal decision 
     // that reaches the UPDATE first while status is still 'pending' wins;
     // the other's WHERE clause matches zero rows once the first commits.
     const [approveResult, rejectResult] = await Promise.allSettled([
-      approveRequest(1, 99, request.id, false),
-      rejectRequest(1, 98, request.id, "racing rejection", false),
+      approveRequest(1, 99, request.id, true),
+      rejectRequest(1, 98, request.id, "racing rejection", true),
     ]);
 
     const outcomes = [approveResult.status, rejectResult.status];
@@ -397,7 +397,7 @@ describe("18. Exact template-version binding", () => {
     const t = await createTemplate(1, 42, { name: "versioned", category: "utility" });
     const v1 = await createOrEditDraftVersion(1, 42, t.id, { content: "v1 {{customer_name}}", variables: VARS });
     const requestV1 = await createApprovalRequest(1, 42, "template_version", v1.id);
-    await approveRequest(1, 99, requestV1.id, false);
+    await approveRequest(1, 99, requestV1.id, true);
 
     // Now create v2 (editing after v1 is approved creates a new version, per Phase 2)
     const v2 = await createOrEditDraftVersion(1, 42, t.id, { content: "v2 {{customer_name}}", variables: VARS });
@@ -425,7 +425,7 @@ describe("21. Audit logging", () => {
     const { createApprovalRequest, approveRequest } = await import("../../server/modules/approvals/service");
     const { version } = await makeSubmittedVersion();
     const request = await createApprovalRequest(1, 42, "template_version", version.id);
-    await approveRequest(1, 99, request.id, false);
+    await approveRequest(1, 99, request.id, true);
 
     expect(auditLogCalls.some((c) => c.entityType === "approval_request" && c.action === "create")).toBe(true);
     expect(auditLogCalls.some((c) => c.entityType === "approval_request" && c.action === "approve")).toBe(true);

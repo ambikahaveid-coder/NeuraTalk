@@ -3,7 +3,7 @@
  * See docs/neura-ecosystem/28_GENERIC_APPROVAL_CENTER_IMPLEMENTATION.md.
  */
 import { db } from "../../db";
-import { approvalRequests, APPROVAL_REQUEST_STATUS, type ApprovalRequestStatus } from "@shared/schema";
+import { approvalRequests, users, APPROVAL_REQUEST_STATUS, type ApprovalRequestStatus } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { getApprovalPolicy } from "./policy";
 import { createAuditLog } from "../../audit";
@@ -28,6 +28,10 @@ export class AlreadyDecidedError extends Error {
 }
 export class ForbiddenError extends Error {
   constructor(message: string) { super(message); this.name = "ForbiddenError"; }
+}
+/** Only NeuraTalk (super admin) decides this kind of request. */
+export class PlatformReviewRequiredError extends Error {
+  constructor() { super("NeuraTalk reviews message templates. You will be notified once it is approved."); this.name = "PlatformReviewRequiredError"; }
 }
 
 async function writeAuditLog(actorUserId: number, businessId: number, action: string, requestId: number, metadata: Record<string, unknown>) {
@@ -130,8 +134,16 @@ async function decide(
     const policy = getApprovalPolicy(request.resourceType);
     if (!policy) throw new UnknownResourceTypeError(request.resourceType);
 
+    if (policy.platformReviewed && !isSuperAdmin) {
+      throw new PlatformReviewRequiredError();
+    }
     if (policy.selfApprovalForbidden && !isSuperAdmin && request.requestedBy === actorUserId) {
-      throw new SelfApprovalError();
+      // A one-person business has nobody else to ask.
+      const team: Array<{ id: number }> = policy.soleMemberMaySelfApprove
+        ? await (tx as any).select({ id: users.id }).from(users)
+          .where(and(eq(users.organizationId, businessId), eq(users.isActive, true)))
+        : [{ id: -1 }];
+      if (team.some((member) => member.id !== actorUserId)) throw new SelfApprovalError();
     }
     if (decision === APPROVAL_REQUEST_STATUS.REJECTED && (!reason || !reason.trim())) {
       throw new ValidationError("A rejection reason is required");
