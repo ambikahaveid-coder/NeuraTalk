@@ -69,7 +69,7 @@ class AuthProvider extends ChangeNotifier {
   // verification (Play Integrity / reCAPTCHA) can be skipped for them. This
   // lets internal testers log in on sideloaded builds. Real numbers are
   // unaffected. Remove before a public release.
-  static const _firebaseTestNumbers = {'+919999900001', '+919999900002'};
+  static const _firebaseTestNumbers = {'+919999900001', '+919999900002', '+919999900003'};
 
   /// Step 1: Send OTP via Firebase Phone Auth
   Future<void> sendFirebaseOtp(
