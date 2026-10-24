@@ -223,8 +223,8 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
       builder: (d) => AlertDialog(
         title: Text(thenRecord ? 'Record your voice again?' : 'Delete your voice?'),
         content: Text(thenRecord
-            ? 'Your current voice and recordings are deleted first. Calls use a standard voice until the new one is ready.'
-            : 'Your recordings and your voice are deleted. Calls use a standard voice from now on.'),
+            ? 'Your current voice and recordings are deleted first. Until the new one is ready, people hear your own voice with translated captions.'
+            : 'Your recordings and your voice are deleted. From now on, people hear your own voice with translated captions.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
           TextButton(
@@ -496,11 +496,11 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
     final rejected = p['moderationStatus'] == 'rejected';
 
     final (IconData icon, Color color, String title, String body) = switch (training) {
-      _ when rejected => (Icons.block, AppColors.red, 'Your voice was turned off', 'NeuraTalk switched this voice off. Calls use a standard voice. Contact support if you think this is a mistake.'),
+      _ when rejected => (Icons.block, AppColors.red, 'Your voice was turned off', 'NeuraTalk switched this voice off. People see translated captions instead. Contact support if you think this is a mistake.'),
       'ready' when enabled => (Icons.check_circle, AppColors.green, 'Your calls use your voice', 'When you speak with someone in another language, they hear your words in your own voice.'),
-      'ready' => (Icons.pause_circle_outline, AppColors.orange, 'Your voice is switched off', 'Calls use a standard voice until you turn it back on.'),
+      'ready' => (Icons.pause_circle_outline, AppColors.orange, 'Your voice is switched off', 'People see translated captions until you turn it back on.'),
       'training' => (Icons.hourglass_top, AppColors.cyan, 'Creating your voice…', 'This takes 2 to 5 minutes. You can leave this screen; it keeps going.'),
-      'failed' || 'pending_gpu' => (Icons.error_outline, AppColors.red, 'We couldn\'t create your voice', 'Record the passages again in a quiet place. Calls use a standard voice for now.'),
+      'failed' || 'pending_gpu' => (Icons.error_outline, AppColors.red, 'We couldn\'t create your voice', 'Record the passages again in a quiet place. Until then, people see translated captions.'),
       _ => (Icons.mic_none, AppColors.cyan, 'Your voice isn\'t ready yet', 'Record the passages to create it.'),
     };
 
@@ -529,7 +529,7 @@ class _VoiceCloneScreenState extends State<VoiceCloneScreen> {
             value: enabled,
             onChanged: _busy ? null : _setEnabled,
             title: Text('Use my voice in calls', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
-            subtitle: Text('Turn off to use a standard voice', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+            subtitle: Text('Turn off to use translated captions instead', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
           ),
         ),
       ],

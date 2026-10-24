@@ -299,7 +299,7 @@ export default function InvestorDashboard() {
                   <div className="p-4 rounded-lg bg-white/5 border border-white/10">
                     <h3 className="font-semibold mb-2">Real-time Translation</h3>
                     <p className="text-sm text-muted-foreground">
-                      50+ languages with sub-200ms latency for voice calls
+                      23 languages, including 11 Indian, spoken in the speaker's own voice
                     </p>
                   </div>
                   <div className="p-4 rounded-lg bg-white/5 border border-white/10">

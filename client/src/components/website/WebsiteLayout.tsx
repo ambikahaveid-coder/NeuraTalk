@@ -10,7 +10,8 @@ const navLinks = [
   { href: "/", label: "Home" },
   { href: "/demo", label: "How it works" },
   { href: "/products", label: "Products" },
-  { href: "/solutions", label: "Solutions" },
+  { href: "/business", label: "Business" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/faq", label: "FAQ" },
   { href: "/contact", label: "Contact" },
 ];
@@ -18,7 +19,9 @@ const navLinks = [
 const footerLinks = {
   product: [
     { href: "/products", label: "Features" },
+    { href: "/business", label: "NeuraTalk Business" },
     { href: "/solutions", label: "Solutions" },
+    { href: "/pricing", label: "Pricing" },
     { href: "/sdk-docs", label: "API Documentation" },
     { href: "/faq", label: "FAQ" },
     { href: "/release-notes", label: "Release Notes" },
@@ -33,15 +36,16 @@ const footerLinks = {
   legal: [
     { href: "/privacy", label: "Privacy Policy" },
     { href: "/terms", label: "Terms of Service" },
+    { href: "/business-messaging-policy", label: "Business Messaging Policy" },
     { href: "/dpa", label: "Data Processing Agreement" },
     { href: "/cookie-policy", label: "Cookie Policy" },
     { href: "/ai-usage-policy", label: "AI Usage Policy" },
-    { href: "/recording-consent", label: "Recording Consent" },
+    { href: "/recording-consent", label: "Recording and Call Text" },
     { href: "/translation-disclaimer", label: "Translation Disclaimer" },
     { href: "/refund-policy", label: "Refund Policy" },
     { href: "/cancellation-policy", label: "Cancellation Policy" },
     { href: "/data-retention", label: "Data Retention" },
-    { href: "/data-export", label: "Data Export" },
+    { href: "/data-export", label: "Download Your Data" },
     { href: "/account-deletion", label: "Account Deletion" },
     { href: "/legal-notice", label: "Legal Notice" },
   ],
@@ -50,7 +54,7 @@ const footerLinks = {
     { href: "/demo", label: "How a call works" },
     { href: "/contact", label: "Support" },
     { href: "/report-abuse", label: "Report Abuse" },
-    { href: "/contact", label: "Enterprise Sales" },
+    { href: "/business", label: "For Businesses" },
   ],
 };
 
@@ -149,7 +153,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 <LogoWithIcon size="sm" />
               </div>
               <p className="text-sm text-muted-foreground mb-4">
-                Voice and video calls with live translation for supported languages.
+                Calls, chats and business messages translated into your language — in your own voice.
               </p>
               <div className="flex gap-3">
                 <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
@@ -247,7 +251,7 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
                 </div>
                 <div className="flex items-start gap-2 text-sm text-muted-foreground">
                   <MapPin className="w-4 h-4 mt-0.5" />
-                  <span>Mindwhile It Solutions Pvt Ltd<br/>4th Floor, Mayuri Tech Park<br/>Mangalagiri, Guntur, AP 522503</span>
+                  <span>Mindwhile IT Solutions Pvt Ltd<br/>4th Floor, Mayuri Tech Park<br/>Mangalagiri, Guntur, AP 522503</span>
                 </div>
               </div>
               <div className="flex flex-col gap-2">

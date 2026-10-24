@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowRight, AudioLines, Building2, CheckCircle2, EyeOff, Headphones,
-  Languages, Mic, MicOff, PhoneCall, Shield, Timer, UserRound, Video, Volume2,
+  ArrowRight, AudioLines, BadgeCheck, Bot, Building2, CheckCircle2, EyeOff, Headphones,
+  Languages, MessageSquare, Mic, MicOff, PhoneCall, QrCode, Shield, ShoppingBag, Timer, UserRound, Users, Video, Volume2,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { LANGUAGES, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
 
 const fadeUp = {
   initial: { opacity: 0, y: 24 },
@@ -15,13 +16,8 @@ const fadeUp = {
   transition: { duration: 0.5 },
 };
 
-/** Languages exposed for live voice and translated captions today. */
-export const CALL_LANGUAGES = [
-  "English", "Hindi", "Telugu", "Tamil", "Kannada", "Malayalam",
-  "Marathi", "Bengali", "Gujarati", "Punjabi", "Urdu", "Spanish",
-  "French", "German", "Japanese", "Korean", "Chinese", "Arabic",
-  "Portuguese", "Russian",
-];
+/** The languages the app offers (site-facts.ts mirrors the app's list). */
+export const CALL_LANGUAGES = LANGUAGES;
 
 const FEATURES = [
   {
@@ -144,7 +140,7 @@ export default function HomePage() {
               </a>
             </div>
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-              {["No credit card", "English + 9 Indian languages", "Same language? Nothing gets translated"].map((t) => (
+              {["No credit card", `${LANGUAGES.length} languages, including 11 Indian`, "Calls, chats and business messages"].map((t) => (
                 <span key={t} className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-primary" />{t}
                 </span>
@@ -250,6 +246,36 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* More than calls */}
+      <section className="py-20 px-4 bg-muted/30">
+        <div className="max-w-6xl mx-auto">
+          <motion.div {...fadeUp} className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-bold mb-3">More than calls</h2>
+            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">Everything you say or write on NeuraTalk reaches the other person in their language.</p>
+          </motion.div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { icon: MessageSquare, title: "Translated chat", desc: "Write in your language; they read it in theirs. Photos, videos, documents, voice messages and location. Tap any message to see the original." },
+              { icon: Users, title: "Group chats", desc: "Everyone writes in their own language and reads every message in theirs." },
+              { icon: AudioLines, title: "In person", desc: "Two people, one phone: each speaks their language and hears the other in theirs." },
+              { icon: Bot, title: "Assistant", desc: "Ask questions or get help writing a message, in your own language, with the built-in AI assistant." },
+            ].map((f, i) => (
+              <motion.div key={f.title} {...fadeUp} transition={{ duration: 0.5, delay: i * 0.05 }}>
+                <Card className="h-full">
+                  <CardContent className="p-6">
+                    <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                      <f.icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Languages */}
       <section className="py-20 px-4">
         <div className="max-w-4xl mx-auto text-center">
@@ -274,13 +300,23 @@ export default function HomePage() {
       <section className="py-20 px-4 bg-muted/30">
         <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-10 items-center">
           <motion.div {...fadeUp}>
-            <Badge variant="outline" className="mb-4"><Building2 className="w-3.5 h-3.5 mr-1.5" />For businesses</Badge>
+            <Badge variant="outline" className="mb-4"><Building2 className="w-3.5 h-3.5 mr-1.5" />NeuraTalk Business</Badge>
             <h2 className="text-3xl font-bold mb-4">Talk to every customer in their language</h2>
             <p className="text-muted-foreground text-lg leading-relaxed mb-6">
-              Your team speaks their language, your customers speak theirs. Company accounts add team management and call history.
+              A separate NeuraTalk Business app for shops, clinics and companies. Customers see your name and logo, chat and call you in their own
+              language, and get order updates and login codes from you inside NeuraTalk.
             </p>
-            <Link href="/contact">
-              <Button variant="outline" data-testid="button-b2b-contact">Talk to us <ArrowRight className="ml-2 w-4 h-4" /></Button>
+            <ul className="space-y-2 mb-6 text-sm">
+              {[
+                { icon: BadgeCheck, t: "Verified tick once NeuraTalk has checked your business" },
+                { icon: ShoppingBag, t: "Catalog, greeting and away messages, quick replies, labels" },
+                { icon: QrCode, t: "Your own chat link and QR code" },
+              ].map(({ icon: Icon, t }) => (
+                <li key={t} className="flex items-start gap-2"><Icon className="w-4 h-4 text-primary mt-0.5 shrink-0" />{t}</li>
+              ))}
+            </ul>
+            <Link href="/business">
+              <Button variant="outline" data-testid="button-b2b-contact">Explore NeuraTalk Business <ArrowRight className="ml-2 w-4 h-4" /></Button>
             </Link>
           </motion.div>
           <motion.div {...fadeUp} transition={{ duration: 0.5, delay: 0.1 }}>
@@ -291,8 +327,9 @@ export default function HomePage() {
                   <h3 className="font-semibold">Privacy, plainly</h3>
                 </div>
                 <ul className="space-y-3 text-sm text-muted-foreground">
-                  <li>Calls are encrypted in transit.</li>
-                  <li>Speech is processed by our cloud providers (Microsoft Azure, ElevenLabs, OpenAI) only to translate and speak it.</li>
+                  <li>Calls and messages are encrypted in transit.</li>
+                  <li>Call audio is never recorded. The translated text of a call stays in your call history for {CALL_TEXT_RETENTION_DAYS} days.</li>
+                  <li>Speech is processed by our cloud providers (Microsoft Azure, OpenAI, ElevenLabs) only to translate and speak it.</li>
                   <li>Your voice clone is never used for anyone else's words.</li>
                 </ul>
                 <Link href="/trust" className="inline-block text-sm text-primary mt-4 underline">Trust Center</Link>

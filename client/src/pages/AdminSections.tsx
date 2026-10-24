@@ -376,7 +376,7 @@ function TranslatedCallQuality({ metrics }: { metrics: any }) {
             <p className="text-xs text-muted-foreground mt-1">
               {share === null
                 ? "No translated speech yet."
-                : `${counters?.own_voice_turns ?? 0} of ${turns} turns. The rest used a standard voice because the speaker has no voice clone yet, or the language isn't supported for clones.`}
+                : `${counters?.own_voice_turns ?? 0} of ${turns} turns. The rest were shown as translated captions because the speaker had no voice clone yet.`}
             </p>
           </div>
           <div className="p-4 rounded-lg border">
@@ -1235,7 +1235,7 @@ export function VoiceClonesSection() {
             <DialogTitle>Turn off {confirmOff ? name(confirmOff) : ""}'s voice?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Their translated calls will use a standard voice instead. They can't switch it back on — only an admin can, with "Allow again".
+            Their calls will show translated captions instead of their voice. They can't switch it back on — only an admin can, with "Allow again".
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOff(null)}>Cancel</Button>

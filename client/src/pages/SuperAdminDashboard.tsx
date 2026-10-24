@@ -3981,7 +3981,7 @@ function SettingsSection() {
             </div>
             <div className="p-3 rounded-lg bg-muted/30">
               <Label className="text-xs text-muted-foreground">Languages</Label>
-              <p className="font-bold text-lg">100+</p>
+              <p className="font-bold text-lg">23</p>
               <p className="text-xs text-muted-foreground">Supported</p>
             </div>
           </div>

@@ -29,6 +29,7 @@ import { registerAdminUserRoutes } from "./admin-user-routes";
 import { configService } from "./config-service";
 import advancedFeaturesRoutes from "./advanced-features-routes";
 import gdprRoutes from "./gdpr-routes";
+import { registerAccountDeletionRoutes } from "./account-deletion";
 import ipWhitelistRoutes from "./ip-whitelist";
 import sessionManagementRoutes from "./session-management";
 import customRolesRoutes from "./custom-roles";
@@ -250,6 +251,7 @@ export async function registerRoutes(
   
   // GDPR/DPDP compliance routes
   app.use(gdprRoutes);
+  registerAccountDeletionRoutes(app);
   console.log("[Routes] ✓ GDPR routes");
   
   // IP Whitelist management routes (enterprise security)
@@ -345,89 +347,96 @@ export async function registerRoutes(
   });
 
   // Built-in NEURA rule-based chatbot — works without any API key
+  // Mirrors client/src/pages/website/site-facts.ts and the public pages.
+  const LANGUAGE_LINE = "23 languages: English; Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi, Odia and Urdu; and Spanish, French, German, Arabic, Japanese, Korean, Chinese, Portuguese, Russian, Italian and Dutch";
+
   function neuraBuiltinChat(message: string): string {
     const msg = message.toLowerCase().trim();
 
     // Greetings
     if (/^(hi|hello|hey|namaste|hola|howdy|good\s*(morning|afternoon|evening))/.test(msg)) {
-      return "Hi! I can answer questions about NeuraTalk — translated calls in your own voice. Ask me how it works, which languages it supports, about your voice, privacy or pricing.";
+      return "Hi! I can answer questions about NeuraTalk — calls, chats and business messages translated into your language, in your own voice. Ask me how it works, about languages, your voice, privacy, pricing or NeuraTalk Business.";
+    }
+
+    // Business (before pricing: "business price" is about business)
+    if (/b2b|enterprise|business|shop|store|company|corporate|organization|otp|template|catalog|verified|tick|campaign|api|integration/.test(msg)) {
+      return "NeuraTalk Business is a separate app for businesses: a profile with your logo, a team inbox, catalog, automatic replies, translated calls with customers, and order updates, login codes and offers under clear rules. NeuraTalk reviews every message template, and the blue tick appears only after we check the business. See /business or write to support@mindwhile.com.";
     }
 
     // Pricing
-    if (/price|cost|plan|subscription|pay|rupee|₹|\$|monthly|yearly|annual|weekly|quarter/.test(msg)) {
-      return "New accounts get free translated minutes to try it, no card needed. Current rates are on the pricing page (/pricing). For a company account, write to support@mindwhile.com.";
+    if (/price|cost|plan|subscription|pay|rupee|₹|\$|monthly|yearly|annual|weekly|quarter|refund/.test(msg)) {
+      return "Every new account gets 15 free translated call minutes, no card needed. Plans are prepaid in rupees and never renew on their own — current plans are on /pricing. Refunds are explained at /refund-policy.";
     }
 
     // Voice cloning (before languages: "my voice in telugu" is about the voice)
     if (/voice clone|voice cloning|clone|my voice|own voice|sound like me|robot/.test(msg)) {
-      return "In the app, open Settings → Your voice and read three short passages aloud (about two minutes). After that, people hear your translated words in your own voice. It is only used for your own words, and you can switch it off or delete it any time. Until you record, a natural standard voice is used.";
+      return "In the app, go to More → Your voice and read three short passages (about two minutes), or let NeuraTalk learn your voice from your first half-minute in a call. After that, people hear your translated words in your own voice. Until then they hear your original voice with translated captions — never a robot voice. You can delete your voice any time.";
     }
 
     // Languages
-    if (/language|translate|translat|multilingual|hindi|telugu|tamil|kannada|malayalam|marathi|bengali|gujarati|punjabi|spanish|french|german|arabic|chinese|japanese/.test(msg)) {
-      return "Calls work in English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati and Punjabi — any pair, either direction. You don't pick a language: NeuraTalk recognises it from each person's voice, and if you both speak the same one nothing is translated.";
-    }
-
-    // B2B / Enterprise / Call center
-    if (/b2b|enterprise|business|call center|call centre|company|corporate|organization|api|integration/.test(msg)) {
-      return "Businesses can create a company account so their team can talk to customers in the customer's language, with team management and call history. There is also a developer API (/sdk-docs). To talk about your use case, write to support@mindwhile.com.";
+    if (/language|translate|translat|multilingual|hindi|telugu|tamil|kannada|malayalam|marathi|bengali|gujarati|punjabi|odia|urdu|spanish|french|german|arabic|chinese|japanese|korean|italian|dutch/.test(msg)) {
+      return `NeuraTalk works in ${LANGUAGE_LINE} — any pair, either direction. Each speaker's language is detected from their voice, and if you both speak the same one nothing is translated.`;
     }
 
     // Phone numbers / does the other person need the app
-    if (/phone number|sim|landline|normal call|other person|need the app|install/.test(msg)) {
-      return "For now both people need NeuraTalk (the app or the website). Translated calls to ordinary phone numbers aren't available yet.";
+    if (/phone number|sim|landline|normal call|other person|need the app|install|sms/.test(msg)) {
+      return "Both people need NeuraTalk. Translated calls to ordinary phone numbers and SMS aren't available.";
+    }
+
+    // Chat / groups
+    if (/chat|message|group|photo|file|document/.test(msg)) {
+      return "Chats are translated too: write in your language and the other person reads it in theirs. Groups, photos, videos, documents, voice messages and location all work, and you can tap any message to see the original.";
     }
 
     // Video / quality / noise / delay
     if (/video|call quality|connection|noise|noisy|delay|latency|fast|slow|caption|subtitle/.test(msg)) {
-      return "Video calls are translated the same way as voice calls. Background noise is removed on your device, there are no captions to read during the call, and in our tests the other person starts hearing you about half a second after you finish a sentence.";
+      return "Video and group calls are translated the same way as voice calls. Background noise is reduced on your device, and the translation usually reaches the other person within about a second, depending on the languages and the connection.";
     }
 
-    // Privacy / Security
-    if (/privacy|secure|security|gdpr|data|safe|encrypt|record/.test(msg)) {
-      return "Calls are encrypted in transit and not recorded by default. To translate, speech is processed by our cloud providers — Microsoft Azure, ElevenLabs and OpenAI. Your voice clone is only ever used for your own words. Details are in the Trust Center (/trust) and Privacy Policy (/privacy).";
+    // Privacy / Security / deletion
+    if (/privacy|secure|security|data|safe|encrypt|record|delete|account/.test(msg)) {
+      return "Call audio is never recorded; the translated text of a call stays in your history for 30 days. Calls and messages are encrypted in transit. You can download your data or delete your account in the app (More → Privacy). Details: /privacy and /trust.";
     }
 
     // How it works / features
     if (/how|work|feature|what|explain|tell me|describe/.test(msg)) {
-      return "You call someone like a normal call and each of you speaks your own language. NeuraTalk recognises the language from your voice, translates it, and the other person hears it in your own voice — with nothing to read on screen. If you both speak the same language, nothing is translated.";
+      return "You call or chat like normal and each of you uses your own language. NeuraTalk recognises the language, translates it, and the other person hears it in your own voice or reads it in theirs. If you both speak the same language, nothing is translated.";
     }
 
     // Getting started / sign up
     if (/start|signup|sign up|register|join|begin|try|demo|free/.test(msg)) {
-      return "Tap 'Start free' and sign up with your phone number — no credit card needed. Then record your voice in Settings → Your voice and call someone who speaks another language.";
+      return "Install NeuraTalk and sign up with your phone number — no credit card needed. Then set up your voice in More → Your voice and call someone who speaks another language.";
     }
 
     // Contact / support
     if (/contact|support|help|email|reach|talk to|human|agent/.test(msg)) {
-      return "Write to support@mindwhile.com or use the contact page (/contact) and a person from our team will reply.";
+      return "Write to support@mindwhile.com or use the contact page (/contact) and a person from our team will reply. Answers to common questions are at /help.";
     }
 
     // Company info
-    if (/company|who|founded|mindwhile|about|team/.test(msg)) {
-      return "NeuraTalk is made by Mindwhile IT Solutions Pvt Ltd in India. We want calls between people who speak different languages to feel like any other call.";
+    if (/who|founded|mindwhile|about|team/.test(msg)) {
+      return "NeuraTalk is made by Mindwhile IT Solutions Pvt Ltd in Mangalagiri, Andhra Pradesh, India. We want conversations between people who speak different languages to feel like any other conversation.";
     }
 
     // Default
-    return "I can help with how NeuraTalk calls work, languages, your own voice, privacy, pricing and getting started. What would you like to know?";
+    return "I can help with calls, chats, languages, your own voice, privacy, pricing, NeuraTalk Business and getting started. What would you like to know?";
   }
 
   const systemPrompt = `You answer visitors' questions on the NeuraTalk website. Be warm, plain and brief, like a helpful person — not a robot. Never invent features, numbers, certifications or prices. If you don't know, say so and point to support@mindwhile.com.
 
 Facts about NeuraTalk (only these):
-- An app (Android and web) for voice and video calls between people who speak different languages.
-- While you talk, your words are translated and the other person hears them in your own voice.
-- Your voice: record three short passages in the app (Settings → Your voice, about two minutes). It is only used for your own words; switch it off or delete it any time. Until then a natural standard voice is used.
-- No language settings: the language is recognised from each person's voice. Same language means nothing is translated.
-- No captions during calls by default (they can be turned on from the call screen).
-- In our tests the other person starts hearing you about 0.6 seconds after you finish a sentence.
-- Background noise is removed on the device.
-- Languages: English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati, Punjabi.
-- Both people need NeuraTalk; translated calls to ordinary phone numbers are not available yet.
-- Also: translated chat, company accounts with team management and call history, a developer API (/sdk-docs).
-- Privacy: calls encrypted in transit, not recorded by default; speech is processed by Microsoft Azure, ElevenLabs and OpenAI to translate and speak it.
-- Pricing: new accounts get free translated minutes; current rates are on /pricing. Do not quote prices.
-- Made by Mindwhile IT Solutions Pvt Ltd. Support: support@mindwhile.com.
+- Apps (Android and web) for voice, video and group calls, chats and business messages between people who speak different languages.
+- While you talk, your words are translated and the other person hears them in your own cloned voice. Until your voice is ready, they hear your original voice with translated captions — never a robot voice.
+- Your voice: record three short passages in the app (More → Your voice, about two minutes), or allow NeuraTalk to learn it from your first half-minute in a call. Only used for your own words; delete it any time.
+- Each speaker's language is detected from their voice. Same language means nothing is translated.
+- Translation usually reaches the other person within about a second, depending on languages and connection.
+- Languages: ${LANGUAGE_LINE}.
+- Chats are translated, including groups, photos, videos, documents, voice messages and location. There is also an in-person mode and an AI assistant.
+- Both people need NeuraTalk; calls to ordinary phone numbers and SMS are not available.
+- NeuraTalk Business (/business): a separate app with business profile, verified tick only after NeuraTalk checks the business, team inbox, catalog, greeting/away messages, quick replies, labels, chat link and QR, translated calls, and utility updates, login codes and offers. NeuraTalk reviews every message template; offers need the customer's opt-in; customers can block a business. Rules: /business-messaging-policy.
+- Privacy: call audio is never recorded; translated call text is kept 30 days; chats until deleted; encrypted in transit (not end-to-end). Speech is processed by Microsoft Azure, OpenAI and ElevenLabs. Users can download their data and delete their account in the app (More → Privacy).
+- Pricing: 15 free translated minutes for new accounts; prepaid plans in rupees that never renew automatically; current plans on /pricing. Do not quote prices.
+- Made by Mindwhile IT Solutions Pvt Ltd, Mangalagiri, Andhra Pradesh, India. Support: support@mindwhile.com.
 
 Keep answers to 2-4 sentences. If asked about something unrelated to NeuraTalk, say briefly that you can only help with NeuraTalk.`;
 

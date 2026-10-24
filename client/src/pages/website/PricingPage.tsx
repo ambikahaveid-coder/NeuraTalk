@@ -48,10 +48,10 @@ export default function PricingPage() {
         <div className="max-w-4xl mx-auto text-center">
           <Badge className="mb-4" data-testid="badge-pricing">Pricing</Badge>
           <h1 className="text-4xl font-bold mb-6" data-testid="text-pricing-title">
-            Simple, Transparent Pricing
+            Pay only for translated minutes
           </h1>
           <p className="text-xl text-muted-foreground">
-            Choose the plan that works best for you or your team
+            Every new account gets 15 free translated call minutes. Prices in Indian Rupees.
           </p>
         </div>
       </section>
@@ -145,118 +145,7 @@ export default function PricingPage() {
               ))}
             </div>
           ) : (
-            <div className="grid md:grid-cols-3 gap-6">
-              <Card className="hover-elevate" data-testid="card-plan-free">
-                <CardHeader>
-                  <CardTitle>Free</CardTitle>
-                  <CardDescription>Get started with basic features</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold" data-testid="text-price-free">₹0</span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>10 minutes/month</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Basic translation</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>AI chat assistant</span>
-                    </li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/login" className="w-full">
-                    <Button variant="outline" className="w-full" data-testid="button-get-started-free">
-                      Get Started
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-
-              <Card className="hover-elevate border-primary relative" data-testid="card-plan-pro">
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2">Popular</Badge>
-                <CardHeader>
-                  <CardTitle>Pro</CardTitle>
-                  <CardDescription>For regular users</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold" data-testid="text-price-pro">₹499</span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>100 minutes/month</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>All languages</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Voice memos</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Priority support</span>
-                    </li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/login" className="w-full">
-                    <Button className="w-full" data-testid="button-get-started-pro">
-                      Get Started
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-
-              <Card className="hover-elevate" data-testid="card-plan-unlimited">
-                <CardHeader>
-                  <CardTitle>Unlimited</CardTitle>
-                  <CardDescription>For power users</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold" data-testid="text-price-unlimited">₹999</span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Unlimited minutes</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>All features</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>API access</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>24/7 support</span>
-                    </li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/login" className="w-full">
-                    <Button className="w-full" data-testid="button-get-started-unlimited">
-                      Get Started
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-            </div>
+            <PlansUnavailable />
           )}
         </div>
       </section>
@@ -330,99 +219,21 @@ export default function PricingPage() {
               ))}
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 gap-6">
-              <Card className="hover-elevate" data-testid="card-business-starter">
-                <CardHeader>
-                  <CardTitle>Business Starter</CardTitle>
-                  <CardDescription>For small teams getting started</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold">₹4,999</span>
-                    <span className="text-muted-foreground">/month</span>
-                  </div>
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Up to 5 team members</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>500 minutes/month</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Team dashboard</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Usage analytics</span>
-                    </li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/contact" className="w-full">
-                    <Button variant="outline" className="w-full" data-testid="button-contact-starter">
-                      Contact Sales
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-
-              <Card className="hover-elevate border-primary" data-testid="card-business-enterprise">
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-primary" />
-                    <CardTitle>Enterprise</CardTitle>
-                  </div>
-                  <CardDescription>Custom solutions for large organizations</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="mb-6">
-                    <span className="text-3xl font-bold">Custom</span>
-                  </div>
-                  <ul className="space-y-2">
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Unlimited team members</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Custom minute packages</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>SSO & IP whitelisting</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Dedicated support</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-sm">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span>Custom SLA</span>
-                    </li>
-                  </ul>
-                </CardContent>
-                <CardFooter>
-                  <Link href="/contact" className="w-full">
-                    <Button className="w-full" data-testid="button-contact-enterprise">
-                      Contact Sales
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
-            </div>
+            <PlansUnavailable />
           )}
         </div>
       </section>
 
       <section className="py-16 px-4">
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-2xl font-bold mb-4">Need Help Choosing?</h2>
-          <p className="text-muted-foreground mb-6">
-            Our team is here to help you find the perfect plan for your needs
-          </p>
+          <h2 className="text-2xl font-bold mb-4">How billing works</h2>
+          <ul className="text-left text-muted-foreground mb-8 space-y-2 max-w-2xl mx-auto list-disc pl-5">
+            <li>Plans and top-ups are prepaid and never renew on their own.</li>
+            <li>Translated call time is deducted as you use it; chats are included.</li>
+            <li>Businesses pay for updates, login codes and campaign messages from a prepaid business wallet. Messages that aren't sent are not charged.</li>
+            <li>Prices show applicable taxes such as GST. See our <Link href="/refund-policy" className="underline">Refund Policy</Link>.</li>
+          </ul>
+          <p className="text-muted-foreground mb-6">Questions about plans or a business wallet?</p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link href="/contact">
               <Button size="lg" data-testid="button-contact-sales">
@@ -438,5 +249,18 @@ export default function PricingPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Shown if plans can't be loaded -- never invented prices. */
+function PlansUnavailable() {
+  return (
+    <Card data-testid="card-plans-unavailable">
+      <CardContent className="p-8 text-center">
+        <p className="font-medium mb-2">Current plans couldn't be loaded right now.</p>
+        <p className="text-sm text-muted-foreground mb-4">Please refresh the page, see your plans in the app, or ask us.</p>
+        <Link href="/contact"><Button variant="outline">Contact us</Button></Link>
+      </CardContent>
+    </Card>
   );
 }

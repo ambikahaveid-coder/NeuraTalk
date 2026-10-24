@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Download, FileText } from "lucide-react";
+import { PROCESSORS } from "./site-facts";
+
+const SUBPROCESSORS = [...PROCESSORS, { name: "Razorpay", purpose: "Payment processing (when online payments are enabled)", location: "India" }];
 
 export default function DPAPage() {
   const handleDownload = () => {
@@ -18,9 +21,9 @@ export default function DPAPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Data Processing Agreement</h1>
-          <p className="text-muted-foreground">GDPR & DPDP Act Compliant</p>
+          <p className="text-muted-foreground">Under India's Digital Personal Data Protection Act, 2023</p>
           <p className="text-sm text-muted-foreground mt-2">
-            Standard Contractual Clauses for B2B Enterprise Customers
+            Template for business customers of NeuraTalk
           </p>
           <div className="mt-6">
             <Button onClick={handleDownload} size="lg" data-testid="button-download-dpa">
@@ -61,7 +64,7 @@ export default function DPAPage() {
             <li><strong>"Processing"</strong>: Any operation performed on Personal Data</li>
             <li><strong>"Data Subject"</strong>: The individual whose Personal Data is processed</li>
             <li><strong>"Sub-processor"</strong>: Any third party engaged by Processor to process Personal Data</li>
-            <li><strong>"Applicable Laws"</strong>: GDPR, India DPDP Act, and other relevant data protection laws</li>
+            <li><strong>"Applicable Laws"</strong>: India's Digital Personal Data Protection Act, 2023, the IT Act, 2000, and other data protection laws that apply to the Customer</li>
           </ul>
 
           <h3>3. SCOPE AND PURPOSE</h3>
@@ -90,7 +93,7 @@ export default function DPAPage() {
             <li>Account authentication and management</li>
             <li>Real-time voice translation (in-memory, not stored)</li>
             <li>Voice identity training and cloning</li>
-            <li>Meeting hosting and screen sharing facilitation</li>
+            <li>Group calls and business messaging between the Customer and its customers</li>
             <li>Service analytics and improvement</li>
             <li>Billing and invoicing</li>
           </ul>
@@ -132,7 +135,7 @@ export default function DPAPage() {
               </tr>
               <tr>
                 <td className="border p-2">Monitoring</td>
-                <td className="border p-2">24/7 logging, anomaly detection, SIEM</td>
+                <td className="border p-2">Logging of administrator actions and security events</td>
               </tr>
               <tr>
                 <td className="border p-2">Physical Security</td>
@@ -160,16 +163,13 @@ export default function DPAPage() {
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="border p-2">OpenAI</td>
-                <td className="border p-2">AI translation processing</td>
-                <td className="border p-2">USA</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Razorpay</td>
-                <td className="border p-2">Payment processing</td>
-                <td className="border p-2">India</td>
-              </tr>
+              {SUBPROCESSORS.map((p) => (
+                <tr key={p.name}>
+                  <td className="border p-2">{p.name}</td>
+                  <td className="border p-2">{p.purpose}</td>
+                  <td className="border p-2">{p.location}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
           <p>
@@ -316,7 +316,7 @@ This Data Processing Agreement ("DPA") is entered into between:
 - "Processing": Any operation performed on Personal Data
 - "Data Subject": The individual whose Personal Data is processed
 - "Sub-processor": Any third party engaged by Processor to process Personal Data
-- "Applicable Laws": GDPR, India DPDP Act, and other relevant data protection laws
+- "Applicable Laws": India's Digital Personal Data Protection Act, 2023, the IT Act, 2000, and other data protection laws that apply to the Customer
 
 ================================================================================
 
@@ -343,7 +343,7 @@ Processing Activities:
 - Account authentication and management
 - Real-time voice translation (in-memory, not stored)
 - Voice identity training and cloning
-- Meeting hosting and screen sharing facilitation
+- Group calls and business messaging between the Customer and its customers
 - Service analytics and improvement
 - Billing and invoicing
 
@@ -373,7 +373,7 @@ NeuraTalk implements the following security measures:
 | Encryption        | TLS 1.3 in transit, AES-256 at rest               |
 | Access Control    | Role-based access, MFA for admin accounts         |
 | Network Security  | Firewalls, intrusion detection, DDoS protection   |
-| Monitoring        | 24/7 logging, anomaly detection, SIEM             |
+| Monitoring        | Logging of administrator actions and security events             |
 | Physical Security | Secure data centers with biometric access         |
 | Personnel         | Background checks, security training, NDAs        |
 | Incident Response | Documented procedures, 72-hour notification       |
@@ -384,10 +384,7 @@ NeuraTalk implements the following security measures:
 
 Customer authorizes NeuraTalk to engage the following sub-processors:
 
-| Sub-processor | Purpose                  | Location |
-|---------------|--------------------------|----------|
-| OpenAI        | AI translation processing| USA      |
-| Razorpay      | Payment processing       | India    |
+${SUBPROCESSORS.map((p) => `- ${p.name}: ${p.purpose} (${p.location})`).join("\n")}
 
 NeuraTalk will notify Customer at least 30 days before engaging new sub-processors.
 Customer may object to new sub-processors within 14 days.

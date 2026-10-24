@@ -3,6 +3,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Mail } from "lucide-react";
+import { COMPANY, LANGUAGE_SUMMARY, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
 
 type Faq = { id: string; q: string; a: React.ReactNode };
 
@@ -13,7 +14,7 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "what-is",
         q: "What is NeuraTalk?",
-        a: "An app for voice and video calls with live speech and text translation. What you hear depends on language support and your translation settings.",
+        a: "An app for voice and video calls, chats and business messages that are translated while you talk or type. You speak or write in your language; the other person hears or reads it in theirs.",
       },
       {
         id: "settings",
@@ -48,12 +49,37 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "languages",
         q: "Which languages are supported?",
-        a: "English, Hindi, Telugu, Tamil, Kannada, Malayalam, Marathi, Bengali, Gujarati and Punjabi — any pair, in either direction. Mixed speech like Tenglish or Hinglish usually works, but names and mixed sentences are where mistakes are most likely.",
+        a: `${LANGUAGE_SUMMARY} — any pair, in either direction. Mixed speech like Tenglish or Hinglish usually works, but names and mixed sentences are where mistakes are most likely.`,
+      },
+      {
+        id: "group-calls",
+        q: "Can I call more than one person?",
+        a: "Yes. Group voice and video calls are translated for everyone. People who share a language hear each other directly.",
       },
       {
         id: "other-person",
         q: "Does the other person need NeuraTalk?",
         a: "Yes, for now both people need the NeuraTalk app or website. Translated calls to ordinary phone numbers are not available yet.",
+      },
+    ],
+  },
+  {
+    title: "Chats and businesses",
+    items: [
+      {
+        id: "chat",
+        q: "Are chats translated too?",
+        a: "Yes. Write in your language; the other person reads it in theirs. Tap a message to see the original. Groups work the same way, and you can send photos, videos, documents, voice messages and your location.",
+      },
+      {
+        id: "businesses",
+        q: "Can I message shops and companies?",
+        a: <>Yes. Businesses on NeuraTalk appear in your Chats list with their name and logo. A blue tick means NeuraTalk has checked the business. You can block any business, or switch off its offers and still get order updates and codes. Businesses can learn more on the <Link href="/business" className="underline">NeuraTalk Business</Link> page.</>,
+      },
+      {
+        id: "business-sees",
+        q: "What does a business see about me?",
+        a: "Your name, profile photo and number, and the messages you send it — never your other chats.",
       },
     ],
   },
@@ -83,7 +109,7 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "privacy",
         q: "Are my calls recorded?",
-        a: "No, calls are not recorded by default. Speech passes through our cloud providers (Microsoft Azure, ElevenLabs, OpenAI) only to be translated and spoken.",
+        a: `No. Call audio is never stored. The translated text of a call is kept in your call history for ${CALL_TEXT_RETENTION_DAYS} days, then deleted. Speech passes through our cloud providers (Microsoft Azure, OpenAI, ElevenLabs) only to be translated and spoken.`,
       },
       {
         id: "voice-training",
@@ -93,7 +119,12 @@ const GROUPS: { title: string; items: Faq[] }[] = [
       {
         id: "security",
         q: "Are calls encrypted?",
-        a: <>Yes, calls are encrypted in transit. Details of how we handle data are in the <Link href="/trust" className="underline">Trust Center</Link> and <Link href="/privacy" className="underline">Privacy Policy</Link>.</>,
+        a: <>Calls and messages are encrypted in transit. They are not end-to-end encrypted, because translation needs our servers to process speech and text. Details are in the <Link href="/trust" className="underline">Trust Center</Link> and <Link href="/privacy" className="underline">Privacy Policy</Link>.</>,
+      },
+      {
+        id: "delete-account",
+        q: "How do I delete my account?",
+        a: "In the app: More → Privacy → Delete my account. Your number, name, photo and voice are removed and you are signed out everywhere. You can also download your data there first.",
       },
     ],
   },
@@ -105,7 +136,7 @@ export default function FAQPage() {
       <section className="py-16 px-4 bg-gradient-to-b from-primary/5 to-background">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-4">Questions and answers</h1>
-          <p className="text-lg text-muted-foreground">Straight answers about how NeuraTalk calls work.</p>
+          <p className="text-lg text-muted-foreground">Straight answers about calls, chats, businesses and your data.</p>
         </div>
       </section>
 
@@ -129,7 +160,7 @@ export default function FAQPage() {
         <div className="max-w-3xl mx-auto mt-16 p-8 rounded-2xl bg-primary/5 border border-primary/10 text-center">
           <h2 className="text-2xl font-bold mb-3">Still have a question?</h2>
           <p className="text-muted-foreground mb-6">Write to us and we'll get back to you.</p>
-          <Button className="gap-2" onClick={() => (window.location.href = "mailto:support@mindwhile.com")}>
+          <Button className="gap-2" onClick={() => (window.location.href = `mailto:${COMPANY.email}`)}>
             <Mail className="w-4 h-4" />
             Email support
           </Button>

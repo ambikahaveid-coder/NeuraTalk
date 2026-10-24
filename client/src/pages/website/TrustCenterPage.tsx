@@ -1,201 +1,71 @@
+import { Link } from "wouter";
+import { Card, CardContent } from "@/components/ui/card";
+import { BadgeCheck, Ban, FileLock2, KeyRound, Lock, MicOff, ShieldCheck, UserRound } from "lucide-react";
+import { COMPANY, PROCESSORS, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+
+const PRACTICES = [
+  { icon: Lock, title: "Encrypted in transit", desc: "Calls, messages and files travel over encrypted connections (TLS, and SRTP for call media). Calls are not end-to-end encrypted, because translation needs our servers to process speech." },
+  { icon: MicOff, title: "No call recordings", desc: `Call audio is never stored. The translated text of a call stays in the caller's history for ${CALL_TEXT_RETENTION_DAYS} days and is then deleted automatically.` },
+  { icon: FileLock2, title: "Private files", desc: "Photos, videos and documents sent in a chat can only be opened by the people in that conversation, with their own signed-in session." },
+  { icon: UserRound, title: "Your voice is yours", desc: "A cloned voice speaks only its owner's own words. Learning a voice from calls needs the owner's permission, and the voice can be deleted at any time." },
+  { icon: KeyRound, title: "Login codes protected", desc: "Codes businesses send are stored encrypted, shown only to the customer, and erased as soon as they are used or expire." },
+  { icon: BadgeCheck, title: "Businesses are checked", desc: "The verified tick is given only after the NeuraTalk team checks a business, and every message template is reviewed before it can be sent." },
+  { icon: Ban, title: "You can always say no", desc: "Block any person or business, switch off offers from a business, and delete your account and data from the app." },
+  { icon: ShieldCheck, title: "Least access", desc: "Only staff who need production access have it, sign-ins are session-based and expire, and administrator actions are logged." },
+];
+
 export default function TrustCenterPage() {
   return (
     <div className="min-h-screen bg-background">
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-4xl font-bold mb-6">Trust Center</h1>
-          <p className="text-xl text-muted-foreground mb-4">
-            Security, privacy, and compliance — at the core of everything we build
-          </p>
-          <p className="text-sm text-muted-foreground">
-            NeuraTalk is operated by Mindwhile IT Solutions Pvt Ltd
-          </p>
+          <h1 className="text-4xl font-bold mb-4">Trust Center</h1>
+          <p className="text-lg text-muted-foreground">How NeuraTalk protects your calls, messages and voice — stated plainly, without badges we haven't earned.</p>
         </div>
       </section>
 
       <section className="py-16 px-4">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {PRACTICES.map((p) => (
+            <Card key={p.title} className="h-full"><CardContent className="p-6">
+              <p.icon className="w-8 h-8 text-primary mb-3" />
+              <h3 className="font-semibold mb-2">{p.title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{p.desc}</p>
+            </CardContent></Card>
+          ))}
+        </div>
+      </section>
 
-          <div className="grid md:grid-cols-3 gap-6 mb-16">
-            <div className="bg-card border rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🔒</span>
-              </div>
-              <h3 className="font-bold text-lg mb-2">End-to-End Encrypted</h3>
-              <p className="text-sm text-muted-foreground">All voice calls and media are encrypted using DTLS-SRTP. TLS 1.3 for all API and web traffic.</p>
-            </div>
-            <div className="bg-card border rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🛡️</span>
-              </div>
-              <h3 className="font-bold text-lg mb-2">Privacy First</h3>
-              <p className="text-sm text-muted-foreground">We don't sell your data. Translations are processed in-memory and never stored without consent.</p>
-            </div>
-            <div className="bg-card border rounded-xl p-6 text-center">
-              <div className="w-12 h-12 bg-purple-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">✅</span>
-              </div>
-              <h3 className="font-bold text-lg mb-2">Compliance Ready</h3>
-              <p className="text-sm text-muted-foreground">DPDP Act 2023, GDPR, SOC 2 controls, and ISO 27001 security practices built in.</p>
-            </div>
-          </div>
+      <section className="py-16 px-4 bg-muted/30">
+        <div className="max-w-4xl mx-auto prose prose-neutral dark:prose-invert">
+          <h2>Where your data is processed</h2>
+          <table className="w-full border-collapse text-sm">
+            <thead><tr><th className="border p-2 text-left">Provider</th><th className="border p-2 text-left">What for</th><th className="border p-2 text-left">Where</th></tr></thead>
+            <tbody>
+              {PROCESSORS.map((p) => (
+                <tr key={p.name}><td className="border p-2">{p.name}</td><td className="border p-2">{p.purpose}</td><td className="border p-2">{p.location}</td></tr>
+              ))}
+            </tbody>
+          </table>
 
-          <div className="prose prose-neutral dark:prose-invert max-w-none">
-            <h2>Security Architecture</h2>
+          <h2>Compliance</h2>
+          <p>
+            We follow India's Digital Personal Data Protection Act, 2023 and the Information Technology Act, 2000 and its rules. We have not
+            completed SOC 2 or ISO 27001 audits; when we do, the reports will be listed here. Businesses that need a data processing agreement
+            can request one — see our <Link href="/dpa">Data Processing Agreement</Link>.
+          </p>
 
-            <h3>Infrastructure Security</h3>
-            <ul>
-              <li><strong>Network:</strong> All production services run behind a WAF and DDoS protection layer.</li>
-              <li><strong>Access Control:</strong> Zero-trust network model; no direct public access to backend services.</li>
-              <li><strong>Secrets Management:</strong> All API keys and credentials stored in encrypted secret stores; never in code or config files.</li>
-              <li><strong>Patch Management:</strong> Critical security patches applied within 24 hours; routine patches within 7 days.</li>
-              <li><strong>Intrusion Detection:</strong> 24/7 monitoring with automated alerting and incident response runbooks.</li>
-            </ul>
+          <h2>Report a security issue</h2>
+          <p>
+            If you find a vulnerability, please email {COMPANY.email} with "Security" in the subject and give us a reasonable time to fix it
+            before making it public. We will not take action against good-faith research that avoids harming users or their data.
+          </p>
 
-            <h3>Application Security</h3>
-            <ul>
-              <li><strong>Authentication:</strong> Firebase Auth with OTP verification; no plain-text passwords stored.</li>
-              <li><strong>Session Security:</strong> HTTPOnly, Secure, SameSite=Strict cookies; short session TTL with refresh tokens.</li>
-              <li><strong>API Security:</strong> Rate limiting, HMAC-signed webhooks, timing-safe comparisons to prevent timing attacks.</li>
-              <li><strong>Input Validation:</strong> All inputs validated using Zod schemas; parameterised queries for all database operations.</li>
-              <li><strong>OWASP Top 10:</strong> Actively tested and mitigated (XSS, SQLi, CSRF, SSRF, etc.).</li>
-              <li><strong>Dependency Scanning:</strong> Automated vulnerability scanning in CI/CD pipeline.</li>
-            </ul>
-
-            <h3>Voice &amp; Media Security</h3>
-            <ul>
-              <li><strong>Call Encryption:</strong> DTLS-SRTP for all RTP media streams via RTPEngine.</li>
-              <li><strong>SRTP:</strong> AES-128-CM-HMAC-SHA1-80 cipher suite.</li>
-              <li><strong>SIP TLS:</strong> All SIP signalling over TLS 1.2+.</li>
-              <li><strong>No Default Recording:</strong> Calls are never recorded unless explicitly enabled by an admin with appropriate consent flows.</li>
-            </ul>
-
-            <h2>Privacy Practices</h2>
-
-            <h3>Data Minimisation</h3>
-            <ul>
-              <li>We collect only the data necessary to provide the requested service.</li>
-              <li>Real-time translations are processed in-memory; audio is not stored after the call ends.</li>
-              <li>Call metadata (duration, participants) is retained; content is not stored by default.</li>
-            </ul>
-
-            <h3>Data Residency</h3>
-            <ul>
-              <li>Primary data stored on India-based infrastructure (Digital Ocean, Mumbai region).</li>
-              <li>No cross-border data transfers without adequate safeguards (SCCs, adequacy decisions).</li>
-            </ul>
-
-            <h3>Third-Party Processors</h3>
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <th className="border p-2 text-left">Processor</th>
-                  <th className="border p-2 text-left">Purpose</th>
-                  <th className="border p-2 text-left">Compliance</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="border p-2">OpenAI</td>
-                  <td className="border p-2">AI translation &amp; transcription</td>
-                  <td className="border p-2">SOC 2 Type II, GDPR DPA</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">Razorpay</td>
-                  <td className="border p-2">Payment processing</td>
-                  <td className="border p-2">PCI-DSS Level 1, RBI licensed</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">Firebase (Google)</td>
-                  <td className="border p-2">Authentication</td>
-                  <td className="border p-2">ISO 27001, SOC 2, GDPR</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">Digital Ocean</td>
-                  <td className="border p-2">Cloud infrastructure</td>
-                  <td className="border p-2">SOC 2 Type II, ISO 27001</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">LiveKit</td>
-                  <td className="border p-2">WebRTC media infrastructure</td>
-                  <td className="border p-2">SOC 2 Type II</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">MSG91</td>
-                  <td className="border p-2">SMS &amp; OTP delivery</td>
-                  <td className="border p-2">TRAI compliant, India DPA</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h2>Compliance Certifications</h2>
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <th className="border p-2 text-left">Framework</th>
-                  <th className="border p-2 text-left">Status</th>
-                  <th className="border p-2 text-left">Scope</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="border p-2">DPDP Act 2023 (India)</td>
-                  <td className="border p-2"><span className="text-green-500 font-semibold">Compliant</span></td>
-                  <td className="border p-2">Full platform</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">GDPR (EU)</td>
-                  <td className="border p-2"><span className="text-green-500 font-semibold">Compliant</span></td>
-                  <td className="border p-2">EU users</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">SOC 2 Type II</td>
-                  <td className="border p-2"><span className="text-yellow-500 font-semibold">Controls in place</span></td>
-                  <td className="border p-2">Audit in progress</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">ISO 27001</td>
-                  <td className="border p-2"><span className="text-yellow-500 font-semibold">Controls in place</span></td>
-                  <td className="border p-2">Certification in progress</td>
-                </tr>
-                <tr>
-                  <td className="border p-2">PCI-DSS</td>
-                  <td className="border p-2"><span className="text-green-500 font-semibold">Compliant</span></td>
-                  <td className="border p-2">Payment processing via Razorpay</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <h2>Vulnerability Disclosure</h2>
-            <p>
-              We welcome responsible disclosure of security vulnerabilities. If you discover a security
-              issue, please report it to <strong>support@mindwhile.com</strong> before making it public.
-              We commit to:
-            </p>
-            <ul>
-              <li>Acknowledge your report within 48 hours.</li>
-              <li>Provide status updates every 7 days.</li>
-              <li>Resolve critical vulnerabilities within 30 days.</li>
-              <li>Credit researchers who disclose responsibly (with permission).</li>
-            </ul>
-            <p>We do not pursue legal action against researchers who follow responsible disclosure practices.</p>
-
-            <h2>Incident Response</h2>
-            <p>In the event of a security incident:</p>
-            <ul>
-              <li>Affected users will be notified within 72 hours (GDPR) or promptly under DPDP.</li>
-              <li>Notifications will include: what happened, what data was affected, what we're doing about it, and what you can do.</li>
-              <li>We maintain a documented incident response plan reviewed quarterly.</li>
-            </ul>
-
-            <h2>Contact Security &amp; Trust Team</h2>
-            <div className="bg-muted p-4 rounded-lg">
-              <p><strong>Security Issues:</strong> support@mindwhile.com</p>
-              <p><strong>Trust &amp; Safety:</strong> support@mindwhile.com</p>
-              <p><strong>DPO:</strong> support@mindwhile.com</p>
-              <p><strong>Compliance:</strong> support@mindwhile.com</p>
-            </div>
-          </div>
+          <h2>Related</h2>
+          <p>
+            <Link href="/privacy">Privacy Policy</Link> · <Link href="/data-retention">Data Retention</Link> ·{" "}
+            <Link href="/business-messaging-policy">Business Messaging Policy</Link> · <Link href="/report-abuse">Report Abuse</Link>
+          </p>
         </div>
       </section>
     </div>

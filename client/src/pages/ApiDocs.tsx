@@ -391,7 +391,7 @@ export default function ApiDocs() {
                 <Globe className="w-5 h-5 text-purple-500" />
               </div>
               <div>
-                <div className="font-semibold">50+ Languages</div>
+                <div className="font-semibold">23 Languages</div>
                 <div className="text-sm text-muted-foreground">Real-time</div>
               </div>
             </div>

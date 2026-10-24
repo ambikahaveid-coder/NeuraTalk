@@ -4,6 +4,28 @@ import HomePage, { CALL_LANGUAGES } from "./HomePage";
 import FAQPage from "./FAQPage";
 import ProductsPage from "./ProductsPage";
 import DemoPage, { DEMO_CALL } from "./DemoPage";
+import BusinessPage from "./BusinessPage";
+import BusinessMessagingPolicyPage from "./BusinessMessagingPolicyPage";
+import TermsPage from "./TermsPage";
+import PrivacyPage from "./PrivacyPage";
+import TrustCenterPage from "./TrustCenterPage";
+import HelpCenterPage from "./HelpCenterPage";
+import ReleaseNotesPage from "./ReleaseNotesPage";
+import AboutPage from "./AboutPage";
+import SolutionsPage from "./SolutionsPage";
+import AIUsagePolicyPage from "./AIUsagePolicyPage";
+import CookiePolicyPage from "./CookiePolicyPage";
+import AccountDeletionPage from "./AccountDeletionPage";
+import DataRetentionPage from "./DataRetentionPage";
+import RecordingConsentPage from "./RecordingConsentPage";
+import RefundPolicyPage from "./RefundPolicyPage";
+import CancellationPolicyPage from "./CancellationPolicyPage";
+import LegalNoticePage from "./LegalNoticePage";
+import CopyrightPage from "./CopyrightPage";
+import TranslationDisclaimerPage from "./TranslationDisclaimerPage";
+import DataExportPage from "./DataExportPage";
+import DPAPage from "./DPAPage";
+import { LANGUAGES, LANGUAGE_SUMMARY, COMPANY } from "./site-facts";
 import { delayTone, ownVoiceShare, voiceCloneState } from "../AdminSections";
 
 beforeAll(() => {
@@ -32,6 +54,20 @@ const BANNED = [
   /HIPAA/i,
   /white-label/i,
   /24\/7/i,
+  /[2-9]0\+ languages/i,
+  /[2-9]0\+ language pairs/i,
+  /(?<!not )end-to-end encrypted/i,
+  /SOC 2 (Type II )?(certified|compliant|controls)/i,
+  /ISO 27001 (certified|security practices)/i,
+  /GDPR[- ]compliant|compliant with GDPR/i,
+  /99\.9%/,
+  /self-hosted/i,
+  /standard voice/i,
+  /Kamailio|Airtel\/Jio|SIP trunk/i,
+  /Digital ?Ocean/i,
+  /screen sharing/i,
+  /\[Registration Number\]/i,
+  /USD/,
 ];
 
 function expectNoBannedClaims(container: HTMLElement) {
@@ -101,5 +137,66 @@ describe("admin call-quality helpers", () => {
     expect(voiceCloneState({ moderationStatus: "approved", trainingStatus: "training", isEnabled: true }).key).toBe("training");
     expect(voiceCloneState({ moderationStatus: "approved", trainingStatus: "ready", isEnabled: false }).key).toBe("ownerOff");
     expect(voiceCloneState({ moderationStatus: "approved", trainingStatus: "ready", isEnabled: true }).key).toBe("inUse");
+  });
+});
+
+describe("public website content audit (Oct 2026)", () => {
+  const pages: [string, () => JSX.Element][] = [
+    ["Business", () => <BusinessPage />],
+    ["Business Messaging Policy", () => <BusinessMessagingPolicyPage />],
+    ["Terms", () => <TermsPage />],
+    ["Privacy", () => <PrivacyPage />],
+    ["Trust Center", () => <TrustCenterPage />],
+    ["Help Center", () => <HelpCenterPage />],
+    ["Release Notes", () => <ReleaseNotesPage />],
+    ["About", () => <AboutPage />],
+    ["Solutions", () => <SolutionsPage />],
+    ["AI Usage", () => <AIUsagePolicyPage />],
+    ["Cookie Policy", () => <CookiePolicyPage />],
+    ["Account Deletion", () => <AccountDeletionPage />],
+    ["Data Retention", () => <DataRetentionPage />],
+    ["Recording", () => <RecordingConsentPage />],
+    ["Refund", () => <RefundPolicyPage />],
+    ["Cancellation", () => <CancellationPolicyPage />],
+    ["Legal Notice", () => <LegalNoticePage />],
+    ["Copyright", () => <CopyrightPage />],
+    ["Translation Disclaimer", () => <TranslationDisclaimerPage />],
+    ["Data Export", () => <DataExportPage />],
+    ["DPA", () => <DPAPage />],
+  ];
+  for (const [name, Page] of pages) {
+    it(`${name} page makes no banned claims`, () => {
+      const { container } = render(<Page />);
+      expectNoBannedClaims(container);
+    });
+  }
+
+  it("languages are the app's 23, the same everywhere", () => {
+    expect(LANGUAGES).toHaveLength(23);
+    expect(new Set(CALL_LANGUAGES)).toEqual(new Set(LANGUAGES));
+    expect(LANGUAGE_SUMMARY).toMatch(/^23 languages/);
+  });
+
+  it("terms and privacy name the real company and its CIN", () => {
+    for (const Page of [TermsPage, PrivacyPage]) {
+      const { container, unmount } = render(<Page />);
+      expect(container.textContent).toContain(COMPANY.legalName);
+      unmount();
+    }
+    const { container } = render(<TermsPage />);
+    expect(container.textContent).toContain(COMPANY.cin);
+  });
+
+  it("privacy policy states call audio is not recorded and text is kept 30 days", () => {
+    const { container } = render(<PrivacyPage />);
+    expect(container.textContent).toMatch(/never record the audio of your calls/i);
+    expect(container.textContent).toMatch(/30 days/);
+  });
+
+  it("help center search filters answers", () => {
+    render(<HelpCenterPage />);
+    fireEvent.change(screen.getByLabelText("Search help"), { target: { value: "delete my account" } });
+    expect(screen.getByText("How do I delete my account?")).toBeInTheDocument();
+    expect(screen.queryByText("How do I make my first translated call?")).not.toBeInTheDocument();
   });
 });

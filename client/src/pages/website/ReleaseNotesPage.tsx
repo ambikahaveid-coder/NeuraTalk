@@ -1,122 +1,82 @@
-export default function ReleaseNotesPage() {
-  const releases = [
-    {
-      version: "2.6.0",
-      date: "October 2026",
-      type: "major",
-      highlights: [
-        "Voice profiles can speak translated calls when approved, enabled and supported",
-        "Language settings with automatic detection for supported speech languages",
-        "Choose translated speech or captions in calls",
-        "Live translation latency varies by language, provider and network",
-        "Noise processing is available for voice and video calls",
-      ],
-    },
-    {
-      version: "2.5.0",
-      date: "June 2026",
-      type: "major",
-      highlights: [
-        "Enterprise Number Integration Hub — connect existing Airtel/Jio/BSNL/SIP numbers without migration",
-        "Kamailio SIP Core production deployment with LCR failover across Indian carriers",
-        "RTPEngine media proxy with SRTP encryption and AI-fork transcription pipeline",
-        "AI Agent Assist — real-time GPT suggestions during live calls with escalation detection",
-        "Multi-language AI transcription with OpenAI Whisper + Azure Cognitive Services fallback",
-      ],
-    },
-    {
-      version: "2.4.0",
-      date: "May 2026",
-      type: "major",
-      highlights: [
-        "LiveKit WebRTC integration for enterprise-grade voice and video calling",
-        "PSTN calling via SIP trunk integration with Indian carriers",
-        "Real-time call quality monitoring with jitter, packet loss, and MOS score",
-        "Enterprise billing with usage-based credit metering",
-        "Company admin dashboard with agent management and call routing",
-      ],
-    },
-    {
-      version: "2.3.0",
-      date: "April 2026",
-      type: "major",
-      highlights: [
-        "AI Voice Cloning — create personalised voice models from voice samples",
-        "50+ language translation support with dialect awareness",
-        "Face-to-Face translator mode with dual-pane real-time translation",
-        "Voice assistant with customisable AI personas",
-        "Meeting scheduler with Google Calendar integration",
-      ],
-    },
-    {
-      version: "2.2.0",
-      date: "March 2026",
-      type: "minor",
-      highlights: [
-        "Mobile PWA with offline-capable dashboard",
-        "Push notifications for incoming calls and messages",
-        "Dark mode improvements and design system refresh",
-        "Call history export to CSV and PDF",
-        "Enhanced accessibility: screen reader support, keyboard navigation",
-      ],
-    },
-    {
-      version: "2.1.0",
-      date: "February 2026",
-      type: "minor",
-      highlights: [
-        "Investor dashboard with real-time metrics and financial projections",
-        "API documentation portal with live playground",
-        "Webhook support for enterprise call events",
-        "Multi-region session management with Redis Sentinel",
-        "HMAC-signed webhook verification with timing-safe comparison",
-      ],
-    },
-    {
-      version: "2.0.0",
-      date: "January 2026",
-      type: "major",
-      highlights: [
-        "Complete platform redesign with glassmorphism dark UI",
-        "Firebase OTP authentication replacing email/password",
-        "Role-based access control (Super Admin / Company Admin / Agent / Consumer)",
-        "Razorpay payment integration with UPI and card support",
-        "DPDP Act 2023 compliance infrastructure",
-      ],
-    },
-  ];
+import { COMPANY } from "./site-facts";
 
+/** Written from the product's actual change history — only shipped features. */
+const RELEASES = [
+  {
+    title: "NeuraTalk Business",
+    date: "24 October 2026",
+    highlights: [
+      "New NeuraTalk Business app: create your business in the app, with profile, logo, catalog, greeting and away messages, quick replies, labels, chat link and QR code, and statistics",
+      "Business chats now appear in your Chats list with the business name, logo and verified tick — never just a number",
+      "Business info page in every business chat, with Block and Receive offers",
+      "The verified tick is now given only after the NeuraTalk team checks a business",
+      "Every business message template is reviewed by NeuraTalk before it can be sent; offers can't be sent as updates",
+    ],
+  },
+  {
+    title: "Stay signed in, and easier photos",
+    date: "23 October 2026",
+    highlights: [
+      "The app stays signed in, even when it opens without internet",
+      "Calls ring when the app is closed, and answering from the lock screen connects",
+      "Double-tap or pinch to zoom photos, swipe down to close; tap a profile photo to open it",
+      "Today / Yesterday dividers in chats, and names from your phone's contacts in the chat list",
+      "NeuraTalk can learn your voice from your first half-minute of speech in a call, if you allow it",
+    ],
+  },
+  {
+    title: "Your own voice, in every call",
+    date: "20 October 2026",
+    highlights: [
+      "Record your voice in the app (three short passages); translations are then spoken in your voice",
+      "Each speaker's language is detected from their voice",
+      "Background noise is removed from your microphone",
+      "Until your voice is ready, people hear your original voice with translated captions — never a robot voice",
+    ],
+  },
+  {
+    title: "Group calls, files and a new look",
+    date: "7 October 2026",
+    highlights: [
+      "Group voice and video calls with translation; same-language calls connect directly",
+      "Photos, videos, documents and location in chats, with voice-message transcripts",
+      "Light and dark themes across the app and website",
+      "Sign-in codes stay inside the app",
+    ],
+  },
+  {
+    title: "Translated captions and reliable sign-in",
+    date: "25 September 2026",
+    highlights: [
+      "Live translated captions during calls",
+      "Contacts matched by number, however they are saved in your phone",
+      "Better translation of short and mixed-language messages",
+      "Every new account gets 15 free translated call minutes",
+    ],
+  },
+];
+
+export default function ReleaseNotesPage() {
   return (
     <div className="min-h-screen bg-background">
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Release Notes</h1>
-          <p className="text-muted-foreground">
-            What's new in NeuraTalk — product updates, new features, and improvements
-          </p>
+          <p className="text-muted-foreground">What's new in NeuraTalk</p>
         </div>
       </section>
 
       <section className="py-12 px-4">
         <div className="max-w-3xl mx-auto space-y-8">
-          {releases.map((release) => (
-            <div key={release.version} className="bg-card border rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-2xl font-bold">v{release.version}</h2>
-                  <span className={`text-xs px-2 py-1 rounded font-medium ${
-                    release.type === "major"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground"
-                  }`}>
-                    {release.type === "major" ? "Major Release" : "Minor Update"}
-                  </span>
-                </div>
+          {RELEASES.map((release) => (
+            <div key={release.date} className="bg-card border rounded-xl p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h2 className="text-xl font-bold">{release.title}</h2>
                 <span className="text-sm text-muted-foreground">{release.date}</span>
               </div>
               <ul className="space-y-2">
-                {release.highlights.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
+                {release.highlights.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm">
                     <span className="text-primary mt-0.5 flex-shrink-0">•</span>
                     <span className="text-muted-foreground">{item}</span>
                   </li>
@@ -126,12 +86,10 @@ export default function ReleaseNotesPage() {
           ))}
 
           <div className="bg-card border rounded-xl p-6 text-center">
-            <h3 className="font-bold mb-2">Stay Updated</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Get notified when new features are released.
-            </p>
-            <a href="mailto:support@mindwhile.com?subject=Subscribe to Release Notes" className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
-              Subscribe to Updates
+            <h3 className="font-bold mb-2">Questions about an update?</h3>
+            <p className="text-sm text-muted-foreground mb-4">Write to us and we'll help.</p>
+            <a href={`mailto:${COMPANY.email}?subject=NeuraTalk%20update`} className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
+              Email {COMPANY.email}
             </a>
           </div>
         </div>

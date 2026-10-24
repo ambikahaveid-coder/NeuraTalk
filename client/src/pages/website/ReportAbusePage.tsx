@@ -2,6 +2,8 @@ import { useState } from "react";
 
 export default function ReportAbusePage() {
   const [submitted, setSubmitted] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     type: "",
     description: "",
@@ -11,6 +13,7 @@ export default function ReportAbusePage() {
 
   const abuseTypes = [
     "Spam or Unwanted Calls",
+    "Business Sending Unwanted or Misleading Messages",
     "Harassment or Threats",
     "Voice Cloning / Impersonation Without Consent",
     "Fraud or Scam",
@@ -22,9 +25,24 @@ export default function ReportAbusePage() {
     "Other",
   ];
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSubmitted(true);
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/abuse/report-public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: form.type, description: form.description, evidence: form.evidence, reporterEmail: form.reporterEmail }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.message || "Could not send the report.");
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(`${err.message} You can also email support@mindwhile.com.`);
+    } finally {
+      setSending(false);
+    }
   }
 
   if (submitted) {
@@ -37,8 +55,7 @@ export default function ReportAbusePage() {
             Thank you for helping keep NeuraTalk safe. We take all reports seriously.
           </p>
           <p className="text-sm text-muted-foreground mb-6">
-            Our Trust &amp; Safety team will review your report within <strong>24–48 hours</strong>.
-            If you provided an email, we'll keep you updated.
+            Our team reviews every report. If you left an email, we'll write to you about it.
           </p>
           <a href="/" className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
             Return to Home
@@ -137,10 +154,13 @@ export default function ReportAbusePage() {
 
             <button
               type="submit"
-              className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+              disabled={sending}
+              className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+              data-testid="button-report-submit"
             >
-              Submit Report
+              {sending ? "Sending…" : "Submit Report"}
             </button>
+            {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
           </form>
 
           <div className="mt-8 bg-card border rounded-xl p-6">

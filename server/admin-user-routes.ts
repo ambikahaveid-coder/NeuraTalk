@@ -399,13 +399,24 @@ export function registerAdminUserRoutes(app: Express) {
         return res.status(403).json({ success: false, message: "Cannot delete super admin accounts" });
       }
 
-      await db.delete(users).where(eq(users.id, userId));
+      // Same erasure as the owner's own "Delete my account": identity, voice,
+      // devices and sessions removed; messages others received stay with
+      // them. A hard DELETE used to cascade into other people's chats.
+      const { deleteAccount, AccountDeletionRefusedError } = await import("./account-deletion");
+      try {
+        await deleteAccount(userId, `Deleted by administrator ${req.user!.id}`);
+      } catch (error) {
+        if (error instanceof AccountDeletionRefusedError) {
+          return res.status(409).json({ success: false, message: error.message });
+        }
+        throw error;
+      }
 
       await AuditHelpers.logDelete(
         req.user!.id,
         "user",
         userId,
-        { deletedEmail: existing.email }
+        { deletedEmail: existing.email, erased: true }
       );
 
       logger.info("AdminUsers", `User deleted: ${userId} by admin ${req.user!.id}`);

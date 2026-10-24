@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "./role-middleware";
 import { db } from "./db";
-import { users, organizations, conversations, voiceProfiles, subscriptions, invoices, registeredDevices, userConsents, dataSubjectRequests, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS } from "@shared/schema";
+import { users, organizations, conversations, voiceProfiles, subscriptions, invoices, registeredDevices, userConsents, dataSubjectRequests, personalChatMessages, DATA_REQUEST_TYPE, DATA_REQUEST_STATUS } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 
 const router = Router();
@@ -61,8 +61,21 @@ router.get("/api/gdpr/export", requireAuth, async (req: Request, res: Response) 
       orgData = org;
     }
 
+    // Messages this person wrote in their chats (newest 5,000).
+    const sentMessages = await db.select({
+      threadId: personalChatMessages.threadId,
+      type: personalChatMessages.messageType,
+      text: personalChatMessages.originalContent,
+      language: personalChatMessages.originalLanguage,
+      sentAt: personalChatMessages.createdAt,
+    }).from(personalChatMessages)
+      .where(eq(personalChatMessages.senderUserId, userId))
+      .orderBy(desc(personalChatMessages.createdAt))
+      .limit(5000);
+
     const exportData = {
       exportDate: new Date().toISOString(),
+      chatMessagesYouSent: sentMessages,
       exportVersion: "1.0",
       dataController: {
         name: "Mindwhile IT Solutions Pvt Ltd",

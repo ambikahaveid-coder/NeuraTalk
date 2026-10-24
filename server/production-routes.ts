@@ -833,6 +833,37 @@ export function registerProductionRoutes(app: Express): void {
   // ========================================================================
   
   /**
+   * Report Abuse form on the public website (no account needed). Lands in the
+   * same queue the super admin reviews (Admin -> Abuse Reports). The form used
+   * to show "Report submitted" without sending anything.
+   */
+  app.post("/api/abuse/report-public", createRateLimiter("strict"), async (req, res) => {
+    const schema = z.object({
+      category: z.string().trim().min(2).max(100),
+      description: z.string().trim().min(10, "Please describe what happened").max(5000),
+      evidence: z.string().trim().max(5000).optional().or(z.literal("")),
+      reporterEmail: z.string().trim().email().max(255).optional().or(z.literal("")),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.errors[0]?.message ?? "Check the form" });
+    try {
+      const [report] = await db.insert(abuseReports).values({
+        reporterUserId: null,
+        reportedEntityType: "website_report",
+        category: parsed.data.category,
+        description: parsed.data.description,
+        evidence: [{ text: parsed.data.evidence || null, reporterEmail: parsed.data.reporterEmail || null, source: "website" }],
+        status: "pending",
+      }).returning({ id: abuseReports.id });
+      logger.info("ProductionRoutes", "Public abuse report submitted", { reportId: report.id, category: parsed.data.category });
+      res.json({ success: true, reportId: report.id });
+    } catch (err) {
+      logger.error("ProductionRoutes", "Public abuse report failed", err as Error);
+      res.status(500).json({ success: false, message: "Could not send the report. Please email us instead." });
+    }
+  });
+
+  /**
    * Submit abuse report
    */
   app.post("/api/abuse/report", loadUser, requireAuth, createRateLimiter("strict"), async (req, res) => {

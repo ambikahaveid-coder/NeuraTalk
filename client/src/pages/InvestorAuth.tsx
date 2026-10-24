@@ -267,7 +267,7 @@ export default function InvestorAuth() {
 
           <div className="mt-8 grid grid-cols-3 gap-4">
             <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
-              <div className="text-lg font-bold text-cyan-400">50+</div>
+              <div className="text-lg font-bold text-cyan-400">23</div>
               <div className="text-xs text-muted-foreground">Languages</div>
             </div>
             <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">

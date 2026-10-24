@@ -88,9 +88,9 @@ export default function CallConsent({ onAccept, onDecline }: CallConsentProps) {
               </h4>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
                 By enabling Neura-Talk intelligence, you acknowledge that this service operates under the 
-                <strong> Digital Personal Data Protection (DPDP) Act of India</strong> and <strong>GDPR guidelines</strong>. 
-                Audio streams are processed via encrypted self-hosted nodes. You are responsible for notifying 
-                all parties that the call is being translated by AI.
+                <strong> Digital Personal Data Protection (DPDP) Act of India</strong>. Speech travels over encrypted
+                connections to our translation providers and the audio is never recorded. You are responsible for telling
+                everyone on the call that it is being translated by AI.
               </p>
             </div>
 

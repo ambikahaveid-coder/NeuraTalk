@@ -1,172 +1,57 @@
+import { Link } from "wouter";
+import { COMPANY, LEGAL_UPDATED } from "./site-facts";
+
 export default function RefundPolicyPage() {
   return (
     <div className="min-h-screen bg-background">
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Refund Policy</h1>
-          <p className="text-muted-foreground">Last updated: June 2026</p>
-          <p className="text-sm text-muted-foreground mt-2">
-            Compliant with Consumer Protection Act 2019 (India) and RBI Payment Guidelines
-          </p>
+          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-sm text-muted-foreground mt-2">In line with the Consumer Protection Act, 2019</p>
         </div>
       </section>
 
       <section className="py-16 px-4">
         <div className="max-w-3xl mx-auto prose prose-neutral dark:prose-invert">
-          <h2>1. Overview</h2>
+          <h2>1. How paying works</h2>
           <p>
-            NeuraTalk, operated by Mindwhile IT Solutions Pvt Ltd, offers a fair and transparent refund
-            process. This policy applies to all credit purchases, subscription plans, and add-on purchases
-            made on our platform.
+            NeuraTalk plans and wallet top-ups are prepaid in Indian Rupees. Translated call time, and for businesses their updates, login codes
+            and campaign messages, are deducted as they are used. Nothing renews or is charged again without you choosing to pay.
           </p>
 
-          <h2>2. Credit Purchases</h2>
-          <h3>2.1 Eligibility for Refund</h3>
-          <p>Prepaid credits (NeuraTalk Credits) are eligible for a full refund if:</p>
+          <h2>2. You are never charged for these</h2>
           <ul>
-            <li>The refund request is raised within <strong>7 days</strong> of purchase.</li>
-            <li>Less than 10% of the purchased credits have been consumed.</li>
-            <li>The purchase was not part of a promotional or discounted package.</li>
+            <li>Calls where translation never started because of a problem on our side.</li>
+            <li>Business messages that were not sent — no consent, blocked, over a limit, or the person isn't on NeuraTalk.</li>
           </ul>
 
-          <h3>2.2 Partial Refunds</h3>
-          <p>Partial refunds may be granted for the unused portion of credits if:</p>
-          <ul>
-            <li>The refund request is raised within <strong>30 days</strong> of purchase.</li>
-            <li>A verified technical fault on our platform caused credit loss.</li>
-          </ul>
-
-          <h3>2.3 Non-Refundable Credits</h3>
-          <ul>
-            <li>Credits consumed through successful calls, translations, or API usage.</li>
-            <li>Bonus credits awarded as part of promotional offers.</li>
-            <li>Credits purchased more than 30 days ago.</li>
-          </ul>
-
-          <h2>3. Subscription Plans</h2>
-          <h3>3.1 Monthly Subscriptions</h3>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className="border p-2 text-left">Scenario</th>
-                <th className="border p-2 text-left">Refund</th>
-              </tr>
-            </thead>
+          <h2>3. When you get money back</h2>
+          <table className="w-full border-collapse text-sm">
+            <thead><tr><th className="border p-2 text-left">Situation</th><th className="border p-2 text-left">What you get</th></tr></thead>
             <tbody>
-              <tr>
-                <td className="border p-2">Cancellation within 24 hours of new subscription</td>
-                <td className="border p-2">100% refund</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Cancellation within 7 days, minimal usage</td>
-                <td className="border p-2">Pro-rated refund for remaining days</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Cancellation after 7 days</td>
-                <td className="border p-2">No refund; service continues until period end</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Service outage exceeding 4 hours in a month</td>
-                <td className="border p-2">Pro-rated credit for downtime period</td>
-              </tr>
+              <tr><td className="border p-2">You ask within 7 days of buying a plan or top-up and have used less than 10% of it</td><td className="border p-2">Full refund</td></tr>
+              <tr><td className="border p-2">You were charged twice, or charged the wrong amount</td><td className="border p-2">Full refund of the extra amount</td></tr>
+              <tr><td className="border p-2">A fault on our side used up your minutes or messages</td><td className="border p-2">The minutes or messages restored, or a refund if you prefer</td></tr>
+              <tr><td className="border p-2">Minutes or wallet balance already used for calls or messages that worked</td><td className="border p-2">No refund</td></tr>
+              <tr><td className="border p-2">Free minutes and promotional credit</td><td className="border p-2">No cash value</td></tr>
+              <tr><td className="border p-2">Business agreements with their own terms</td><td className="border p-2">As set out in that agreement</td></tr>
             </tbody>
           </table>
 
-          <h3>3.2 Annual Subscriptions</h3>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className="border p-2 text-left">Scenario</th>
-                <th className="border p-2 text-left">Refund</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border p-2">Cancellation within 14 days of purchase</td>
-                <td className="border p-2">100% refund</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Cancellation after 14 days, before 3 months</td>
-                <td className="border p-2">Pro-rated refund for unused months</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Cancellation after 3 months</td>
-                <td className="border p-2">No refund; service continues until year end</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h2>4. Enterprise Plans</h2>
+          <h2>4. How to ask</h2>
           <p>
-            Enterprise plan refunds are governed by the specific terms in your Enterprise Agreement (MSA).
-            In the absence of custom terms, the standard annual subscription refund policy applies.
-            Contact your account manager or support@mindwhile.com for assistance.
+            Email {COMPANY.email} with the subject "Refund", your registered mobile number, the payment reference and what happened. We reply
+            within 3 working days. Approved refunds go back to the original payment method, usually within 5–10 working days depending on your
+            bank.
           </p>
 
-          <h2>5. Technical Issues &amp; Service Credits</h2>
+          <h2>5. If you disagree</h2>
           <p>
-            If you experience a verified technical issue caused by our platform (e.g., failed calls due to
-            our infrastructure, incorrect billing), we will:
+            Write to our Grievance Officer at {COMPANY.email}; we acknowledge within 24 hours and aim to resolve within 15 days. You can also
+            approach a consumer commission under the Consumer Protection Act, 2019, or your bank for a chargeback.
           </p>
-          <ul>
-            <li>Issue service credits to your account within 5 business days of verified incident.</li>
-            <li>Process a refund to the original payment method if credits are not acceptable.</li>
-          </ul>
-
-          <div className="bg-primary/10 p-4 rounded-lg my-4">
-            <p className="font-semibold">How to Report a Technical Issue:</p>
-            <p>Email support@mindwhile.com with your account email, transaction ID, and a description of the issue. We investigate all reports within 48 hours.</p>
-          </div>
-
-          <h2>6. How to Request a Refund</h2>
-          <ol>
-            <li>Log in to your NeuraTalk account.</li>
-            <li>Navigate to <strong>Billing → Transaction History</strong>.</li>
-            <li>Click the transaction you wish to dispute and select <strong>Request Refund</strong>.</li>
-            <li>Provide the reason and any supporting details.</li>
-            <li>Our team will respond within <strong>3 business days</strong>.</li>
-          </ol>
-          <p>Alternatively, email support@mindwhile.com with your transaction ID and reason.</p>
-
-          <h2>7. Refund Processing Time</h2>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className="border p-2 text-left">Payment Method</th>
-                <th className="border p-2 text-left">Refund Timeline</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td className="border p-2">UPI / Net Banking</td>
-                <td className="border p-2">3–5 business days</td>
-              </tr>
-              <tr>
-                <td className="border p-2">Credit / Debit Card</td>
-                <td className="border p-2">5–10 business days</td>
-              </tr>
-              <tr>
-                <td className="border p-2">NeuraTalk Credits</td>
-                <td className="border p-2">Immediate (credited to account)</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h2>8. Dispute Resolution</h2>
-          <p>
-            If your refund request is denied and you disagree with the decision, you may escalate to:
-          </p>
-          <ul>
-            <li><strong>Grievance Officer:</strong> support@mindwhile.com (response within 15 days)</li>
-            <li><strong>Consumer Forum:</strong> Under the Consumer Protection Act 2019 (India)</li>
-            <li><strong>Payment Dispute:</strong> Contact your bank or card issuer for chargeback under applicable rules</li>
-          </ul>
-
-          <h2>9. Contact</h2>
-          <div className="bg-muted p-4 rounded-lg">
-            <p><strong>Billing Support:</strong> support@mindwhile.com</p>
-            <p><strong>General Support:</strong> support@mindwhile.com</p>
-          </div>
+          <p>See also our <Link href="/cancellation-policy">Cancellation Policy</Link> and <Link href="/terms">Terms of Service</Link>.</p>
         </div>
       </section>
     </div>

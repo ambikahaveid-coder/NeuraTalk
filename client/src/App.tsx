@@ -89,6 +89,8 @@ const StatusPage = lazy(() => import("@/pages/website/StatusPage"));
 const ReleaseNotesPage = lazy(() => import("@/pages/website/ReleaseNotesPage"));
 const HelpCenterPage = lazy(() => import("@/pages/website/HelpCenterPage"));
 const ReportAbusePage = lazy(() => import("@/pages/website/ReportAbusePage"));
+const BusinessPage = lazy(() => import("@/pages/website/BusinessPage"));
+const BusinessMessagingPolicyPage = lazy(() => import("@/pages/website/BusinessMessagingPolicyPage"));
 
 import { CookieConsent } from "@/components/CookieConsent";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
@@ -543,6 +545,12 @@ function Router() {
       </Route>
       <Route path="/report-abuse">
         <WebsitePage><ReportAbusePage /></WebsitePage>
+      </Route>
+      <Route path="/business">
+        <WebsitePage><BusinessPage /></WebsitePage>
+      </Route>
+      <Route path="/business-messaging-policy">
+        <WebsitePage><BusinessMessagingPolicyPage /></WebsitePage>
       </Route>
 
       <Route>

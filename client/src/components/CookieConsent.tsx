@@ -95,9 +95,9 @@ export function CookieConsent() {
                   <div>
                     <h3 className="font-semibold text-lg">Cookie Preferences</h3>
                     <p className="text-sm text-muted-foreground mt-1">
-                      We use cookies to enhance your experience, analyze site traffic, and for marketing purposes. 
-                      By clicking "Accept All", you consent to our use of cookies. 
-                      Read our <a href="/privacy" className="text-primary hover:underline">Privacy Policy</a> for more information.
+                      We only store what the site needs to work — keeping you signed in and remembering your settings.
+                      We don't use advertising or tracking cookies.
+                      Read our <a href="/cookie-policy" className="text-primary hover:underline">Cookie Policy</a>.
                     </p>
                   </div>
                 </div>
@@ -178,37 +178,7 @@ export function CookieConsent() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between p-4 rounded-lg border">
-                  <div>
-                    <Label className="font-medium">Analytics Cookies</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Help us understand how visitors interact with our website.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={preferences.analytics}
-                    onCheckedChange={(checked) => 
-                      setPreferences(p => ({ ...p, analytics: checked }))
-                    }
-                    data-testid="switch-cookie-analytics"
-                  />
-                </div>
 
-                <div className="flex items-center justify-between p-4 rounded-lg border">
-                  <div>
-                    <Label className="font-medium">Marketing Cookies</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Used to deliver personalized advertisements.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={preferences.marketing}
-                    onCheckedChange={(checked) => 
-                      setPreferences(p => ({ ...p, marketing: checked }))
-                    }
-                    data-testid="switch-cookie-marketing"
-                  />
-                </div>
               </div>
 
               <div className="flex justify-end gap-3">
