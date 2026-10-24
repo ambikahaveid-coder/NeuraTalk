@@ -917,6 +917,41 @@ export type ConversationAssignmentFilter = "all" | "mine" | "unassigned";
  * this filter could see a row outside the tenant scope the initial SELECT
  * already established.
  */
+/** The name a team sees for each customer. A name the business typed wins;
+ * a record auto-created from a phone number (name = the number) shows the
+ * person's own NeuraTalk profile name instead, like WhatsApp Business does. */
+async function customerDisplayNames(customerIds: number[]): Promise<Map<number, string | null>> {
+  if (customerIds.length === 0) return new Map();
+  const customerRows = await db.select({
+    id: customers.id,
+    name: customers.name,
+    phone: customers.phone,
+    normalizedPhone: customers.normalizedPhone,
+    linkedUserId: customers.linkedUserId,
+  }).from(customers).where(inArray(customers.id, customerIds));
+  const linkedIds = customerRows.map((r) => r.linkedUserId).filter((id): id is number => id != null);
+  const profiles = linkedIds.length
+    ? await db.select({ id: users.id, displayName: users.displayName }).from(users).where(inArray(users.id, linkedIds))
+    : [];
+  const profileById = new Map(profiles.map((u) => [u.id, u.displayName]));
+  const rows = customerRows.map((r) => ({ ...r, profileName: r.linkedUserId != null ? profileById.get(r.linkedUserId) ?? null : null }));
+  const digits = (v: string | null) => (v ?? "").replace(/\D/g, "");
+  return new Map(rows.map((r) => {
+    const typed = r.name?.trim() || null;
+    const nameIsJustTheNumber = !typed || (digits(typed).length >= 6 && /^[+\d\s()-]+$/.test(typed));
+    const profile = r.profileName?.trim() || null;
+    return [r.id, nameIsJustTheNumber && profile ? profile : (typed ?? r.phone ?? r.normalizedPhone ?? null)];
+  }));
+}
+
+/** Team members by their profile name, not the internal account handle. */
+async function userDisplayNames(userIds: number[]): Promise<Map<number, string>> {
+  if (userIds.length === 0) return new Map();
+  const rows = await db.select({ id: users.id, username: users.username, displayName: users.displayName })
+    .from(users).where(inArray(users.id, userIds));
+  return new Map(rows.map((u) => [u.id, u.displayName?.trim() || u.username]));
+}
+
 export async function listBusinessConversations(
   businessId: number,
   opts: { assignment?: ConversationAssignmentFilter; viewerUserId?: number } = {},
@@ -930,16 +965,10 @@ export async function listBusinessConversations(
   if (conversations.length === 0) return [];
 
   const customerIds = conversations.map((c) => c.customerId).filter((id): id is number => id !== null);
-  const customerRows = customerIds.length
-    ? await db.select({ id: customers.id, name: customers.name }).from(customers).where(inArray(customers.id, customerIds))
-    : [];
-  const customerNameById = new Map(customerRows.map((c) => [c.id, c.name]));
+  const customerNameById = await customerDisplayNames(customerIds);
 
   const assigneeIds = conversations.map((c) => c.assignedToUserId).filter((id): id is number => id !== null);
-  const assigneeRows = assigneeIds.length
-    ? await db.select({ id: users.id, username: users.username }).from(users).where(inArray(users.id, assigneeIds))
-    : [];
-  const assigneeUsernameById = new Map(assigneeRows.map((u) => [u.id, u.username]));
+  const assigneeUsernameById = await userDisplayNames(assigneeIds);
 
   const conversationIds = conversations.map((c) => c.conversationId);
   const RECENT_MESSAGE_SCAN_LIMIT = 500;
@@ -987,11 +1016,9 @@ async function summarizeConversation(businessId: number, businessConversationId:
   const [c] = await db.select().from(businessConversations)
     .where(and(eq(businessConversations.id, businessConversationId), eq(businessConversations.businessId, businessId)));
 
-  const customerName = c.customerId
-    ? (await db.select({ name: customers.name }).from(customers).where(eq(customers.id, c.customerId)))[0]?.name ?? null
-    : null;
+  const customerName = c.customerId ? (await customerDisplayNames([c.customerId])).get(c.customerId) ?? null : null;
   const assignedToUsername = c.assignedToUserId
-    ? (await db.select({ username: users.username }).from(users).where(eq(users.id, c.assignedToUserId)))[0]?.username ?? null
+    ? (await userDisplayNames([c.assignedToUserId])).get(c.assignedToUserId) ?? null
     : null;
   const [latest] = await db.select({ content: messagingMessages.content, createdAt: messagingMessages.createdAt })
     .from(messagingMessages)

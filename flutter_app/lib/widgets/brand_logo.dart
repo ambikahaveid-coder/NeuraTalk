@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../app_variant.dart';
 import '../theme/app_theme.dart';
 
 /// The NeuraTalk "N + voice bars" mark (assets/brand/logo_mark.svg rendered to PNG).
@@ -46,7 +47,7 @@ class NeuraLogo extends StatelessWidget {
         if (tagline) ...[
           SizedBox(height: size * 0.18),
           Text(
-            'CONNECT BEYOND LIMITS',
+            isBusinessApp ? 'BUSINESS' : 'CONNECT BEYOND LIMITS',
             style: TextStyle(
               color: onDark ? AppColors.onAccent.withValues(alpha: 0.75) : AppColors.textSecondary,
               fontSize: (size * 0.32).clamp(9, 16).toDouble(),

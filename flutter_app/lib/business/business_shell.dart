@@ -406,7 +406,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                   minLines: 1,
                   maxLines: 4,
                   maxLength: 8192,
-                  decoration: const InputDecoration(hintText: 'Reply (type / for quick replies)', counterText: '', border: InputBorder.none),
+                  decoration: const InputDecoration(hintText: 'Reply  ·  / for quick replies', hintMaxLines: 1, counterText: '', border: InputBorder.none),
                 ),
               ),
               IconButton(

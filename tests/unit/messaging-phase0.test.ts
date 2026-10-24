@@ -275,7 +275,7 @@ vi.mock("@shared/schema", async (importOriginal) => {
   return {
     ...actual,
     organizations: mkTable("organizations", ["id", "name", "logoUrl", "description", "email", "phone", "status"]),
-    users: mkTable("users", ["id", "username", "organizationId", "isActive", "phone", "email"]),
+    users: mkTable("users", ["id", "username", "organizationId", "isActive", "phone", "email", "displayName"]),
     customers: mkTable("customers", ["id", "businessId", "linkedUserId", "name", "status", "source", "createdBy", "phone", "normalizedPhone", "email", "normalizedEmail", "updatedAt"]),
     messagingConversations: mkTable("messagingConversations", ["id", "type", "organizationId", "metadata", "isArchived", "createdAt", "updatedAt"]),
     businessConversations: mkTable("businessConversations", ["id", "conversationId", "businessId", "customerId", "status", "assignedToUserId", "createdAt"]),
