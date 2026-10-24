@@ -135,7 +135,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
                       Flexible(child: Text(b['name']?.toString() ?? '', overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600))),
                       if (b['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan)),
                     ]),
-                    subtitle: Text([b['category'], b['city']].where((v) => v != null && '$v'.isNotEmpty).join(' · '),
+                    subtitle: Text([_cap(b['category']), b['city']].where((v) => v != null && '$v'.isNotEmpty).join(' · '),
                         style: TextStyle(color: AppColors.textSecondary)),
                     onTap: () => _open((b['id'] as num).toInt(), b['name']?.toString() ?? 'Business'),
                   ),
@@ -422,7 +422,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
   @override
   Widget build(BuildContext context) {
     final p = _profile;
-    final subtitle = p == null ? null : [p['category'], p['city'], p['openNow'] == true ? 'Open now' : 'Closed now'].where((v) => v != null && '$v'.isNotEmpty).join(' · ');
+    final subtitle = p == null ? null : [_cap(p['category']), p['city'], p['openNow'] == true ? 'Open now' : 'Closed now'].where((v) => v != null && '$v'.isNotEmpty).join(' · ');
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -570,4 +570,10 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
       ),
     );
   }
+}
+
+/// "retail" -> "Retail" for display.
+String? _cap(Object? v) {
+  final t = v?.toString().trim() ?? '';
+  return t.isEmpty ? null : t[0].toUpperCase() + t.substring(1);
 }

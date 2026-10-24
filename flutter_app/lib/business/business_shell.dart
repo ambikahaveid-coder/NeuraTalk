@@ -124,6 +124,21 @@ class BusinessInboxScreen extends StatefulWidget {
 }
 
 class _BusinessInboxScreenState extends State<BusinessInboxScreen> {
+  /// Last message time: "12:40 PM" today, then "Yesterday", weekday, date.
+  static String _when(Object? iso) {
+    final dt = DateTime.tryParse('${iso ?? ''}')?.toLocal();
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final days = DateTime(now.year, now.month, now.day).difference(DateTime(dt.year, dt.month, dt.day)).inDays;
+    if (days <= 0) {
+      final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+      return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+    }
+    if (days == 1) return 'Yesterday';
+    if (days < 7) return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
+    return '${dt.day}/${dt.month}/${dt.year % 100}';
+  }
+
   String _filter = 'all';
   List<Map<String, dynamic>> _conversations = [];
   bool _loading = true;
@@ -232,9 +247,17 @@ class _BusinessInboxScreenState extends State<BusinessInboxScreen> {
                                 leading: NtAvatar(name: name),
                                 title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                                 subtitle: Text('${last['content'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary)),
-                                trailing: Text(
-                                  c['assignedToUsername'] != null ? '${c['assignedToUsername']}' : 'Unassigned',
-                                  style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(_when(last['createdAt']), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      c['assignedToUsername'] != null ? '${c['assignedToUsername']}' : 'Unassigned',
+                                      style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+                                    ),
+                                  ],
                                 ),
                                 onTap: () async {
                                   await Navigator.push(context, MaterialPageRoute(
