@@ -15,6 +15,8 @@ import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
 import '../widgets/reactions.dart';
 import '../widgets/link_preview.dart';
+import '../widgets/business_chat_extras.dart';
+import '../widgets/location_share.dart';
 import 'call_screen.dart';
 
 /// Messages from businesses (NeuraTalk's own business chat): order updates,
@@ -319,6 +321,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
       setState(() {
         _messages = list.reversed.toList();
         _me = (res['viewerParticipantId'] as num?)?.toInt();
+        _businessTyping = res['businessTyping'] == true;
         _loading = false;
         _error = null;
       });
@@ -338,13 +341,26 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
-  Future<void> _send({Map<String, dynamic>? attachment}) async {
+  /// The message being replied to, shown above the box until sent.
+  Map<String, dynamic>? _replyTo;
+  bool _businessTyping = false;
+  late final TypingPinger _typing = TypingPinger('$_base/typing');
+
+  bool _isMine(Map m) => _me != null && (m['senderParticipantId'] as num?)?.toInt() == _me;
+
+  Future<void> _send({Map<String, dynamic>? attachment, Map<String, dynamic>? location}) async {
     final text = _input.text.trim();
-    if ((text.isEmpty && attachment == null) || _sending) return;
+    if ((text.isEmpty && attachment == null && location == null) || _sending) return;
     setState(() => _sending = true);
     try {
-      await ApiService.post('$_base/messages', {'content': text, if (attachment != null) 'attachment': attachment});
-      _input.clear();
+      await ApiService.post('$_base/messages', {
+        'content': location == null ? text : '',
+        if (attachment != null) 'attachment': attachment,
+        if (location != null) 'location': location,
+        if (_replyTo != null) 'replyToMessageId': _replyTo!['id'],
+      });
+      if (location == null) _input.clear();
+      _replyTo = null;
       await _load(quiet: true);
     } catch (e) {
       if (mounted) {
@@ -355,8 +371,14 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
+  Future<void> _shareLocation() async {
+    await showShareLocationSheet(context, onSend: (lat, lng, address) async {
+      await _send(location: {'latitude': lat, 'longitude': lng, if (address != null && address.isNotEmpty) 'address': address});
+    });
+  }
+
   Future<void> _attach() async {
-    final picked = await AttachmentPicker.show(context);
+    final picked = await AttachmentPicker.show(context, onLocation: _shareLocation);
     for (final (file, name) in picked.take(5)) {
       try {
         setState(() => _sending = true);
@@ -721,7 +743,10 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                   if (p?['verified'] == true)
                     Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan, semanticLabel: 'Verified business')),
                 ]),
-                if (subtitle != null) Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                if (_businessTyping)
+                  const TypingLabel()
+                else if (subtitle != null)
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ]),
             ),
           ]),
@@ -787,14 +812,20 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               ),
             ),
           )
-        else
+        else ...[
+        if (_replyTo != null)
+          ReplyBar(
+            message: _replyTo!,
+            fromLabel: _isMine(_replyTo!) ? 'yourself' : (_name ?? 'business'),
+            onClose: () => setState(() => _replyTo = null),
+          ),
         SafeArea(
           top: false,
           child: Container(
             padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
             decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
             child: Row(children: [
-              IconButton(tooltip: 'Attach a photo or file', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
+              IconButton(tooltip: 'Attach a photo, file or location', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -802,6 +833,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                   maxLines: 4,
                   maxLength: 8192,
                   textInputAction: TextInputAction.send,
+                  onChanged: _typing.onChanged,
                   onSubmitted: (_) => _send(),
                   decoration: const InputDecoration(hintText: 'Message', counterText: '', border: InputBorder.none),
                 ),
@@ -816,6 +848,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
             ]),
           ),
         ),
+        ],
       ]),
     );
   }
@@ -844,7 +877,8 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     final showingOriginal = _showOriginal.contains(id);
     final shown = translated != null && !showingOriginal ? translated : original;
     final attachments = (m['attachments'] as List? ?? const []).whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList();
-    final link = attachments.isEmpty ? firstLinkIn(shown) : null;
+    final location = m['messageType'] == 'location' ? ((m['metadata'] as Map?)?['location'] as Map?) : null;
+    final link = attachments.isEmpty && location == null ? firstLinkIn(shown) : null;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
@@ -872,8 +906,18 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                 Text('Verification code — never share it', style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w600)),
               ]),
             ),
+          if (m['replyTo'] is Map)
+            QuotedMessage(
+              quoted: m['replyTo'] as Map,
+              fromLabel: _isMine(m['replyTo'] as Map) ? 'You' : (_name ?? 'Business'),
+            ),
           for (final a in attachments) Padding(padding: const EdgeInsets.only(bottom: 6), child: _attachment(a, original)),
-          if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
+          if (location != null)
+            ChatLocationAttachment(
+              geo: 'geo:${location['latitude']},${location['longitude']}',
+              title: (location['name'] ?? location['address'])?.toString(),
+            )
+          else if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
             Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
           if (link != null) LinkPreviewCard(url: link),
           if (_orders[id] != null) _orderStrip(_orders[id]!),
@@ -918,6 +962,15 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
             _react(id, myReaction == emoji ? null : emoji);
           }),
           Divider(height: 1, color: AppColors.border),
+          if (!_blocked)
+            ListTile(
+              leading: Icon(Icons.reply, color: AppColors.cyan),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(sheet);
+                setState(() => _replyTo = m);
+              },
+            ),
           ListTile(
             leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
             title: const Text('Copy'),

@@ -22,6 +22,8 @@ import 'business_onboarding_screen.dart';
 import 'business_profile_screen.dart';
 import 'business_tools_screen.dart';
 import 'template_picker.dart';
+import '../widgets/business_chat_extras.dart';
+import '../widgets/location_share.dart';
 import '../utils/phone_format.dart';
 
 /// NeuraTalk Business: like WhatsApp Business, inside NeuraTalk. Chats with
@@ -638,6 +640,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
         setState(() {
           _messages = list.reversed.toList();
           _businessParticipantId = (res['businessParticipantId'] as num?)?.toInt();
+          _customerTyping = res['customerTyping'] == true;
           _loading = false;
           _error = null;
         });
@@ -679,13 +682,29 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     }
   }
 
-  Future<void> _send({Map<String, dynamic>? attachment}) async {
+  Map<String, dynamic>? _replyTo;
+  bool _customerTyping = false;
+  late final TypingPinger _typing = TypingPinger('$_base/conversations/${widget.conversationId}/typing');
+
+  Future<void> _shareLocation() async {
+    await showShareLocationSheet(context, onSend: (lat, lng, address) async {
+      await _send(location: {'latitude': lat, 'longitude': lng, if (address != null && address.isNotEmpty) 'address': address});
+    });
+  }
+
+  Future<void> _send({Map<String, dynamic>? attachment, Map<String, dynamic>? location}) async {
     final text = _input.text.trim();
-    if ((text.isEmpty && attachment == null) || _sending) return;
+    if ((text.isEmpty && attachment == null && location == null) || _sending) return;
     setState(() => _sending = true);
     try {
-      await ApiService.post('$_base/conversations/${widget.conversationId}/messages', {'content': text, if (attachment != null) 'attachment': attachment});
-      _input.clear();
+      await ApiService.post('$_base/conversations/${widget.conversationId}/messages', {
+        'content': location == null ? text : '',
+        if (attachment != null) 'attachment': attachment,
+        if (location != null) 'location': location,
+        if (_replyTo != null) 'replyToMessageId': _replyTo!['id'],
+      });
+      if (location == null) _input.clear();
+      _replyTo = null;
       await _load(quiet: true);
     } catch (e) {
       if (e is ApiException && e.statusCode == 409) {
@@ -699,7 +718,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
   }
 
   Future<void> _attach() async {
-    final picked = await AttachmentPicker.show(context);
+    final picked = await AttachmentPicker.show(context, onLocation: _shareLocation);
     for (final (file, name) in picked.take(5)) {
       try {
         setState(() => _sending = true);
@@ -828,7 +847,10 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_name, overflow: TextOverflow.ellipsis),
-                if (_phone != null && _phone != _name) Text(prettyPhone(_phone), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                if (_customerTyping)
+                  const TypingLabel()
+                else if (_phone != null && _phone != _name)
+                  Text(prettyPhone(_phone), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ]),
             ),
           ]),
@@ -914,20 +936,27 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
               ]),
             ),
           )
-        else
+        else ...[
+        if (_replyTo != null)
+          ReplyBar(
+            message: _replyTo!,
+            fromLabel: _replyTo!['deliveryToCustomer'] != null ? 'yourself' : _name,
+            onClose: () => setState(() => _replyTo = null),
+          ),
         SafeArea(
           top: false,
           child: Container(
             padding: const EdgeInsets.fromLTRB(4, 8, 8, 8),
             decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
             child: Row(children: [
-              IconButton(tooltip: 'Attach a photo or file', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
+              IconButton(tooltip: 'Attach a photo, file or location', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,
                   minLines: 1,
                   maxLines: 4,
                   maxLength: 8192,
+                  onChanged: _typing.onChanged,
                   textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(hintText: 'Reply  ·  / for quick replies', hintMaxLines: 1, counterText: '', border: InputBorder.none),
                 ),
@@ -942,6 +971,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             ]),
           ),
         ),
+        ],
       ]),
     );
   }
@@ -950,6 +980,10 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     final id = (m['id'] as num).toInt();
     // Business side = messages delivered to the customer (agents, campaigns, codes).
     final ours = m['deliveryToCustomer'] != null;
+    final location = m['messageType'] == 'location' ? ((m['metadata'] as Map?)?['location'] as Map?) : null;
+    final quoted = m['replyTo'] is Map ? m['replyTo'] as Map : null;
+    // Was the quoted message ours? (Its sender is the business or one of the team.)
+    final quotedOurs = quoted != null && _messages.any((x) => x['id'] == quoted['id'] && x['deliveryToCustomer'] != null);
     final original = '${m['content'] ?? ''}';
     final translated = m['translatedContent'] as String?;
     final showOriginal = _showOriginal.contains(id);
@@ -975,6 +1009,12 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
           border: Border.all(color: AppColors.border),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (quoted != null) QuotedMessage(quoted: quoted, fromLabel: quotedOurs ? 'You' : _name),
+          if (location != null)
+            ChatLocationAttachment(
+              geo: 'geo:${location['latitude']},${location['longitude']}',
+              title: (location['name'] ?? location['address'])?.toString(),
+            ),
           for (final a in attachments)
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -989,7 +1029,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                           mime: a['mimeType'] as String?,
                         ),
             ),
-          if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
+          if (location == null && (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original)))
             Text(shownText, style: TextStyle(color: AppColors.ink, fontSize: 15)),
           if (link != null) LinkPreviewCard(url: link),
           if (translated != null)
@@ -1028,6 +1068,15 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             _react(id, mine == emoji ? null : emoji);
           }),
           Divider(height: 1, color: AppColors.border),
+          if (_windowOpen != false)
+            ListTile(
+              leading: Icon(Icons.reply, color: AppColors.cyan),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(sheet);
+                setState(() => _replyTo = m);
+              },
+            ),
           ListTile(
             leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
             title: const Text('Copy'),

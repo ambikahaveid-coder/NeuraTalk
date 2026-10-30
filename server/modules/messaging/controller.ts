@@ -31,6 +31,7 @@ import { acknowledgeBusinessReads, acknowledgeConsumerDeliveries } from "./deliv
 import { getMessagingSettings, getPublicBusinessProfile, searchBusinesses, updateMessagingSettings } from "./business-directory";
 import { viewerTranslationLanguage, withTranslations } from "./translate";
 import { attachmentInputSchema, AttachmentNotOwnedError } from "./attachments";
+import { isTyping } from "./reactions";
 import { getCustomerConsents, setChannelConsent } from "../customers/service";
 import { db } from "../../db";
 import { and, eq } from "drizzle-orm";
@@ -186,6 +187,14 @@ export async function listEligibleAssigneesHandler(req: Request, res: Response) 
   }
 }
 
+// A shared place: coordinates must be real; name/address are optional labels.
+const locationSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  name: z.string().trim().max(120).optional(),
+  address: z.string().trim().max(300).optional(),
+});
+
 const createMessageSchema = z.object({
   // Optional, and NEVER trusted as the write value -- see service.ts's
   // createMessage doc comment. Consistency-check only against the sender
@@ -195,9 +204,11 @@ const createMessageSchema = z.object({
   content: z.string().max(8192).default(""),
   messageType: z.string().optional(),
   attachment: attachmentInputSchema.optional(),
+  replyToMessageId: z.number().int().positive().optional(),
+  location: locationSchema.optional(),
   // category is deliberately NOT accepted here -- structural governance,
   // see doc 24 section 6. Any category field in the request body is ignored.
-}).refine((v) => v.content.trim() || v.attachment, { message: "content must not be empty" });
+}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" });
 
 export async function postMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -225,9 +236,12 @@ export async function postMessage(req: Request, res: Response) {
       content: parsed.data.content,
       messageType: parsed.data.messageType,
       attachment: parsed.data.attachment,
+      replyToMessageId: parsed.data.replyToMessageId,
+      location: parsed.data.location,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
+    if ((error as Error)?.message === "VALIDATION_REPLY_TARGET") return badRequest(res, "The message you replied to isn't in this chat.");
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
     if (error instanceof NotAParticipantError) return res.status(403).json({ success: false, error: error.message });
     if (error instanceof SenderIdentityMismatchError) return res.status(403).json({ success: false, error: error.message });
@@ -256,7 +270,9 @@ const sendUserMessageSchema = z.object({
   content: z.string().max(8192).default(""),
   messageType: z.string().optional(),
   attachment: attachmentInputSchema.optional(),
-}).refine((v) => v.content.trim() || v.attachment, { message: "content must not be empty" });
+  replyToMessageId: z.number().int().positive().optional(),
+  location: locationSchema.optional(),
+}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" });
 
 export async function sendUserMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -279,9 +295,12 @@ export async function sendUserMessage(req: Request, res: Response) {
       content: parsed.data.content,
       messageType: parsed.data.messageType,
       attachment: parsed.data.attachment,
+      replyToMessageId: parsed.data.replyToMessageId,
+      location: parsed.data.location,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
+    if ((error as Error)?.message === "VALIDATION_REPLY_TARGET") return badRequest(res, "The message you replied to isn't in this chat.");
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
     if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
     // Blocked this business: unblock first (as in WhatsApp).
@@ -321,7 +340,9 @@ export async function getMessages(req: Request, res: Response) {
   // The agent reads the customer's messages in the agent's own language.
   const language = await viewerTranslationLanguage(req.user!.id).catch(() => null);
   const messages = await withTranslations(result.messages, language, (m) => m.deliveryToCustomer != null);
-  return res.json({ success: true, ...result, messages });
+  const customerTyping = result.conversationId ? await isTyping(result.conversationId, "customer") : false;
+  const { conversationId: _c, ...rest } = result;
+  return res.json({ success: true, ...rest, messages, customerTyping });
 }
 
 // P1-3A Part A: consumer-facing, requireAuth only (see routes.ts) -- any
@@ -366,7 +387,9 @@ export async function getUserMessages(req: Request, res: Response) {
     // The customer reads the business's messages in their own language.
     const language = await viewerTranslationLanguage(req.user!.id).catch(() => null);
     const messages = await withTranslations(result.messages, language, (m) => result.viewerParticipantId != null && m.senderParticipantId === result.viewerParticipantId);
-    return res.json({ success: true, ...result, messages });
+    const businessTyping = "conversationId" in result && result.conversationId ? await isTyping(result.conversationId, "business") : false;
+    const { conversationId: _c, ...rest } = result as typeof result & { conversationId?: number };
+    return res.json({ success: true, ...rest, messages, businessTyping });
   } catch (error) {
     logger.error("Messaging", "Failed to fetch user-initiated messages", error as Error);
     return res.status(500).json({ success: false, error: "Failed to load messages" });

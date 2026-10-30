@@ -14,9 +14,29 @@ import {
 import { requireAuth, requireCompanyAccess, requirePermission } from "../../role-middleware";
 import { publishMessagingEvent } from "./realtime";
 import { logger } from "../../observability";
+import { getRedisClient, isRedisReady } from "../../redis";
 
 const NOT_AN_EMOJI = new RegExp("[\\p{L}\\p{N}\\s<>]", "u");
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+const TYPING_SECONDS = 6;
+const typingKey = (conversationId: number, side: "business" | "customer") => `biztyping:${conversationId}:${side}`;
+
+export async function setTyping(conversationId: number, side: "business" | "customer"): Promise<void> {
+  try {
+    if (!isRedisReady()) return;
+    await getRedisClient().set(typingKey(conversationId, side), "1", "EX", TYPING_SECONDS);
+  } catch { /* best effort */ }
+}
+
+export async function isTyping(conversationId: number, side: "business" | "customer"): Promise<boolean> {
+  try {
+    if (!isRedisReady()) return false;
+    return (await getRedisClient().exists(typingKey(conversationId, side))) === 1;
+  } catch {
+    return false;
+  }
+}
 
 // Same table and columns as shared/schema.ts `messagingReactions`
 // (migration 0004); this only makes sure it exists on older databases.
@@ -172,6 +192,20 @@ export function registerBusinessChatReactionRoutes(app: Express): void {
     if (!participant) return null;
     return { businessId, bizConversationId: bc.id, conversationId: bc.conversationId, participant, userId };
   }
+
+  // "typing…" -- each side pings while composing; it fades after 6 s.
+  app.post("/api/business/:businessId/conversations/:id/typing", ...bizGuard, async (req: Request, res: Response) => {
+    const ctx = await bizContext(req);
+    if (!ctx) return res.status(404).json({ success: false, error: "Conversation not found" });
+    await setTyping(ctx.conversationId, "business");
+    return res.json({ success: true });
+  });
+  app.post("/api/messaging/business/:businessId/typing", requireAuth, async (req: Request, res: Response) => {
+    const ctx = await customerContext(req);
+    if (!ctx) return res.json({ success: true }); // no chat yet: nothing to show
+    await setTyping(ctx.conversationId, "customer");
+    return res.json({ success: true });
+  });
 
   app.post("/api/messaging/business/:businessId/messages/:messageId/reaction", requireAuth, async (req: Request, res: Response) => {
     if (!validEmoji(req.body?.emoji)) return res.status(400).json({ success: false, error: "Pick an emoji." });

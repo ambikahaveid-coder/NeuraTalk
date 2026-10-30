@@ -319,7 +319,15 @@ export interface CreateMessageInput {
    * order's status). Exempt from the 24-hour rule, never set from a request.
    */
   systemUpdate?: boolean;
+  /** Quote an earlier message of the same conversation. */
+  replyToMessageId?: number;
+  /** Share a place instead of text. */
+  location?: LocationInput;
+  /** The customer tapped a quick-reply button of a business message. */
+  buttonReply?: { messageId: number; buttonId: string; title: string };
 }
+
+export interface LocationInput { latitude: number; longitude: number; name?: string; address?: string }
 
 export interface CreateMessageResult {
   message: typeof messagingMessages.$inferSelect;
@@ -367,15 +375,35 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   }
   const senderParticipantId = ownParticipant.id;
 
-  const messageType = input.attachment
-    ? messageTypeFor(input.attachment, input.messageType)
-    : input.messageType && Object.values(MESSAGE_TYPE).includes(input.messageType as any) && input.messageType !== MESSAGE_TYPE.TEMPLATE && input.messageType !== MESSAGE_TYPE.SYSTEM
-      ? input.messageType
-      : MESSAGE_TYPE.TEXT;
-  // A file may be sent without a caption; lists and notifications show a label.
-  const content = input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
+  const messageType = input.location
+    ? "location"
+    : input.attachment
+      ? messageTypeFor(input.attachment, input.messageType)
+      : input.messageType && Object.values(MESSAGE_TYPE).includes(input.messageType as any) && input.messageType !== MESSAGE_TYPE.TEMPLATE && input.messageType !== MESSAGE_TYPE.SYSTEM
+        ? input.messageType
+        : MESSAGE_TYPE.TEXT;
+  // A file or a location may be sent without a caption; lists and notifications show a label.
+  const content = input.location
+    ? `📍 ${input.location.name?.trim() || input.location.address?.trim() || "Location"}`
+    : input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
   if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
   if (content.length > 8192) throw new Error("VALIDATION_CONTENT_TOO_LONG");
+
+  // A reply quotes a message of this same conversation only.
+  let replyToMessageId: number | null = null;
+  if (input.replyToMessageId) {
+    const [target] = await tx.select({ id: messagingMessages.id }).from(messagingMessages)
+      .where(and(
+        eq(messagingMessages.id, input.replyToMessageId),
+        eq(messagingMessages.conversationId, bizConversation.conversationId),
+        isNull(messagingMessages.deletedAt),
+      ));
+    if (!target) throw new Error("VALIDATION_REPLY_TARGET");
+    replyToMessageId = target.id;
+  }
+  const metadata: Record<string, unknown> = {};
+  if (input.location) metadata.location = input.location;
+  if (input.buttonReply) metadata.buttonReply = input.buttonReply;
 
   const [message] = await tx.insert(messagingMessages).values({
     conversationId: bizConversation.conversationId,
@@ -383,6 +411,8 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
     messageType,
     category: MESSAGE_CATEGORY.CONVERSATIONAL,
     content,
+    replyToMessageId,
+    metadata,
   }).returning();
 
   if (input.attachment) {
@@ -501,6 +531,8 @@ export interface ListMessagesResult {
   offset: number;
   /** The business's own participant id (its reactions are keyed by it). */
   businessParticipantId?: number | null;
+  /** Internal conversation id (for the typing indicator). */
+  conversationId?: number;
 }
 
 export async function listMessages(
@@ -524,8 +556,28 @@ export async function listMessages(
     .limit(limit)
     .offset(offset);
 
-  const messages = await attachReactions(await withDeliveryStatus(bizConversation.conversationId, rows));
-  return { messages, total: messages.length, limit, offset, businessParticipantId: await businessParticipantId(bizConversation.conversationId) };
+  const withReactions = await attachReactions(await withDeliveryStatus(bizConversation.conversationId, rows));
+  // A reply shows the message it quotes (even if older than this page).
+  const quotedIds = Array.from(new Set(rows.map((r) => r.replyToMessageId).filter((id): id is number => id != null)));
+  const quoted = quotedIds.length
+    ? await db.select({ id: messagingMessages.id, content: messagingMessages.content, messageType: messagingMessages.messageType, senderParticipantId: messagingMessages.senderParticipantId, deletedAt: messagingMessages.deletedAt })
+        .from(messagingMessages).where(inArray(messagingMessages.id, quotedIds))
+    : [];
+  const quotedById = new Map(quoted.map((q) => [q.id, q]));
+  const messages = withReactions.map((m) => {
+    const q = m.replyToMessageId != null ? quotedById.get(m.replyToMessageId) : undefined;
+    return {
+      ...m,
+      replyTo: q
+        ? { id: q.id, content: q.deletedAt ? "Message deleted" : q.content.slice(0, 200), messageType: q.messageType, senderParticipantId: q.senderParticipantId }
+        : null,
+    };
+  });
+  return {
+    messages, total: messages.length, limit, offset,
+    businessParticipantId: await businessParticipantId(bizConversation.conversationId),
+    conversationId: bizConversation.conversationId,
+  };
 }
 
 export interface SendUserInitiatedMessageInput {
@@ -536,6 +588,9 @@ export interface SendUserInitiatedMessageInput {
   content: string;
   messageType?: string;
   attachment?: AttachmentInput;
+  replyToMessageId?: number;
+  location?: LocationInput;
+  buttonReply?: { messageId: number; buttonId: string; title: string };
 }
 
 /**
@@ -647,6 +702,9 @@ export async function sendUserInitiatedMessage(
       content: input.content,
       messageType: input.messageType,
       attachment: input.attachment,
+      replyToMessageId: input.replyToMessageId,
+      location: input.location,
+      buttonReply: input.buttonReply,
     });
   });
 

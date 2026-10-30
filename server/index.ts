@@ -456,6 +456,8 @@ app.use((req, res, next) => {
     await ensureOrdersTable();
     const { ensureVerificationTable } = await import("./modules/business-verification/routes");
     await ensureVerificationTable();
+    // Business chat: location / buttons / button replies live here.
+    await _db.execute(_sql`ALTER TABLE "messaging_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
   }, { optional: true });
   let redisOperational = false;
   try {

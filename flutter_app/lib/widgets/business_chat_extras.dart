@@ -1,0 +1,95 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../services/api_service.dart';
+import '../theme/app_theme.dart';
+
+/// The message a reply quotes, shown at the top of the reply bubble.
+class QuotedMessage extends StatelessWidget {
+  const QuotedMessage({super.key, required this.quoted, required this.fromLabel, this.onTap});
+  final Map quoted;
+  final String fromLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = quoted['messageType']?.toString();
+    final icon = switch (type) {
+      'image' => Icons.photo_outlined,
+      'video' => Icons.videocam_outlined,
+      'document' => Icons.description_outlined,
+      'voice' => Icons.mic_none,
+      'location' => Icons.location_on_outlined,
+      _ => null,
+    };
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+        decoration: BoxDecoration(
+          color: AppColors.ink.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(8),
+          border: Border(left: BorderSide(color: AppColors.cyan, width: 3)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(fromLabel, style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[Icon(icon, size: 14, color: AppColors.textSecondary), const SizedBox(width: 4)],
+            Flexible(
+              child: Text(quoted['content']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+/// "Replying to …" strip above the message box.
+class ReplyBar extends StatelessWidget {
+  const ReplyBar({super.key, required this.message, required this.fromLabel, required this.onClose});
+  final Map message;
+  final String fromLabel;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
+      child: Row(children: [
+        Icon(Icons.reply, color: AppColors.cyan, size: 20),
+        const SizedBox(width: 8),
+        Expanded(child: QuotedMessage(quoted: message, fromLabel: 'Replying to $fromLabel')),
+        IconButton(tooltip: 'Cancel reply', icon: const Icon(Icons.close), onPressed: onClose),
+      ]),
+    );
+  }
+}
+
+/// Tells the other side "typing…" at most every 3 seconds while typing.
+class TypingPinger {
+  TypingPinger(this.endpoint);
+  final String endpoint;
+  DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void onChanged(String text) {
+    if (text.trim().isEmpty) return;
+    final now = DateTime.now();
+    if (now.difference(_last) < const Duration(seconds: 3)) return;
+    _last = now;
+    unawaited(ApiService.post(endpoint, {}).then<void>((_) {}).catchError((Object _) {}));
+  }
+}
+
+/// "typing…" in the chat header.
+class TypingLabel extends StatelessWidget {
+  const TypingLabel({super.key});
+  @override
+  Widget build(BuildContext context) =>
+      Text('typing…', style: TextStyle(color: AppColors.green, fontSize: 13, fontWeight: FontWeight.w600));
+}

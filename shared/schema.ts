@@ -3587,6 +3587,9 @@ export const messagingMessages = pgTable("messaging_messages", {
   content: text("content").notNull(),
   templateId: integer("template_id"), // forward reference -- no FK yet, `templates` table doesn't exist until Phase 2
   replyToMessageId: integer("reply_to_message_id"),
+  // Structured parts of a message: { location: {latitude, longitude, name, address} },
+  // { buttons: [...] }, { buttonReply: {...} }. Added at startup (server/index.ts).
+  metadata: jsonb("metadata").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   editedAt: timestamp("edited_at"),
   deletedAt: timestamp("deleted_at"), // soft delete -- never hard-delete a message
