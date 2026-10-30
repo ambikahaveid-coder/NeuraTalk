@@ -70,7 +70,8 @@ async function finalizeChatAttachment(senderUserId: number, recipientUserId: num
   const existing = await getObjectAclPolicy(objectFile);
   // Only the person who uploaded a file may share it. Without this, anyone who
   // had seen a file's path could re-attach it and take over its access list.
-  if (existing && existing.owner !== String(senderUserId)) {
+  const { mayClaimUpload } = await import("./ai_integrations/object_storage/upload-owner");
+  if ((existing && existing.owner !== String(senderUserId)) || (!existing && !(await mayClaimUpload(objectPath, senderUserId)))) {
     throw new AttachmentNotOwnedError("This attachment belongs to someone else.");
   }
   // Sending the same file to another chat adds that person; earlier readers keep access.

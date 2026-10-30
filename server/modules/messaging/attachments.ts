@@ -58,7 +58,8 @@ export async function shareAttachment(uploaderUserId: number, businessId: number
   const storage = new ObjectStorageService();
   const file = await storage.getObjectEntityFile(objectPath);
   const existing = await getObjectAclPolicy(file);
-  if (existing && existing.owner !== String(uploaderUserId)) {
+  const { mayClaimUpload } = await import("../../ai_integrations/object_storage/upload-owner");
+  if ((existing && existing.owner !== String(uploaderUserId)) || (!existing && !(await mayClaimUpload(objectPath, uploaderUserId)))) {
     throw new AttachmentNotOwnedError("This file belongs to someone else.");
   }
   const readers = new Set(await conversationReaders(businessId, customerId));

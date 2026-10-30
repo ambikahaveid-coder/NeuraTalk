@@ -11,7 +11,7 @@ import { db } from "../../db";
 import { businessCatalogItems, organizations, PERMISSIONS } from "@shared/schema";
 import { requireAuth, requireCompanyAccess, requirePermission, requireRole } from "../../role-middleware";
 import { ObjectStorageService } from "../../ai_integrations/object_storage/objectStorage";
-import { setObjectAclPolicy } from "../../ai_integrations/object_storage/objectAcl";
+import { getObjectAclPolicy, setObjectAclPolicy } from "../../ai_integrations/object_storage/objectAcl";
 import { logger } from "../../observability";
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -36,6 +36,12 @@ async function publishImage(actorUserId: number, objectPath: string | null | und
   const [meta] = await file.getMetadata();
   if (!meta.contentType || !IMAGE_TYPES.includes(meta.contentType)) throw new CatalogInputError("The photo must be a JPEG, PNG, WebP or GIF image");
   if (typeof meta.size === "number" && meta.size > MAX_IMAGE_BYTES) throw new CatalogInputError("The photo is larger than 5 MB");
+  const existing = await getObjectAclPolicy(file);
+  const { mayClaimUpload } = await import("../../ai_integrations/object_storage/upload-owner");
+  // Re-saving an item keeps its own photo; a new photo must be the actor's upload.
+  if (existing && existing.owner !== String(actorUserId) && existing.visibility !== "public") throw new CatalogInputError("This photo belongs to someone else");
+  if (!existing && !(await mayClaimUpload(objectPath, actorUserId))) throw new CatalogInputError("This photo belongs to someone else");
+  if (existing?.visibility === "public") return objectPath;
   await setObjectAclPolicy(file, { owner: String(actorUserId), visibility: "public" });
   return objectPath;
 }

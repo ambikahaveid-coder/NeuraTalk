@@ -895,6 +895,7 @@ function CompaniesSection() {
         </DialogContent>
       </Dialog>
 
+      <VerificationRequestsCard />
       <TemplateReviewsCard />
       <MessagePricesCard />
 
@@ -4214,6 +4215,129 @@ function SettingsSection() {
  * codes) before it can be sent -- like Meta does for WhatsApp. Check that a
  * "utility" template is really a transactional update, not an offer.
  */
+/** Blue-tick requests: check the documents, then approve (tick + brand name) or reject with a reason. */
+function VerificationRequestsCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [status, setStatus] = useState<"pending" | "all">("pending");
+  const [rejecting, setRejecting] = useState<number | null>(null);
+  const [reason, setReason] = useState("");
+  const [names, setNames] = useState<Record<number, string>>({});
+  const { data, isLoading } = useQuery<{ requests: any[] }>({
+    queryKey: ["/api/admin/verification-requests", status],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/verification-requests?status=${status}`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Failed to load verification requests");
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
+  // Documents are private: fetched with the admin's token, opened from memory.
+  const openDoc = async (requestId: number, index: number) => {
+    const res = await fetch(`/api/admin/verification-requests/${requestId}/files/${index}`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+    if (!res.ok) {
+      toast({ title: "Could not open the document", variant: "destructive" });
+      return;
+    }
+    const url = URL.createObjectURL(await res.blob());
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+
+  const decide = useMutation({
+    mutationFn: async ({ id, approve, why, brandName }: { id: number; approve: boolean; why?: string; brandName?: string }) => {
+      const res = await fetch(`/api/admin/verification-requests/${id}/${approve ? "approve" : "reject"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify(approve ? (brandName ? { brandName } : {}) : { reason: why }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || "Could not save the decision");
+      return body;
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/verification-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
+      setRejecting(null);
+      setReason("");
+      toast({ title: vars.approve ? "Verified — blue tick is on" : "Sent back with your reason" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+  const requests = data?.requests ?? [];
+
+  return (
+    <Card data-testid="card-verification-requests">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BadgeCheck className="w-5 h-5 text-blue-600" />
+          Blue tick requests {status === "pending" && requests.length > 0 && <Badge variant="secondary">{requests.length}</Badge>}
+        </CardTitle>
+        <CardDescription>
+          Check that the legal name matches the registration and PAN, and that the brand name belongs to them (no famous brand
+          they don't own). Approving shows the blue tick and the brand name on every message they send.
+        </CardDescription>
+        <div className="flex gap-2 pt-2">
+          <Button size="sm" variant={status === "pending" ? "default" : "outline"} onClick={() => setStatus("pending")}>Waiting</Button>
+          <Button size="sm" variant={status === "all" ? "default" : "outline"} onClick={() => setStatus("all")}>History</Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : requests.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{status === "pending" ? "No requests waiting." : "No requests yet."}</p>
+        ) : requests.map((r) => (
+          <div key={r.id} className="rounded-lg border p-3 space-y-2" data-testid={`verification-request-${r.id}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold">{r.brandName}</span>
+              <Badge variant={r.status === "approved" ? "default" : r.status === "rejected" ? "destructive" : "secondary"} className="capitalize">{r.status}</Badge>
+              <span className="text-xs text-muted-foreground">
+                Business #{r.business?.id} (now "{r.business?.name}") · {r.submittedBy ?? ""} · {r.submittedAt ? new Date(r.submittedAt).toLocaleString() : ""}
+              </span>
+            </div>
+            <div className="grid gap-1 text-sm sm:grid-cols-2">
+              <span><span className="text-muted-foreground">Legal name:</span> {r.legalName}</span>
+              <span><span className="text-muted-foreground">Registration:</span> {r.businessDocLabel}{r.businessDocNumber ? ` · ${r.businessDocNumber}` : ""}</span>
+              <span><span className="text-muted-foreground">PAN:</span> {r.panNumber ?? "—"}</span>
+              <span><span className="text-muted-foreground">Contact:</span> {r.business?.phone ?? ""} {r.business?.email ?? ""}</span>
+              {r.website && <a className="text-primary underline" href={r.website} target="_blank" rel="noreferrer">{r.website}</a>}
+              {r.socialUrl && <a className="text-primary underline" href={r.socialUrl} target="_blank" rel="noreferrer">{r.socialUrl}</a>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(r.files ?? []).map((f: any) => (
+                <Button key={f.index} size="sm" variant="outline" onClick={() => openDoc(r.id, f.index)}>
+                  {f.kindLabel}: {f.name} ({Math.max(1, Math.round((f.sizeBytes ?? 0) / 1024))} KB)
+                </Button>
+              ))}
+            </div>
+            {r.reason && <p className="text-sm text-muted-foreground">Note: {r.reason}</p>}
+            {r.status === "pending" && (rejecting === r.id ? (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input placeholder="What should they fix? (they will see this)" value={reason} onChange={(e) => setReason(e.target.value)} />
+                <Button size="sm" variant="destructive" disabled={reason.trim().length < 5 || decide.isPending} onClick={() => decide.mutate({ id: r.id, approve: false, why: reason })}>Send back</Button>
+                <Button size="sm" variant="ghost" onClick={() => setRejecting(null)}>Cancel</Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  className="sm:max-w-xs"
+                  value={names[r.id] ?? r.brandName}
+                  onChange={(e) => setNames((n) => ({ ...n, [r.id]: e.target.value }))}
+                  aria-label="Brand name to approve"
+                />
+                <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: r.id, approve: true, brandName: (names[r.id] ?? r.brandName).trim() })}>
+                  Approve blue tick
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setRejecting(r.id)}>Reject…</Button>
+              </div>
+            ))}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function TemplateReviewsCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();

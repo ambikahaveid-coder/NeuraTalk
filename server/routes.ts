@@ -83,6 +83,7 @@ import { registerBusinessMessagingApiRoutes } from "./modules/messaging/api-rout
 import { registerCatalogRoutes } from "./modules/messaging/catalog";
 import { registerOrderRoutes } from "./modules/messaging/orders";
 import { registerTemplateSendRoutes } from "./modules/messaging/template-routes";
+import { registerBusinessVerificationRoutes } from "./modules/business-verification/routes";
 import { registerMarketingRoutes } from "./modules/marketing/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
@@ -219,6 +220,7 @@ export async function registerRoutes(
   registerCatalogRoutes(app); console.log("[Routes] ✓ Business catalog routes");
   registerOrderRoutes(app); console.log("[Routes] ✓ Business order routes");
   registerTemplateSendRoutes(app); console.log("[Routes] ✓ Business template send + 24h window routes");
+  registerBusinessVerificationRoutes(app); console.log("[Routes] ✓ Business verification (blue tick) routes");
   registerMarketingRoutes(app); console.log("[Routes] ✓ Business marketing reporting routes (Phase 8B-R0)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");

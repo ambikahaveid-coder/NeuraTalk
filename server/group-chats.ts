@@ -15,7 +15,10 @@ async function finalizeGroupAttachment(senderId: number, groupId: number, object
   try {
     const file = await new ObjectStorageService().getObjectEntityFile(objectPath);
     const existing = await getObjectAclPolicy(file);
-    if (existing && existing.owner !== String(senderId)) return "This attachment belongs to someone else.";
+    const { mayClaimUpload } = await import("./ai_integrations/object_storage/upload-owner");
+    if ((existing && existing.owner !== String(senderId)) || (!existing && !(await mayClaimUpload(objectPath, senderId)))) {
+      return "This attachment belongs to someone else.";
+    }
     const rules = (existing?.aclRules ?? []).filter(
       (r) => !(r.group.type === ObjectAccessGroupType.GROUP_CHAT_MEMBER && r.group.id === String(groupId)),
     );

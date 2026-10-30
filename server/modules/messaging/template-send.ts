@@ -134,7 +134,10 @@ export async function prepareTemplateMedia(ownerUserId: number, path: string): P
     throw new TemplateSendError(`That file is too large (max ${Math.round(TEMPLATE_MEDIA[kind].maxBytes / 1024 / 1024)} MB).`, "MEDIA_TOO_LARGE");
   }
   const existing = await getObjectAclPolicy(file);
-  if (existing && existing.owner !== String(ownerUserId)) throw new TemplateSendError("This file belongs to someone else.", "MEDIA_NOT_OWNED", 403);
+  const { mayClaimUpload } = await import("../../ai_integrations/object_storage/upload-owner");
+  if ((existing && existing.owner !== String(ownerUserId)) || (!existing && !(await mayClaimUpload(path, ownerUserId)))) {
+    throw new TemplateSendError("This file belongs to someone else.", "MEDIA_NOT_OWNED", 403);
+  }
   await setObjectAclPolicy(file, { owner: String(ownerUserId), visibility: "public" });
   return { mediaType: kind, mediaUrl: path, mimeType: mime };
 }

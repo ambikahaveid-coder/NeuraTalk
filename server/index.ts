@@ -454,6 +454,8 @@ app.use((req, res, next) => {
     await ensureReactionsTable();
     const { ensureOrdersTable } = await import("./modules/messaging/orders");
     await ensureOrdersTable();
+    const { ensureVerificationTable } = await import("./modules/business-verification/routes");
+    await ensureVerificationTable();
   }, { optional: true });
   let redisOperational = false;
   try {

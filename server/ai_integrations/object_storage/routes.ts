@@ -100,6 +100,9 @@ export function registerObjectStorageRoutes(app: Express): void {
 
       // Extract object path from the presigned URL for later reference
       const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      // Remember the uploader, so nobody else can claim this file first.
+      const { rememberUploader } = await import("./upload-owner");
+      await rememberUploader(objectPath, req.user!.id);
 
       res.json({
         uploadURL,

@@ -12,6 +12,7 @@ import 'business_catalog_screen.dart';
 import 'business_broadcasts_screen.dart';
 import 'business_orders_screen.dart';
 import 'business_status_screen.dart';
+import 'business_verification_screen.dart';
 import 'business_categories.dart';
 import 'business_messaging_settings.dart';
 import 'business_profile_screen.dart';
@@ -257,16 +258,11 @@ class _VerificationCardState extends State<_VerificationCard> {
 
   Future<void> _request() async {
     final account = context.read<BusinessAccount>();
-    setState(() => _sending = true);
-    try {
-      await ApiService.post('${account.base}/verification-request', {});
-      await account.load();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent. NeuraTalk will check your business.')));
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not send. Try again.')));
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => ChangeNotifierProvider<BusinessAccount>.value(
+      value: account,
+      child: const BusinessVerificationScreen(),
+    )));
+    if (mounted) await account.load();
   }
 
   @override
@@ -297,16 +293,14 @@ class _VerificationCardState extends State<_VerificationCard> {
                   ? 'Customers see the blue tick next to your name.'
                   : requested
                       ? 'NeuraTalk is checking your business. The tick appears once it is approved.'
-                      : 'Customers trust businesses with the blue tick. Add your logo and about, then ask NeuraTalk to check.',
+                      : 'Customers trust businesses with the blue tick. Send your registration and PAN to NeuraTalk.',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5),
             ),
-            if (!verified && !requested) ...[
-              const SizedBox(height: 8),
-              FilledButton.tonal(
-                onPressed: _sending ? null : _request,
-                child: _sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Request verification'),
-              ),
-            ],
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: _sending ? null : _request,
+              child: Text(verified ? 'Details' : requested ? 'See status' : 'Get verified'),
+            ),
           ]),
         ),
       ]),

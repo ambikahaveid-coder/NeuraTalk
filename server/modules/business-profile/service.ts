@@ -110,6 +110,18 @@ export async function updateBusinessProfile(
     return toProfile(existing);
   }
 
+  // The blue tick vouches for the name NeuraTalk checked. A new name (or a
+  // new legal name) needs a new check, as on WhatsApp.
+  const norm = (v: unknown) => String(v ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  const nameChanged = (setValues.name !== undefined && norm(setValues.name) !== norm(existing.name))
+    || (setValues.legalBusinessName !== undefined && existing.legalBusinessName != null && norm(setValues.legalBusinessName) !== norm(existing.legalBusinessName));
+  if (nameChanged && existing.verifiedAt) {
+    setValues.verifiedAt = null;
+    setValues.verifiedBy = null;
+    setValues.verificationRequestedAt = null;
+    oldValues.verifiedAt = existing.verifiedAt;
+  }
+
   const [updated] = await db.update(organizations).set(setValues).where(eq(organizations.id, businessId)).returning();
 
   await AuditHelpers.logSettingsChange(actorUserId, `business_profile:${businessId}`, oldValues, setValues);

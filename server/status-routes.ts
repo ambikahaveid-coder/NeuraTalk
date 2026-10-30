@@ -10,6 +10,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "driz
 import { db } from "./db";
 import { blockedUsers, businessConversations, customers, organizations, personalChatThreads, statusPosts, statusViews, users, PERMISSIONS } from "@shared/schema";
 import { requireAuth, requireCompanyAccess, requirePermission } from "./role-middleware";
+import { mayClaimUpload } from "./ai_integrations/object_storage/upload-owner";
 import { translateChatText } from "./translation/chat-translate";
 import { ObjectStorageService, ObjectNotFoundError } from "./ai_integrations/object_storage/objectStorage";
 import { getObjectAclPolicy, setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
@@ -70,7 +71,9 @@ async function shareStatusPhoto(authorId: number, objectPath: string, audience: 
   try {
     const file = await new ObjectStorageService().getObjectEntityFile(objectPath);
     const existing = await getObjectAclPolicy(file);
-    if (existing && existing.owner !== String(authorId)) return "This photo belongs to someone else.";
+    if ((existing && existing.owner !== String(authorId)) || (!existing && !(await mayClaimUpload(objectPath, authorId)))) {
+      return "This photo belongs to someone else.";
+    }
     await setObjectAclPolicy(file, {
       owner: String(authorId),
       visibility: "private",
@@ -322,7 +325,9 @@ export function registerStatusRoutes(app: Express): void {
         try {
           const file = await new ObjectStorageService().getObjectEntityFile(path);
           const existing = await getObjectAclPolicy(file);
-          if (existing && existing.owner !== String(req.user!.id)) return res.status(403).json({ error: "This photo belongs to someone else." });
+          if ((existing && existing.owner !== String(req.user!.id)) || (!existing && !(await mayClaimUpload(path, req.user!.id)))) {
+            return res.status(403).json({ error: "This photo belongs to someone else." });
+          }
           await setObjectAclPolicy(file, { owner: String(req.user!.id), visibility: "public" });
         } catch (err) {
           if (err instanceof ObjectNotFoundError) return res.status(400).json({ error: "The photo was not uploaded. Please try again." });
