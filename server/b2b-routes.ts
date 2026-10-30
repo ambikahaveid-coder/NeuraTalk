@@ -624,19 +624,25 @@ export function registerB2BRoutes(app: Express): void {
         }
       }
 
-      // Check for existing admin user
-      if (data.adminEmail) {
-        const [existingUser] = await db.select().from(users)
-          .where(eq(users.email, data.adminEmail));
-        if (existingUser) {
-          return res.status(400).json({ success: false, message: "Admin email already exists" });
-        }
+      // The admin may already use NeuraTalk as a person (same phone/email).
+      // Only a super admin reaches this route, so that personal account can
+      // become the company's admin -- but never an account that already
+      // belongs to a company, nor a super admin.
+      const byPhone = data.adminPhone ? (await db.select().from(users).where(eq(users.phone, data.adminPhone)))[0] : undefined;
+      const byEmail = data.adminEmail ? (await db.select().from(users).where(eq(users.email, data.adminEmail)))[0] : undefined;
+      if (byPhone && byEmail && byPhone.id !== byEmail.id) {
+        return res.status(400).json({ success: false, message: "That phone and that email belong to two different NeuraTalk accounts. Use one of them." });
       }
-      if (data.adminPhone) {
-        const [existingUser] = await db.select().from(users)
-          .where(eq(users.phone, data.adminPhone));
-        if (existingUser) {
-          return res.status(400).json({ success: false, message: "Admin phone already exists" });
+      const existingAdmin = byPhone ?? byEmail;
+      if (existingAdmin) {
+        const role = String(existingAdmin.role ?? "");
+        if (existingAdmin.organizationId || !["consumer", "user", ""].includes(role)) {
+          return res.status(400).json({
+            success: false,
+            message: role === "super_admin"
+              ? "That is a NeuraTalk super admin account. Use a different number for the company admin."
+              : "That number/email is already the admin or staff of another company.",
+          });
         }
       }
 
@@ -666,13 +672,21 @@ export function registerB2BRoutes(app: Express): void {
 
       // Create company admin user
       const normalizedAdminName = data.adminName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-      const [adminUser] = await db.insert(users).values({
-        email: data.adminEmail,
-        phone: data.adminPhone,
-        username: `${normalizedAdminName || "company_admin"}_${Date.now().toString(36)}`,
-        role: "company_admin",
-        organizationId: newOrg.id,
-      }).returning();
+      const [adminUser] = existingAdmin
+        // Their personal chats, calls and contacts stay; they also run the company now.
+        ? await db.update(users).set({
+            role: "company_admin",
+            organizationId: newOrg.id,
+            ...(data.adminEmail && !existingAdmin.email ? { email: data.adminEmail } : {}),
+            ...(data.adminPhone && !existingAdmin.phone ? { phone: data.adminPhone } : {}),
+          }).where(eq(users.id, existingAdmin.id)).returning()
+        : await db.insert(users).values({
+            email: data.adminEmail,
+            phone: data.adminPhone,
+            username: `${normalizedAdminName || "company_admin"}_${Date.now().toString(36)}`,
+            role: "company_admin",
+            organizationId: newOrg.id,
+          }).returning();
 
       // The owner gets the full Business toolset (customers, templates,
       // broadcasts, codes) -- nobody else is there to switch it on.
@@ -710,7 +724,9 @@ export function registerB2BRoutes(app: Express): void {
 
       res.status(201).json({ 
         success: true, 
-        message: `Company "${data.companyName}" created successfully`,
+        message: existingAdmin
+          ? `Company "${data.companyName}" created. The existing NeuraTalk account is now its admin — they log in with the same number.`
+          : `Company "${data.companyName}" created successfully`,
         company: newOrg,
         admin: {
           id: adminUser.id,
