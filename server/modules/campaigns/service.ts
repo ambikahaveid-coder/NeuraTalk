@@ -25,6 +25,7 @@ import {
   messagingMessages,
   messagingDeliveries,
   messagingEvents,
+  messagingAttachments,
   CAMPAIGN_STATUS,
   CAMPAIGN_ALLOWED_CATEGORIES,
   CAMPAIGN_RECIPIENT_STATUS,
@@ -555,6 +556,16 @@ async function processOneRecipient(
       content: rendered,
       templateId: version.templateId,
     }).returning();
+
+    // The template's approved photo / video / PDF goes with the text.
+    if (version.mediaUrl && version.mediaType && version.mediaUrl.startsWith("/objects/")) {
+      await tx.insert(messagingAttachments).values({
+        messageId: message.id,
+        attachmentType: version.mediaType,
+        url: version.mediaUrl,
+        mimeType: version.mediaType === "video" ? "video/mp4" : version.mediaType === "document" ? "application/pdf" : "image/jpeg",
+      });
+    }
 
     await tx.insert(messagingDeliveries).values({
       messageId: message.id, participantId: customerParticipant.id, status: MESSAGE_DELIVERY_STATUS.QUEUED,

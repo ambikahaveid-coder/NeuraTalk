@@ -240,7 +240,7 @@ export function registerOrderRoutes(app: Express): void {
     if (updated.business_conversation_id) {
       const text = `📦 Your order #${updated.id} is ${STATUS_TEXT[status]}${status === "cancelled" && reason ? ` — ${reason}` : ""}.`;
       try {
-        await sendBusinessAgentMessage({ businessId, businessConversationId: updated.business_conversation_id, authenticatedUserId: req.user!.id, content: text });
+        await sendBusinessAgentMessage({ businessId, businessConversationId: updated.business_conversation_id, authenticatedUserId: req.user!.id, content: text, systemUpdate: true });
       } catch (err) { logger.warn("Orders", "Status message not sent", { error: (err as Error).message }); }
     }
     return res.json({ success: true, order: present(updated) });

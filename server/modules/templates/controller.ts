@@ -75,8 +75,10 @@ const draftVersionSchema = z.object({
   title: z.string().trim().max(200).optional(),
   content: z.string().min(1).max(4096),
   variables: z.array(variableSchema).max(20),
+  // A photo / video / PDF uploaded to NeuraTalk (never an outside link);
+  // its type is read from the file itself, see prepareTemplateMedia.
   mediaType: z.string().trim().max(50).optional(),
-  mediaUrl: z.string().trim().url().max(2000).optional(),
+  mediaUrl: z.string().trim().startsWith("/objects/").max(2000).optional(),
 }).strict();
 
 export async function putDraftVersion(req: Request, res: Response) {
@@ -87,7 +89,20 @@ export async function putDraftVersion(req: Request, res: Response) {
   if (!parsed.success) return badRequest(res, parsed.error.message);
 
   try {
-    const version = await createOrEditDraftVersion(businessId, req.user!.id, templateId, parsed.data);
+    const input = { ...parsed.data };
+    if (input.mediaUrl) {
+      const { prepareTemplateMedia, TemplateSendError } = await import("../messaging/template-send");
+      try {
+        const media = await prepareTemplateMedia(req.user!.id, input.mediaUrl);
+        input.mediaType = media.mediaType;
+      } catch (error) {
+        if ((error as Error)?.name === TemplateSendError.name) return res.status((error as InstanceType<typeof TemplateSendError>).status).json({ success: false, error: (error as Error).message });
+        throw error;
+      }
+    } else {
+      input.mediaType = undefined;
+    }
+    const version = await createOrEditDraftVersion(businessId, req.user!.id, templateId, input);
     return res.status(200).json({ success: true, version });
   } catch (error) {
     return handleServiceError(res, error, "Failed to save draft version");

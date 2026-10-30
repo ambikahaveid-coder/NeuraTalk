@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
+import '../services/media_store.dart';
 import '../theme/app_theme.dart';
+import '../widgets/attachment_picker.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 
@@ -284,15 +286,40 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
   final _content = TextEditingController(text: 'Hi {{name}}, ');
   String _category = 'marketing';
   bool _saving = false;
+  // Optional photo / video / PDF, uploaded to NeuraTalk and reviewed with the text.
+  String? _mediaPath;
+  String? _mediaName;
+  bool _uploading = false;
+
+  Future<void> _pickMedia() async {
+    final picked = await AttachmentPicker.show(context);
+    if (picked.isEmpty || !mounted) return;
+    final (file, name) = picked.first;
+    final mime = MediaStore.contentTypeFor(name);
+    if (!(mime.startsWith('image/') || mime.startsWith('video/') || mime == 'application/pdf')) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use a photo, an MP4 video or a PDF.')));
+      return;
+    }
+    setState(() => _uploading = true);
+    try {
+      final path = await MediaStore.upload(file, name);
+      if (mounted) setState(() { _mediaPath = path; _mediaName = name; });
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed. Try again.')));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || _uploading) return;
     setState(() => _saving = true);
     try {
       await ApiService.post('${context.read<BusinessAccount>().base}/broadcast-templates', {
         'name': _name.text.trim().isEmpty ? 'Message' : _name.text.trim(),
         'category': _category,
         'content': _content.text.trim(),
+        if (_mediaPath != null) 'mediaUrl': _mediaPath,
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent to NeuraTalk for review.')));
@@ -336,8 +363,18 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
           maxLength: 1024,
           decoration: const InputDecoration(labelText: 'Message', helperText: '{{name}} becomes each customer\'s name. Each customer reads it in their own language.'),
         ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _uploading ? null : _pickMedia,
+          icon: _uploading
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(_mediaPath == null ? Icons.attach_file : Icons.check_circle, color: _mediaPath == null ? null : AppColors.green),
+          label: Text(_mediaPath == null ? 'Add a photo, video or PDF (optional)' : _mediaName ?? 'File added'),
+        ),
+        if (_mediaPath != null)
+          TextButton(onPressed: () => setState(() { _mediaPath = null; _mediaName = null; }), child: const Text('Remove the file')),
         const SizedBox(height: 16),
-        FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? 'Sending…' : 'Send to NeuraTalk for review')),
+        FilledButton(onPressed: _saving || _uploading ? null : _save, child: Text(_saving ? 'Sending…' : 'Send to NeuraTalk for review')),
       ]),
     );
   }

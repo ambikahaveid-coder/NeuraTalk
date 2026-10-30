@@ -200,6 +200,13 @@ vi.mock("../../server/modules/messaging/translate", () => ({
   withTranslations: vi.fn(async (messages: unknown[]) => messages),
 }));
 vi.mock("../../server/modules/messaging/auto-replies", () => ({ sendAutoRepliesAfterCustomerMessage: vi.fn(async () => {}) }));
+// The 24-hour reply window needs SQL joins this fake db doesn't model; these
+// tests are about who sends, so the window is open here. The rule itself is
+// covered end to end against a real database (tmp e2e t/60).
+vi.mock("../../server/modules/messaging/template-send", () => ({
+  serviceWindowForBusinessConversation: vi.fn(async () => ({ open: true, lastCustomerMessageAt: new Date(), closesAt: new Date(Date.now() + 3_600_000) })),
+  ServiceWindowClosedError: class ServiceWindowClosedError extends Error {},
+}));
 vi.mock("../../server/db", () => ({ db: fakeDb }));
 
 vi.mock("../../server/observability", () => ({

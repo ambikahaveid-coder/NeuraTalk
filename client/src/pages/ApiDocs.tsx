@@ -29,6 +29,60 @@ import {
 
 const API_ENDPOINTS = [
   {
+    category: "Business Messaging — send header X-API-Key: ntk_ent_…",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/api/v1/messaging/templates",
+        description: "Your templates that NeuraTalk approved (offers and updates). Only these can start a conversation.",
+        body: null,
+        response: { success: true, templates: [{ templateVersionId: 42, name: "Order shipped", category: "utility", language: "en", content: "Hi {{name}}, order {{order_id}} is on the way.", variables: [{ name: "order_id", type: "text", required: true }], media: null }] },
+      },
+      {
+        method: "POST",
+        path: "/api/v1/messaging/messages",
+        description: "Send an approved template to a customer (any time). The customer reads it in their own language inside NeuraTalk.",
+        body: { phone: "+919876543210", name: "Ravi", templateVersionId: 42, variables: { order_id: "A-1009" } },
+        response: { success: true, message: { id: 9001, customerId: 17, type: "template", chargedPaise: 10 } },
+      },
+      {
+        method: "POST",
+        path: "/api/v1/messaging/messages",
+        description: "Reply with free text — only within 24 hours of the customer's last message (otherwise 409 SERVICE_WINDOW_CLOSED: send a template).",
+        body: { phone: "+919876543210", text: "Your refund is processed." },
+        response: { success: true, message: { id: 9002, customerId: 17, type: "text", windowClosesAt: "2026-11-01T10:00:00.000Z" } },
+      },
+      {
+        method: "GET",
+        path: "/api/v1/messaging/messages/9001",
+        description: "Delivery status of a message: queued, sent, delivered, read or failed.",
+        body: null,
+        response: { success: true, message: { id: 9001, status: "read", statusAt: "2026-10-31T10:05:00.000Z", failureReason: null } },
+      },
+      {
+        method: "POST",
+        path: "/api/v1/messaging/utility-events",
+        description: "Transactional update tied to an event (order shipped, booking confirmed). eventReference makes retries safe — the same reference is never sent twice.",
+        body: { phone: "+919876543210", eventType: "order_shipped", eventReference: "order-A-1009-shipped", templateVersionId: 42, variables: { order_id: "A-1009" } },
+        response: { success: true, duplicate: false, event: { id: 77, status: "sent", messageId: 9003, customerId: 17 } },
+      },
+      {
+        method: "POST",
+        path: "/api/v1/messaging/otp",
+        description: "Send a one-time code to the customer's NeuraTalk app.",
+        body: { phone: "+919876543210", purpose: "login" },
+        response: { success: true, challenge: { id: 501, channel: "in_app", status: "sent", expiresAt: "2026-10-31T10:10:00.000Z", customerId: 17 } },
+      },
+      {
+        method: "POST",
+        path: "/api/v1/messaging/otp/501/verify",
+        description: "Check the code the person typed on your website or app.",
+        body: { code: "482913" },
+        response: { success: true, verified: true, challenge: { id: 501, status: "verified" } },
+      },
+    ],
+  },
+  {
     category: "Authentication",
     endpoints: [
       {
@@ -574,43 +628,44 @@ export default function ApiDocs() {
               <CardHeader>
                 <CardTitle>Webhook Events</CardTitle>
                 <CardDescription>
-                  Receive real-time notifications about calls, translations, and more
+                  NeuraTalk POSTs JSON to your https address. Add it in Company dashboard → API → Message webhooks.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label>Webhook URL</Label>
-                  <Input
-                    data-testid="input-webhook-url"
-                    placeholder="https://your-server.com/webhooks/neuratalk"
-                  />
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="font-semibold">Available Events</h4>
-                  
                   {[
-                    { event: "call.started", description: "Triggered when a call begins" },
-                    { event: "call.ended", description: "Triggered when a call ends" },
-                    { event: "call.translation", description: "Real-time translation events" },
-                    { event: "call.emotion", description: "Emotion detection updates" },
-                    { event: "meeting.started", description: "Meeting room activated" },
-                    { event: "meeting.participant.joined", description: "New participant joined" },
-                    { event: "meeting.participant.left", description: "Participant left the meeting" },
+                    { event: "message.received", description: "A customer wrote to you (text, and the message type)" },
+                    { event: "message.sent", description: "Your message reached NeuraTalk and was pushed to the customer's app" },
+                    { event: "message.delivered", description: "The customer's app received it (messageIds)" },
+                    { event: "message.read", description: "The customer opened the chat (messageIds)" },
+                    { event: "message.failed", description: "Not delivered: customer not on NeuraTalk, or blocked you" },
+                    { event: "call.initiated / call.connected / call.ended / call.failed", description: "Calls made with the calling API" },
+                    { event: "translation.started / translation.completed / recording.ready", description: "Call translation and recordings" },
                   ].map((item) => (
-                    <div key={item.event} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <code className="font-mono text-sm">{item.event}</code>
-                        <p className="text-sm text-muted-foreground">{item.description}</p>
-                      </div>
-                      <Badge variant="outline">Active</Badge>
+                    <div key={item.event} className="p-3 border rounded-lg">
+                      <code className="font-mono text-sm">{item.event}</code>
+                      <p className="text-sm text-muted-foreground">{item.description}</p>
                     </div>
                   ))}
                 </div>
 
-                <Button className="w-full" data-testid="button-save-webhook">
-                  Save Webhook Configuration
-                </Button>
+                <div>
+                  <Label className="text-xs">Example body</Label>
+                  <pre className="mt-1 p-3 bg-muted rounded text-xs overflow-x-auto">{JSON.stringify({
+                    event: "message.received",
+                    occurredAt: "2026-10-31T10:00:00.000Z",
+                    data: { messageId: 9004, customerId: 17, text: "Is my order shipped?", messageType: "text", createdAt: "2026-10-31T10:00:00.000Z" },
+                  }, null, 2)}</pre>
+                </div>
+
+                <div>
+                  <Label className="text-xs">Check it really came from NeuraTalk (Node.js)</Label>
+                  <pre className="mt-1 p-3 bg-muted rounded text-xs overflow-x-auto">{`const crypto = require("crypto");
+// rawBody = the exact request body text; secret = shown once when you added the webhook
+const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.get("X-NeuraTalk-Signature")));
+// The event name is also in the X-NeuraTalk-Event header. Reply 2xx within 10 s; failures are retried.`}</pre>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

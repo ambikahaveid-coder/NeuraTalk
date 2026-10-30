@@ -314,6 +314,11 @@ export interface CreateMessageInput {
   messageType?: string;
   /** A photo/video/document/voice note already uploaded and shared (see attachments.ts). */
   attachment?: AttachmentInput;
+  /**
+   * Server-generated update about something the customer asked for (their
+   * order's status). Exempt from the 24-hour rule, never set from a request.
+   */
+  systemUpdate?: boolean;
 }
 
 export interface CreateMessageResult {
@@ -692,6 +697,14 @@ export async function sendUserInitiatedMessage(
  * own id.
  */
 export async function sendBusinessAgentMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
+  // 24-hour rule: a business types freely only to a customer who wrote in
+  // the last 24 hours; otherwise it sends an approved template.
+  if (!input.systemUpdate) {
+    const { serviceWindowForBusinessConversation, ServiceWindowClosedError } = await import("./template-send");
+    const window = await serviceWindowForBusinessConversation(input.businessId, input.businessConversationId);
+    if (!window) throw new NotFoundError("Conversation not found");
+    if (!window.open) throw new ServiceWindowClosedError();
+  }
   if (input.attachment) {
     const [conv] = await db.select({ customerId: businessConversations.customerId }).from(businessConversations)
       .where(and(eq(businessConversations.id, input.businessConversationId), eq(businessConversations.businessId, input.businessId)));

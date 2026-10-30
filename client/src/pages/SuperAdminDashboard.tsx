@@ -4271,6 +4271,16 @@ function TemplateReviewsCard() {
               <span className="text-xs text-muted-foreground">{r.template?.name} · v{r.template?.version} · {r.template?.language} · {r.requestedBy ?? ""} · {new Date(r.requestedAt).toLocaleString()}</span>
             </div>
             {r.template?.title && <p className="text-sm font-medium">{r.template.title}</p>}
+            {r.template?.media?.url && (
+              <div className="rounded border p-2">
+                <p className="mb-1 text-xs text-muted-foreground">Attached {r.template.media.type === "document" ? "PDF" : r.template.media.type} — check it before approving</p>
+                {r.template.media.type === "image" && <img src={r.template.media.url} alt="Template photo" className="max-h-56 rounded object-contain" />}
+                {r.template.media.type === "video" && <video src={r.template.media.url} controls className="max-h-56 rounded" />}
+                {r.template.media.type === "document" && (
+                  <a href={r.template.media.url} target="_blank" rel="noreferrer" className="text-sm text-primary underline">Open the PDF</a>
+                )}
+              </div>
+            )}
             <p className="text-sm whitespace-pre-wrap rounded bg-muted p-2">{r.template?.content}</p>
             {rejecting === r.requestId ? (
               <div className="flex flex-wrap gap-2">

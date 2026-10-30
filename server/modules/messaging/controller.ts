@@ -232,6 +232,9 @@ export async function postMessage(req: Request, res: Response) {
     if (error instanceof NotAParticipantError) return res.status(403).json({ success: false, error: error.message });
     if (error instanceof SenderIdentityMismatchError) return res.status(403).json({ success: false, error: error.message });
     if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
+    if ((error as Error)?.name === "ServiceWindowClosedError") {
+      return res.status(409).json({ success: false, code: "SERVICE_WINDOW_CLOSED", error: (error as Error).message });
+    }
     const message = error instanceof Error ? error.message : String(error);
     if (message === "VALIDATION_EMPTY_CONTENT") return badRequest(res, "content must not be empty");
     if (message === "VALIDATION_CONTENT_TOO_LONG") return badRequest(res, "content exceeds maximum length");

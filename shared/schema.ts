@@ -3329,6 +3329,12 @@ export const WEBHOOK_EVENT_TYPES = [
   "translation.started",
   "translation.completed",
   "recording.ready",
+  // Business messaging (delivered inside the NeuraTalk app).
+  "message.sent",
+  "message.delivered",
+  "message.read",
+  "message.failed",
+  "message.received",
 ] as const;
 
 export const webhookEndpoints = pgTable("webhook_endpoints", {

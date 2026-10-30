@@ -1733,6 +1733,8 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
         </CardContent>
       </Card>
 
+      <MessageWebhooksCard />
+
       <Card className="glass-card">
         <CardHeader>
           <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
@@ -1770,6 +1772,116 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+const MESSAGE_WEBHOOK_EVENTS: Array<{ id: string; label: string }> = [
+  { id: "message.received", label: "A customer wrote to you" },
+  { id: "message.sent", label: "Your message was sent" },
+  { id: "message.delivered", label: "Delivered to the customer's phone" },
+  { id: "message.read", label: "The customer read it" },
+  { id: "message.failed", label: "Could not be delivered" },
+];
+
+/** Your server gets told about message events (signed with a secret). */
+function MessageWebhooksCard() {
+  const { user } = useAuth();
+  const orgId = (user as { organizationId?: number } | null)?.organizationId;
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState<string[]>(MESSAGE_WEBHOOK_EVENTS.map((e) => e.id));
+  const [secret, setSecret] = useState<string | null>(null);
+  const key = ["/api/admin/orgs", orgId, "webhooks"];
+
+  const { data } = useQuery<{ webhooks?: Array<{ id: number; url: string; subscribedEvents: string[]; isActive: boolean }> }>({
+    queryKey: key,
+    enabled: !!orgId,
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      return res.ok ? res.json() : { webhooks: [] };
+    },
+  });
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ url, subscribedEvents: events }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || "Could not add the webhook. Use an https:// address.");
+      return body;
+    },
+    onSuccess: (body) => {
+      setSecret(body.webhook?.signingSecret || body.webhook?.secret || null);
+      setUrl("");
+      queryClient.invalidateQueries({ queryKey: key });
+      toast({ title: "Webhook added", description: "Copy the signing secret now — it is shown once." });
+    },
+    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/admin/orgs/${orgId}/webhooks/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Could not remove it");
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
+
+  const hooks = data?.webhooks ?? [];
+  return (
+    <Card className="glass-card">
+      <CardHeader>
+        <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
+          <Activity className="w-4 h-4 text-primary" />
+          Message webhooks
+        </CardTitle>
+        <CardDescription>
+          NeuraTalk calls your server when a customer writes to you or a message is delivered or read. Each call is signed
+          (X-NeuraTalk-Signature, HMAC-SHA256 with your secret). See the API docs for an example.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input placeholder="https://your-server.com/neuratalk/webhook" value={url} onChange={(e) => setUrl(e.target.value)} data-testid="input-webhook-url" />
+          <Button size="sm" disabled={!url.startsWith("https://") || events.length === 0 || create.isPending} onClick={() => create.mutate()}>
+            Add webhook
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {MESSAGE_WEBHOOK_EVENTS.map((e) => (
+            <label key={e.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={events.includes(e.id)}
+                onChange={(ev) => setEvents((cur) => (ev.target.checked ? [...cur, e.id] : cur.filter((x) => x !== e.id)))}
+              />
+              {e.label} <code className="text-xs text-muted-foreground">{e.id}</code>
+            </label>
+          ))}
+        </div>
+        {secret && (
+          <div className="rounded border border-primary/40 bg-primary/5 p-3 text-sm">
+            Signing secret (shown once): <code className="break-all">{secret}</code>
+          </div>
+        )}
+        {hooks.length > 0 && (
+          <div className="space-y-2">
+            {hooks.map((h) => (
+              <div key={h.id} className="flex flex-wrap items-center gap-2 rounded border p-2 text-sm">
+                <code className="break-all">{h.url}</code>
+                <Badge variant={h.isActive ? "default" : "outline"}>{h.isActive ? "On" : "Off"}</Badge>
+                <span className="text-xs text-muted-foreground">{(h.subscribedEvents ?? []).length} events</span>
+                <Button size="sm" variant="ghost" className="ml-auto text-destructive" onClick={() => remove.mutate(h.id)}>Remove</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

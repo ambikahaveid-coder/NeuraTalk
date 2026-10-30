@@ -25,6 +25,7 @@ import { createTemplate, createOrEditDraftVersion } from "../templates/service";
 import { createAudience, addMember } from "../audiences/service";
 import { createCampaign, updateCampaign, executeCampaign, getCampaignReport } from "./service";
 import { createApprovalRequest, approveRequest } from "../approvals/service";
+import { prepareTemplateMedia, TemplateSendError } from "../messaging/template-send";
 
 const CATEGORIES = ["marketing", "utility"] as const;
 
@@ -95,6 +96,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         versionId: latest?.id ?? null,
         status: latest?.status ?? "draft",
         content: latest?.content ?? "",
+        mediaType: latest?.mediaType ?? null,
+        mediaUrl: latest?.mediaUrl ?? null,
         rejectionReason: review?.status === "rejected" ? review.reason : null,
       };
     });
@@ -108,9 +111,12 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       name: z.string().trim().min(2).max(60),
       category: z.enum(CATEGORIES),
       content: z.string().trim().min(5).max(1024),
+      // Optional photo / video / PDF uploaded to NeuraTalk, reviewed with the text.
+      mediaUrl: z.string().trim().max(2000).optional(),
     }).safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the template" });
     try {
+      const media = parsed.data.mediaUrl ? await prepareTemplateMedia(req.user!.id, parsed.data.mediaUrl) : null;
       const slug = parsed.data.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "template";
       const template = await createTemplate(businessId, req.user!.id, { name: `${slug}_${Date.now().toString(36)}`, category: parsed.data.category });
       const version = await createOrEditDraftVersion(businessId, req.user!.id, template.id, {
@@ -118,10 +124,13 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         title: parsed.data.name,
         content: parsed.data.content,
         variables: variablesFrom(parsed.data.content) as any,
+        mediaType: media?.mediaType,
+        mediaUrl: media?.mediaUrl,
       });
       const request = await createApprovalRequest(businessId, req.user!.id, "template_version", (version as { id: number }).id);
       return res.status(201).json({ success: true, templateId: template.id, versionId: (version as { id: number }).id, review: request.status });
     } catch (err) {
+      if ((err as Error)?.name === TemplateSendError.name) return res.status((err as TemplateSendError).status).json({ success: false, error: (err as Error).message });
       return res.status(400).json({ success: false, error: message(err) });
     }
   });

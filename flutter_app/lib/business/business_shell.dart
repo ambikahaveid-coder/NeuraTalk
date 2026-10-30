@@ -21,6 +21,7 @@ import 'business_categories.dart';
 import 'business_onboarding_screen.dart';
 import 'business_profile_screen.dart';
 import 'business_tools_screen.dart';
+import 'template_picker.dart';
 import '../utils/phone_format.dart';
 
 /// NeuraTalk Business: like WhatsApp Business, inside NeuraTalk. Chats with
@@ -443,14 +444,25 @@ class _NewChatSheetState extends State<_NewChatSheet> {
     }
   }
 
-  Future<void> _send() async {
+  Future<void> _sendTemplate() async {
     final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
     if (digits.length < 10) {
       setState(() => _error = 'Enter a 10-digit mobile number');
       return;
     }
-    if (_message.text.trim().isEmpty) {
-      setState(() => _error = 'Write a message');
+    final pick = await pickApprovedTemplate(context, widget.base);
+    if (pick == null || !mounted) return;
+    await _send(template: pick);
+  }
+
+  Future<void> _send({Map<String, dynamic>? template}) async {
+    final digits = _phone.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 10) {
+      setState(() => _error = 'Enter a 10-digit mobile number');
+      return;
+    }
+    if (template == null && _message.text.trim().isEmpty) {
+      setState(() => _error = 'Write a message, or send an approved template');
       return;
     }
     setState(() { _sending = true; _error = null; });
@@ -458,7 +470,7 @@ class _NewChatSheetState extends State<_NewChatSheet> {
       final res = await ApiService.post('${widget.base}/chats', {
         'phone': _phone.text.trim(),
         if (_name.text.trim().isNotEmpty) 'name': _name.text.trim(),
-        'message': _message.text.trim(),
+        if (template != null) ...template else 'message': _message.text.trim(),
       });
       if (!mounted) return;
       if (res['onNeuraTalk'] == false) {
@@ -493,7 +505,9 @@ class _NewChatSheetState extends State<_NewChatSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('New chat', style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text('They see your business name and logo.', style: TextStyle(color: AppColors.textSecondary)),
+          Text('They see your business name and logo. A new conversation starts with a template NeuraTalk approved; '
+              'you can type freely to customers who wrote to you in the last 24 hours.',
+              style: TextStyle(color: AppColors.textSecondary)),
           const SizedBox(height: 16),
           Row(children: [
             Expanded(
@@ -514,18 +528,27 @@ class _NewChatSheetState extends State<_NewChatSheet> {
             maxLines: 5,
             maxLength: 4096,
             textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(labelText: 'Message', counterText: ''),
+            decoration: const InputDecoration(labelText: 'Message (only if they wrote to you in the last 24 hours)', counterText: ''),
           ),
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: AppColors.red))),
           const SizedBox(height: 16),
           SizedBox(
             height: 50,
             child: ElevatedButton.icon(
-              onPressed: _sending ? null : _send,
+              onPressed: _sending ? null : _sendTemplate,
               icon: _sending
                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.onAccent))
-                  : const Icon(Icons.send),
-              label: const Text('Send'),
+                  : const Icon(Icons.description_outlined),
+              label: const Text('Send an approved template'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 46,
+            child: OutlinedButton.icon(
+              onPressed: _sending ? null : () => _send(),
+              icon: const Icon(Icons.send),
+              label: const Text('Send the typed message'),
             ),
           ),
         ]),
@@ -618,9 +641,41 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
           _loading = false;
           _error = null;
         });
+        // Re-check the 24-hour window when the chat changes (e.g. the customer replied).
+        final newest = list.isEmpty ? 0 : (list.first['id'] as num?)?.toInt() ?? 0;
+        if (newest != _windowCheckedFor) {
+          _windowCheckedFor = newest;
+          _loadWindow();
+        }
       }
     } catch (e) {
       if (mounted && !quiet) setState(() { _loading = false; _error = e is ApiException ? e.message : 'Check your connection and try again.'; });
+    }
+  }
+
+  /// Can the business still type freely here? (Customer wrote in the last 24 hours.)
+  bool? _windowOpen;
+  int _windowCheckedFor = -1;
+
+  Future<void> _loadWindow() async {
+    try {
+      final res = await ApiService.get('$_base/conversations/${widget.conversationId}/window');
+      if (mounted) setState(() => _windowOpen = res['open'] == true);
+    } catch (_) {}
+  }
+
+  Future<void> _sendTemplate() async {
+    final pick = await pickApprovedTemplate(context, _base);
+    if (pick == null || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/template', pick);
+      await _load(quiet: true);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Template sent.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Not sent. Try again.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
   }
 
@@ -633,6 +688,10 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
       _input.clear();
       await _load(quiet: true);
     } catch (e) {
+      if (e is ApiException && e.statusCode == 409) {
+        // 24 hours passed since the customer last wrote.
+        if (mounted) setState(() => _windowOpen = false);
+      }
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Reply not sent. Try again.')));
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -835,6 +894,27 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                 ),
             ]),
           ),
+        if (_windowOpen == false)
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text(
+                  '$_name hasn\'t written to you in the last 24 hours. Like WhatsApp Business, you can start again only with a template NeuraTalk approved — they can reply to it, and then you can chat freely.',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _sending ? null : _sendTemplate,
+                  icon: const Icon(Icons.description_outlined),
+                  label: const Text('Send an approved template'),
+                ),
+              ]),
+            ),
+          )
+        else
         SafeArea(
           top: false,
           child: Container(

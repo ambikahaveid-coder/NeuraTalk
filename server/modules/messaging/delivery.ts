@@ -63,6 +63,13 @@ function isCustomerSide(p: { participantType: string; role: string | null }): bo
     || (p.participantType === MESSAGING_PARTICIPANT_TYPE.USER && p.role === "customer");
 }
 
+/** Tell the business's own server (webhooks it registered). Never throws. */
+function notifyBusinessServer(businessId: number, event: "message.sent" | "message.delivered" | "message.read" | "message.failed" | "message.received", data: Record<string, unknown>): void {
+  import("../webhooks/service")
+    .then(({ dispatchEvent }) => dispatchEvent(businessId, event, data))
+    .catch((error) => logger.warn("BusinessDelivery", `webhook ${event} failed for business ${businessId}: ${String(error)}`));
+}
+
 function notificationPreview(message: { content: string }): string {
   const text = message.content.replace(/\s+/g, " ").trim();
   return text.length > 120 ? `${text.slice(0, 117)}...` : text;
@@ -178,6 +185,17 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
     const [senderParticipant] = await db.select().from(messagingParticipants).where(eq(messagingParticipants.id, message.senderParticipantId));
     if (senderParticipant && isCustomerSide(senderParticipant)) {
       void notifyBusinessTeam(input.businessId, businessConversationId, bizConv.assignedToUserId ?? null, customer?.id ?? null, message.content);
+      notifyBusinessServer(input.businessId, "message.received", {
+        messageId: message.id, customerId: customer?.id ?? null, text: message.content, messageType: message.messageType,
+        createdAt: (message.createdAt ?? now).toISOString(),
+      });
+    } else {
+      if (toSent.length) notifyBusinessServer(input.businessId, "message.sent", { messageId: message.id, customerId: customer?.id ?? null, category: message.category });
+      if (toFailed.length) {
+        notifyBusinessServer(input.businessId, "message.failed", {
+          messageId: message.id, customerId: customer?.id ?? null, reason: blockedByCustomer ? "blocked_by_customer" : CUSTOMER_NOT_ON_NEURATALK,
+        });
+      }
     }
 
     if (consumerIsRecipient && consumerUserId) {
@@ -234,7 +252,13 @@ export async function acknowledgeConsumerDeliveries(
         and(eq(messagingParticipants.participantType, MESSAGING_PARTICIPANT_TYPE.USER), eq(messagingParticipants.participantId, userId)),
       ),
     ));
-  return advanceDeliveries(businessId, bizConv.id, bizConv.conversationId, participants.map((p) => p.id), status, userId);
+  const changed = await advanceDeliveries(businessId, bizConv.id, bizConv.conversationId, participants.map((p) => p.id), status, userId);
+  if (changed.length) {
+    notifyBusinessServer(businessId, status === "read" ? "message.read" : "message.delivered", {
+      messageIds: changed, customerId: customer.id, at: new Date().toISOString(),
+    });
+  }
+  return changed.length;
 }
 
 /** An agent opened a conversation in the Business Inbox: everything addressed to the business side is read. */
@@ -248,7 +272,7 @@ export async function acknowledgeBusinessReads(businessId: number, businessConve
   const [customer] = bizConv.customerId
     ? await db.select({ linkedUserId: customers.linkedUserId }).from(customers).where(eq(customers.id, bizConv.customerId))
     : [];
-  return advanceDeliveries(businessId, bizConv.id, bizConv.conversationId, businessSide, "read", customer?.linkedUserId ?? null);
+  return (await advanceDeliveries(businessId, bizConv.id, bizConv.conversationId, businessSide, "read", customer?.linkedUserId ?? null)).length;
 }
 
 async function advanceDeliveries(
@@ -258,8 +282,8 @@ async function advanceDeliveries(
   participantIds: number[],
   status: "delivered" | "read",
   consumerUserId: number | null,
-): Promise<number> {
-  if (participantIds.length === 0) return 0;
+): Promise<number[]> {
+  if (participantIds.length === 0) return [];
   const from = status === "read"
     ? [MESSAGE_DELIVERY_STATUS.QUEUED, MESSAGE_DELIVERY_STATUS.SENT, MESSAGE_DELIVERY_STATUS.DELIVERED]
     : [MESSAGE_DELIVERY_STATUS.QUEUED, MESSAGE_DELIVERY_STATUS.SENT];
@@ -274,7 +298,7 @@ async function advanceDeliveries(
       inArray(messagingDeliveries.status, from),
       inArray(messagingDeliveries.messageId, messageIds),
     ))
-    .returning({ id: messagingDeliveries.id });
+    .returning({ id: messagingDeliveries.id, messageId: messagingDeliveries.messageId });
 
   if (updated.length > 0) {
     publishMessagingEvent({
@@ -285,7 +309,7 @@ async function advanceDeliveries(
       status,
     });
   }
-  return updated.length;
+  return Array.from(new Set(updated.map((u) => u.messageId)));
 }
 
 /**

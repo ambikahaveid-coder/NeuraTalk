@@ -24,6 +24,9 @@ import { logger } from "../../observability";
 import { createCustomer, DuplicateCustomerError } from "../customers/service";
 import * as utility from "../utility/service";
 import * as otp from "../otp/service";
+import { approvedTemplates, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError } from "./template-send";
+import { sendBusinessAgentMessage, findOrCreateCustomerConversation } from "./service";
+import { businessConversations, messagingDeliveries, messagingMessages } from "@shared/schema";
 
 const addressSchema = {
   customerId: z.number().int().positive().optional(),
@@ -93,6 +96,12 @@ async function resolveCustomerId(organizationId: number, input: { customerId?: n
 
 function sendError(res: Response, error: unknown, fallback: string) {
   if (error instanceof ApiInputError) return res.status(400).json({ success: false, error: error.message });
+  const name = (error as Error)?.name;
+  if (name === TemplateSendError.name) {
+    const e = error as TemplateSendError;
+    return res.status(e.status).json({ success: false, code: e.code, error: e.message });
+  }
+  if (name === ServiceWindowClosedError.name) return res.status(409).json({ success: false, code: "SERVICE_WINDOW_CLOSED", error: (error as Error).message });
   if (error instanceof utility.UtilityTriggerFailedError) {
     return res.status(422).json({ success: false, error: "Message not sent", reason: error.reason });
   }
@@ -160,6 +169,75 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
     } catch (error) {
       return sendError(res, error, "Failed to send code");
     }
+  });
+
+  // Approved templates this business can send (marketing / utility).
+  app.get("/api/v1/messaging/templates", auth, async (req, res) => {
+    try {
+      const list = await approvedTemplates(organizationIdOf(req));
+      return res.json({
+        success: true,
+        templates: list.map((t) => ({
+          templateVersionId: t.versionId, name: t.title || t.name, category: t.category, language: t.language,
+          content: t.content, variables: t.variables, media: t.mediaUrl ? { type: t.mediaType } : null,
+        })),
+      });
+    } catch (error) {
+      return sendError(res, error, "Failed to list templates");
+    }
+  });
+
+  // Send a message: an approved template (any time), or free text to a
+  // customer who wrote in the last 24 hours (bots / support replies).
+  const messageSchema = z.object({
+    ...addressSchema,
+    templateVersionId: z.number().int().positive().optional(),
+    variables: z.record(z.unknown()).optional(),
+    text: z.string().trim().min(1).max(4096).optional(),
+  }).refine((v) => Boolean(v.templateVersionId) !== Boolean(v.text), { message: "Send either templateVersionId or text" });
+
+  app.post("/api/v1/messaging/messages", auth, async (req, res) => {
+    const parsed = messageSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Invalid request" });
+    try {
+      const organizationId = organizationIdOf(req);
+      const customerId = await resolveCustomerId(organizationId, parsed.data);
+      if (parsed.data.templateVersionId) {
+        const sent = await sendTemplateToCustomer({
+          businessId: organizationId, customerId, templateVersionId: parsed.data.templateVersionId, variables: parsed.data.variables,
+        });
+        return res.status(201).json({ success: true, message: { id: sent.messageId, customerId, type: "template", chargedPaise: sent.chargedPaise } });
+      }
+      const conversation = await db.transaction((tx) => findOrCreateCustomerConversation(tx, organizationId, customerId));
+      const window = await serviceWindow(conversation.businessConversation.conversationId);
+      if (!window.open) throw new ServiceWindowClosedError();
+      const sent = await sendBusinessAgentMessage({
+        businessId: organizationId,
+        businessConversationId: conversation.businessConversation.id,
+        authenticatedUserId: await businessActorUserId(organizationId),
+        content: parsed.data.text!,
+      });
+      return res.status(201).json({ success: true, message: { id: sent.message.id, customerId, type: "text", windowClosesAt: window.closesAt } });
+    } catch (error) {
+      return sendError(res, error, "Failed to send message");
+    }
+  });
+
+  // Delivery status of a message this business sent.
+  app.get("/api/v1/messaging/messages/:messageId", auth, async (req, res) => {
+    const messageId = Number(req.params.messageId);
+    if (!Number.isInteger(messageId) || messageId <= 0) return res.status(400).json({ success: false, error: "Invalid message id" });
+    const organizationId = organizationIdOf(req);
+    const [row] = await db.select({ id: messagingMessages.id, createdAt: messagingMessages.createdAt, conversationId: messagingMessages.conversationId })
+      .from(messagingMessages)
+      .innerJoin(businessConversations, eq(businessConversations.conversationId, messagingMessages.conversationId))
+      .where(and(eq(messagingMessages.id, messageId), eq(businessConversations.businessId, organizationId)));
+    if (!row) return res.status(404).json({ success: false, error: "Message not found" });
+    const deliveries = await db.select({ status: messagingDeliveries.status, statusAt: messagingDeliveries.statusAt, failureReason: messagingDeliveries.failureReason })
+      .from(messagingDeliveries).where(eq(messagingDeliveries.messageId, messageId));
+    const order = ["failed", "queued", "sent", "delivered", "read"];
+    const best = deliveries.sort((a, b) => order.indexOf(b.status) - order.indexOf(a.status))[0];
+    return res.json({ success: true, message: { id: row.id, createdAt: row.createdAt, status: best?.status ?? "queued", statusAt: best?.statusAt ?? null, failureReason: best?.failureReason ?? null } });
   });
 
   app.post("/api/v1/messaging/otp/:challengeId/verify", auth, async (req, res) => {

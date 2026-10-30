@@ -30,6 +30,7 @@ import { logger } from "../../observability";
 import { normalizePhoneForIndia } from "@shared/phone";
 import { createCustomer, DuplicateCustomerError, ValidationError as CustomerValidationError } from "../customers/service";
 import { findOrCreateCustomerConversation, sendBusinessAgentMessage } from "../messaging/service";
+import { sendTemplateToCustomer, ServiceWindowClosedError, TemplateSendError } from "../messaging/template-send";
 import { BUSINESS_MESSAGING_SETTINGS_KEY, businessMessagingSettingsSchema } from "../messaging/business-directory";
 
 const businessIdOf = (req: Request) => Number(req.params.businessId);
@@ -201,8 +202,12 @@ async function requestVerification(req: Request, res: Response) {
 const startChatSchema = z.object({
   phone: z.string().trim().min(6).max(20),
   name: z.string().trim().max(120).optional(),
-  message: z.string().trim().min(1, "Write a message").max(4096),
-});
+  // A free message only reaches a customer who wrote in the last 24 hours;
+  // otherwise the chat starts with an approved template.
+  message: z.string().trim().max(4096).optional(),
+  templateVersionId: z.number().int().positive().optional(),
+  variables: z.record(z.unknown()).optional(),
+}).refine((v) => Boolean(v.message) || Boolean(v.templateVersionId), { message: "Write a message or pick a template" });
 
 /** New chats a business may start per day (spam brake; customers can block). */
 const DAILY_NEW_CHAT_LIMIT = 200;
@@ -241,25 +246,45 @@ async function startChat(req: Request, res: Response) {
       }
     }
 
-    const businessConversationId = existingChat?.id
-      ?? (await db.transaction((tx) => findOrCreateCustomerConversation(tx, businessId, customerId))).businessConversation.id;
-
-    const sent = await sendBusinessAgentMessage({
-      businessId,
-      businessConversationId,
-      authenticatedUserId: req.user!.id,
-      content: parsed.data.message,
-    });
+    let businessConversationId: number;
+    let messageId: number;
+    if (parsed.data.templateVersionId) {
+      const sent = await sendTemplateToCustomer({
+        businessId, customerId, templateVersionId: parsed.data.templateVersionId, variables: parsed.data.variables,
+      });
+      businessConversationId = sent.businessConversationId;
+      messageId = sent.messageId;
+    } else {
+      businessConversationId = existingChat?.id
+        ?? (await db.transaction((tx) => findOrCreateCustomerConversation(tx, businessId, customerId))).businessConversation.id;
+      const sent = await sendBusinessAgentMessage({
+        businessId,
+        businessConversationId,
+        authenticatedUserId: req.user!.id,
+        content: parsed.data.message!,
+      });
+      messageId = sent.message.id;
+    }
 
     return res.status(201).json({
       success: true,
       conversationId: businessConversationId,
-      messageId: sent.message.id,
+      messageId,
       // Not on NeuraTalk (yet): the message waits; the app offers an invite.
       onNeuraTalk: Boolean(customer.linkedUserId),
       blocked: Boolean(customer.blockedByCustomerAt),
     });
   } catch (error) {
+    // By name, not instanceof: the error class may come from a separately
+    // loaded copy of the module (dynamic import in the messaging service).
+    const name = (error as Error)?.name;
+    if (name === ServiceWindowClosedError.name) {
+      return res.status(409).json({ success: false, code: "SERVICE_WINDOW_CLOSED", error: (error as Error).message });
+    }
+    if (name === TemplateSendError.name) {
+      const e = error as TemplateSendError;
+      return res.status(e.status).json({ success: false, code: e.code, error: e.message });
+    }
     logger.error("BusinessApp", "Start chat failed", error as Error);
     return res.status(500).json({ success: false, error: "Could not start the chat. Try again." });
   }

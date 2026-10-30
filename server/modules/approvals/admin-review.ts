@@ -70,6 +70,7 @@ async function listReviews(req: Request, res: Response) {
             title: v.title,
             content: v.content,
             variables: v.variables ?? [],
+            media: v.mediaUrl ? { type: v.mediaType, url: v.mediaUrl } : null,
           } : null,
         };
       }),
