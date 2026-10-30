@@ -30,6 +30,7 @@ import { existingAccountSignupRefusal } from "./company-signup-guard";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import { normalizePhoneForIndia } from "@shared/phone";
 import { storage } from "./storage";
 import {
   loadUser,
@@ -598,6 +599,16 @@ export function registerB2BRoutes(app: Express): void {
       }
 
       const data = validation.data;
+      // Same formats login uses: +91XXXXXXXXXX and lower-case email. Without
+      // this, "9876543210" never matches the number the admin signs in with.
+      if (data.adminPhone) {
+        const normalized = normalizePhoneForIndia(data.adminPhone);
+        if (!normalized || normalized.replace(/\D/g, "").length < 10) {
+          return res.status(400).json({ success: false, message: "Enter a valid admin mobile number" });
+        }
+        data.adminPhone = normalized;
+      }
+      if (data.adminEmail) data.adminEmail = data.adminEmail.trim().toLowerCase();
 
       // Check for existing company email
       if (data.companyEmail) {
@@ -658,10 +669,14 @@ export function registerB2BRoutes(app: Express): void {
         organizationId: newOrg.id,
       }).returning();
 
+      // The owner gets the full Business toolset (customers, templates,
+      // broadcasts, codes) -- nobody else is there to switch it on.
+      const { GRANTABLE_BUSINESS_PERMISSIONS } = await import("./business-rbac-routes");
       await db.insert(orgMembers).values({
         organizationId: newOrg.id,
         userId: adminUser.id,
         memberRole: "owner",
+        permissions: GRANTABLE_BUSINESS_PERMISSIONS,
       });
 
       const billing = data.autoApprove
