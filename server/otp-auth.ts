@@ -108,6 +108,9 @@ export async function requestOtp(
     };
   } catch (error) {
     logger.error("OtpAuth", "Failed to request OTP", error as Error);
+    if (String((error as Error)?.message ?? "").includes("email provider not configured")) {
+      return { success: false, message: "Email codes aren't available right now. Please log in with your mobile number." };
+    }
     return { success: false, message: "Failed to send OTP. Please try again." };
   }
 }

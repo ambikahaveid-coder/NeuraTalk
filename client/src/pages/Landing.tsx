@@ -69,7 +69,9 @@ export default function Landing() {
     setStepState(newStep);
     setSignupFlow(newStep, accountType);
   };
-  const [channel, setChannel] = useState<Channel>("email");
+  // Mobile first: it is how NeuraTalk accounts are identified (app, business
+  // app, calls), and it doesn't depend on email delivery.
+  const [channel, setChannel] = useState<Channel>("mobile");
   const [phoneCountryCode, setPhoneCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [identifier, setIdentifier] = useState("");
   const [otpCode, setOtpCode] = useState("");
