@@ -348,18 +348,28 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 
   bool _isMine(Map m) => _me != null && (m['senderParticipantId'] as num?)?.toInt() == _me;
 
-  Future<void> _send({Map<String, dynamic>? attachment, Map<String, dynamic>? location}) async {
+  /// Which quick reply I already tapped on a business message (one per message).
+  String? _tappedButton(int messageId) {
+    for (final x in _messages) {
+      final br = (x['metadata'] as Map?)?['buttonReply'] as Map?;
+      if (br != null && (br['messageId'] as num?)?.toInt() == messageId && _isMine(x)) return br['buttonId']?.toString();
+    }
+    return null;
+  }
+
+  Future<void> _send({Map<String, dynamic>? attachment, Map<String, dynamic>? location, Map<String, dynamic>? buttonReply}) async {
     final text = _input.text.trim();
-    if ((text.isEmpty && attachment == null && location == null) || _sending) return;
+    if ((text.isEmpty && attachment == null && location == null && buttonReply == null) || _sending) return;
     setState(() => _sending = true);
     try {
       await ApiService.post('$_base/messages', {
-        'content': location == null ? text : '',
+        'content': location == null && buttonReply == null ? text : '',
         if (attachment != null) 'attachment': attachment,
         if (location != null) 'location': location,
-        if (_replyTo != null) 'replyToMessageId': _replyTo!['id'],
+        if (buttonReply != null) 'buttonReply': buttonReply,
+        if (_replyTo != null && buttonReply == null) 'replyToMessageId': _replyTo!['id'],
       });
-      if (location == null) _input.clear();
+      if (location == null && buttonReply == null) _input.clear();
       _replyTo = null;
       await _load(quiet: true);
     } catch (e) {
@@ -920,6 +930,12 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
           else if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
             Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
           if (link != null) LinkPreviewCard(url: link),
+          if (!mine && (m['metadata'] as Map?)?['buttons'] is List)
+            MessageButtonsView(
+              buttons: (m['metadata'] as Map)['buttons'] as List,
+              tappedId: _tappedButton(id),
+              onQuickReply: _blocked ? null : (b) => _send(buttonReply: {'messageId': id, 'buttonId': b['id']}),
+            ),
           if (_orders[id] != null) _orderStrip(_orders[id]!),
           if (translated != null)
             GestureDetector(

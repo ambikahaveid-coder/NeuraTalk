@@ -275,6 +275,12 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
   }
 }
 
+class _ButtonDraft {
+  String type = 'quick_reply';
+  final title = TextEditingController();
+  final value = TextEditingController();
+}
+
 class _NewTemplateScreen extends StatefulWidget {
   const _NewTemplateScreen();
   @override
@@ -290,6 +296,63 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
   String? _mediaPath;
   String? _mediaName;
   bool _uploading = false;
+  // Up to 3 buttons: quick reply / website / call.
+  final List<_ButtonDraft> _buttons = [];
+
+  List<Map<String, dynamic>>? _buttonsPayload() {
+    if (_buttons.isEmpty) return null;
+    var n = 0;
+    return [
+      for (final b in _buttons)
+        if (b.title.text.trim().isNotEmpty)
+          {
+            'type': b.type,
+            'title': b.title.text.trim(),
+            if (b.type == 'quick_reply') 'id': 'btn_${++n}',
+            if (b.type == 'url') 'url': b.value.text.trim(),
+            if (b.type == 'call') 'phone': b.value.text.trim(),
+          },
+    ];
+  }
+
+  Widget _buttonEditor(_ButtonDraft b) {
+    return Card(
+      color: AppColors.surface,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 8),
+        child: Column(children: [
+          Row(children: [
+            Expanded(
+              child: DropdownButton<String>(
+                value: b.type,
+                isExpanded: true,
+                underline: const SizedBox.shrink(),
+                items: const [
+                  DropdownMenuItem(value: 'quick_reply', child: Text('Quick reply (customer taps to answer)')),
+                  DropdownMenuItem(value: 'url', child: Text('Visit website')),
+                  DropdownMenuItem(value: 'call', child: Text('Call phone number')),
+                ],
+                onChanged: (v) => setState(() => b.type = v ?? b.type),
+              ),
+            ),
+            IconButton(tooltip: 'Remove button', icon: const Icon(Icons.close), onPressed: () => setState(() => _buttons.remove(b))),
+          ]),
+          TextField(controller: b.title, maxLength: 25, decoration: const InputDecoration(labelText: 'Button text', hintText: 'Yes, I want it', isDense: true)),
+          if (b.type != 'quick_reply')
+            TextField(
+              controller: b.value,
+              keyboardType: b.type == 'url' ? TextInputType.url : TextInputType.phone,
+              decoration: InputDecoration(
+                labelText: b.type == 'url' ? 'Website (https://…)' : 'Phone number',
+                hintText: b.type == 'url' ? 'https://yourshop.in/offer' : '+91 98xxxxxxxx',
+                isDense: true,
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
 
   Future<void> _pickMedia() async {
     final picked = await AttachmentPicker.show(context);
@@ -320,6 +383,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
         'category': _category,
         'content': _content.text.trim(),
         if (_mediaPath != null) 'mediaUrl': _mediaPath,
+        if (_buttonsPayload() != null) 'buttons': _buttonsPayload(),
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent to NeuraTalk for review.')));
@@ -373,6 +437,16 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
         ),
         if (_mediaPath != null)
           TextButton(onPressed: () => setState(() { _mediaPath = null; _mediaName = null; }), child: const Text('Remove the file')),
+        const SizedBox(height: 12),
+        Text('BUTTONS (OPTIONAL, UP TO 3)', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+        const SizedBox(height: 6),
+        for (final b in _buttons) _buttonEditor(b),
+        if (_buttons.length < 3)
+          OutlinedButton.icon(
+            onPressed: () => setState(() => _buttons.add(_ButtonDraft())),
+            icon: const Icon(Icons.add),
+            label: const Text('Add a button'),
+          ),
         const SizedBox(height: 16),
         FilledButton(onPressed: _saving || _uploading ? null : _save, child: Text(_saving ? 'Sending…' : 'Send to NeuraTalk for review')),
       ]),

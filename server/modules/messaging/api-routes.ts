@@ -24,7 +24,7 @@ import { logger } from "../../observability";
 import { createCustomer, DuplicateCustomerError } from "../customers/service";
 import * as utility from "../utility/service";
 import * as otp from "../otp/service";
-import { approvedTemplates, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError } from "./template-send";
+import { approvedTemplates, messageButtonsSchema, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError, templateButtons } from "./template-send";
 import { sendBusinessAgentMessage, findOrCreateCustomerConversation } from "./service";
 import { businessConversations, messagingDeliveries, messagingMessages } from "@shared/schema";
 
@@ -180,6 +180,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
         templates: list.map((t) => ({
           templateVersionId: t.versionId, name: t.title || t.name, category: t.category, language: t.language,
           content: t.content, variables: t.variables, media: t.mediaUrl ? { type: t.mediaType } : null,
+          buttons: templateButtons(t),
         })),
       });
     } catch (error) {
@@ -194,7 +195,10 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
     templateVersionId: z.number().int().positive().optional(),
     variables: z.record(z.unknown()).optional(),
     text: z.string().trim().min(1).max(4096).optional(),
-  }).refine((v) => Boolean(v.templateVersionId) !== Boolean(v.text), { message: "Send either templateVersionId or text" });
+    // Interactive reply (inside 24 h): up to 3 buttons under the text.
+    buttons: messageButtonsSchema.optional(),
+  }).refine((v) => Boolean(v.templateVersionId) !== Boolean(v.text), { message: "Send either templateVersionId or text" })
+    .refine((v) => !v.buttons || Boolean(v.text), { message: "Buttons go with text; template buttons come from the approved template" });
 
   app.post("/api/v1/messaging/messages", auth, async (req, res) => {
     const parsed = messageSchema.safeParse(req.body ?? {});
@@ -216,6 +220,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
         businessConversationId: conversation.businessConversation.id,
         authenticatedUserId: await businessActorUserId(organizationId),
         content: parsed.data.text!,
+        buttons: parsed.data.buttons,
       });
       return res.status(201).json({ success: true, message: { id: sent.message.id, customerId, type: "text", windowClosesAt: window.closesAt } });
     } catch (error) {

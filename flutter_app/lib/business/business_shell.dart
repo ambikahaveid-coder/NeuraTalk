@@ -1031,6 +1031,11 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             ),
           if (location == null && (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original)))
             Text(shownText, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          // Our buttons as the customer sees them (not tappable here).
+          if ((m['metadata'] as Map?)?['buttons'] is List)
+            MessageButtonsView(buttons: (m['metadata'] as Map)['buttons'] as List),
+          if ((m['metadata'] as Map?)?['buttonReply'] is Map)
+            Text('Tapped a button', style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontStyle: FontStyle.italic)),
           if (link != null) LinkPreviewCard(url: link),
           if (translated != null)
             GestureDetector(

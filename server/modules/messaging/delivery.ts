@@ -185,8 +185,12 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
     const [senderParticipant] = await db.select().from(messagingParticipants).where(eq(messagingParticipants.id, message.senderParticipantId));
     if (senderParticipant && isCustomerSide(senderParticipant)) {
       void notifyBusinessTeam(input.businessId, businessConversationId, bizConv.assignedToUserId ?? null, customer?.id ?? null, message.content);
+      const meta = (message.metadata ?? {}) as { buttonReply?: unknown; location?: unknown };
       notifyBusinessServer(input.businessId, "message.received", {
         messageId: message.id, customerId: customer?.id ?? null, text: message.content, messageType: message.messageType,
+        replyToMessageId: message.replyToMessageId ?? null,
+        ...(meta.buttonReply ? { buttonReply: meta.buttonReply } : {}),
+        ...(meta.location ? { location: meta.location } : {}),
         createdAt: (message.createdAt ?? now).toISOString(),
       });
     } else {

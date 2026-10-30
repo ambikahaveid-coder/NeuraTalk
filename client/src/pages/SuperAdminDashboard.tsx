@@ -4406,6 +4406,17 @@ function TemplateReviewsCard() {
               </div>
             )}
             <p className="text-sm whitespace-pre-wrap rounded bg-muted p-2">{r.template?.content}</p>
+            {Array.isArray(r.template?.buttons) && r.template.buttons.length > 0 && (
+              <div className="flex flex-wrap gap-2" aria-label="Template buttons">
+                {r.template.buttons.map((b: any, i: number) => (
+                  <span key={i} className="rounded-full border px-3 py-1 text-xs">
+                    {b.type === "url" ? "🔗 " : b.type === "call" ? "📞 " : "↩ "}{b.title}
+                    {b.type === "url" && <span className="ml-1 text-muted-foreground break-all">({b.url})</span>}
+                    {b.type === "call" && <span className="ml-1 text-muted-foreground">({b.phone})</span>}
+                  </span>
+                ))}
+              </div>
+            )}
             {rejecting === r.requestId ? (
               <div className="flex flex-wrap gap-2">
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why? e.g. This is marketing, not utility" className="flex-1 min-w-[220px]" />

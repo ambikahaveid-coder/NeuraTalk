@@ -71,6 +71,7 @@ async function listReviews(req: Request, res: Response) {
             content: v.content,
             variables: v.variables ?? [],
             media: v.mediaUrl ? { type: v.mediaType, url: v.mediaUrl } : null,
+            buttons: ((v.metadata as { buttons?: unknown[] } | null)?.buttons ?? []),
           } : null,
         };
       }),

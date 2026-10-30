@@ -13,6 +13,7 @@
  *    daily limit, wallet charge. Template media (photo/video/PDF header,
  *    approved together with the text) travels as an attachment.
  */
+import { z } from "zod";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
@@ -31,6 +32,30 @@ import { findOrCreateCustomerConversation } from "./service";
 import { deliverCommittedMessage } from "./delivery";
 
 export const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Message buttons (like WhatsApp): up to 3 per message.
+ *  - quick_reply: the customer taps it and its title is sent back as their reply
+ *  - url: opens an https link
+ *  - call: dials a phone number
+ */
+export const messageButtonSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("quick_reply"), id: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/), title: z.string().trim().min(1).max(25) }),
+  z.object({ type: z.literal("url"), title: z.string().trim().min(1).max(25), url: z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Links must start with https://") }),
+  z.object({ type: z.literal("call"), title: z.string().trim().min(1).max(25), phone: z.string().trim().regex(/^\+?[0-9 ]{8,16}$/, "Enter a valid phone number") }),
+]);
+export const messageButtonsSchema = z.array(messageButtonSchema).max(3).superRefine((buttons, ctx) => {
+  const ids = buttons.filter((b) => b.type === "quick_reply").map((b) => (b as { id: string }).id);
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Each quick-reply button needs a different id" });
+});
+export type MessageButton = z.infer<typeof messageButtonSchema>;
+
+/** Buttons stored on a template version (metadata.buttons), if any. */
+export function templateButtons(version: { metadata: unknown }): MessageButton[] {
+  const raw = (version.metadata as { buttons?: unknown } | null)?.buttons;
+  const parsed = messageButtonsSchema.safeParse(raw ?? []);
+  return parsed.success ? parsed.data : [];
+}
 
 export class ServiceWindowClosedError extends Error {
   constructor() {
@@ -90,6 +115,7 @@ export async function approvedTemplates(businessId: number) {
     mediaType: templateVersions.mediaType,
     mediaUrl: templateVersions.mediaUrl,
     language: templateVersions.language,
+    metadata: templateVersions.metadata,
   }).from(templateVersions)
     .innerJoin(templates, eq(templates.id, templateVersions.templateId))
     .where(and(
@@ -215,6 +241,7 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
     const recipients = participants.filter((p) => p.participantType === MESSAGING_PARTICIPANT_TYPE.CUSTOMER);
     if (!business || recipients.length === 0) throw new TemplateSendError("Could not open the chat.", "SYSTEM_ERROR", 500);
 
+    const buttons = templateButtons(version);
     const [message] = await tx.insert(messagingMessages).values({
       conversationId: conversation.id,
       senderParticipantId: business.id,
@@ -222,6 +249,7 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
       category: template.category,
       content: rendered,
       templateId: template.id,
+      metadata: buttons.length ? { buttons } : {},
     }).returning();
     if (version.mediaUrl && version.mediaType && version.mediaUrl.startsWith("/objects/")) {
       await tx.insert(messagingAttachments).values({

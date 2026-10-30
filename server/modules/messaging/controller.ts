@@ -32,6 +32,7 @@ import { getMessagingSettings, getPublicBusinessProfile, searchBusinesses, updat
 import { viewerTranslationLanguage, withTranslations } from "./translate";
 import { attachmentInputSchema, AttachmentNotOwnedError } from "./attachments";
 import { isTyping } from "./reactions";
+import { messageButtonsSchema } from "./template-send";
 import { getCustomerConsents, setChannelConsent } from "../customers/service";
 import { db } from "../../db";
 import { and, eq } from "drizzle-orm";
@@ -206,9 +207,12 @@ const createMessageSchema = z.object({
   attachment: attachmentInputSchema.optional(),
   replyToMessageId: z.number().int().positive().optional(),
   location: locationSchema.optional(),
+  // Interactive reply: up to 3 buttons under the text (inside 24 h).
+  buttons: messageButtonsSchema.optional(),
   // category is deliberately NOT accepted here -- structural governance,
   // see doc 24 section 6. Any category field in the request body is ignored.
-}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" });
+}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" })
+  .refine((v) => !v.buttons?.length || v.content.trim(), { message: "Buttons go with a text message" });
 
 export async function postMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -238,6 +242,7 @@ export async function postMessage(req: Request, res: Response) {
       attachment: parsed.data.attachment,
       replyToMessageId: parsed.data.replyToMessageId,
       location: parsed.data.location,
+      buttons: parsed.data.buttons,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
@@ -272,7 +277,9 @@ const sendUserMessageSchema = z.object({
   attachment: attachmentInputSchema.optional(),
   replyToMessageId: z.number().int().positive().optional(),
   location: locationSchema.optional(),
-}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" });
+  // Tapped a quick-reply button on a business message.
+  buttonReply: z.object({ messageId: z.number().int().positive(), buttonId: z.string().trim().min(1).max(40) }).optional(),
+}).refine((v) => v.content.trim() || v.attachment || v.location || v.buttonReply, { message: "content must not be empty" });
 
 export async function sendUserMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -297,10 +304,12 @@ export async function sendUserMessage(req: Request, res: Response) {
       attachment: parsed.data.attachment,
       replyToMessageId: parsed.data.replyToMessageId,
       location: parsed.data.location,
+      buttonReply: parsed.data.buttonReply,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
     if ((error as Error)?.message === "VALIDATION_REPLY_TARGET") return badRequest(res, "The message you replied to isn't in this chat.");
+    if ((error as Error)?.message === "VALIDATION_BUTTON") return badRequest(res, "That button isn't on a message in this chat.");
     if (error instanceof NotFoundError) return res.status(404).json({ success: false, error: error.message });
     if (error instanceof AttachmentNotOwnedError) return res.status(403).json({ success: false, error: error.message });
     // Blocked this business: unblock first (as in WhatsApp).

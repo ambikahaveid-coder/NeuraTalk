@@ -324,7 +324,9 @@ export interface CreateMessageInput {
   /** Share a place instead of text. */
   location?: LocationInput;
   /** The customer tapped a quick-reply button of a business message. */
-  buttonReply?: { messageId: number; buttonId: string; title: string };
+  buttonReply?: { messageId: number; buttonId: string; title?: string };
+  /** Interactive message: up to 3 buttons (already validated). */
+  buttons?: Array<Record<string, unknown>>;
 }
 
 export interface LocationInput { latitude: number; longitude: number; name?: string; address?: string }
@@ -382,8 +384,25 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
       : input.messageType && Object.values(MESSAGE_TYPE).includes(input.messageType as any) && input.messageType !== MESSAGE_TYPE.TEMPLATE && input.messageType !== MESSAGE_TYPE.SYSTEM
         ? input.messageType
         : MESSAGE_TYPE.TEXT;
+  // A quick-reply tap: the button must really be on a business message of
+  // this chat; its title becomes the customer's reply.
+  let buttonReply: { messageId: number; buttonId: string; title: string } | null = null;
+  if (input.buttonReply) {
+    const [target] = await tx.select({ id: messagingMessages.id, metadata: messagingMessages.metadata, sender: messagingMessages.senderParticipantId })
+      .from(messagingMessages)
+      .where(and(
+        eq(messagingMessages.id, input.buttonReply.messageId),
+        eq(messagingMessages.conversationId, bizConversation.conversationId),
+        isNull(messagingMessages.deletedAt),
+      ));
+    const button = ((target?.metadata as { buttons?: Array<{ type: string; id?: string; title: string }> } | null)?.buttons ?? [])
+      .find((b) => b.type === "quick_reply" && b.id === input.buttonReply!.buttonId);
+    if (!target || !button || target.sender === ownParticipant.id) throw new Error("VALIDATION_BUTTON");
+    buttonReply = { messageId: target.id, buttonId: button.id!, title: button.title };
+  }
+
   // A file or a location may be sent without a caption; lists and notifications show a label.
-  const content = input.location
+  const content = buttonReply ? buttonReply.title : input.location
     ? `📍 ${input.location.name?.trim() || input.location.address?.trim() || "Location"}`
     : input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
   if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
@@ -403,7 +422,10 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   }
   const metadata: Record<string, unknown> = {};
   if (input.location) metadata.location = input.location;
-  if (input.buttonReply) metadata.buttonReply = input.buttonReply;
+  if (buttonReply) metadata.buttonReply = buttonReply;
+  if (input.buttons?.length) metadata.buttons = input.buttons;
+  // A tapped button replies to the message it was on.
+  if (buttonReply && !replyToMessageId) replyToMessageId = buttonReply.messageId;
 
   const [message] = await tx.insert(messagingMessages).values({
     conversationId: bizConversation.conversationId,
@@ -590,7 +612,7 @@ export interface SendUserInitiatedMessageInput {
   attachment?: AttachmentInput;
   replyToMessageId?: number;
   location?: LocationInput;
-  buttonReply?: { messageId: number; buttonId: string; title: string };
+  buttonReply?: { messageId: number; buttonId: string; title?: string };
 }
 
 /**

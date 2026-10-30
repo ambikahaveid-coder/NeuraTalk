@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
@@ -83,6 +84,55 @@ class TypingPinger {
     if (now.difference(_last) < const Duration(seconds: 3)) return;
     _last = now;
     unawaited(ApiService.post(endpoint, {}).then<void>((_) {}).catchError((Object _) {}));
+  }
+}
+
+/// Buttons under a business message (quick reply / website / call).
+/// [onQuickReply] is null when the viewer can't tap them (the business itself).
+class MessageButtonsView extends StatelessWidget {
+  const MessageButtonsView({super.key, required this.buttons, this.onQuickReply, this.tappedId});
+  final List buttons;
+  final void Function(Map button)? onQuickReply;
+  /// The quick reply this customer already chose, if any.
+  final String? tappedId;
+
+  Future<void> _open(BuildContext context, Map b) async {
+    final type = b['type'];
+    final uri = type == 'url' ? Uri.tryParse('${b['url']}') : type == 'call' ? Uri.tryParse('tel:${'${b['phone']}'.replaceAll(' ', '')}') : null;
+    if (uri == null) return;
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't open that.")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = buttons.whereType<Map>().toList();
+    if (list.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (final b in list)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.cyan,
+                side: BorderSide(color: tappedId != null && tappedId == b['id'] ? AppColors.cyan : AppColors.border),
+                visualDensity: VisualDensity.compact,
+              ),
+              icon: Icon(
+                b['type'] == 'url' ? Icons.open_in_new : b['type'] == 'call' ? Icons.call_outlined : Icons.reply,
+                size: 16,
+              ),
+              label: Text('${b['title']}', overflow: TextOverflow.ellipsis),
+              onPressed: b['type'] == 'quick_reply'
+                  ? (onQuickReply == null || tappedId != null ? null : () => onQuickReply!(b))
+                  : () => _open(context, b),
+            ),
+          ),
+      ]),
+    );
   }
 }
 

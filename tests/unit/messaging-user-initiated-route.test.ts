@@ -352,7 +352,7 @@ describe("P1-3A Part B: GET /api/messaging/business/:businessId/messages (contro
     await ctrl.getUserMessages(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ success: true, messages: [{ id: 1, content: "hi" }], total: 1, limit: 50, offset: 0, viewerParticipantId: 101 });
+    expect(res.body).toEqual({ success: true, messages: [{ id: 1, content: "hi" }], total: 1, limit: 50, offset: 0, viewerParticipantId: 101, businessTyping: false });
   });
 
   it("9. a userId/authenticatedUserId supplied in the query string CANNOT override req.user.id", async () => {
@@ -377,7 +377,7 @@ describe("P1-3A Part B: GET /api/messaging/business/:businessId/messages (contro
     await ctrl.getUserMessages(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ success: true, messages: [], total: 0, limit: 50, offset: 0, viewerParticipantId: null });
+    expect(res.body).toEqual({ success: true, messages: [], total: 0, limit: 50, offset: 0, viewerParticipantId: null, businessTyping: false });
   });
 
   it("13. limit/offset query params are parsed and forwarded to the service", async () => {
@@ -425,7 +425,8 @@ describe("P1-3A Part B: GET /api/messaging/business/:businessId/messages (contro
     const { req, res } = makeReqRes({ id: 42 }, {}, { businessId: "7" });
     await ctrl.getUserMessages(req, res);
 
-    expect(Object.keys(res.body)).toEqual(["success", "messages", "total", "limit", "offset", "viewerParticipantId"]);
+    // businessTyping: a plain boolean ("the business is typing"), no identity.
+    expect(Object.keys(res.body)).toEqual(["success", "messages", "total", "limit", "offset", "viewerParticipantId", "businessTyping"]);
   });
 
   it("route wiring: GET .../messages uses requireAuth only, no requireCompanyAccess/requirePermission (source-level check)", async () => {

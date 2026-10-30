@@ -9,7 +9,10 @@ import {
   NotFoundError, ValidationError, IllegalTemplateTransitionError,
 } from "./service";
 import { TemplateContentError, TemplateRenderError } from "./render";
-import { MESSAGE_CATEGORY } from "@shared/schema";
+import { MESSAGE_CATEGORY, templateVersions } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "../../db";
+import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError } from "../messaging/template-send";
 
 function badRequest(res: Response, msg: string) {
   return res.status(400).json({ success: false, error: msg });
@@ -79,6 +82,8 @@ const draftVersionSchema = z.object({
   // its type is read from the file itself, see prepareTemplateMedia.
   mediaType: z.string().trim().max(50).optional(),
   mediaUrl: z.string().trim().startsWith("/objects/").max(2000).optional(),
+  // Up to 3 buttons (quick reply / website / call); NeuraTalk reviews them with the text.
+  buttons: z.array(z.record(z.unknown())).max(3).optional(),
 }).strict();
 
 export async function putDraftVersion(req: Request, res: Response) {
@@ -91,7 +96,6 @@ export async function putDraftVersion(req: Request, res: Response) {
   try {
     const input = { ...parsed.data };
     if (input.mediaUrl) {
-      const { prepareTemplateMedia, TemplateSendError } = await import("../messaging/template-send");
       try {
         const media = await prepareTemplateMedia(req.user!.id, input.mediaUrl);
         input.mediaType = media.mediaType;
@@ -102,7 +106,20 @@ export async function putDraftVersion(req: Request, res: Response) {
     } else {
       input.mediaType = undefined;
     }
-    const version = await createOrEditDraftVersion(businessId, req.user!.id, templateId, input);
+    const { buttons, ...draft } = input;
+    let checkedButtons: unknown[] | undefined;
+    if (buttons !== undefined) {
+      const parsedButtons = messageButtonsSchema.safeParse(buttons);
+      if (!parsedButtons.success) return badRequest(res, parsedButtons.error.issues[0]?.message ?? "Check the buttons");
+      checkedButtons = parsedButtons.data;
+    }
+    let version = await createOrEditDraftVersion(businessId, req.user!.id, templateId, draft);
+    if (checkedButtons !== undefined) {
+      const [updated] = await db.update(templateVersions)
+        .set({ metadata: { ...((version as { metadata?: Record<string, unknown> }).metadata ?? {}), buttons: checkedButtons } })
+        .where(eq(templateVersions.id, (version as { id: number }).id)).returning();
+      version = updated as typeof version;
+    }
     return res.status(200).json({ success: true, version });
   } catch (error) {
     return handleServiceError(res, error, "Failed to save draft version");

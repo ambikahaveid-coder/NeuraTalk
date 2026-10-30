@@ -25,7 +25,7 @@ import { createTemplate, createOrEditDraftVersion } from "../templates/service";
 import { createAudience, addMember } from "../audiences/service";
 import { createCampaign, updateCampaign, executeCampaign, getCampaignReport } from "./service";
 import { createApprovalRequest, approveRequest } from "../approvals/service";
-import { prepareTemplateMedia, TemplateSendError } from "../messaging/template-send";
+import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons } from "../messaging/template-send";
 
 const CATEGORIES = ["marketing", "utility"] as const;
 
@@ -98,6 +98,7 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         content: latest?.content ?? "",
         mediaType: latest?.mediaType ?? null,
         mediaUrl: latest?.mediaUrl ?? null,
+        buttons: latest ? templateButtons(latest) : [],
         rejectionReason: review?.status === "rejected" ? review.reason : null,
       };
     });
@@ -113,6 +114,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       content: z.string().trim().min(5).max(1024),
       // Optional photo / video / PDF uploaded to NeuraTalk, reviewed with the text.
       mediaUrl: z.string().trim().max(2000).optional(),
+      // Up to 3 buttons (quick reply / website / call), reviewed with the text.
+      buttons: messageButtonsSchema.optional(),
     }).safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the template" });
     try {
@@ -127,6 +130,11 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         mediaType: media?.mediaType,
         mediaUrl: media?.mediaUrl,
       });
+      if (parsed.data.buttons?.length) {
+        await db.update(templateVersions)
+          .set({ metadata: { buttons: parsed.data.buttons } })
+          .where(eq(templateVersions.id, (version as { id: number }).id));
+      }
       const request = await createApprovalRequest(businessId, req.user!.id, "template_version", (version as { id: number }).id);
       return res.status(201).json({ success: true, templateId: template.id, versionId: (version as { id: number }).id, review: request.status });
     } catch (err) {

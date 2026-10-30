@@ -50,6 +50,7 @@ import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeCampaignMessage, PLACEHOLDER_COST_PER_MESSAGE_PAISE } from "./billing";
 import { createDailyMessagingGate } from "../messaging/account-health";
 import { campaignPricePaise } from "../messaging/pricing";
+import { templateButtons } from "../messaging/template-send";
 import { logger } from "../../observability";
 import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot, findCustomersAtFrequencyCap, peekBusinessThroughputStatus, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR } from "./frequency";
 import { createAuditLog, AUDIT_ACTION_CAMPAIGN } from "./audit";
@@ -555,6 +556,7 @@ async function processOneRecipient(
       category: campaign.category,
       content: rendered,
       templateId: version.templateId,
+      metadata: (() => { const b = templateButtons(version); return b.length ? { buttons: b } : {}; })(),
     }).returning();
 
     // The template's approved photo / video / PDF goes with the text.
