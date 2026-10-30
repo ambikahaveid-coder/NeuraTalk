@@ -159,77 +159,9 @@ const API_ENDPOINTS = [
       },
     ],
   },
-  {
-    category: "Meeting Rooms",
-    endpoints: [
-      {
-        method: "POST",
-        path: "/api/meetings/create",
-        description: "Create a new meeting room",
-        body: { 
-          name: "Team Standup",
-          maxParticipants: 10,
-          isVideoEnabled: true,
-          isTranslationEnabled: true
-        },
-        response: { roomCode: "ABC123", meetingId: 1 },
-      },
-      {
-        method: "POST",
-        path: "/api/meetings/join",
-        description: "Join an existing meeting",
-        body: { roomCode: "ABC123", displayName: "John" },
-        response: { success: true, participants: [] },
-      },
-    ],
-  },
-  {
-    category: "Translation",
-    endpoints: [
-      {
-        method: "POST",
-        path: "/api/translate/text",
-        description: "Translate text with emotion preservation",
-        body: { 
-          text: "Hello, how are you?",
-          sourceLang: "en",
-          targetLang: "es",
-          preserveEmotion: true
-        },
-        response: { translated: "Hola, como estas?", emotion: "friendly" },
-      },
-      {
-        method: "POST",
-        path: "/api/translate/voice",
-        description: "Translate voice with identity preservation",
-        body: { 
-          audio: "base64_audio_data",
-          sourceLang: "en",
-          targetLang: "es"
-        },
-        response: { translatedAudio: "base64_audio", transcript: "..." },
-      },
-    ],
-  },
-  {
-    category: "Voice Profiles",
-    endpoints: [
-      {
-        method: "POST",
-        path: "/api/voice-profiles/create",
-        description: "Create a new voice profile for identity preservation",
-        body: { name: "My Voice", samples: [] },
-        response: { profileId: 1, status: "training" },
-      },
-      {
-        method: "POST",
-        path: "/api/voice-profiles/:id/samples",
-        description: "Add voice sample for training",
-        body: { audio: "base64_audio", transcript: "Sample text" },
-        response: { sampleId: 1, status: "processing" },
-      },
-    ],
-  },
+  // Only endpoints that exist on the server are listed here (checked against
+  // the live server). Meeting, standalone translation and voice-profile APIs
+  // were listed before but never existed; they return once they are built.
 ];
 
 const SDK_EXAMPLES = {

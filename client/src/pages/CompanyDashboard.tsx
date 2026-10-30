@@ -166,10 +166,10 @@ export default function CompanyDashboard() {
     error: dashboardError,
     refetch: refetchDashboard,
   } = useQuery({
-    queryKey: ["/api/b2b/company/dashboard"],
+    queryKey: ["/api/company/dashboard"],
     queryFn: async () => {
       const token = getAuthToken();
-      const res = await fetch("/api/b2b/company/dashboard", {
+      const res = await fetch("/api/company/dashboard", {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Failed to load dashboard");

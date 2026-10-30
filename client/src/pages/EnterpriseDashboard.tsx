@@ -891,14 +891,29 @@ function SystemHealthPanel() {
 
 function CreditLedgerTab() {
   const { data: credits, isLoading } = useQuery({
-    queryKey: ["/api/credits/ledger"],
+    // The company wallet and its ledger (amounts in rupees).
+    queryKey: ["/api/company/credits"],
     queryFn: async () => {
       const token = getAuthToken();
-      const res = await fetch("/api/credits/ledger", {
+      const res = await fetch("/api/company/credits", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return { balance: 0, transactions: [] };
-      return res.json();
+      if (!res.ok) throw new Error("Could not load the wallet");
+      const body = await res.json();
+      const rupees = (paise: unknown) => Math.round(Number(paise ?? 0)) / 100;
+      return {
+        balance: rupees(body.billing?.walletBalancePaise),
+        transactions: (body.ledger ?? []).map((e: any) => {
+          const amount = rupees(e.amountPaise) * (e.direction === "debit" ? -1 : 1);
+          return {
+            id: e.id,
+            type: e.direction === "debit" ? "debit" : "credit",
+            amount,
+            description: String(e.entryType ?? "").replace(/_/g, " "),
+            createdAt: e.createdAt,
+          };
+        }),
+      };
     },
   });
 
@@ -913,8 +928,8 @@ function CreditLedgerTab() {
         <Card>
           <CardContent className="p-6">
             <div className="text-sm text-muted-foreground">Current Balance</div>
-            <div className="text-3xl font-bold mt-1">{credits?.balance?.toLocaleString() || 0}</div>
-            <div className="text-xs text-muted-foreground mt-1">credits remaining</div>
+            <div className="text-3xl font-bold mt-1">₹{(credits?.balance ?? 0).toLocaleString("en-IN")}</div>
+            <div className="text-xs text-muted-foreground mt-1">wallet balance</div>
           </CardContent>
         </Card>
         <Card>
