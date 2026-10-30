@@ -881,9 +881,10 @@ export default function ChatPage() {
               </div>
             </div>
           </div>
-          <Badge variant="secondary" className="gap-1">
+          <Badge variant="secondary" className="gap-1 shrink-0" title="Auto-translate both ways">
             <Languages className="w-3.5 h-3.5" />
-            Auto-translate both ways
+            <span className="hidden sm:inline">Auto-translate both ways</span>
+            <span className="sm:hidden">Translate</span>
           </Badge>
         </div>
         {!isOnline && (
@@ -977,7 +978,7 @@ export default function ChatPage() {
                         className={`w-full rounded-xl border px-3 py-3 text-left transition ${
                           selectedThreadId === thread.id
                             ? "border-primary/40 bg-primary/10"
-                            : "border-white/5 bg-background/60 hover:bg-white/5"
+                            : "border-border bg-background/60 hover:bg-muted"
                         }`}
                         data-testid={`thread-${thread.id}`}
                       >
@@ -1045,7 +1046,7 @@ export default function ChatPage() {
                             contact.language,
                           );
                         }}
-                        className="w-full rounded-xl border border-white/5 bg-background/60 hover:bg-white/5 px-3 py-3 text-left transition"
+                        className="w-full rounded-xl border border-border bg-background/60 hover:bg-muted px-3 py-3 text-left transition"
                         data-testid={`contact-chat-${contact.id}`}
                       >
                         <div className="flex items-center justify-between gap-2">
@@ -1108,7 +1109,7 @@ export default function ChatPage() {
                           onClick={() =>
                             handleOpenContact(result.identifier, "en")
                           }
-                          className="w-full rounded-xl border border-white/5 bg-background/60 hover:bg-white/5 px-3 py-3 text-left transition"
+                          className="w-full rounded-xl border border-border bg-background/60 hover:bg-muted px-3 py-3 text-left transition"
                           data-testid={`discover-user-${result.id}`}
                         >
                           <div className="font-medium truncate">

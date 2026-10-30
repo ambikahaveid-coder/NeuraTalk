@@ -573,7 +573,7 @@ function CampaignsPage({
         </div>
         <div>
           <label htmlFor="campaign-status-filter" className="sr-only">Filter campaigns by status</label>
-          <select id="campaign-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-white/10 bg-background px-3 py-2 text-sm">
+          <select id="campaign-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md border border-border bg-background px-3 py-2 text-sm">
           <option value="all">All status</option>
           <option value="draft">Draft</option>
           <option value="scheduled">Scheduled</option>

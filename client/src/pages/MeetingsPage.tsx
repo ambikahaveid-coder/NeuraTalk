@@ -471,7 +471,7 @@ export default function MeetingsPage() {
               <div className="w-full">
                   <p className="font-semibold mb-2">Join Meeting</p>
                   {!legacyMeetingTransportEnabled && (
-                    <p className="text-[11px] text-amber-300 mb-2">
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300 mb-2">
                       Legacy join links are disabled in the primary stack.
                     </p>
                   )}

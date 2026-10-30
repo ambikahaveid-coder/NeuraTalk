@@ -150,7 +150,7 @@ export function ChatMessage({
         {showText ? <p className="text-sm leading-relaxed whitespace-pre-wrap">{content}</p> : null}
 
         {secondaryContent ? (
-          <p className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground/80 mt-2 border-t border-white/5 pt-2">
+          <p className="text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground/80 mt-2 border-t border-border pt-2">
             {secondaryContent}
           </p>
         ) : null}

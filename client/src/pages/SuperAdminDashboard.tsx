@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useState, useEffect, type ReactNode } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
@@ -140,6 +141,7 @@ export default function SuperAdminDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <ThemeToggle />
               <Link href="/admin/live">
                 <Button size="sm" variant="destructive" data-testid="button-live-monitor">
                   <Radio className="w-4 h-4 mr-2 animate-pulse" />
@@ -2718,7 +2720,7 @@ function BillingSection() {
       <Dialog open={!!deletingPlan} onOpenChange={(o) => !o && setDeletingPlan(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-400"><AlertTriangle className="w-5 h-5" />Delete Plan</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400"><AlertTriangle className="w-5 h-5" />Delete Plan</DialogTitle>
             <DialogDescription>Are you sure you want to delete <strong>{deletingPlan?.name}</strong>? Active subscribers won't be affected but no new subscriptions will be possible.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -2867,9 +2869,9 @@ function PlanCard({ plan, onEdit, onDelete, onView, onToggle }: { plan: any; onE
         <Button size="sm" variant="ghost" className="flex-1 h-7 text-xs" onClick={onView}><Eye className="w-3 h-3 mr-1" />View</Button>
         <Button size="sm" variant="ghost" className="flex-1 h-7 text-xs" onClick={onEdit}><Edit className="w-3 h-3 mr-1" />Edit</Button>
         <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onToggle}>
-          {plan.isEnabled ? <XCircle className="w-3 h-3 text-orange-400" /> : <CheckCircle className="w-3 h-3 text-green-400" />}
+          {plan.isEnabled ? <XCircle className="w-3 h-3 text-orange-600 dark:text-orange-400" /> : <CheckCircle className="w-3 h-3 text-green-600 dark:text-green-400" />}
         </Button>
-        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300" onClick={onDelete}><Trash2 className="w-3 h-3" /></Button>
+        <Button size="sm" variant="ghost" className="h-7 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300" onClick={onDelete}><Trash2 className="w-3 h-3" /></Button>
       </div>
     </div>
   );

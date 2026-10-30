@@ -439,7 +439,7 @@ function TranslationCard({
       : "bg-green-500/10 border border-green-500/20"
     }`}>
       <div className="flex items-center gap-2 mb-2">
-        <Badge variant="outline" className={`text-xs ${isPerson1 ? "border-blue-500/50 text-blue-400" : "border-green-500/50 text-green-400"}`}>
+        <Badge variant="outline" className={`text-xs ${isPerson1 ? "border-blue-500/50 text-blue-600 dark:text-blue-400" : "border-green-500/50 text-green-600 dark:text-green-400"}`}>
           {isPerson1 ? "Person 1" : "Person 2"}
         </Badge>
         <span className="text-xs text-muted-foreground">

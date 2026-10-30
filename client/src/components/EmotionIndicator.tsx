@@ -51,7 +51,7 @@ const EMOTION_CONFIG: Record<string, {
   },
   neutral: {
     icon: Meh,
-    color: "text-slate-400",
+    color: "text-muted-foreground",
     bgColor: "bg-slate-500/20",
     label: "Neutral",
     pulseColor: "rgba(148, 163, 184, 0.4)",

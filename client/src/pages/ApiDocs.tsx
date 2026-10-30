@@ -318,7 +318,7 @@ export default function ApiDocs() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-border bg-muted/50 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/company">

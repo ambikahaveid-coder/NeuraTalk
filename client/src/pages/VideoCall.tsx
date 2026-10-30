@@ -1,3 +1,4 @@
+import { useForceDarkTheme } from "@/components/theme-toggle";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -35,6 +36,7 @@ interface Meeting {
 }
 
 export default function VideoCall() {
+  useForceDarkTheme();
   const [, navigate] = useLocation();
   const [, params] = useRoute("/video/:roomCode");
   const roomCode = params?.roomCode;

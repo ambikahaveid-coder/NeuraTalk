@@ -1,3 +1,4 @@
+import { useForceDarkTheme } from "@/components/theme-toggle";
 import { useMemo, useState } from "react";
 import { Activity, Mic, MicOff, Radio, Sparkles, StopCircle, TimerReset } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,7 @@ const languageOptions = [
 ];
 
 export default function VoiceAssistantPage() {
+  useForceDarkTheme();
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const mode = query.get("mode") || "general";
   const modePrompt = useMemo(() => {

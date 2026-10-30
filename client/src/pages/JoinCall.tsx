@@ -1,3 +1,4 @@
+import { useForceDarkTheme } from "@/components/theme-toggle";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRoute } from "wouter";
 import { useWebRTC } from "@/hooks/use-webrtc";
@@ -80,6 +81,7 @@ const LANGUAGES = [
 ];
 
 export default function JoinCall() {
+  useForceDarkTheme();
   const [, params] = useRoute("/join/:token");
   const token = params?.token || "";
   const { toast } = useToast();

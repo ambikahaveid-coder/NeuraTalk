@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
@@ -279,7 +280,7 @@ export default function CompanyDashboard() {
 
   return (
     <div className="min-h-screen mesh-bg text-foreground overflow-hidden flex flex-col font-sans">
-      <header className="border-b border-white/10 bg-black/20 backdrop-blur-xl sticky top-0 z-50">
+      <header className="border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/company">
@@ -296,6 +297,7 @@ export default function CompanyDashboard() {
             <span className="text-sm text-muted-foreground hidden sm:block">
               {user?.email || user?.username}
             </span>
+            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="icon" 
@@ -320,7 +322,7 @@ export default function CompanyDashboard() {
                 className={`flex items-center gap-2 font-bold transition-all ${
                   activeTab === tab.id 
                     ? "shadow-lg shadow-primary/20 scale-105" 
-                    : "hover:bg-white/5"
+                    : "hover:bg-muted"
                 }`}
                 data-testid={`tab-${tab.id}`}
               >
@@ -378,7 +380,7 @@ function PendingApprovalScreen({ user, logout }: { user: any; logout: () => void
         <Card>
           <CardContent className="pt-6 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-amber-500/20 flex items-center justify-center">
-              <Clock className="w-8 h-8 text-amber-400" />
+              <Clock className="w-8 h-8 text-amber-600 dark:text-amber-400" />
             </div>
             
             <h2 className="text-xl font-semibold mb-2">Pending Approval</h2>
@@ -386,7 +388,7 @@ function PendingApprovalScreen({ user, logout }: { user: any; logout: () => void
               Your company <span className="font-medium text-foreground">{user?.organization?.name}</span> is awaiting admin approval.
             </p>
             
-            <div className="p-4 rounded-lg bg-white/5 text-left mb-4">
+            <div className="p-4 rounded-lg bg-muted/50 text-left mb-4">
               <p className="text-xs text-muted-foreground">
                 You'll receive access to your dashboard, credits, and API once approved.
               </p>
@@ -523,61 +525,61 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                 </Button>
               </Link>
               <Link href="/calls/voice-translation">
-                <Button variant="outline" className="w-full justify-start hover:bg-white/5" data-testid="button-voice-call">
+                <Button variant="outline" className="w-full justify-start hover:bg-muted" data-testid="button-voice-call">
                   <Phone className="mr-3 h-4 w-4" />
                   Voice Translation Call {legacyMeetingTransportEnabled ? "" : "(legacy route)"}
                 </Button>
               </Link>
               <Link href="/calls/b2b">
-                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-400" data-testid="button-sim-call">
+                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-600 dark:text-green-400" data-testid="button-sim-call">
                   <PhoneCall className="mr-3 h-4 w-4" />
                   Phone Bridge Call
                 </Button>
               </Link>
               <Link href="/enterprise/hub">
-                <Button variant="outline" className="w-full justify-start bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 text-purple-400">
+                <Button variant="outline" className="w-full justify-start bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400">
                   <Phone className="mr-3 h-4 w-4" />
                   Number Integration Hub
                 </Button>
               </Link>
               <Link href="/enterprise/org-structure">
-                <Button variant="outline" className="w-full justify-start bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 text-blue-400">
+                <Button variant="outline" className="w-full justify-start bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400">
                   <Building2 className="mr-3 h-4 w-4" />
                   Org Structure
                 </Button>
               </Link>
               <Link href="/enterprise/telephony">
-                <Button variant="outline" className="w-full justify-start bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-400">
+                <Button variant="outline" className="w-full justify-start bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400">
                   <Phone className="mr-3 h-4 w-4" />
                   IVR &amp; Call Queues
                 </Button>
               </Link>
               <Link href="/enterprise/presence">
-                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-400">
+                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-600 dark:text-green-400">
                   <Activity className="mr-3 h-4 w-4" />
                   Agent Presence
                 </Button>
               </Link>
               <Link href="/enterprise/supervisor">
-                <Button variant="outline" className="w-full justify-start bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-400">
+                <Button variant="outline" className="w-full justify-start bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-600 dark:text-red-400">
                   <Radio className="mr-3 h-4 w-4" />
                   Supervisor Monitor
                 </Button>
               </Link>
               <Link href="/enterprise/cost-centers">
-                <Button variant="outline" className="w-full justify-start bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/20 text-yellow-400">
+                <Button variant="outline" className="w-full justify-start bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400">
                   <PiggyBank className="mr-3 h-4 w-4" />
                   Cost Centers
                 </Button>
               </Link>
               <Link href="/enterprise/billing-contracts">
-                <Button variant="outline" className="w-full justify-start bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/20 text-violet-400">
+                <Button variant="outline" className="w-full justify-start bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/20 text-violet-600 dark:text-violet-400">
                   <FileText className="mr-3 h-4 w-4" />
                   Billing Contract
                 </Button>
               </Link>
               <Link href="/admin/transcripts">
-                <Button variant="outline" className="w-full justify-start bg-teal-500/10 border-teal-500/20 hover:bg-teal-500/20 text-teal-400" data-testid="button-transcript-admin">
+                <Button variant="outline" className="w-full justify-start bg-teal-500/10 border-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400" data-testid="button-transcript-admin">
                   <FileText className="mr-3 h-4 w-4" />
                   Transcript Admin
                 </Button>
@@ -648,7 +650,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
             <CardContent className="space-y-4">
               {!canManageCompany ? (
                 <div className="flex flex-col items-center justify-center py-16 opacity-70 space-y-4">
-                  <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-full border border-dashed border-border flex items-center justify-center">
                     <ShieldCheck className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm text-muted-foreground font-medium text-center max-w-md">
@@ -657,7 +659,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                 </div>
               ) : recentActivity.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 opacity-50 space-y-4">
-                  <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-full border border-dashed border-border flex items-center justify-center">
                     <Activity className="w-5 h-5 text-muted-foreground" />
                   </div>
                   <p className="text-sm text-muted-foreground font-medium">
@@ -667,7 +669,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
               ) : (
                 <div className="space-y-3">
                   {recentActivity.slice(0, 6).map((entry) => (
-                    <div key={entry.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div key={entry.id} className="rounded-xl border border-border bg-muted/50 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold">{entry.action}</p>
@@ -681,7 +683,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border border-border bg-muted/50 p-4">
                   <div className="flex items-center justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2">
                       <Receipt className="w-4 h-4 text-primary" />
@@ -720,7 +722,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                      </div>
                   )}
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border border-border bg-muted/50 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <ShieldCheck className="w-4 h-4 text-primary" />
                     <p className="text-sm font-semibold">Subscription Health</p>
@@ -740,7 +742,7 @@ function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading
                     </div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="rounded-xl border border-border bg-muted/50 p-4">
                   <div className="flex items-center justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2">
                       <Wallet className="w-4 h-4 text-primary" />
@@ -907,7 +909,7 @@ function ClientConnectCard() {
                     className={`p-2 rounded-lg border text-center transition-all text-xs ${
                       callType === opt.value 
                         ? "border-primary bg-primary/10 text-primary" 
-                        : "border-white/10 hover:border-white/20 text-muted-foreground"
+                        : "border-border hover:border-border text-muted-foreground"
                     } ${(opt.value !== "f2f" && !legacyMeetingTransportEnabled) ? "opacity-50 cursor-not-allowed" : ""}`}
                     disabled={opt.value !== "f2f" && !legacyMeetingTransportEnabled}
                     data-testid={`calltype-${opt.value}`}
@@ -971,8 +973,8 @@ function ClientConnectCard() {
           >
             <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
               <div className="flex items-center gap-2 mb-2">
-                <Check className="w-4 h-4 text-green-400" />
-                <span className="text-sm font-medium text-green-400">Session Ready</span>
+                <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
+                <span className="text-sm font-medium text-green-600 dark:text-green-400">Session Ready</span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                 <Globe className="w-3 h-3" />
@@ -1596,7 +1598,7 @@ function ReportsTab({
             <p className="text-sm text-muted-foreground">No payment activity recorded yet.</p>
           ) : (
             filteredPayments.slice(0, 8).map((payment) => (
-              <div key={payment.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div key={payment.id} className="rounded-xl border border-border bg-muted/50 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">{payment.metadata?.label || payment.metadata?.kind || "Payment"}</p>
@@ -1612,7 +1614,7 @@ function ReportsTab({
                   </div>
                 </div>
                 {payment.failureReason ? (
-                  <p className="mt-2 text-xs text-red-400">{payment.failureReason}</p>
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-400">{payment.failureReason}</p>
                 ) : null}
               </div>
             ))
@@ -2077,7 +2079,7 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
           type="color"
           value={brandingForm[key] || "#000000"}
           onChange={(e) => setBrandingForm((b) => ({ ...b, [key]: e.target.value }))}
-          className="h-9 w-12 rounded border border-white/10 bg-transparent"
+          className="h-9 w-12 rounded border border-border bg-transparent"
           data-testid={`input-branding-${key}`}
         />
         <Input
@@ -2105,7 +2107,7 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
           <div>
             <label className="text-xs text-muted-foreground">Description</label>
             <textarea
-              className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               rows={3}
               value={form.description ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
@@ -2153,9 +2155,9 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
             <label className="text-xs text-muted-foreground">Logo</label>
             <div className="flex items-center gap-3 mt-1">
               {form.logoUrl ? (
-                <img src={form.logoUrl} alt="Business logo" className="w-14 h-14 rounded object-cover border border-white/10" />
+                <img src={form.logoUrl} alt="Business logo" className="w-14 h-14 rounded object-cover border border-border" />
               ) : (
-                <div className="w-14 h-14 rounded border border-dashed border-white/20 flex items-center justify-center text-muted-foreground">
+                <div className="w-14 h-14 rounded border border-dashed border-border flex items-center justify-center text-muted-foreground">
                   <Building2 className="w-6 h-6" />
                 </div>
               )}
@@ -2169,7 +2171,7 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
                     disabled={isUploading || setLogoMutation.isPending}
                     data-testid="input-logo-file"
                   />
-                  <span className="inline-flex items-center h-9 px-3 rounded-md border border-white/10 text-sm cursor-pointer hover:bg-white/5">
+                  <span className="inline-flex items-center h-9 px-3 rounded-md border border-border text-sm cursor-pointer hover:bg-muted">
                     {isUploading || setLogoMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
                     {form.logoUrl ? "Replace" : "Upload"} Logo
                   </span>

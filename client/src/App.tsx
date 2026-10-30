@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import { USER_ROLES } from "@shared/schema";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useAppTheme } from "@/components/theme-toggle";
 import { lazy, Suspense } from "react";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
@@ -561,6 +562,7 @@ function Router() {
 }
 
 function App() {
+  useAppTheme();
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

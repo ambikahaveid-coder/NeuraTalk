@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "theme";
+const CHANGE_EVENT = "neuratalk-theme-change";
 
 function preferredDark(): boolean {
   try {
@@ -15,40 +16,81 @@ function preferredDark(): boolean {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
 }
 
-function applyDark(dark: boolean) {
-  document.documentElement.classList.toggle("dark", dark);
+/** Pages that must stay dark (live calls) put a hold on the theme while open. */
+let darkHolds = 0;
+
+function applyTheme() {
+  document.documentElement.classList.toggle("dark", darkHolds > 0 || preferredDark());
 }
 
 /**
- * Public pages (website + login) follow the visitor's light/dark choice.
- * Dashboards are built for the dark theme only, so leaving a public page
- * switches back to dark (index.html also starts dark).
+ * Every page -- website, login and all dashboards -- follows the person's
+ * light/dark choice (or the phone/computer setting until they pick one).
+ * Call once near the root of the app.
  */
-export function usePublicTheme() {
+export function useAppTheme() {
   useEffect(() => {
-    applyDark(preferredDark());
-    return () => applyDark(true);
+    applyTheme();
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme();
+    media?.addEventListener?.("change", onChange);
+    window.addEventListener("storage", onChange);
+    window.addEventListener(CHANGE_EVENT, onChange);
+    return () => {
+      media?.removeEventListener?.("change", onChange);
+      window.removeEventListener("storage", onChange);
+      window.removeEventListener(CHANGE_EVENT, onChange);
+    };
   }, []);
 }
 
-export function ThemeToggle() {
+/** Kept for the public pages that already call it; the app-wide hook does the work. */
+export function usePublicTheme() {
+  useEffect(() => { applyTheme(); }, []);
+}
+
+/** Live call screens are designed dark (like a phone's call screen). */
+export function useForceDarkTheme() {
+  useEffect(() => {
+    darkHolds++;
+    applyTheme();
+    return () => {
+      darkHolds = Math.max(0, darkHolds - 1);
+      applyTheme();
+    };
+  }, []);
+}
+
+export function ThemeToggle({ className }: { className?: string }) {
   const [isDark, setIsDark] = useState(() => preferredDark());
+
+  useEffect(() => {
+    const sync = () => setIsDark(preferredDark());
+    window.addEventListener(CHANGE_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   const toggle = () => {
     const next = !isDark;
     setIsDark(next);
-    applyDark(next);
     try {
       localStorage.setItem(STORAGE_KEY, next ? "dark" : "light");
     } catch {
-      // Not saved; the choice still applies until the page is closed.
+      // Not saved; apply for this page only.
+      document.documentElement.classList.toggle("dark", next);
     }
+    window.dispatchEvent(new Event(CHANGE_EVENT));
   };
 
   return (
     <Button
       variant="ghost"
       size="icon"
+      className={className}
       onClick={toggle}
       aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
       title={isDark ? "Light mode" : "Dark mode"}

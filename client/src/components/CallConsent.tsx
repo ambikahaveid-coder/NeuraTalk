@@ -33,10 +33,10 @@ export default function CallConsent({ onAccept, onDecline }: CallConsentProps) {
       animate={{ opacity: 1, scale: 1 }}
       className="max-w-2xl mx-auto p-4 relative z-10"
     >
-      <Card className="glass-card shadow-2xl border-white/10 overflow-hidden relative">
+      <Card className="glass-card shadow-2xl border-border overflow-hidden relative">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-primary animate-gradient-shift" />
         <CardHeader className="text-center pb-2">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center mx-auto mb-6 shadow-xl border border-white/10 backdrop-blur-md">
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center mx-auto mb-6 shadow-xl border border-border backdrop-blur-md">
             <Shield className="w-10 h-10 text-primary" />
           </div>
           <CardTitle className="text-3xl font-display font-bold tracking-tight">Enterprise Compliance Vault</CardTitle>
@@ -80,7 +80,7 @@ export default function CallConsent({ onAccept, onDecline }: CallConsentProps) {
             </div>
           </div>
 
-          <div className="border-t border-white/5 pt-6 space-y-6">
+          <div className="border-t border-border pt-6 space-y-6">
             <div className="p-4 rounded-xl bg-primary/5 border border-primary/10">
               <h4 className="font-display font-bold text-sm flex items-center gap-2 mb-2">
                 <Shield className="w-4 h-4 text-primary" />

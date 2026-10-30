@@ -532,14 +532,14 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
   const isUnassigned = selectedConversation?.assignedToUserId == null;
 
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[480px] rounded-xl border border-white/10 overflow-hidden">
+    <div className="flex h-[calc(100vh-220px)] min-h-[480px] rounded-xl border border-border overflow-hidden">
       {/* Conversation list -- hidden on mobile once a conversation is open */}
-      <div className={cn(selectedId !== null ? "hidden md:flex" : "flex", "w-full md:w-80 flex-col border-r border-white/10 bg-background/40")}>
-        <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+      <div className={cn(selectedId !== null ? "hidden md:flex" : "flex", "w-full md:w-80 flex-col border-r border-border bg-background/40")}>
+        <div className="px-4 py-3 border-b border-border flex items-center gap-2">
           <MessagesSquare className="w-4 h-4 text-muted-foreground" />
           <h2 className="font-bold text-sm">Inbox</h2>
         </div>
-        <div className="px-3 py-2 border-b border-white/10 flex gap-1.5 flex-wrap" data-testid="inbox-assignment-filters">
+        <div className="px-3 py-2 border-b border-border flex gap-1.5 flex-wrap" data-testid="inbox-assignment-filters">
           {ASSIGNMENT_FILTERS.map((filter) => (
             <button
               key={filter.value}
@@ -550,7 +550,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                 "text-xs px-2.5 py-1 rounded-full border transition-colors",
                 assignmentFilter === filter.value
                   ? "bg-primary/15 border-primary/40 text-primary font-medium"
-                  : "border-white/10 text-muted-foreground hover:bg-white/5",
+                  : "border-border text-muted-foreground hover:bg-muted",
               )}
             >
               {filter.label}
@@ -579,7 +579,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                 onClick={() => setSelectedId(conv.id)}
                 data-testid={`inbox-conversation-${conv.id}`}
                 className={cn(
-                  "w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors",
+                  "w-full text-left px-4 py-3 border-b border-border hover:bg-muted transition-colors",
                   selectedId === conv.id && "bg-primary/10",
                 )}
               >
@@ -596,7 +596,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                   className={cn(
                     "inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full",
                     conv.assignedToUserId != null
-                      ? "bg-white/10 text-muted-foreground"
+                      ? "bg-muted/50 text-muted-foreground"
                       : "bg-primary/10 text-primary",
                   )}
                   data-testid={`inbox-assignee-${conv.id}`}
@@ -622,7 +622,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
           </div>
         ) : (
           <>
-            <div className="border-b border-white/10 px-4 py-3 flex items-center gap-3">
+            <div className="border-b border-border px-4 py-3 flex items-center gap-3">
               <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSelectedId(null)} data-testid="button-inbox-back">
                 <ArrowLeft className="w-5 h-5" />
               </Button>
@@ -645,7 +645,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                   <select
                     aria-label="Assign conversation"
                     data-testid="select-inbox-assignee"
-                    className="text-xs bg-background border border-white/10 rounded-md px-2 py-1.5 max-w-[9rem] disabled:opacity-50"
+                    className="text-xs bg-background border border-border rounded-md px-2 py-1.5 max-w-[9rem] disabled:opacity-50"
                     disabled={assignMutation.isPending || selectedId === null}
                     value={selectedConversation?.assignedToUserId ?? ""}
                     onChange={(event) => {
@@ -744,7 +744,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
               </div>
             </ScrollArea>
 
-            <div className="border-t border-white/10 p-4">
+            <div className="border-t border-border p-4">
               {windowClosed ? (
                 <div className="max-w-2xl mx-auto flex flex-col sm:flex-row sm:items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" data-testid="inbox-window-closed">
                   <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />

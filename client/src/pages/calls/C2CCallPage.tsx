@@ -445,10 +445,10 @@ export default function C2CCallPage({
     call.status === "error"
       ? "border-red-500/40 bg-red-500/10 text-red-200"
       : call.status === "ended"
-        ? "border-white/10 bg-muted/20 text-muted-foreground"
+        ? "border-border bg-muted/20 text-muted-foreground"
         : isInCall
           ? "border-primary/30 bg-primary/10 text-foreground"
-          : "border-white/10 bg-muted/20 text-muted-foreground";
+          : "border-border bg-muted/20 text-muted-foreground";
   const effectiveCallerIdentityDisclaimer =
     call.session?.callerIdentityDisclaimer ||
     call.pricingPreview?.callerIdentityDisclaimer;
@@ -509,7 +509,7 @@ export default function C2CCallPage({
 
   const qualityColor: Record<string, string> = {
     excellent: "text-green-500",
-    good: "text-green-400",
+    good: "text-green-600 dark:text-green-400",
     poor: "text-amber-500",
     lost: "text-red-500",
   };
@@ -932,7 +932,7 @@ export default function C2CCallPage({
             {pstnRetryGuidance && call.status === "error" && (
               <Card className="border-red-500/30">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base text-red-300">
+                  <CardTitle className="text-base text-red-700 dark:text-red-300">
                     PSTN Retry Guidance
                   </CardTitle>
                 </CardHeader>

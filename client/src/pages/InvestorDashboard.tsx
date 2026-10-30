@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -95,7 +96,7 @@ export default function InvestorDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-border bg-muted/50 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/website">
@@ -114,6 +115,7 @@ export default function InvestorDashboard() {
               <BarChart3 className="w-3 h-3" />
               {user.email}
             </Badge>
+            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="sm" 
@@ -296,19 +298,19 @@ export default function InvestorDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-4 md:grid-cols-3">
-                  <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+                  <div className="p-4 rounded-lg bg-muted/50 border border-border">
                     <h3 className="font-semibold mb-2">Real-time Translation</h3>
                     <p className="text-sm text-muted-foreground">
                       23 languages, including 11 Indian, spoken in the speaker's own voice
                     </p>
                   </div>
-                  <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+                  <div className="p-4 rounded-lg bg-muted/50 border border-border">
                     <h3 className="font-semibold mb-2">Self-Hosted Infrastructure</h3>
                     <p className="text-sm text-muted-foreground">
                       Zero third-party telecom dependencies, full data control
                     </p>
                   </div>
-                  <div className="p-4 rounded-lg bg-white/5 border border-white/10">
+                  <div className="p-4 rounded-lg bg-muted/50 border border-border">
                     <h3 className="font-semibold mb-2">B2B + B2C Model</h3>
                     <p className="text-sm text-muted-foreground">
                       Enterprise-ready with individual consumer support

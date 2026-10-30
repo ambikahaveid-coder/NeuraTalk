@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useLocation, Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { 
@@ -93,6 +94,7 @@ export default function AppNavigation({ title, showBack = true, backPath }: AppN
         </div>
 
         <div className="flex-1" />
+        <ThemeToggle />
 
         <div className="md:hidden">
           <DropdownMenu>

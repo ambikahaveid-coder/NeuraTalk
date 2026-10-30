@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useState } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
@@ -445,7 +446,7 @@ export default function BillingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-md sticky top-0 z-50">
+      <header className="border-b border-border bg-muted/50 backdrop-blur-md sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between gap-2">
           <div className="flex items-center gap-4">
             <Link href="/dashboard">
@@ -463,6 +464,7 @@ export default function BillingPage() {
             <span className="text-sm text-muted-foreground hidden sm:block">
               {user?.email || user?.username}
             </span>
+            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="icon" 
@@ -529,28 +531,28 @@ export default function BillingPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-4 md:grid-cols-4">
-                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                    <div className="rounded-lg border border-border bg-background/40 p-4">
                       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                         <Wallet className="w-3.5 h-3.5" />
                         Available Wallet
                       </div>
                       <p className="mt-2 text-xl font-bold">{formatPrice(companyWallet?.availableWalletPaise || 0)}</p>
                     </div>
-                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                    <div className="rounded-lg border border-border bg-background/40 p-4">
                       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                         <CreditCard className="w-3.5 h-3.5" />
                         Billing Type
                       </div>
                       <p className="mt-2 text-xl font-bold capitalize">{companyWallet?.billingType || "prepaid"}</p>
                     </div>
-                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                    <div className="rounded-lg border border-border bg-background/40 p-4">
                       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                         <Activity className="w-3.5 h-3.5" />
                         Active Calls
                       </div>
                       <p className="mt-2 text-xl font-bold">{companyDashboard?.data?.activeCallCount ?? 0}</p>
                     </div>
-                    <div className="rounded-lg border border-white/10 bg-background/40 p-4">
+                    <div className="rounded-lg border border-border bg-background/40 p-4">
                       <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
                         <Receipt className="w-3.5 h-3.5" />
                         30d Cost

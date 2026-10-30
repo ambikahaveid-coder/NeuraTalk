@@ -139,7 +139,7 @@ export default function PhoneIdentityCard() {
         )}
 
         {/* Phone number display */}
-        <div className="flex items-center gap-3 bg-white/5 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-3 bg-muted/50 rounded-lg px-3 py-2">
           <ShieldCheck className={`w-5 h-5 ${verified ? "text-primary" : "text-muted-foreground"}`} />
           <div className="flex-1">
             <div className="font-medium text-sm">{phone || "No phone number in profile"}</div>
@@ -236,14 +236,14 @@ export default function PhoneIdentityCard() {
 
                 <div>
                   <p className="text-xs font-semibold text-foreground mb-1">iPhone:</p>
-                  <p className="text-xs text-muted-foreground bg-white/5 rounded px-3 py-2">
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2">
                     {fwd.iosInstructions}
                   </p>
                 </div>
 
                 <div>
                   <p className="text-xs font-semibold text-foreground mb-1">Disable forwarding (normal calls back):</p>
-                  <div className="flex items-center gap-2 bg-white/5 font-mono text-sm rounded px-3 py-2">
+                  <div className="flex items-center gap-2 bg-muted/50 font-mono text-sm rounded px-3 py-2">
                     <span className="flex-1">{fwd.disableCode}</span>
                     <button onClick={() => copyToClipboard(fwd.disableCode)} title="Copy">
                       <Copy className="w-4 h-4 text-muted-foreground" />
@@ -257,7 +257,7 @@ export default function PhoneIdentityCard() {
 
         {/* If verified but inbound number not configured yet */}
         {verified && !hasInbound && (
-          <p className="text-xs text-muted-foreground bg-white/5 rounded px-3 py-2">
+          <p className="text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2">
             Inbound calling: set <code className="font-mono">NEURATALK_INBOUND_NUMBER</code> env var (MSG91 inbound number) to enable forwarding.
           </p>
         )}

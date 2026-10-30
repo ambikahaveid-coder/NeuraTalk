@@ -113,7 +113,7 @@ export default function InvestorAuth() {
         >
           <div className="text-center mb-8">
             <motion.div 
-              className="inline-flex items-center justify-center p-3 mb-4 rounded-full bg-white/5 border border-white/10 backdrop-blur-md"
+              className="inline-flex items-center justify-center p-3 mb-4 rounded-full bg-muted/50 border border-border backdrop-blur-md"
               whileHover={{ scale: 1.05 }}
             >
               <TrendingUp className="w-5 h-5 text-cyan-400 mr-2" />
@@ -127,7 +127,7 @@ export default function InvestorAuth() {
             </p>
           </div>
 
-          <Card className="bg-white/5 border-white/10 backdrop-blur-md">
+          <Card className="bg-muted/50 border-border backdrop-blur-md">
             <CardHeader className="text-center">
               <CardTitle>
                 {mode === "login" ? "Investor Login" : "Create Investor Account"}
@@ -266,15 +266,15 @@ export default function InvestorAuth() {
           </Card>
 
           <div className="mt-8 grid grid-cols-3 gap-4">
-            <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
+            <div className="p-3 rounded-xl bg-muted/50 border border-border text-center">
               <div className="text-lg font-bold text-cyan-400">23</div>
               <div className="text-xs text-muted-foreground">Languages</div>
             </div>
-            <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
+            <div className="p-3 rounded-xl bg-muted/50 border border-border text-center">
               <div className="text-lg font-bold text-cyan-400">&lt;200ms</div>
               <div className="text-xs text-muted-foreground">Latency</div>
             </div>
-            <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-center">
+            <div className="p-3 rounded-xl bg-muted/50 border border-border text-center">
               <div className="text-lg font-bold text-cyan-400">100%</div>
               <div className="text-xs text-muted-foreground">Self-Hosted</div>
             </div>

@@ -248,7 +248,7 @@ export default function ConsumerDashboard() {
               ) : (
                 <div className="space-y-2">
                   {favorites.map(c => (
-                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg">
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-muted rounded-lg">
                       <Avatar className="w-10 h-10">
                         <AvatarFallback>{initials(c.name)}</AvatarFallback>
                       </Avatar>
@@ -295,7 +295,7 @@ export default function ConsumerDashboard() {
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {filteredContacts.map(c => (
-                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-white/5 rounded-lg">
+                    <div key={c.id} className="flex items-center gap-3 p-2 hover:bg-muted rounded-lg">
                       <Avatar className="w-9 h-9">
                         <AvatarFallback>{initials(c.name)}</AvatarFallback>
                       </Avatar>

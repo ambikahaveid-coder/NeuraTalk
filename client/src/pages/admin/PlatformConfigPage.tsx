@@ -155,10 +155,10 @@ export default function PlatformConfigPage() {
 
     return (
       <div key={config.key} className="border rounded-lg p-4 space-y-3" data-testid={`config-item-${config.key}`}>
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-sm">{config.key}</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-sm break-all">{config.key}</span>
               {config.isSet ? (
                 <Badge variant="default" className="bg-green-500">
                   <CheckCircle className="w-3 h-3 mr-1" />
@@ -176,7 +176,7 @@ export default function PlatformConfigPage() {
             </div>
             <p className="text-sm text-muted-foreground">{config.description}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             {!isEditing && (
               <Button
                 variant="outline"
@@ -270,7 +270,7 @@ export default function PlatformConfigPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
+    <div className="container mx-auto p-4 sm:p-6 max-w-4xl">
       <div className="flex items-center gap-4 mb-6">
         <Link href="/admin">
           <Button variant="ghost" size="icon" data-testid="btn-back">
@@ -286,7 +286,7 @@ export default function PlatformConfigPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -342,12 +342,12 @@ export default function PlatformConfigPage() {
         {groupedConfigs.map(({ category, meta, configs, summary }) => (
           <Card key={category}>
             <CardHeader>
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 sm:gap-4">
+                <div className="min-w-0">
                   <CardTitle>{meta.title}</CardTitle>
                   <CardDescription>{meta.description}</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <Badge variant={summary?.configured ? "default" : "secondary"}>
                     {summary?.configured ? "Configured" : "Missing Required Keys"}
                   </Badge>

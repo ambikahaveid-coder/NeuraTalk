@@ -26,7 +26,7 @@ const LANGUAGES = [
 type RoleConfig = Record<string, { icon: LucideIcon; label: string; color: string; bgColor: string }>;
 
 const roleConfig: RoleConfig = {
-  [USER_ROLES.ADMIN]: { icon: Shield, label: "Admin", color: "text-red-400", bgColor: "bg-red-500/10" },
+  [USER_ROLES.ADMIN]: { icon: Shield, label: "Admin", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-500/10" },
   [USER_ROLES.BUSINESS]: { icon: Briefcase, label: "Business", color: "text-secondary", bgColor: "bg-secondary/10" },
   [USER_ROLES.CONSUMER]: { icon: User, label: "Personal", color: "text-primary", bgColor: "bg-primary/10" },
 };
@@ -117,10 +117,10 @@ export default function Dashboard() {
       )}
 
       <aside className={cn(
-        "fixed lg:relative z-50 w-72 h-full bg-card/80 backdrop-blur-xl border-r border-white/5 transform transition-transform duration-300 ease-in-out flex flex-col",
+        "fixed lg:relative z-50 w-72 h-full bg-card/80 backdrop-blur-xl border-r border-border transform transition-transform duration-300 ease-in-out flex flex-col",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}>
-        <div className="p-6 flex items-center justify-between border-b border-white/5">
+        <div className="p-6 flex items-center justify-between border-b border-border">
           <h2 className="text-xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
             NeuraTalk
           </h2>
@@ -129,7 +129,7 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        <div className="p-4 border-b border-white/5">
+        <div className="p-4 border-b border-border">
           <div className={cn("flex items-center gap-2 px-3 py-2 rounded-lg", roleConfig[currentRole]?.bgColor)}>
             <RoleIcon className={cn("w-4 h-4", roleConfig[currentRole]?.color)} />
             <span className={cn("text-sm font-medium", roleConfig[currentRole]?.color)}>
@@ -144,13 +144,13 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="p-2 flex gap-1 border-b border-white/5">
+        <div className="p-2 flex gap-1 border-b border-border">
           <button
             onClick={() => setActiveTab("chat")}
             data-testid="tab-chat"
             className={cn(
               "flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1",
-              activeTab === "chat" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/5"
+              activeTab === "chat" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
             )}
           >
             <MessageSquare className="w-3 h-3" />
@@ -162,7 +162,7 @@ export default function Dashboard() {
               data-testid="tab-team"
               className={cn(
                 "flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1",
-                activeTab === "team" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/5"
+                activeTab === "team" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
               )}
             >
               <Users className="w-3 h-3" />
@@ -174,7 +174,7 @@ export default function Dashboard() {
             data-testid="tab-settings"
             className={cn(
               "flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1",
-              activeTab === "settings" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/5"
+              activeTab === "settings" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
             )}
           >
             <Settings className="w-3 h-3" />
@@ -196,7 +196,7 @@ export default function Dashboard() {
                 "w-full p-3 rounded-lg text-left transition-all flex items-center gap-3",
                 activeConversationId === conv.id 
                   ? "bg-primary/10 text-primary border border-primary/20" 
-                  : "hover:bg-white/5 text-muted-foreground hover:text-foreground"
+                  : "hover:bg-muted text-muted-foreground hover:text-foreground"
               )}
             >
               <MessageSquare className="w-4 h-4 opacity-70" />
@@ -213,7 +213,7 @@ export default function Dashboard() {
               {allUsers?.map((u) => (
                 <div 
                   key={u.id} 
-                  className="p-3 rounded-lg bg-white/5 flex items-center gap-3"
+                  className="p-3 rounded-lg bg-muted/50 flex items-center gap-3"
                   data-testid={`user-${u.id}`}
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-sm font-bold">
@@ -236,7 +236,7 @@ export default function Dashboard() {
               {orgMembers?.map((member) => (
                 <div 
                   key={member.id} 
-                  className="p-3 rounded-lg bg-white/5 flex items-center gap-3"
+                  className="p-3 rounded-lg bg-muted/50 flex items-center gap-3"
                   data-testid={`member-${member.id}`}
                 >
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-secondary to-primary flex items-center justify-center text-white text-sm font-bold">
@@ -257,7 +257,7 @@ export default function Dashboard() {
 
           {activeTab === "settings" && (
             <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-white/5 space-y-3">
+              <div className="p-4 rounded-lg bg-muted/50 space-y-3">
                 <h3 className="text-sm font-semibold">Account Info</h3>
                 <div className="text-xs text-muted-foreground space-y-2">
                   <div className="flex justify-between">
@@ -277,7 +277,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <Link href="/settings/voice-clone">
-                <div className="p-4 rounded-lg bg-white/5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
+                <div className="p-4 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-semibold">Personal AI Voice Clone</h3>
                     <p className="text-xs text-muted-foreground mt-1">Enroll your voice for translated calls</p>
@@ -286,7 +286,7 @@ export default function Dashboard() {
               </Link>
               {isAdmin && (
                 <div className="p-4 rounded-lg bg-red-500/5 border border-red-500/20">
-                  <h3 className="text-sm font-semibold text-red-400 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-red-600 dark:text-red-400 flex items-center gap-2">
                     <Shield className="w-4 h-4" />
                     Admin Controls
                   </h3>
@@ -299,7 +299,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="p-4 border-t border-white/5 space-y-2">
+        <div className="p-4 border-t border-border space-y-2">
           <div className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold">
               {user?.username.charAt(0).toUpperCase()}
@@ -321,7 +321,7 @@ export default function Dashboard() {
           <div className="flex-1" />
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
+            <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 border border-border">
               <Globe className="w-4 h-4 text-muted-foreground" />
               <select
                 className="bg-transparent border-none text-sm focus:ring-0 text-foreground"

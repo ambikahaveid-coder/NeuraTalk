@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useState } from "react";
 import { Link } from "wouter";
 import { useAuth, getAuthToken } from "@/hooks/use-auth";
@@ -40,7 +41,7 @@ export default function EnterpriseDashboard() {
 
   return (
     <div className="min-h-screen mesh-bg text-foreground overflow-hidden flex flex-col font-sans">
-      <header className="border-b border-white/10 bg-black/40 backdrop-blur-2xl sticky top-0 z-50">
+      <header className="border-b border-border bg-background/80 backdrop-blur-2xl sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/enterprise">
@@ -78,6 +79,7 @@ export default function EnterpriseDashboard() {
             <span className="text-sm text-muted-foreground hidden sm:block">
               {user?.email || user?.username}
             </span>
+            <ThemeToggle />
             <Button 
               variant="ghost" 
               size="icon" 
@@ -101,7 +103,7 @@ export default function EnterpriseDashboard() {
               className={`flex items-center gap-2 font-bold transition-all px-4 ${
                 activeTab === tab.id 
                   ? "shadow-lg shadow-primary/20 scale-105" 
-                  : "hover:bg-white/5"
+                  : "hover:bg-muted"
               }`}
               data-testid={`tab-${tab.id}`}
             >
@@ -352,7 +354,7 @@ function TeamManagementTab() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: "Total Members", value: team?.stats?.total || 0, color: "text-foreground" },
-          { label: "Active Now", value: team?.stats?.active || 0, color: "text-green-400" },
+          { label: "Active Now", value: team?.stats?.active || 0, color: "text-green-600 dark:text-green-400" },
           { label: "Admins", value: team?.stats?.admins || 0, color: "text-primary" },
           { label: "Managers", value: team?.stats?.managers || 0, color: "text-secondary" },
           { label: "Agents", value: team?.stats?.agents || 0, color: "text-muted-foreground" },
@@ -374,7 +376,7 @@ function TeamManagementTab() {
       </div>
 
       <Card className="glass-card">
-        <CardHeader className="border-b border-white/5">
+        <CardHeader className="border-b border-border">
           <div className="flex items-center gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" />
@@ -382,7 +384,7 @@ function TeamManagementTab() {
                 placeholder="Search command center..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 bg-white/5 border-white/5"
+                className="pl-10 bg-muted/50 border-border"
                 data-testid="input-search-members"
               />
             </div>
@@ -407,7 +409,7 @@ function TeamManagementTab() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.1 + (i % 10) * 0.03 }}
-                className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all border border-transparent hover:border-white/5 group"
+                className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-all border border-transparent hover:border-border group"
                 data-testid={`member-${member.id}`}
               >
                 <div className="flex items-center gap-3">
@@ -502,14 +504,14 @@ function AuditLogsTab() {
 
       <Card className="glass-card">
         <CardContent className="p-0">
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-border">
             {filteredLogs?.map((log: any, i: number) => (
               <motion.div
                 key={log.id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: (i % 10) * 0.03 }}
-                className="flex items-center justify-between p-4 bg-white/0 hover:bg-white/5 transition-all group"
+                className="flex items-center justify-between p-4 bg-white/0 hover:bg-muted transition-all group"
                 data-testid={`log-${log.id}`}
               >
                 <div className="flex items-center gap-3">
@@ -607,23 +609,23 @@ function RecordingsTab() {
       </div>
 
       <Card className="glass-card">
-        <CardHeader className="border-b border-white/5">
+        <CardHeader className="border-b border-border">
           <CardTitle className="font-display font-bold">Secure Recording Vault</CardTitle>
           <CardDescription className="text-xs">Encrypted call data with mandatory consent</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-border">
             {recordings?.recordings?.map((rec: any, i: number) => (
               <motion.div
                 key={rec.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: (i % 10) * 0.03 }}
-                className="flex items-center justify-between p-4 bg-white/0 hover:bg-white/5 transition-all group"
+                className="flex items-center justify-between p-4 bg-white/0 hover:bg-muted transition-all group"
                 data-testid={`recording-${rec.id}`}
               >
                 <div className="flex items-center gap-4">
-                  <div className="p-2.5 rounded-xl bg-white/5 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+                  <div className="p-2.5 rounded-xl bg-muted/50 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
                     <Mic className="w-5 h-5" />
                   </div>
                   <div>
@@ -690,7 +692,7 @@ function EnterpriseSettingsTab() {
 
       <div className="space-y-6">
         <Card className="glass-card">
-          <CardHeader className="cursor-pointer border-b border-white/5" onClick={() => setBrandingOpen(!brandingOpen)}>
+          <CardHeader className="cursor-pointer border-b border-border" onClick={() => setBrandingOpen(!brandingOpen)}>
             <CardTitle className="flex items-center gap-3 font-display font-bold">
               <div className="p-2 rounded-lg bg-primary/10 text-primary">
                 <Palette className="w-5 h-5" />
@@ -729,7 +731,7 @@ function EnterpriseSettingsTab() {
         </Card>
 
         <Card className="glass-card">
-          <CardHeader className="cursor-pointer border-b border-white/5" onClick={() => setSecurityOpen(!securityOpen)}>
+          <CardHeader className="cursor-pointer border-b border-border" onClick={() => setSecurityOpen(!securityOpen)}>
             <CardTitle className="flex items-center gap-3 font-display font-bold">
               <div className="p-2 rounded-lg bg-primary/10 text-primary">
                 <Shield className="w-5 h-5" />
@@ -787,7 +789,7 @@ function EnterpriseSettingsTab() {
         </Card>
 
         <Card className="glass-card">
-          <CardHeader className="cursor-pointer border-b border-white/5" onClick={() => setNotificationsOpen(!notificationsOpen)}>
+          <CardHeader className="cursor-pointer border-b border-border" onClick={() => setNotificationsOpen(!notificationsOpen)}>
             <CardTitle className="flex items-center gap-3 font-display font-bold">
               <div className="p-2 rounded-lg bg-primary/10 text-primary">
                 <Bell className="w-5 h-5" />
@@ -823,7 +825,7 @@ function EnterpriseSettingsTab() {
         </Card>
 
         <div className="flex justify-end gap-3 pt-6 pb-12">
-          <Button variant="outline" className="px-8 border-white/10 hover:bg-white/5" onClick={() => window.history.back()}>Cancel</Button>
+          <Button variant="outline" className="px-8 border-border hover:bg-muted" onClick={() => window.history.back()}>Cancel</Button>
           <Button className="px-8 shadow-lg shadow-primary/20 bg-primary text-primary-foreground font-bold" disabled title="Configuration editing is not wired on this screen">
             Configuration Editing Not Wired
           </Button>
@@ -967,7 +969,7 @@ function CreditLedgerTab() {
                     <div className="text-sm font-medium">{tx.description || tx.type}</div>
                     <div className="text-xs text-muted-foreground">{tx.createdAt ? new Date(tx.createdAt).toLocaleDateString() : ""}</div>
                   </div>
-                  <div className={`font-bold ${tx.amount > 0 ? "text-green-500" : "text-red-400"}`}>
+                  <div className={`font-bold ${tx.amount > 0 ? "text-green-500" : "text-red-600 dark:text-red-400"}`}>
                     {tx.amount > 0 ? "+" : ""}{tx.amount}
                   </div>
                 </div>

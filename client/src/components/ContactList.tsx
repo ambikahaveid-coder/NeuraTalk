@@ -102,7 +102,7 @@ export function ContactList({
                 value={newContactId}
                 onChange={(e) => setNewContactId(e.target.value)}
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-muted-foreground mt-1">
                 This is NOT shown to the other person - just for identification
               </p>
             </div>
@@ -139,7 +139,7 @@ export function ContactList({
       {/* Search */}
       {!showRecentOnly && (
         <div className="relative">
-          <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search contacts..."
             value={searchQuery}
@@ -153,7 +153,7 @@ export function ContactList({
       {favorites.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2">
-            <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+            <Star className="w-4 h-4 fill-yellow-400 text-yellow-600 dark:text-yellow-400" />
             Favorites
           </h3>
           <div className="grid grid-cols-1 gap-2">
@@ -197,9 +197,9 @@ export function ContactList({
       {/* Empty State */}
       {contacts.length === 0 && (
         <Card className="text-center py-12">
-          <MessageCircle className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500">No contacts yet</p>
-          <p className="text-sm text-gray-400">Add your first contact to start calling with translation</p>
+          <MessageCircle className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+          <p className="text-muted-foreground">No contacts yet</p>
+          <p className="text-sm text-muted-foreground">Add your first contact to start calling with translation</p>
           <Button onClick={() => setShowAddForm(true)} className="mt-4">
             <Plus className="w-4 h-4 mr-2" />
             Add Your First Contact
@@ -237,7 +237,7 @@ function ContactCard({
             onClick={() => onSelect?.(contact.id)}
           >
             <div className="font-medium">{contact.name}</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               {contact.lastCalled && (
                 <>
                   Last call: {new Date(contact.lastCalled).toLocaleDateString()}
@@ -256,14 +256,14 @@ function ContactCard({
           <div className="flex items-center gap-2">
             <button
               onClick={() => onToggleFavorite(contact.id)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
               title={isFavorite ? "Remove from favorites" : "Add to favorites"}
             >
               <Star 
                 className={`w-5 h-5 ${
                   isFavorite 
-                    ? "fill-yellow-400 text-yellow-400" 
-                    : "text-gray-300"
+                    ? "fill-yellow-400 text-yellow-600 dark:text-yellow-400" 
+                    : "text-muted-foreground"
                 }`}
               />
             </button>

@@ -1,3 +1,4 @@
+import { useForceDarkTheme } from "@/components/theme-toggle";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "wouter";
 import { getAuthToken } from "@/hooks/use-auth";
@@ -102,6 +103,7 @@ interface PipelineMetricsSnapshot {
 type WSState = "connecting" | "connected" | "disconnected" | "error";
 
 export default function LiveMonitor() {
+  useForceDarkTheme();
   const wsRef = useRef<WebSocket | null>(null);
   const [wsState, setWsState] = useState<WSState>("disconnected");
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
@@ -317,8 +319,8 @@ export default function LiveMonitor() {
   return (
     <div className="min-h-screen bg-gray-950 text-white" data-testid="live-monitor-page">
       <header className="sticky top-0 z-50 border-b border-gray-800 bg-gray-950/95 backdrop-blur">
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link href="/admin">
               <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white" data-testid="button-back-admin">
                 <ArrowLeft className="w-5 h-5" />
@@ -326,22 +328,22 @@ export default function LiveMonitor() {
             </Link>
             <div className="flex items-center gap-2">
               <Radio className="w-5 h-5 text-red-500 animate-pulse" />
-              <h1 className="text-lg font-bold">Live Monitor</h1>
+              <h1 className="text-lg font-bold whitespace-nowrap">Live Monitor</h1>
             </div>
             <Badge
               variant="outline"
-              className={`ml-2 ${wsState === "connected" ? "border-green-500 text-green-400" : wsState === "connecting" ? "border-yellow-500 text-yellow-400" : "border-red-500 text-red-400"}`}
+              className={`ml-1 sm:ml-2 shrink-0 ${wsState === "connected" ? "border-green-500 text-green-400" : wsState === "connecting" ? "border-yellow-500 text-yellow-400" : "border-red-500 text-red-400"}`}
               data-testid="badge-ws-state"
             >
               {wsState === "connected" ? <><Wifi className="w-3 h-3 mr-1" />Live</> : wsState === "connecting" ? "Connecting..." : <><WifiOff className="w-3 h-3 mr-1" />Offline</>}
             </Badge>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500">Last update: {formatTime(lastUpdate)}</span>
-            <Button variant="outline" size="sm" onClick={requestSnapshot} className="border-gray-700 text-gray-300" data-testid="button-refresh">
-              <RefreshCw className="w-4 h-4 mr-1" />
-              Refresh
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="hidden sm:inline text-xs text-gray-500">Last update: {formatTime(lastUpdate)}</span>
+            <Button variant="outline" size="sm" onClick={requestSnapshot} className="border-gray-700 text-gray-300" data-testid="button-refresh" aria-label="Refresh">
+              <RefreshCw className="w-4 h-4 sm:mr-1" />
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
         </div>

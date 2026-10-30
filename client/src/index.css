@@ -34,6 +34,35 @@
   --input: 214 32% 89%;
   --ring: 220 91% 54%;
 
+  /* Outline colours used by cards, menus and buttons (were missing -> black outlines). */
+  --card-border: 214 32% 89%;
+  --popover-border: 214 32% 89%;
+  --muted-border: 214 32% 89%;
+  --accent-border: 214 80% 88%;
+  --secondary-border: 214 80% 85%;
+  --primary-border: 220 91% 48%;
+  --destructive-border: 347 77% 45%;
+
+  --chart-1: 220 91% 54%;
+  --chart-2: 202 100% 45%;
+  --chart-3: 160 84% 39%;
+  --chart-4: 38 92% 50%;
+  --chart-5: 347 77% 50%;
+
+  --sidebar: 216 33% 98%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214 32% 89%;
+  --sidebar-primary: 220 91% 54%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary-border: 220 91% 48%;
+  --sidebar-accent: 214 95% 95%;
+  --sidebar-accent-foreground: 220 91% 45%;
+  --sidebar-accent-border: 214 80% 88%;
+  --sidebar-ring: 220 91% 54%;
+
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
   --radius: 1rem;
   
   /* Modern Typography - Inter for UI, Outfit for Display */
@@ -41,7 +70,7 @@
   --font-display: 'Outfit', system-ui, sans-serif;
 }
 
-/* NeuraTalk dark theme (brand navy + blue). Dashboards always use this. */
+/* NeuraTalk dark theme (brand navy + blue). Every page follows the person's light/dark choice. */
 .dark {
   --background: 224 63% 11%;     /* brand navy #0B1530 */
   --foreground: 210 40% 98%;
@@ -70,6 +99,31 @@
   --border: 223 35% 24%;
   --input: 223 35% 24%;
   --ring: 220 91% 60%;
+
+  --card-border: 223 35% 24%;
+  --popover-border: 223 35% 24%;
+  --muted-border: 223 35% 26%;
+  --accent-border: 223 35% 28%;
+  --secondary-border: 202 100% 50%;
+  --primary-border: 220 91% 48%;
+  --destructive-border: 347 77% 48%;
+
+  --chart-1: 220 91% 60%;
+  --chart-2: 202 100% 58%;
+  --chart-3: 160 70% 45%;
+  --chart-4: 38 92% 55%;
+  --chart-5: 347 77% 60%;
+
+  --sidebar: 224 60% 9%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 223 35% 20%;
+  --sidebar-primary: 220 91% 54%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-primary-border: 220 91% 48%;
+  --sidebar-accent: 223 40% 20%;
+  --sidebar-accent-foreground: 202 100% 70%;
+  --sidebar-accent-border: 223 35% 28%;
+  --sidebar-ring: 220 91% 60%;
 }
 
 @layer base {
@@ -83,7 +137,11 @@
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/30 selection:text-primary-foreground;
     font-family: var(--font-sans);
-    background-image: 
+  }
+
+  /* The soft glow (dark centre) only suits the dark theme. */
+  .dark body {
+    background-image:
       radial-gradient(circle at 0% 0%, rgba(191, 51, 255, 0.05) 0%, transparent 40%),
       radial-gradient(circle at 100% 100%, rgba(0, 255, 255, 0.05) 0%, transparent 40%),
       radial-gradient(circle at 50% 50%, rgba(10, 10, 20, 1) 0%, transparent 100%);
@@ -98,11 +156,19 @@
 
 @layer utilities {
   .glass-card {
-    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] shadow-2xl;
+    @apply bg-card border border-border shadow-sm;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .glass-card:hover {
+    @apply shadow-md border-primary/30;
+  }
+
+  .dark .glass-card {
+    @apply bg-white/[0.03] backdrop-blur-xl border-white/[0.08] shadow-2xl;
+  }
+
+  .dark .glass-card:hover {
     @apply bg-white/[0.06] border-white/[0.12] shadow-primary/5;
   }
   
@@ -113,6 +179,13 @@
   }
 
   .mesh-bg {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(at 0% 0%, hsla(243,75%,59%,0.06) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(202,100%,58%,0.06) 0px, transparent 50%);
+  }
+
+  .dark .mesh-bg {
     background-color: hsla(224,63%,11%,1);
     background-image:
       radial-gradient(at 0% 0%, hsla(243,75%,59%,0.15) 0px, transparent 50%),
