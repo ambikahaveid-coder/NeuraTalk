@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Loader2, MessagesSquare, Paperclip, Send, ShoppingBag, UserRound } from "lucide-react";
+import { ArrowLeft, Building2, Clock, ExternalLink, FileText, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUpload } from "@/hooks/use-upload";
 import { Button } from "@/components/ui/button";
@@ -104,6 +104,57 @@ interface MessageRow {
   /** The customer's message in my language; the original stays in `content`. */
   translatedContent?: string | null;
   attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
+  replyTo?: { id: number; content: string; messageType: string; senderParticipantId: number } | null;
+  metadata?: {
+    header?: string | null;
+    footer?: string | null;
+    buttons?: Array<{ type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string }>;
+    location?: { latitude: number; longitude: number; name?: string; address?: string };
+    buttonReply?: { messageId: number; buttonId: string; title?: string };
+  } | null;
+}
+
+interface SendableTemplate {
+  versionId: number;
+  name: string;
+  category: string;
+  content: string;
+  variables?: Array<{ name: string; required?: boolean }> | null;
+}
+
+/** Blanks the agent fills in -- {{name}} is filled with the customer's name by the server. */
+function templateBlanks(t: SendableTemplate): string[] {
+  return (t.variables ?? []).map((v) => v.name).filter((n) => n && n !== "name");
+}
+
+/** Template header, buttons, footer and shared location under a chat bubble. */
+function MessageExtras({ message, alignEnd }: { message: MessageRow; alignEnd: boolean }) {
+  const meta = message.metadata ?? null;
+  if (!meta) return null;
+  const { header, footer, buttons, location } = meta;
+  if (!header && !footer && !buttons?.length && !location) return null;
+  const mapUrl = location ? `https://www.google.com/maps?q=${location.latitude},${location.longitude}` : null;
+  return (
+    <div className={cn("flex flex-col gap-1 max-w-[80%] text-xs", alignEnd ? "items-end self-end" : "items-start self-start")} data-testid={`message-extras-${message.id}`}>
+      {header ? <p className="font-semibold text-foreground">{header}</p> : null}
+      {mapUrl ? (
+        <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary underline">
+          <MapPin className="w-3.5 h-3.5" /> Open location{location?.name ? ` — ${location.name}` : ""}
+        </a>
+      ) : null}
+      {footer ? <p className="text-muted-foreground">{footer}</p> : null}
+      {buttons?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {buttons.map((b, i) => (
+            <span key={`${b.title}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-primary">
+              {b.type === "url" ? <ExternalLink className="w-3 h-3" /> : b.type === "call" ? <Phone className="w-3 h-3" /> : <Reply className="w-3 h-3" />}
+              {b.title}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 const TICK_LABEL: Record<string, string> = { queued: "Sending", sent: "Sent", delivered: "Delivered", read: "Seen", failed: "Not delivered — customer is not on NeuraTalk" };
@@ -159,7 +210,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
   });
 
   const messagesQueryKey = ["/api/business", businessId, "conversations", selectedId, "messages"];
-  const messagesQuery = useQuery<{ success: true; messages: MessageRow[]; total: number }>({
+  const messagesQuery = useQuery<{ success: true; messages: MessageRow[]; total: number; customerTyping?: boolean }>({
     queryKey: messagesQueryKey,
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/business/${businessId}/conversations/${selectedId}/messages`);
@@ -168,6 +219,32 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
     enabled: businessId > 0 && selectedId !== null,
     refetchInterval: sseHealthy ? false : POLL_INTERVAL_MS,
     refetchIntervalInBackground: false,
+  });
+
+  // 24-hour rule: after a day of customer silence only an approved template can go out.
+  const windowQuery = useQuery<{ success: true; open: boolean; closesAt: string | null }>({
+    queryKey: ["/api/business", businessId, "conversations", selectedId, "window"],
+    queryFn: async () => (await apiRequest("GET", `/api/business/${businessId}/conversations/${selectedId}/window`)).json(),
+    enabled: businessId > 0 && selectedId !== null,
+    retry: false,
+  });
+  // Re-check whenever the messages change (a customer message re-opens it).
+  const refetchWindow = windowQuery.refetch;
+  useEffect(() => {
+    if (selectedId !== null && messagesQuery.dataUpdatedAt) void refetchWindow();
+  }, [messagesQuery.dataUpdatedAt, selectedId, refetchWindow]);
+  const windowClosed = windowQuery.data?.open === false;
+  const [replyTo, setReplyTo] = useState<MessageRow | null>(null);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [chosenTemplate, setChosenTemplate] = useState<SendableTemplate | null>(null);
+  const [templateValues, setTemplateValues] = useState<Record<string, string>>({});
+  useEffect(() => { setReplyTo(null); }, [selectedId]);
+  useEffect(() => { if (!templateOpen) { setChosenTemplate(null); setTemplateValues({}); } }, [templateOpen]);
+  const templatesQuery = useQuery<{ success: true; templates: SendableTemplate[] }>({
+    queryKey: ["/api/business", businessId, "sendable-templates"],
+    queryFn: async () => (await apiRequest("GET", `/api/business/${businessId}/sendable-templates`)).json(),
+    enabled: businessId > 0 && templateOpen,
+    retry: false,
   });
 
   // participantId -> role ("agent" | "customer" | ...), the only reliable
@@ -297,23 +374,56 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
 
   const sendReplyMutation = useMutation({
     mutationFn: async (input: string | { content: string; attachment?: Record<string, unknown> }) => {
-      const body = typeof input === "string" ? { content: input } : input;
+      const body: Record<string, unknown> = typeof input === "string" ? { content: input } : { ...input };
+      if (replyTo) body.replyToMessageId = replyTo.id;
       const res = await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/messages`, body);
       return res.json() as Promise<{ success: true; message: MessageRow }>;
     },
     onSuccess: (data) => {
       if (data?.message) {
+        // Show it on my side right away, with its quote, until the refetch lands.
+        const sent: MessageRow = {
+          ...data.message,
+          deliveryToCustomer: data.message.deliveryToCustomer ?? "queued",
+          replyTo: data.message.replyTo ?? (replyTo ? { id: replyTo.id, content: replyTo.content, messageType: replyTo.messageType ?? "text", senderParticipantId: replyTo.senderParticipantId } : null),
+        };
         queryClient.setQueryData<{ success: true; messages: MessageRow[]; total: number }>(messagesQueryKey, (current) => {
           if (!current) return current;
-          return { ...current, messages: [data.message, ...current.messages], total: current.total + 1 };
+          return { ...current, messages: [sent, ...current.messages], total: current.total + 1 };
         });
       }
       queryClient.invalidateQueries({ queryKey: messagesQueryKey });
       queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations"] });
       setMessageInput("");
+      setReplyTo(null);
     },
-    onError: () => {
+    onError: (error: any) => {
+      const text = String(error?.message ?? "");
+      if (text.includes("SERVICE_WINDOW_CLOSED")) {
+        windowQuery.refetch();
+        toast({ title: "24 hours have passed", description: "The customer hasn't written in 24 hours. Send an approved template instead.", variant: "destructive" });
+        return;
+      }
       toast({ title: "Reply failed", description: "Could not send this reply. Try again.", variant: "destructive" });
+    },
+  });
+
+  const templateMutation = useMutation({
+    mutationFn: async ({ versionId, variables }: { versionId: number; variables: Record<string, string> }) => {
+      const res = await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/template`, { templateVersionId: versionId, variables });
+      return res.json();
+    },
+    onSuccess: () => {
+      setTemplateOpen(false);
+      queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations"] });
+      toast({ title: "Template sent" });
+    },
+    onError: (error: any) => {
+      const raw = String(error?.message ?? "");
+      let description = "Could not send. Try again.";
+      try { description = JSON.parse(raw.slice(raw.indexOf("{"))).error ?? description; } catch { /* keep default */ }
+      toast({ title: "Not sent", description, variant: "destructive" });
     },
   });
 
@@ -521,6 +631,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                   {selectedConversation?.customerName || "Unknown customer"}
                 </div>
                 <div className="text-[11px] text-muted-foreground truncate">
+                  {messagesQuery.data?.customerTyping ? <span className="text-primary" data-testid="text-inbox-typing">typing… · </span> : null}
                   {isUnassigned
                     ? "Unassigned"
                     : isAssignedToMe
@@ -593,9 +704,16 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                     // Business side = an agent, or the business itself
                     // (campaigns, order updates, codes); else the customer.
                     const isMine = role !== "customer" && message.deliveryToCustomer != null;
+                    const quotedMine = message.replyTo ? roleByParticipantId.get(message.replyTo.senderParticipantId) !== "customer" : false;
                     return (
+                      <div key={message.id} className="group flex flex-col gap-1" data-testid={`inbox-message-${message.id}`}>
+                      {message.replyTo ? (
+                        <div className={cn("max-w-[80%] rounded-md border-l-2 border-primary bg-muted/60 px-2.5 py-1 text-xs", isMine ? "self-end" : "self-start")} data-testid={`message-quote-${message.id}`}>
+                          <p className="font-semibold text-primary">{quotedMine ? "You" : selectedConversation?.customerName || "Customer"}</p>
+                          <p className="text-muted-foreground line-clamp-2">{message.replyTo.content || "Photo or file"}</p>
+                        </div>
+                      ) : null}
                       <ChatMessage
-                        key={message.id}
                         role={isMine ? "user" : "assistant"}
                         content={message.translatedContent || message.content}
                         secondaryContent={message.translatedContent ? message.content : null}
@@ -607,6 +725,18 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                         timestamp={new Date(message.createdAt)}
                         status={isMine && message.deliveryToCustomer ? TICK_LABEL[message.deliveryToCustomer] ?? null : null}
                       />
+                      <MessageExtras message={message} alignEnd={isMine} />
+                      {!windowClosed ? (
+                        <button
+                          type="button"
+                          onClick={() => setReplyTo(message)}
+                          className={cn("text-[11px] text-muted-foreground hover:text-primary inline-flex items-center gap-1 opacity-70 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100", isMine ? "self-end" : "self-start")}
+                          data-testid={`button-reply-${message.id}`}
+                        >
+                          <Reply className="w-3 h-3" /> Reply
+                        </button>
+                      ) : null}
+                      </div>
                     );
                   })
                 )}
@@ -615,6 +745,26 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
             </ScrollArea>
 
             <div className="border-t border-white/10 p-4">
+              {windowClosed ? (
+                <div className="max-w-2xl mx-auto flex flex-col sm:flex-row sm:items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" data-testid="inbox-window-closed">
+                  <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <p className="flex-1 text-foreground">
+                    The customer hasn't written in the last 24 hours. You can send an approved template; normal replies open again when they write back.
+                  </p>
+                  <Button size="sm" onClick={() => setTemplateOpen(true)} data-testid="button-inbox-send-template">
+                    <FileText className="w-4 h-4 mr-1.5" /> Send a template
+                  </Button>
+                </div>
+              ) : null}
+              {replyTo && !windowClosed ? (
+                <div className="max-w-2xl mx-auto mb-2 flex items-start gap-2 rounded-md border-l-2 border-primary bg-muted/60 px-3 py-2 text-xs" data-testid="inbox-reply-bar">
+                  <Reply className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
+                  <p className="flex-1 min-w-0 truncate text-muted-foreground">Replying to: {replyTo.translatedContent || replyTo.content || "Photo or file"}</p>
+                  <button type="button" aria-label="Cancel reply" onClick={() => setReplyTo(null)} className="text-muted-foreground hover:text-foreground">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : null}
               {quickMatches.length > 0 && (
                 <ul className="max-w-2xl mx-auto mb-2 rounded-md border bg-background/90 divide-y" role="listbox" aria-label="Quick replies" data-testid="list-quick-replies">
                   {quickMatches.slice(0, 6).map((q) => (
@@ -626,7 +776,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                   ))}
                 </ul>
               )}
-              <div className="max-w-2xl mx-auto flex gap-2">
+              <div className={cn("max-w-2xl mx-auto flex gap-2", windowClosed && "hidden")}>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -672,6 +822,70 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
           </>
         )}
       </div>
+
+      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Send an approved template</DialogTitle></DialogHeader>
+          {templatesQuery.isLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+          ) : chosenTemplate ? (
+            <form
+              className="space-y-3"
+              data-testid="form-inbox-template"
+              onSubmit={(event) => {
+                event.preventDefault();
+                templateMutation.mutate({ versionId: chosenTemplate.versionId, variables: templateValues });
+              }}
+            >
+              <p className="text-sm font-medium">{chosenTemplate.name}</p>
+              {templateBlanks(chosenTemplate).map((blank) => (
+                <label key={blank} className="block text-sm">
+                  <span className="text-muted-foreground">{blank.replace(/_/g, " ")}</span>
+                  <Input
+                    className="mt-1"
+                    required={chosenTemplate.variables?.find((v) => v.name === blank)?.required !== false}
+                    maxLength={200}
+                    value={templateValues[blank] ?? ""}
+                    onChange={(event) => setTemplateValues((cur) => ({ ...cur, [blank]: event.target.value }))}
+                    data-testid={`input-template-${blank}`}
+                  />
+                </label>
+              ))}
+              <div className="rounded-md bg-muted/60 p-3 text-sm whitespace-pre-wrap" data-testid="text-template-preview">
+                {chosenTemplate.content.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key: string) =>
+                  key === "name" ? selectedConversation?.customerName || "customer" : templateValues[key] || `[${key}]`)}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={() => setChosenTemplate(null)}>Back</Button>
+                <Button type="submit" disabled={templateMutation.isPending} data-testid="button-template-send">
+                  {templateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Send"}
+                </Button>
+              </div>
+            </form>
+          ) : (templatesQuery.data?.templates ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No approved templates yet. Create one in Messaging → Templates; NeuraTalk reviews it, usually within a day.</p>
+          ) : (
+            <ul className="divide-y" data-testid="list-inbox-templates">
+              {(templatesQuery.data?.templates ?? []).map((t) => (
+                <li key={t.versionId}>
+                  <button
+                    type="button"
+                    disabled={templateMutation.isPending}
+                    className="w-full text-left py-2 px-2 rounded hover:bg-muted/50 disabled:opacity-50"
+                    onClick={() => {
+                      if (templateBlanks(t).length) setChosenTemplate(t);
+                      else templateMutation.mutate({ versionId: t.versionId, variables: {} });
+                    }}
+                  >
+                    <p className="font-medium">{t.name} <span className="text-xs text-muted-foreground">· {t.category === "marketing" ? "Offer" : "Update"}</span></p>
+                    <p className="text-sm text-muted-foreground line-clamp-3">{t.content}</p>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
         <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">

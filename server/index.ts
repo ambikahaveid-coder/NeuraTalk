@@ -274,8 +274,13 @@ function startRedisDependentRuntime(): void {
   BillingEngine.startRuntimeSupervisor();
   startCommunicationBillingLoop();
   startSmartCallWatchdog();
-  setInterval(() => { void runScheduledHealthCheck(); }, 60_000).unref?.();
-  setInterval(() => { void deleteExpiredPersonalChatMessages(); }, 5 * 60_000).unref?.();
+  // Background jobs must never take the server down: a database blip only skips one run.
+  setInterval(() => {
+    runScheduledHealthCheck().catch((err) => logger.warn("System", `Scheduled health check skipped: ${String(err)}`));
+  }, 60_000).unref?.();
+  setInterval(() => {
+    deleteExpiredPersonalChatMessages().catch((err) => logger.warn("System", `Disappearing-message cleanup skipped: ${String(err)}`));
+  }, 5 * 60_000).unref?.();
   void initFreeSwitchESL();
   void initRTPAIWorker();
 }

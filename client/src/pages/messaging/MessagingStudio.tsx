@@ -40,6 +40,7 @@ interface Campaign {
   createdAt: string; completedAt: string | null;
 }
 interface Consent { channel: string; status: string; source: string | null }
+interface TemplateButton { type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string }
 
 const CATEGORY_LABEL: Record<string, string> = {
   marketing: "Offers & promotions",
@@ -351,12 +352,37 @@ function TemplatesSection(props: SectionProps) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("utility");
   const [content, setContent] = useState("");
+  const [header, setHeader] = useState("");
+  const [footer, setFooter] = useState("");
+  const [buttons, setButtons] = useState<TemplateButton[]>([]);
+  const [media, setMedia] = useState<{ url: string; name: string } | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const { uploadFile, isUploading } = useUpload();
+  const mediaInput = useRef<HTMLInputElement>(null);
+  const library = useQuery<{ templates: Array<{ id: string; category: string; name: string; content: string; header?: string; footer?: string; buttons?: TemplateButton[] }> }>({
+    queryKey: [props.base, "template-library"],
+    queryFn: () => call("GET", `${props.base}/template-library`),
+    retry: false,
+  });
+  const reset = () => { setName(""); setContent(""); setHeader(""); setFooter(""); setButtons([]); setMedia(null); };
+  const buttonProblem = buttons.map((b) => !b.title.trim() ? "Each button needs a label"
+    : b.type === "url" && !/^https:\/\/\S+\.\S+/.test(b.url ?? "") ? "Website buttons need a link starting with https://"
+    : b.type === "call" && (b.phone ?? "").replace(/\D/g, "").length < 10 ? "Call buttons need a phone number"
+    : null).find(Boolean) ?? null;
 
   const create = useAction(props, async () => {
     const created = await call<any>("POST", `${props.base}/templates`, { name: name.trim(), category });
     const draft = await call<any>("PUT", `${props.base}/templates/${created.template?.id ?? created.id}/draft`, {
       language: "en", content, variables: variablesFrom(content),
+      ...(header.trim() ? { header: header.trim() } : {}),
+      ...(footer.trim() ? { footer: footer.trim() } : {}),
+      ...(media ? { mediaUrl: media.url } : {}),
+      ...(buttons.length ? {
+        buttons: buttons.map((b, i) => b.type === "quick_reply"
+          ? { type: "quick_reply", id: (b.id || b.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || `btn${i + 1}`).slice(0, 40), title: b.title.trim() }
+          : b.type === "url" ? { type: "url", title: b.title.trim(), url: (b.url ?? "").trim() }
+          : { type: "call", title: b.title.trim(), phone: (b.phone ?? "").trim() }),
+      } : {}),
     });
     await call("POST", `${props.base}/approvals`, { resourceType: "template_version", resourceId: draft.version?.id ?? draft.id });
   }, "Template sent for approval", [listKey, [props.base, "approvals"]]);
@@ -370,6 +396,25 @@ function TemplatesSection(props: SectionProps) {
         <CardHeader><CardTitle className="text-base">New template</CardTitle>
           <CardDescription>Every message is sent from an approved template. A different admin approves it.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
+          {(library.data?.templates ?? []).length > 0 && (
+            <div>
+              <Label>Start from a ready template (optional)</Label>
+              <Select
+                value=""
+                onValueChange={(id) => {
+                  const t = library.data!.templates.find((x) => x.id === id);
+                  if (!t) return;
+                  setName(t.id); setCategory(t.category); setContent(t.content);
+                  setHeader(t.header ?? ""); setFooter(t.footer ?? ""); setButtons(t.buttons ?? []);
+                }}
+              >
+                <SelectTrigger aria-label="Ready templates" data-testid="select-template-library"><SelectValue placeholder="Choose one…" /></SelectTrigger>
+                <SelectContent>
+                  {library.data!.templates.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div><Label htmlFor="tpl-name">Name</Label><Input id="tpl-name" placeholder="order_shipped" value={name} onChange={(e) => setName(e.target.value.replace(/\s+/g, "_").toLowerCase())} /></div>
           <div>
             <Label>Type</Label>
@@ -385,7 +430,74 @@ function TemplatesSection(props: SectionProps) {
             <Textarea id="tpl-content" rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder="Hi {{name}}, your order {{order}} has shipped." />
             <p className="text-xs text-muted-foreground mt-1">{hint}</p>
           </div>
-          <Button className="w-full" disabled={create.isPending || !name.trim() || !content.trim()} onClick={() => create.mutate(undefined as never, { onSuccess: () => { setName(""); setContent(""); } })} data-testid="button-create-template">
+          {category !== "authentication" && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div><Label htmlFor="tpl-header">Title (optional)</Label><Input id="tpl-header" maxLength={60} value={header} onChange={(e) => setHeader(e.target.value)} placeholder="Order shipped 🚚" data-testid="input-template-header" /></div>
+                <div><Label htmlFor="tpl-footer">Footer (optional)</Label><Input id="tpl-footer" maxLength={60} value={footer} onChange={(e) => setFooter(e.target.value)} placeholder="Reply STOP to stop offers" data-testid="input-template-footer" /></div>
+              </div>
+              <div>
+                <Label>Photo, video or PDF (optional)</Label>
+                <input
+                  ref={mediaInput}
+                  type="file"
+                  className="hidden"
+                  accept="image/jpeg,image/png,image/webp,video/mp4,application/pdf"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    const limit = file.type === "video/mp4" ? 16 : file.type === "application/pdf" ? 20 : 5;
+                    if (file.size > limit * 1024 * 1024) { props.toast({ title: "File too big", description: `Keep it under ${limit} MB.`, variant: "destructive" }); return; }
+                    const up = await uploadFile(file);
+                    if (up) setMedia({ url: up.objectPath, name: file.name });
+                    else props.toast({ title: "Upload failed", description: "Try again.", variant: "destructive" });
+                  }}
+                />
+                <div className="flex items-center gap-2 mt-1">
+                  <Button type="button" variant="outline" size="sm" disabled={isUploading} onClick={() => mediaInput.current?.click()} data-testid="button-template-media">
+                    {isUploading ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <ImagePlus className="w-4 h-4 mr-1.5" />}{media ? "Change" : "Add"}
+                  </Button>
+                  {media && (
+                    <>
+                      <span className="text-xs text-muted-foreground truncate flex-1">{media.name}</span>
+                      <Button type="button" variant="ghost" size="icon" aria-label="Remove file" onClick={() => setMedia(null)}><Trash2 className="w-4 h-4" /></Button>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Buttons (up to 3)</Label>
+                  {buttons.length < 3 && (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setButtons((b) => [...b, { type: "quick_reply", title: "" }])} data-testid="button-template-add-button">
+                      <Plus className="w-4 h-4 mr-1" />Add button
+                    </Button>
+                  )}
+                </div>
+                {buttons.map((b, i) => (
+                  <div key={i} className="rounded-md border p-2 space-y-2" data-testid={`template-button-${i}`}>
+                    <div className="flex gap-2">
+                      <Select value={b.type} onValueChange={(type) => setButtons((all) => all.map((x, j) => j === i ? { type: type as TemplateButton["type"], title: x.title } : x))}>
+                        <SelectTrigger className="w-[9.5rem]" aria-label="Button type"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="quick_reply">Quick reply</SelectItem>
+                          <SelectItem value="url">Open website</SelectItem>
+                          <SelectItem value="call">Call</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input aria-label="Button label" maxLength={25} placeholder="Label" value={b.title} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, title: e.target.value } : x))} />
+                      <Button type="button" variant="ghost" size="icon" aria-label="Remove button" onClick={() => setButtons((all) => all.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
+                    {b.type === "url" && <Input aria-label="Website link" placeholder="https://yourshop.in/offers" value={b.url ?? ""} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, url: e.target.value } : x))} />}
+                    {b.type === "call" && <Input aria-label="Phone number" inputMode="tel" placeholder="+91 98765 43210" value={b.phone ?? ""} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, phone: e.target.value } : x))} />}
+                  </div>
+                ))}
+                {buttonProblem && <p className="text-xs text-destructive">{buttonProblem}</p>}
+              </div>
+            </>
+          )}
+          <Button className="w-full" disabled={create.isPending || isUploading || !name.trim() || !content.trim() || !!buttonProblem} onClick={() => create.mutate(undefined as never, { onSuccess: reset })} data-testid="button-create-template">
             {create.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}Save and send for approval
           </Button>
         </CardContent>
