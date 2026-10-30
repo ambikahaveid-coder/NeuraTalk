@@ -557,7 +557,11 @@ export function registerB2BRoutes(app: Express): void {
         orderBy: [desc(organizations.createdAt)],
       });
 
-      const companiesWithBilling = await Promise.all(companies.map(async (company) => {
+      // 10 companies at a time: with hundreds of companies, firing every
+      // billing lookup at once would exhaust the database connection pool.
+      const companiesWithBilling: any[] = [];
+      for (let i = 0; i < companies.length; i += 10) {
+        companiesWithBilling.push(...await Promise.all(companies.slice(i, i + 10).map(async (company) => {
         const billing = await getOrganizationBillingSnapshot(company.id);
         const subscription = await getOrganizationSubscription(company.id);
 
@@ -578,7 +582,8 @@ export function registerB2BRoutes(app: Express): void {
           } : null,
           activeSubscription: subscription,
         };
-      }));
+      })));
+      }
 
       res.json({ success: true, companies: companiesWithBilling });
     } catch (err) {
