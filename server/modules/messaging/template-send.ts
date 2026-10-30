@@ -50,6 +50,21 @@ export const messageButtonsSchema = z.array(messageButtonSchema).max(3).superRef
 });
 export type MessageButton = z.infer<typeof messageButtonSchema>;
 
+/** Optional bold line above the text and small line below it (like WhatsApp). */
+export const templateHeaderSchema = z.string().trim().max(60).optional();
+export const templateFooterSchema = z.string().trim().max(60).optional();
+
+/** Header/footer/buttons a template version carries, as message metadata. */
+export function templateMessageExtras(version: { metadata: unknown }): Record<string, unknown> {
+  const meta = (version.metadata ?? {}) as { header?: unknown; footer?: unknown };
+  const out: Record<string, unknown> = {};
+  const buttons = templateButtons(version);
+  if (buttons.length) out.buttons = buttons;
+  if (typeof meta.header === "string" && meta.header.trim()) out.header = meta.header.trim().slice(0, 60);
+  if (typeof meta.footer === "string" && meta.footer.trim()) out.footer = meta.footer.trim().slice(0, 60);
+  return out;
+}
+
 /** Buttons stored on a template version (metadata.buttons), if any. */
 export function templateButtons(version: { metadata: unknown }): MessageButton[] {
   const raw = (version.metadata as { buttons?: unknown } | null)?.buttons;
@@ -241,7 +256,6 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
     const recipients = participants.filter((p) => p.participantType === MESSAGING_PARTICIPANT_TYPE.CUSTOMER);
     if (!business || recipients.length === 0) throw new TemplateSendError("Could not open the chat.", "SYSTEM_ERROR", 500);
 
-    const buttons = templateButtons(version);
     const [message] = await tx.insert(messagingMessages).values({
       conversationId: conversation.id,
       senderParticipantId: business.id,
@@ -249,7 +263,7 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
       category: template.category,
       content: rendered,
       templateId: template.id,
-      metadata: buttons.length ? { buttons } : {},
+      metadata: templateMessageExtras(version),
     }).returning();
     if (version.mediaUrl && version.mediaType && version.mediaUrl.startsWith("/objects/")) {
       await tx.insert(messagingAttachments).values({

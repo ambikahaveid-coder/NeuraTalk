@@ -1029,8 +1029,12 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                           mime: a['mimeType'] as String?,
                         ),
             ),
+          if ((m['metadata'] as Map?)?['header'] is String)
+            Text('${(m['metadata'] as Map)['header']}', style: TextStyle(color: AppColors.ink, fontSize: 15, fontWeight: FontWeight.w800)),
           if (location == null && (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original)))
             Text(shownText, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          if ((m['metadata'] as Map?)?['footer'] is String)
+            Text('${(m['metadata'] as Map)['footer']}', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
           // Our buttons as the customer sees them (not tappable here).
           if ((m['metadata'] as Map?)?['buttons'] is List)
             MessageButtonsView(buttons: (m['metadata'] as Map)['buttons'] as List),

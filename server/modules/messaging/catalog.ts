@@ -25,6 +25,9 @@ const itemSchema = z.object({
   imageUrl: z.string().trim().max(2000).optional().nullable(),
   isAvailable: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100_000).optional(),
+  // Section of the catalog; empty = none.
+  // undefined = leave as is (edits); "" or null = remove the section.
+  collection: z.string().trim().max(40).optional().nullable().transform((v) => (v === undefined ? undefined : v ? v : null)),
 });
 
 class CatalogInputError extends Error {}
@@ -84,6 +87,7 @@ export function registerCatalogRoutes(app: Express): void {
         imageUrl: await publishImage(req.user!.id, input.imageUrl),
         isAvailable: input.isAvailable ?? true,
         sortOrder: input.sortOrder ?? existing.length,
+        collection: input.collection ?? null,
       }).returning();
       res.status(201).json({ success: true, item });
     } catch (error) { return fail(res, error, "Failed to add item"); }
@@ -119,7 +123,10 @@ export function registerCatalogRoutes(app: Express): void {
       const [org] = await db.select({ status: organizations.status, isActive: organizations.isActive }).from(organizations).where(eq(organizations.id, businessId));
       if (!org || org.status !== "approved" || !org.isActive) return res.status(404).json({ success: false, error: "Business not found" });
       const items = await listCatalog(businessId, true);
-      res.json({ success: true, items: items.map(({ id, name, description, pricePaise, imageUrl }) => ({ id, name, description, pricePaise, imageUrl })) });
+      const shown = items.map(({ id, name, description, pricePaise, imageUrl, collection }) => ({ id, name, description, pricePaise, imageUrl, collection }));
+      // Sections in catalog order (first appearance), items without one last.
+      const collections = Array.from(new Set(shown.map((i) => i.collection).filter((c): c is string => Boolean(c))));
+      res.json({ success: true, items: shown, collections });
     } catch (error) { return fail(res, error, "Failed to load catalog"); }
   });
 }

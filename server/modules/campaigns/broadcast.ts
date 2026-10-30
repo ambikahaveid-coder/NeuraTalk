@@ -25,7 +25,7 @@ import { createTemplate, createOrEditDraftVersion } from "../templates/service";
 import { createAudience, addMember } from "../audiences/service";
 import { createCampaign, updateCampaign, executeCampaign, getCampaignReport } from "./service";
 import { createApprovalRequest, approveRequest } from "../approvals/service";
-import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons } from "../messaging/template-send";
+import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons, templateFooterSchema, templateHeaderSchema } from "../messaging/template-send";
 
 const CATEGORIES = ["marketing", "utility"] as const;
 
@@ -99,6 +99,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         mediaType: latest?.mediaType ?? null,
         mediaUrl: latest?.mediaUrl ?? null,
         buttons: latest ? templateButtons(latest) : [],
+        header: ((latest?.metadata ?? {}) as { header?: string }).header ?? null,
+        footer: ((latest?.metadata ?? {}) as { footer?: string }).footer ?? null,
         rejectionReason: review?.status === "rejected" ? review.reason : null,
       };
     });
@@ -116,6 +118,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       mediaUrl: z.string().trim().max(2000).optional(),
       // Up to 3 buttons (quick reply / website / call), reviewed with the text.
       buttons: messageButtonsSchema.optional(),
+      header: templateHeaderSchema,
+      footer: templateFooterSchema,
     }).safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the template" });
     try {
@@ -130,9 +134,13 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         mediaType: media?.mediaType,
         mediaUrl: media?.mediaUrl,
       });
-      if (parsed.data.buttons?.length) {
+      const extras: Record<string, unknown> = {};
+      if (parsed.data.buttons?.length) extras.buttons = parsed.data.buttons;
+      if (parsed.data.header) extras.header = parsed.data.header;
+      if (parsed.data.footer) extras.footer = parsed.data.footer;
+      if (Object.keys(extras).length) {
         await db.update(templateVersions)
-          .set({ metadata: { buttons: parsed.data.buttons } })
+          .set({ metadata: extras })
           .where(eq(templateVersions.id, (version as { id: number }).id));
       }
       const request = await createApprovalRequest(businessId, req.user!.id, "template_version", (version as { id: number }).id);

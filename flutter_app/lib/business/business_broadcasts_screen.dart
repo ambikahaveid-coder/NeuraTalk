@@ -277,6 +277,7 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
 
 class _ButtonDraft {
   String type = 'quick_reply';
+  String? fixedId;
   final title = TextEditingController();
   final value = TextEditingController();
 }
@@ -290,7 +291,63 @@ class _NewTemplateScreen extends StatefulWidget {
 class _NewTemplateScreenState extends State<_NewTemplateScreen> {
   final _name = TextEditingController();
   final _content = TextEditingController(text: 'Hi {{name}}, ');
+  final _header = TextEditingController();
+  final _footer = TextEditingController();
   String _category = 'marketing';
+
+  /// Fill the form from one of NeuraTalk's ready-made templates.
+  Future<void> _useLibrary() async {
+    List<Map<String, dynamic>> library;
+    try {
+      final res = await ApiService.get('${context.read<BusinessAccount>().base}/template-library');
+      library = ((res['templates'] as List?) ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't load ready templates.")));
+      return;
+    }
+    if (!mounted) return;
+    final pick = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheet) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.7,
+        builder: (_, controller) => ListView(controller: controller, padding: const EdgeInsets.all(16), children: [
+          Text('Ready templates', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          Text('Pick one, change anything, then send it for review.', style: TextStyle(color: AppColors.textSecondary)),
+          const SizedBox(height: 8),
+          for (final t in library)
+            Card(
+              color: AppColors.background,
+              child: ListTile(
+                title: Text('${t['name']}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                subtitle: Text('${t['category'] == 'marketing' ? 'Offer' : 'Update'} · ${t['content']}', maxLines: 3, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.pop(sheet, t),
+              ),
+            ),
+        ]),
+      ),
+    );
+    if (pick == null || !mounted) return;
+    setState(() {
+      _name.text = '${pick['name']}';
+      _category = pick['category'] == 'utility' ? 'utility' : 'marketing';
+      _content.text = '${pick['content']}';
+      _header.text = pick['header']?.toString() ?? '';
+      _footer.text = pick['footer']?.toString() ?? '';
+      _buttons
+        ..clear()
+        ..addAll(((pick['buttons'] as List?) ?? const []).whereType<Map>().map((b) {
+          final d = _ButtonDraft()..type = '${b['type']}';
+          d.title.text = '${b['title']}';
+          d.value.text = '${b['url'] ?? b['phone'] ?? ''}';
+          d.fixedId = b['id']?.toString();
+          return d;
+        }));
+    });
+  }
   bool _saving = false;
   // Optional photo / video / PDF, uploaded to NeuraTalk and reviewed with the text.
   String? _mediaPath;
@@ -308,7 +365,8 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
           {
             'type': b.type,
             'title': b.title.text.trim(),
-            if (b.type == 'quick_reply') 'id': 'btn_${++n}',
+            // Library buttons keep their id ("stop" turns offers off when tapped).
+            if (b.type == 'quick_reply') 'id': b.fixedId ?? 'btn_${++n}',
             if (b.type == 'url') 'url': b.value.text.trim(),
             if (b.type == 'call') 'phone': b.value.text.trim(),
           },
@@ -382,6 +440,8 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
         'name': _name.text.trim().isEmpty ? 'Message' : _name.text.trim(),
         'category': _category,
         'content': _content.text.trim(),
+        if (_header.text.trim().isNotEmpty) 'header': _header.text.trim(),
+        if (_footer.text.trim().isNotEmpty) 'footer': _footer.text.trim(),
         if (_mediaPath != null) 'mediaUrl': _mediaPath,
         if (_buttonsPayload() != null) 'buttons': _buttonsPayload(),
       });
@@ -402,6 +462,12 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(title: const Text('New template')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        OutlinedButton.icon(
+          onPressed: _useLibrary,
+          icon: const Icon(Icons.auto_awesome_outlined),
+          label: const Text('Start from a ready template'),
+        ),
+        const SizedBox(height: 8),
         TextField(controller: _name, maxLength: 60, decoration: const InputDecoration(labelText: 'Name (only you see it)', hintText: 'Diwali offer')),
         const SizedBox(height: 8),
         Text('Type', style: TextStyle(color: AppColors.textSecondary)),
@@ -420,6 +486,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
           ]),
         ),
         const SizedBox(height: 8),
+        TextField(controller: _header, maxLength: 60, decoration: const InputDecoration(labelText: 'Heading (optional, bold)', hintText: 'Festival special 🎉')),
         TextField(
           controller: _content,
           minLines: 4,
@@ -427,6 +494,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
           maxLength: 1024,
           decoration: const InputDecoration(labelText: 'Message', helperText: '{{name}} becomes each customer\'s name. Each customer reads it in their own language.'),
         ),
+        TextField(controller: _footer, maxLength: 60, decoration: const InputDecoration(labelText: 'Footer (optional, small)', hintText: 'Reply STOP to stop offers')),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: _uploading ? null : _pickMedia,

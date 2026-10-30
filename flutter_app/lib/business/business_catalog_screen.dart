@@ -46,7 +46,8 @@ class _BusinessCatalogScreenState extends State<BusinessCatalogScreen> {
   }
 
   Future<void> _edit([Map<String, dynamic>? item]) async {
-    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => _CatalogItemEditor(base: _base, item: item)));
+    final collections = _items.map((i) => i['collection']?.toString() ?? '').where((c) => c.isNotEmpty).toSet().toList();
+    final changed = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => _CatalogItemEditor(base: _base, item: item, collections: collections)));
     if (changed == true) _load();
   }
 
@@ -97,7 +98,11 @@ class _BusinessCatalogScreenState extends State<BusinessCatalogScreen> {
                             ),
                             title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                             subtitle: Text(
-                              [rupeesOf(item['pricePaise']), if (!available) 'Hidden from customers'].join(' · '),
+                              [
+                                rupeesOf(item['pricePaise']),
+                                if ((item['collection']?.toString() ?? '').isNotEmpty) item['collection'],
+                                if (!available) 'Hidden from customers',
+                              ].join(' · '),
                               style: TextStyle(color: available ? AppColors.textSecondary : AppColors.orange),
                             ),
                             trailing: const Icon(Icons.chevron_right),
@@ -111,9 +116,11 @@ class _BusinessCatalogScreenState extends State<BusinessCatalogScreen> {
 }
 
 class _CatalogItemEditor extends StatefulWidget {
-  const _CatalogItemEditor({required this.base, this.item});
+  const _CatalogItemEditor({required this.base, this.item, this.collections = const []});
   final String base;
   final Map<String, dynamic>? item;
+  /// Sections already used in this catalog, offered as one-tap choices.
+  final List<String> collections;
 
   @override
   State<_CatalogItemEditor> createState() => _CatalogItemEditorState();
@@ -125,6 +132,7 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
   late final TextEditingController _price = TextEditingController(
       text: widget.item?['pricePaise'] == null ? '' : ((widget.item!['pricePaise'] as num) / 100).toStringAsFixed(((widget.item!['pricePaise'] as num) % 100) == 0 ? 0 : 2));
   late final TextEditingController _about = TextEditingController(text: widget.item?['description']?.toString() ?? '');
+  late final TextEditingController _collection = TextEditingController(text: widget.item?['collection']?.toString() ?? '');
   late bool _available = widget.item?['isAvailable'] != false;
   late String? _imagePath = widget.item?['imageUrl'] as String?;
   File? _newImage;
@@ -156,6 +164,7 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
         'description': _about.text.trim().isEmpty ? null : _about.text.trim(),
         'pricePaise': priceText.isEmpty ? null : (double.parse(priceText) * 100).round(),
         'isAvailable': _available,
+        'collection': _collection.text.trim(),
         if (_newImage != null || _isNew) 'imageUrl': _imagePath,
       };
       if (_isNew) {
@@ -246,6 +255,17 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
                 return t.isEmpty || double.tryParse(t) != null && double.parse(t) >= 0 ? null : 'Enter a number';
               },
             ),
+            TextFormField(
+              controller: _collection,
+              maxLength: 40,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(labelText: 'Collection (optional)', hintText: 'Sarees, Kurtas, Offers…'),
+            ),
+            if (widget.collections.isNotEmpty)
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                for (final c in widget.collections)
+                  ActionChip(label: Text(c), onPressed: () => setState(() => _collection.text = c)),
+              ]),
             const SizedBox(height: 16),
             TextFormField(
               controller: _about,

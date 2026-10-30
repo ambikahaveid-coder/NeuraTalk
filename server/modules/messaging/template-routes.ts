@@ -18,8 +18,64 @@ function ids(req: Request): { businessId: number; conversationId: number } | nul
   return { businessId, conversationId };
 }
 
+/**
+ * Ready-made templates a business can start from (like WhatsApp's template
+ * library). They are written to pass review -- updates contain no offers --
+ * but are still reviewed once the business saves its own copy.
+ */
+export const TEMPLATE_LIBRARY = [
+  {
+    id: "order_confirmed", category: "utility", name: "Order confirmed",
+    header: "Order confirmed ✅",
+    content: "Hi {{name}}, we received your order {{order_id}}. We will tell you when it is on the way.",
+    footer: "Reply here if you have a question",
+    buttons: [{ type: "quick_reply", id: "thanks", title: "Thank you" }],
+  },
+  {
+    id: "out_for_delivery", category: "utility", name: "Out for delivery",
+    content: "Hi {{name}}, your order {{order_id}} is out for delivery and should reach you by {{time}}.",
+    buttons: [{ type: "quick_reply", id: "home", title: "I'm at home" }, { type: "quick_reply", id: "later", title: "Deliver later" }],
+  },
+  {
+    id: "ready_for_pickup", category: "utility", name: "Ready for pickup",
+    content: "Hi {{name}}, your order {{order_id}} is ready. You can pick it up today until {{time}}.",
+    buttons: [{ type: "quick_reply", id: "coming", title: "I'm coming" }],
+  },
+  {
+    id: "appointment_reminder", category: "utility", name: "Appointment reminder",
+    header: "Appointment reminder",
+    content: "Hi {{name}}, this is a reminder of your appointment on {{date}} at {{time}}.",
+    buttons: [{ type: "quick_reply", id: "confirm", title: "Confirm" }, { type: "quick_reply", id: "reschedule", title: "Reschedule" }],
+  },
+  {
+    id: "payment_received", category: "utility", name: "Payment received",
+    content: "Hi {{name}}, we received your payment of ₹{{amount}} for {{order_id}}. Thank you!",
+  },
+  {
+    id: "festival_offer", category: "marketing", name: "Festival offer",
+    header: "Festival special 🎉",
+    content: "Hi {{name}}, enjoy {{discount}}% off on all products this week. Visit us or order in this chat.",
+    footer: "Reply STOP to stop offers",
+    buttons: [{ type: "quick_reply", id: "show", title: "Show me" }, { type: "quick_reply", id: "stop", title: "Stop offers" }],
+  },
+  {
+    id: "new_arrivals", category: "marketing", name: "New arrivals",
+    content: "Hi {{name}}, new stock has arrived! Take a look before it sells out.",
+    buttons: [{ type: "quick_reply", id: "catalog", title: "See catalog" }],
+  },
+  {
+    id: "we_miss_you", category: "marketing", name: "We miss you",
+    content: "Hi {{name}}, it has been a while! Here is {{discount}}% off your next order, valid till {{date}}.",
+    footer: "Reply STOP to stop offers",
+  },
+] as const;
+
 export function registerTemplateSendRoutes(app: Express): void {
   const team = [requireAuth, requireCompanyAccess("businessId"), requirePermission(PERMISSIONS.MESSAGING_SEND)];
+
+  app.get("/api/business/:businessId/template-library", ...team, (_req: Request, res: Response) => {
+    return res.json({ success: true, templates: TEMPLATE_LIBRARY });
+  });
 
   app.get("/api/business/:businessId/conversations/:conversationId/window", ...team, async (req: Request, res: Response) => {
     const p = ids(req);

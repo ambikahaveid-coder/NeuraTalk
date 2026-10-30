@@ -306,7 +306,22 @@ export async function sendUserMessage(req: Request, res: Response) {
       location: parsed.data.location,
       buttonReply: parsed.data.buttonReply,
     });
-    return res.status(201).json({ success: true, ...result });
+    // "Stop offers" button, or replying STOP: no more marketing from this business.
+    const stopped = parsed.data.buttonReply?.buttonId === "stop" || /^\s*stop\s*$/i.test(parsed.data.content ?? "");
+    let offersStopped = false;
+    if (stopped) {
+      try {
+        const [customer] = await db.select({ id: customers.id }).from(customers)
+          .where(and(eq(customers.businessId, businessId), eq(customers.linkedUserId, req.user!.id)));
+        if (customer) {
+          await setChannelConsent(businessId, req.user!.id, customer.id, CUSTOMER_CONSENT_CHANNEL.MARKETING, false, "stop_reply");
+          offersStopped = true;
+        }
+      } catch (err) {
+        logger.warn("Messaging", `STOP opt-out failed: ${String(err)}`);
+      }
+    }
+    return res.status(201).json({ success: true, ...result, ...(offersStopped ? { offersStopped: true } : {}) });
   } catch (error) {
     if ((error as Error)?.message === "VALIDATION_REPLY_TARGET") return badRequest(res, "The message you replied to isn't in this chat.");
     if ((error as Error)?.message === "VALIDATION_BUTTON") return badRequest(res, "That button isn't on a message in this chat.");

@@ -362,13 +362,17 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     if ((text.isEmpty && attachment == null && location == null && buttonReply == null) || _sending) return;
     setState(() => _sending = true);
     try {
-      await ApiService.post('$_base/messages', {
+      final res = await ApiService.post('$_base/messages', {
         'content': location == null && buttonReply == null ? text : '',
         if (attachment != null) 'attachment': attachment,
         if (location != null) 'location': location,
         if (buttonReply != null) 'buttonReply': buttonReply,
         if (_replyTo != null && buttonReply == null) 'replyToMessageId': _replyTo!['id'],
       });
+      if (res['offersStopped'] == true && mounted) {
+        setState(() => _offers = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("You won't get offers from ${_name ?? 'this business'} any more. Order updates still arrive.")));
+      }
       if (location == null && buttonReply == null) _input.clear();
       _replyTo = null;
       await _load(quiet: true);
@@ -518,6 +522,8 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
 
   void _openCatalog() {
     final note = TextEditingController();
+    final collections = _catalog.map((i) => i['collection']?.toString() ?? '').where((c) => c.isNotEmpty).toSet().toList();
+    String? section; // null = everything
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -545,7 +551,22 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                     const SizedBox(height: 4),
                     Text('Add items and send an order. You pay the shop directly.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                     const SizedBox(height: 12),
-                    for (final item in _catalog)
+                    if (collections.isNotEmpty)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(children: [
+                          for (final c in <String?>[null, ...collections])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6, bottom: 8),
+                              child: ChoiceChip(
+                                label: Text(c ?? 'All'),
+                                selected: section == c,
+                                onSelected: (_) => setSheet(() => section = c),
+                              ),
+                            ),
+                        ]),
+                      ),
+                    for (final item in _catalog.where((i) => section == null || i['collection']?.toString() == section))
                       Builder(builder: (_) {
                         final itemId = (item['id'] as num).toInt();
                         final qty = _cart[itemId] ?? 0;
@@ -927,8 +948,20 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               geo: 'geo:${location['latitude']},${location['longitude']}',
               title: (location['name'] ?? location['address'])?.toString(),
             )
-          else if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
-            Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          else ...[
+            if ((m['metadata'] as Map?)?['header'] is String)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text('${(m['metadata'] as Map)['header']}', style: TextStyle(color: AppColors.ink, fontSize: 15, fontWeight: FontWeight.w800)),
+              ),
+            if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
+              Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+            if ((m['metadata'] as Map?)?['footer'] is String)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('${(m['metadata'] as Map)['footer']}', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+              ),
+          ],
           if (link != null) LinkPreviewCard(url: link),
           if (!mine && (m['metadata'] as Map?)?['buttons'] is List)
             MessageButtonsView(

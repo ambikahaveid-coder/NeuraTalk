@@ -4405,7 +4405,11 @@ function TemplateReviewsCard() {
                 )}
               </div>
             )}
-            <p className="text-sm whitespace-pre-wrap rounded bg-muted p-2">{r.template?.content}</p>
+            <div className="rounded bg-muted p-2 text-sm">
+              {r.template?.header && <p className="font-semibold">{r.template.header}</p>}
+              <p className="whitespace-pre-wrap">{r.template?.content}</p>
+              {r.template?.footer && <p className="mt-1 text-xs text-muted-foreground">{r.template.footer}</p>}
+            </div>
             {Array.isArray(r.template?.buttons) && r.template.buttons.length > 0 && (
               <div className="flex flex-wrap gap-2" aria-label="Template buttons">
                 {r.template.buttons.map((b: any, i: number) => (

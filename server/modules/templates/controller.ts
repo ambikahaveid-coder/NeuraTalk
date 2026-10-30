@@ -84,6 +84,8 @@ const draftVersionSchema = z.object({
   mediaUrl: z.string().trim().startsWith("/objects/").max(2000).optional(),
   // Up to 3 buttons (quick reply / website / call); NeuraTalk reviews them with the text.
   buttons: z.array(z.record(z.unknown())).max(3).optional(),
+  header: z.string().trim().max(60).optional(),
+  footer: z.string().trim().max(60).optional(),
 }).strict();
 
 export async function putDraftVersion(req: Request, res: Response) {
@@ -106,7 +108,7 @@ export async function putDraftVersion(req: Request, res: Response) {
     } else {
       input.mediaType = undefined;
     }
-    const { buttons, ...draft } = input;
+    const { buttons, header, footer, ...draft } = input;
     let checkedButtons: unknown[] | undefined;
     if (buttons !== undefined) {
       const parsedButtons = messageButtonsSchema.safeParse(buttons);
@@ -114,9 +116,13 @@ export async function putDraftVersion(req: Request, res: Response) {
       checkedButtons = parsedButtons.data;
     }
     let version = await createOrEditDraftVersion(businessId, req.user!.id, templateId, draft);
-    if (checkedButtons !== undefined) {
+    if (checkedButtons !== undefined || header !== undefined || footer !== undefined) {
+      const meta: Record<string, unknown> = { ...((version as { metadata?: Record<string, unknown> }).metadata ?? {}) };
+      if (checkedButtons !== undefined) meta.buttons = checkedButtons;
+      if (header !== undefined) meta.header = header || undefined;
+      if (footer !== undefined) meta.footer = footer || undefined;
       const [updated] = await db.update(templateVersions)
-        .set({ metadata: { ...((version as { metadata?: Record<string, unknown> }).metadata ?? {}), buttons: checkedButtons } })
+        .set({ metadata: meta })
         .where(eq(templateVersions.id, (version as { id: number }).id)).returning();
       version = updated as typeof version;
     }

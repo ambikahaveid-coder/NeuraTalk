@@ -3631,6 +3631,8 @@ export const businessCatalogItems = pgTable("business_catalog_items", {
   description: text("description"),
   pricePaise: integer("price_paise"), // null = "price on request"
   imageUrl: text("image_url"), // public object path (same rule as the business logo)
+  // Section of the catalog ("Sarees", "Kurtas"); null = no section. Added at startup.
+  collection: text("collection"),
   isAvailable: boolean("is_available").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
