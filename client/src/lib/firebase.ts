@@ -142,8 +142,15 @@ export function getFirebasePhoneAuthErrorMessage(error: unknown): string {
     case "auth/invalid-app-credential":
     case "auth/internal-error":
       return "Firebase configuration error. Contact support if this persists.";
+    case "auth/captcha-check-failed-expired":
+    case "auth/timeout":
+      return "The security check timed out. Tap Send Code again and finish the \"I'm not a robot\" check.";
     default:
-      return code ? `Phone verification failed (${code}).` : "Phone verification failed.";
+      // No code: the "I'm not a robot" picture check was closed or expired
+      // before Firebase could send the SMS.
+      return code
+        ? `Phone verification failed (${code}).`
+        : "The security check wasn't completed. Tap Send Code again — if Google shows pictures, select them and tap Verify.";
   }
 }
 
