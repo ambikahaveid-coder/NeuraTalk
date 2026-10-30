@@ -167,7 +167,27 @@ class _ThemeSyncState extends State<ThemeSync> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    // Android 15+ draws every app edge to edge and Android 16 removed the
+    // opt-out, so the phone's own buttons/gesture bar sat on top of anything
+    // at the bottom of a screen (the chat message box was hidden). Keep all
+    // screens -- and their bottom sheets -- above it, with the strip behind
+    // the buttons in the app's background colour. SafeArea also removes this
+    // padding for everything below, so nothing gets padded twice.
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        systemNavigationBarContrastEnforced: false,
+        systemNavigationBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+      ),
+      child: ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: SafeArea(top: false, left: false, right: false, child: widget.child),
+      ),
+    );
+  }
 }
 
 class AppTheme {

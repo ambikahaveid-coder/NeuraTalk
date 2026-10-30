@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
+import '../services/ongoing_call.dart';
 import '../services/voice_consent.dart';
 import '../services/contact_resolver.dart';
 import '../utils/languages.dart';
@@ -198,6 +199,7 @@ class _CallScreenState extends State<CallScreen> {
     _ringingTimeoutTimer?.cancel();
     _stopRingback();
     _durationTimer?.cancel();
+    unawaited(OngoingCall.stop());
     try {
       await _room.disconnect().timeout(const Duration(seconds: 3), onTimeout: () {});
     } catch (_) {
@@ -263,6 +265,17 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.session.isVideo) {
       final cameraStatus = await Permission.camera.request();
       cameraGrantedForVideo = cameraStatus.isGranted;
+    }
+
+    // Started here, while the screen is in front and the permissions are
+    // granted -- Android refuses to start it from the background.
+    await OngoingCall.start(
+      video: cameraGrantedForVideo,
+      peer: ContactResolver.instance.displayNameFor(widget.session.remoteName),
+    );
+    if (_ending) {
+      unawaited(OngoingCall.stop());
+      return;
     }
 
     try {
@@ -378,6 +391,7 @@ class _CallScreenState extends State<CallScreen> {
         });
       }
     } catch (e) {
+      unawaited(OngoingCall.stop());
       if (!mounted) return;
       setState(() {
         _connecting = false;
@@ -712,6 +726,7 @@ class _CallScreenState extends State<CallScreen> {
     _readyTranslationSpeakers.clear();
     _suppressedSpeakers.clear();
     _listener?.dispose();
+    unawaited(OngoingCall.stop());
     _room.disconnect();
     if (widget.callService.activeCallSession?.callId == widget.session.callId) {
       widget.callService.setActiveCall(null);

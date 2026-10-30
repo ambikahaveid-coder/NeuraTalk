@@ -7,6 +7,8 @@
  */
 import type { Express } from "express";
 import { requireAuth, requireCompanyAccess, requirePermission, requireRole } from "../../role-middleware";
+import { getAccountHealth } from "./account-health";
+import { registerBusinessChatReactionRoutes } from "./reactions";
 import { PERMISSIONS } from "@shared/schema";
 import * as ctrl from "./controller";
 
@@ -128,6 +130,25 @@ export function registerMessagingRoutes(app: Express): void {
     requireCompanyAccess("businessId"),
     requirePermission(PERMISSIONS.MESSAGING_VIEW),
     ctrl.getMessagingSettingsHandler,
+  );
+  registerBusinessChatReactionRoutes(app);
+  // Account health: quality rating + daily messaging limit (account-health.ts).
+  app.get(
+    "/api/business/:businessId/messaging/health",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requirePermission(PERMISSIONS.MESSAGING_VIEW),
+    async (req, res) => {
+      const businessId = Number(req.params.businessId);
+      if (!Number.isSafeInteger(businessId) || businessId <= 0) return res.status(400).json({ success: false, error: "Invalid business" });
+      try {
+        const health = await getAccountHealth(businessId);
+        if (!health) return res.status(404).json({ success: false, error: "Business not found" });
+        return res.json({ success: true, health });
+      } catch {
+        return res.status(500).json({ success: false, error: "Could not load account health" });
+      }
+    },
   );
   app.put(
     "/api/business/:businessId/messaging-settings",

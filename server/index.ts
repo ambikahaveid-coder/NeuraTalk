@@ -420,6 +420,40 @@ app.use((req, res, next) => {
         "updated_at" timestamp DEFAULT now()
       )`);
     await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "business_catalog_items_business_idx" ON "business_catalog_items" ("business_id", "sort_order")`);
+    // Status: 24-hour text/photo updates (server/status-routes.ts, additive).
+    await _db.execute(_sql`
+      CREATE TABLE IF NOT EXISTS "status_posts" (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        "kind" text NOT NULL,
+        "text_content" text,
+        "media_url" text,
+        "background" text,
+        "original_language" text,
+        "translations" jsonb DEFAULT '{}'::jsonb,
+        "created_at" timestamp DEFAULT now(),
+        "expires_at" timestamp NOT NULL
+      )`);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "status_posts_user_expires_idx" ON "status_posts" ("user_id", "expires_at")`);
+    await _db.execute(_sql`ALTER TABLE "status_posts" ADD COLUMN IF NOT EXISTS "business_id" integer`);
+    await _db.execute(_sql`CREATE INDEX IF NOT EXISTS "status_posts_business_expires_idx" ON "status_posts" ("business_id", "expires_at")`);
+    await _db.execute(_sql`
+      CREATE TABLE IF NOT EXISTS "status_views" (
+        "id" serial PRIMARY KEY,
+        "status_id" integer NOT NULL REFERENCES "status_posts"("id") ON DELETE CASCADE,
+        "viewer_id" integer NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        "viewed_at" timestamp DEFAULT now()
+      )`);
+    await _db.execute(_sql`CREATE UNIQUE INDEX IF NOT EXISTS "status_views_status_viewer_idx" ON "status_views" ("status_id", "viewer_id")`);
+    // Business message prices (super admin) and policy actions (additive).
+    const { ensurePricesTable } = await import("./modules/messaging/pricing");
+    const { ensurePolicyTable } = await import("./modules/messaging/policy");
+    await ensurePricesTable();
+    await ensurePolicyTable();
+    const { ensureReactionsTable } = await import("./modules/messaging/reactions");
+    await ensureReactionsTable();
+    const { ensureOrdersTable } = await import("./modules/messaging/orders");
+    await ensureOrdersTable();
   }, { optional: true });
   let redisOperational = false;
   try {

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -13,11 +14,14 @@ import '../theme/app_theme.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
+import '../widgets/reactions.dart';
+import '../widgets/link_preview.dart';
 import 'business_account.dart';
 import 'business_categories.dart';
 import 'business_onboarding_screen.dart';
 import 'business_profile_screen.dart';
 import 'business_tools_screen.dart';
+import '../utils/phone_format.dart';
 
 /// NeuraTalk Business: like WhatsApp Business, inside NeuraTalk. Chats with
 /// customers (each in the agent's own language), business tools (profile,
@@ -102,7 +106,7 @@ class _BusinessSettings extends StatelessWidget {
         ListTile(
           leading: const Icon(Icons.person_outline),
           title: Text('${user['displayName'] ?? user['username'] ?? ''}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-          subtitle: Text('${user['phone'] ?? ''} · ${user['role'] == 'company_admin' ? 'Admin' : 'Team member'}',
+          subtitle: Text('${prettyPhone(user['phone'])} · ${user['role'] == 'company_admin' ? 'Admin' : 'Team member'}',
               style: TextStyle(color: AppColors.textSecondary)),
         ),
         ListTile(
@@ -547,6 +551,8 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
   static const _ticks = {'queued': 'Sending', 'sent': 'Sent', 'delivered': 'Delivered', 'read': 'Seen', 'failed': 'Not delivered'};
   final _input = TextEditingController();
   List<Map<String, dynamic>> _messages = [];
+  // The business's own participant id: its reactions are keyed by it.
+  int? _businessParticipantId;
   List<Map<String, dynamic>> _quickReplies = [];
   late Map<String, dynamic>? _summary = widget.summary;
   late List<String> _labels = (widget.summary?['labels'] as List? ?? const []).map((e) => '$e').toList();
@@ -605,7 +611,14 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     try {
       final res = await ApiService.get('$_base/conversations/${widget.conversationId}/messages?limit=100');
       final list = (res['messages'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
-      if (mounted) setState(() { _messages = list.reversed.toList(); _loading = false; _error = null; });
+      if (mounted) {
+        setState(() {
+          _messages = list.reversed.toList();
+          _businessParticipantId = (res['businessParticipantId'] as num?)?.toInt();
+          _loading = false;
+          _error = null;
+        });
+      }
     } catch (e) {
       if (mounted && !quiet) setState(() { _loading = false; _error = e is ApiException ? e.message : 'Check your connection and try again.'; });
     }
@@ -716,7 +729,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             NtAvatar(name: _name, avatarUrl: _avatar, size: 88, openOnTap: _avatar != null),
             const SizedBox(height: 12),
             Text(_name, style: TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w800)),
-            if (_phone != null) Text(_phone!, style: TextStyle(color: AppColors.textSecondary)),
+            if (_phone != null) Text(prettyPhone(_phone), style: TextStyle(color: AppColors.textSecondary)),
             const SizedBox(height: 12),
             if (_labels.isNotEmpty) Wrap(spacing: 6, runSpacing: 6, children: [for (final l in _labels) LabelChip(l)]),
             const SizedBox(height: 8),
@@ -756,7 +769,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_name, overflow: TextOverflow.ellipsis),
-                if (_phone != null && _phone != _name) Text(_phone!, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                if (_phone != null && _phone != _name) Text(prettyPhone(_phone), style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
               ]),
             ),
           ]),
@@ -862,9 +875,17 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     final showOriginal = _showOriginal.contains(id);
     final attachments = (m['attachments'] as List? ?? const []).whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList();
     final tick = ours ? _ticks[m['deliveryToCustomer']] : null;
+    final shownText = translated != null && !showOriginal ? translated : original;
+    final link = attachments.isEmpty ? firstLinkIn(shownText) : null;
     return Align(
       alignment: ours ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress: () => _messageActions(m, ours),
+        child: WithReactions(
+        reactions: m['reactions'] as Map?,
+        alignEnd: ours,
+        onTap: () => _messageActions(m, ours),
+        child: Container(
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -889,7 +910,8 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                         ),
             ),
           if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
-            SelectableText(translated != null && !showOriginal ? translated : original, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+            Text(shownText, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          if (link != null) LinkPreviewCard(url: link),
           if (translated != null)
             GestureDetector(
               onTap: () => setState(() => showOriginal ? _showOriginal.remove(id) : _showOriginal.add(id)),
@@ -897,12 +919,87 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
                   style: TextStyle(color: AppColors.cyan, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
           Text(
-            [_time(m['createdAt']), if (tick != null) tick].join(' · '),
+            [if (m['editedAt'] != null) 'Edited', _time(m['createdAt']), if (tick != null) tick].join(' · '),
             style: TextStyle(color: tick == 'Not delivered' ? AppColors.orange : AppColors.textMuted, fontSize: 11),
           ),
         ]),
       ),
+      ),
+      ),
     );
+  }
+
+  /// React as the business, copy, or edit my own reply (15 minutes).
+  void _messageActions(Map<String, dynamic> m, bool ours) {
+    final id = (m['id'] as num?)?.toInt();
+    if (id == null) return;
+    final mine = _businessParticipantId == null ? null : ((m['reactions'] as Map?) ?? const {})['$_businessParticipantId']?.toString();
+    final sent = DateTime.tryParse('${m['createdAt']}');
+    final canEdit = ours && m['messageType'] == 'text' && m['category'] == 'conversational'
+        && sent != null && DateTime.now().difference(sent.toLocal()) < const Duration(minutes: 15);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          QuickReactionRow(mine: mine, onPick: (emoji) {
+            Navigator.pop(sheet);
+            _react(id, mine == emoji ? null : emoji);
+          }),
+          Divider(height: 1, color: AppColors.border),
+          ListTile(
+            leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+            title: const Text('Copy'),
+            onTap: () {
+              Navigator.pop(sheet);
+              Clipboard.setData(ClipboardData(text: '${m['translatedContent'] ?? m['content'] ?? ''}'));
+            },
+          ),
+          if (canEdit)
+            ListTile(
+              leading: Icon(Icons.edit_outlined, color: AppColors.cyan),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _edit(id, '${m['content'] ?? ''}');
+              },
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _react(int messageId, String? emoji) async {
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/messages/$messageId/reaction', {'emoji': emoji});
+      await _load(quiet: true);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not react. Try again.')));
+    }
+  }
+
+  Future<void> _edit(int messageId, String current) async {
+    final ctrl = TextEditingController(text: current);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Edit reply'),
+        content: TextField(controller: ctrl, autofocus: true, maxLines: 5, minLines: 1),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(d, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (next == null || next.isEmpty || next == current) return;
+    try {
+      await ApiService.patch('$_base/conversations/${widget.conversationId}/messages/$messageId', {'content': next});
+      await _load(quiet: true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not edit.')));
+    }
   }
 
   String _time(dynamic raw) {

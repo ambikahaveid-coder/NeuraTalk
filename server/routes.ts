@@ -39,6 +39,9 @@ import auditLoggingRoutes from "./audit-logging";
 import voiceMemosRoutes from "./voice-memos";
 import groupChatsRoutes from "./group-chats";
 import personalChatRoutes from "./personal-chat-routes";
+import { registerLinkPreviewRoutes } from "./link-preview";
+import { registerStatusRoutes } from "./status-routes";
+import { registerBroadcastRoutes } from "./modules/campaigns/broadcast";
 import blockingRoutes from "./blocking";
 import { registerLipSyncRoutes } from "./lip-sync";
 import { registerOpenApiRoutes } from "./openapi";
@@ -78,6 +81,7 @@ import { registerOtpRoutes } from "./modules/otp/routes";
 import { registerUtilityRoutes } from "./modules/utility/routes";
 import { registerBusinessMessagingApiRoutes } from "./modules/messaging/api-routes";
 import { registerCatalogRoutes } from "./modules/messaging/catalog";
+import { registerOrderRoutes } from "./modules/messaging/orders";
 import { registerMarketingRoutes } from "./modules/marketing/routes";
 import { registerEnterpriseHubRoutes } from "./modules/enterprise-hub/routes";
 import { registerEnterpriseAIOverlayRoutes } from "./enterprise/routes";
@@ -207,10 +211,12 @@ export async function registerRoutes(
   registerCustomerRoutes(app); console.log("[Routes] ✓ Business customers routes (Phase 4)");
   registerAudienceRoutes(app); console.log("[Routes] ✓ Business audiences routes (Phase 4)");
   registerCampaignRoutes(app); console.log("[Routes] ✓ Business campaign engine routes (Phase 5)");
+  registerBroadcastRoutes(app);
   registerOtpRoutes(app); console.log("[Routes] ✓ Business OTP/authentication routes (Phase 6)");
   registerUtilityRoutes(app); console.log("[Routes] ✓ Business utility messaging routes (Phase 7)");
   registerBusinessMessagingApiRoutes(app); console.log("[Routes] ✓ Business messaging API (X-API-Key: utility events, OTP)");
   registerCatalogRoutes(app); console.log("[Routes] ✓ Business catalog routes");
+  registerOrderRoutes(app); console.log("[Routes] ✓ Business order routes");
   registerMarketingRoutes(app); console.log("[Routes] ✓ Business marketing reporting routes (Phase 8B-R0)");
   registerEnterpriseHubRoutes(app); console.log("[Routes] ✓ Enterprise Hub routes (existing number integration)");
   registerEnterpriseAIOverlayRoutes(app); console.log("[Routes] ✓ Enterprise AI Overlay routes (sessions, SIP health, agent assist)");
@@ -285,6 +291,8 @@ export async function registerRoutes(
   // Multi-language Group Chats
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
+  registerLinkPreviewRoutes(app);
+  registerStatusRoutes(app);
   app.use(blockingRoutes);
   console.log("[Routes] ✓ Group chats routes");
   

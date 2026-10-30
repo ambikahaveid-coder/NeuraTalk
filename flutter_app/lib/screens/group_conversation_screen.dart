@@ -11,6 +11,8 @@ import '../widgets/attachment_picker.dart';
 import '../widgets/location_share.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
+import '../widgets/reactions.dart';
+import '../widgets/link_preview.dart';
 import '../utils/languages.dart';
 import 'group_info_screen.dart';
 import 'call_screen.dart';
@@ -37,11 +39,80 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   double _uploadProgress = 0;
   UploadCancelToken? _uploadCancel;
 
+  // @mentions: what is typed after "@" (null when not mentioning), and the
+  // people picked so far (name -> user id).
+  String? _mentionQuery;
+  final Map<String, int> _mentioned = {};
+
   @override
   void initState() {
     super.initState();
     _groups = context.read<GroupChatProvider>();
     _groups.openGroup(widget.groupId).then((_) => _scrollToBottom());
+    _msgCtrl.addListener(_watchForMention);
+  }
+
+  /// Other members as (user id, name), for "@" suggestions and highlighting.
+  List<(int, String)> _otherMembers() {
+    final selfId = context.read<AuthProvider>().user?['id'];
+    final members = (context.read<GroupChatProvider>().activeGroup?['members'] as List?) ?? const [];
+    return [
+      for (final m in members)
+        if (m is Map && m['userId'] != selfId && m['userId'] is int)
+          (m['userId'] as int, ((m['user'] as Map?)?['username'] ?? '').toString().trim()),
+    ].where((e) => e.$2.isNotEmpty).toList();
+  }
+
+  void _watchForMention() {
+    final value = _msgCtrl.value;
+    final cursor = value.selection.baseOffset;
+    String? query;
+    if (cursor >= 0 && cursor <= value.text.length) {
+      final before = value.text.substring(0, cursor);
+      final at = before.lastIndexOf('@');
+      if (at >= 0 && (at == 0 || RegExp(r'\s').hasMatch(before[at - 1]))) {
+        final typed = before.substring(at + 1);
+        if (!typed.contains('\n') && typed.length <= 30) query = typed;
+      }
+    }
+    if (query != _mentionQuery) setState(() => _mentionQuery = query);
+  }
+
+  void _pickMention(int userId, String name) {
+    final value = _msgCtrl.value;
+    final cursor = value.selection.baseOffset;
+    final before = value.text.substring(0, cursor);
+    final at = before.lastIndexOf('@');
+    if (at < 0) return;
+    final inserted = '@$name ';
+    final text = value.text.replaceRange(at, cursor, inserted);
+    _mentioned[name] = userId;
+    _msgCtrl.value = TextEditingValue(text: text, selection: TextSelection.collapsed(offset: at + inserted.length));
+    setState(() => _mentionQuery = null);
+  }
+
+  Widget _mentionSuggestions() {
+    final q = _mentionQuery;
+    if (q == null) return const SizedBox.shrink();
+    final matches = _otherMembers().where((m) => m.$2.toLowerCase().contains(q.toLowerCase())).take(5).toList();
+    if (matches.isEmpty) return const SizedBox.shrink();
+    return Container(
+      constraints: const BoxConstraints(maxHeight: 240),
+      decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
+      child: ListView(
+        shrinkWrap: true,
+        padding: EdgeInsets.zero,
+        children: [
+          for (final (id, name) in matches)
+            ListTile(
+              dense: true,
+              leading: NtAvatar(name: name, size: 32),
+              title: Text(name, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+              onTap: () => _pickMention(id, name),
+            ),
+        ],
+      ),
+    );
   }
 
   late final GroupChatProvider _groups;
@@ -67,8 +138,11 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   void _send() {
     final text = _msgCtrl.text.trim();
     if (text.isEmpty) return;
+    // Only people whose "@Name" is still in the text are mentioned.
+    final mentions = [for (final e in _mentioned.entries) if (text.contains('@${e.key}')) e.value];
+    _mentioned.clear();
     _msgCtrl.clear();
-    context.read<GroupChatProvider>().sendMessage(widget.groupId, text);
+    context.read<GroupChatProvider>().sendMessage(widget.groupId, text, mentions: mentions);
     _scrollToBottom();
   }
 
@@ -165,8 +239,55 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     }
   }
 
+  String? get _myId => context.read<AuthProvider>().user?['id']?.toString();
+
+  Future<void> _react(Map<String, dynamic> message, String emoji) async {
+    final id = message['id'];
+    final me = _myId;
+    if (id is! int || me == null) return;
+    final mine = ((message['reactions'] as Map?) ?? const {})[me]?.toString();
+    try {
+      await context.read<GroupChatProvider>().reactToMessage(widget.groupId, id, mine == emoji ? null : emoji, myUserId: me);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not react. Check your connection.')));
+    }
+  }
+
+  bool _canEdit(Map<String, dynamic> message, bool isOwn) {
+    if (!isOwn || message['id'] is! int || (message['messageType']?.toString() ?? 'text') != 'text') return false;
+    final sent = DateTime.tryParse(message['createdAt']?.toString() ?? '');
+    return sent != null && DateTime.now().difference(sent.toLocal()) < const Duration(minutes: 15);
+  }
+
+  Future<void> _edit(Map<String, dynamic> message) async {
+    final ctrl = TextEditingController(text: message['originalContent']?.toString() ?? '');
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('Edit message', style: TextStyle(color: AppColors.ink)),
+        content: TextField(controller: ctrl, autofocus: true, minLines: 1, maxLines: 6, maxLength: 4000,
+            style: TextStyle(color: AppColors.ink), decoration: const InputDecoration(counterText: '')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (next == null || next.isEmpty || next == message['originalContent']?.toString() || !mounted) return;
+    try {
+      await context.read<GroupChatProvider>().editMessage(widget.groupId, message['id'] as int, next);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message.isNotEmpty ? e.message : 'Could not edit message.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not edit message.')));
+    }
+  }
+
   void _showMessageActions(Map<String, dynamic> message, bool isOwn) {
     final canDelete = isOwn || _selfIsAdmin;
+    final mine = ((message['reactions'] as Map?) ?? const {})[_myId]?.toString();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -175,6 +296,13 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (message['id'] is int) ...[
+              QuickReactionRow(mine: mine, onPick: (emoji) {
+                Navigator.pop(sheetContext);
+                _react(message, emoji);
+              }),
+              Divider(height: 1, color: AppColors.border),
+            ],
             ListTile(
               leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
               title: Text('Copy', style: TextStyle(color: AppColors.ink)),
@@ -183,6 +311,15 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                 _copyMessage(message);
               },
             ),
+            if (_canEdit(message, isOwn))
+              ListTile(
+                leading: Icon(Icons.edit_outlined, color: AppColors.cyan),
+                title: Text('Edit', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _edit(message);
+                },
+              ),
             if (canDelete)
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: AppColors.red),
@@ -288,6 +425,10 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                                 isOwn: isOwn,
                                 myLanguage: myLanguage,
                                 showSender: !isOwn && (prev?['senderId'] != msg['senderId'] || divider != null),
+                                memberNames: [
+                                  for (final m in members)
+                                    if (m is Map) ((m['user'] as Map?)?['username'] ?? '').toString(),
+                                ],
                                 onLongPress: msg['_pending'] == true ? null : () => _showMessageActions(msg, isOwn),
                               );
                               return divider == null ? bubble : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [divider, bubble]);
@@ -314,6 +455,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                 ),
               ]),
             ),
+          _mentionSuggestions(),
           _inputBar(),
           if (_showEmoji)
             SizedBox(
@@ -358,7 +500,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                     maxLines: 5,
                     style: TextStyle(color: AppColors.ink, fontSize: 16),
                     decoration: InputDecoration(
-                      hintText: 'Message the group', hintMaxLines: 1,
+                      hintText: 'Message the group · @ to mention', hintMaxLines: 1,
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -400,7 +542,8 @@ class _GroupMessageBubble extends StatelessWidget {
   final bool showSender;
   final String myLanguage;
   final VoidCallback? onLongPress;
-  const _GroupMessageBubble({required this.message, required this.isOwn, required this.myLanguage, this.showSender = false, this.onLongPress});
+  final List<String> memberNames;
+  const _GroupMessageBubble({required this.message, required this.isOwn, required this.myLanguage, this.showSender = false, this.onLongPress, this.memberNames = const []});
 
   static String _clock(dynamic raw) {
     final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
@@ -471,7 +614,8 @@ class _GroupMessageBubble extends StatelessWidget {
         else if (attachmentUrl != null && messageType == 'file')
           ChatFileAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'file', size: attachmentSize, mime: attachmentMime)
         else ...[
-          Text(shown, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.35)),
+          MentionText(text: shown, names: memberNames, style: TextStyle(color: AppColors.textPrimary, fontSize: 16, height: 1.35)),
+          if (firstLinkIn(shown) != null) LinkPreviewCard(url: firstLinkIn(shown)!),
           if (translated) ...[
             const SizedBox(height: 6),
             Text('Original · ${Languages.name(originalLang)}',
@@ -488,6 +632,8 @@ class _GroupMessageBubble extends StatelessWidget {
               NtListenButton(text: shown, language: translated ? myLanguage : originalLang),
               const SizedBox(width: 8),
             ],
+            if (message['editedAt'] != null)
+              Text('Edited · ', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5, fontStyle: FontStyle.italic)),
             Text(_clock(message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
             if (isOwn && pending) ...[
               const SizedBox(width: 4),
@@ -498,17 +644,18 @@ class _GroupMessageBubble extends StatelessWidget {
       ]),
     );
 
+    final decorated = WithReactions(reactions: message['reactions'] as Map?, alignEnd: isOwn, onTap: onLongPress, child: bubble);
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(
         onLongPress: onLongPress,
         child: isOwn
-            ? bubble
+            ? decorated
             : Row(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
                 // Avatar only on the first message of a run, like the sender name.
                 SizedBox(width: 34, child: showSender ? NtAvatar(name: senderName, size: 30) : null),
                 const SizedBox(width: 4),
-                Flexible(child: bubble),
+                Flexible(child: decorated),
               ]),
       ),
     );

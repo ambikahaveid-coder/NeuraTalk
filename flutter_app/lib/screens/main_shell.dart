@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/personal_chat_provider.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 import 'human_chat_list_screen.dart';
 import 'calls_screen.dart';
-import 'contacts_screen.dart';
+import 'updates_screen.dart';
 import 'settings_screen.dart';
 import 'language_preferences_screen.dart';
 import '../services/call_readiness.dart';
@@ -16,8 +18,9 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _index = 0;
-  final Set<int> _visited = {0};
+  // A messenger opens on its conversations; Home stays one tap away.
+  int _index = 1;
+  final Set<int> _visited = {0, 1};
 
   late final List<Widget> _screens = [
     HomeScreen(onOpenTab: (i) => setState(() {
@@ -25,9 +28,9 @@ class _MainShellState extends State<MainShell> {
       _visited.add(i);
     })),
     const HumanChatListScreen(),
+    // Built on first visit, so opening the app doesn't load updates first.
+    const _LazyTab(index: 2, child: UpdatesScreen()),
     const CallsScreen(),
-    // Built on first visit: it asks for contacts permission, which should not pop up at app start.
-    const _LazyTab(index: 3, child: ContactsScreen()),
     const SettingsScreen(),
   ];
 
@@ -52,6 +55,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final selected = AppColors.cyan;
     final unselected = AppColors.textSecondary;
+    final unread = context.select<PersonalChatProvider, int>((p) => p.totalUnread);
     return Scaffold(
       body: _VisitedTabs(
         visited: _visited,
@@ -89,18 +93,33 @@ class _MainShellState extends State<MainShell> {
               _index = i;
               _visited.add(i);
             }),
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-              NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Chats'),
-              NavigationDestination(icon: Icon(Icons.call_outlined), selectedIcon: Icon(Icons.call), label: 'Calls'),
-              NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Contacts'),
-              NavigationDestination(icon: Icon(Icons.more_horiz), selectedIcon: Icon(Icons.more_horiz), label: 'More'),
+            destinations: [
+              const NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+              NavigationDestination(
+                icon: _withUnread(unread, const Icon(Icons.chat_bubble_outline)),
+                selectedIcon: _withUnread(unread, const Icon(Icons.chat_bubble)),
+                label: 'Chats',
+              ),
+              const NavigationDestination(icon: Icon(Icons.amp_stories_outlined), selectedIcon: Icon(Icons.amp_stories), label: 'Updates'),
+              const NavigationDestination(icon: Icon(Icons.call_outlined), selectedIcon: Icon(Icons.call), label: 'Calls'),
+              const NavigationDestination(icon: Icon(Icons.more_horiz), selectedIcon: Icon(Icons.more_horiz), label: 'More'),
             ],
           ),
         ),
       ),
     );
   }
+}
+
+/// Unread count on the Chats tab ("99+" past 99); nothing when all read.
+Widget _withUnread(int unread, Widget icon) {
+  if (unread <= 0) return icon;
+  return Badge(
+    label: Text(unread > 99 ? '99+' : '$unread', style: const TextStyle(fontWeight: FontWeight.w700)),
+    backgroundColor: AppColors.cyan,
+    textColor: AppColors.onAccent,
+    child: icon,
+  );
 }
 
 /// Shares which tabs have been opened with [_LazyTab]s below it.

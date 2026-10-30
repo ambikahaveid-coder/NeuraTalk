@@ -31,6 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDuration, languageName, CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, VoiceClonesSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
 import { LogoWithIcon } from "@/components/Logo";
+import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth, type PolicyNotice } from "@/lib/account-health";
 
 type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "voices" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations";
 
@@ -548,7 +549,11 @@ function CompaniesSection() {
   });
 
   // Business messaging per company, by category (last 30 days).
-  const { data: overviewData } = useQuery<{ byBusiness: Record<string, { marketing: number; utility: number; otp: number; chat: number; blocked: number; pendingTemplates: number }> }>({
+  const { data: overviewData } = useQuery<{
+    byBusiness: Record<string, { marketing: number; utility: number; otp: number; chat: number; blocked: number; pendingTemplates: number }>;
+    health?: Record<string, AccountHealth>;
+    tiers?: number[];
+  }>({
     queryKey: ["/api/admin/messaging-overview"],
     queryFn: async () => {
       const res = await fetch("/api/admin/messaging-overview", { headers: { Authorization: `Bearer ${getAuthToken()}` } });
@@ -891,6 +896,7 @@ function CompaniesSection() {
       </Dialog>
 
       <TemplateReviewsCard />
+      <MessagePricesCard />
 
       <Card>
         <CardHeader>
@@ -955,6 +961,13 @@ function CompaniesSection() {
                             <Badge variant="secondary">{overviewData.byBusiness[company.id].pendingTemplates} template(s) to review</Badge>
                           )}
                         </div>
+                      )}
+                      {company.status === "approved" && (
+                        <CompanyMessagingHealth
+                          companyId={company.id}
+                          health={overviewData?.health?.[company.id]}
+                          tiers={overviewData?.tiers ?? [250, 1000, 10000, 100000]}
+                        />
                       )}
                     </div>
                     
@@ -1151,6 +1164,211 @@ function CompaniesSection() {
 }
 
 /** A readable line for an audit entry; grants of minutes say who got what. */
+/** What businesses pay per delivered message, by category (paise). */
+function MessagePricesCard() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data } = useQuery<{ prices: { marketingPaise: number; utilityPaise: number; otpPaise: number; updatedAt: string | null } }>({
+    queryKey: ["/api/admin/messaging-prices"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/messaging-prices", { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) throw new Error("Failed to load prices");
+      return res.json();
+    },
+  });
+  const [draft, setDraft] = useState<{ marketingPaise: string; utilityPaise: string; otpPaise: string } | null>(null);
+  const prices = data?.prices;
+  const values = draft ?? (prices
+    ? { marketingPaise: String(prices.marketingPaise), utilityPaise: String(prices.utilityPaise), otpPaise: String(prices.otpPaise) }
+    : null);
+  const save = useMutation({
+    mutationFn: async () => {
+      const body = { marketingPaise: Number(values!.marketingPaise), utilityPaise: Number(values!.utilityPaise), otpPaise: Number(values!.otpPaise) };
+      const res = await fetch("/api/admin/messaging-prices", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not save prices");
+      return json;
+    },
+    onSuccess: () => {
+      toast({ title: "Message prices saved", description: "New messages are charged at these prices." });
+      setDraft(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/messaging-prices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/messaging-overview"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  if (!values) return null;
+  const field = (key: "marketingPaise" | "utilityPaise" | "otpPaise", label: string, hint: string) => (
+    <div className="space-y-1">
+      <Label htmlFor={`price-${key}`}>{label}</Label>
+      <div className="flex items-center gap-2">
+        <Input id={`price-${key}`} type="number" min={0} max={10000} className="w-28" value={values[key]}
+          onChange={(e) => setDraft({ ...values, [key]: e.target.value })} data-testid={`input-price-${key}`} />
+        <span className="text-sm text-muted-foreground">paise · {rupees(Number(values[key]) || 0)}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+  return (
+    <Card data-testid="card-message-prices">
+      <CardHeader>
+        <CardTitle className="text-base">Business message prices</CardTitle>
+        <CardDescription>
+          Charged to a business's wallet for each message delivered inside NeuraTalk. Customers who are not on NeuraTalk are never charged.
+          {prices?.updatedAt && <> Last changed {new Date(prices.updatedAt).toLocaleString()}.</>}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          {field("marketingPaise", "Offers & promotions", "Marketing campaigns")}
+          {field("utilityPaise", "Order & account updates", "Utility campaigns and order events")}
+          {field("otpPaise", "Verification codes", "One-time codes (OTP)")}
+        </div>
+        <Button onClick={() => save.mutate()} disabled={save.isPending || draft === null} data-testid="button-save-prices">
+          {save.isPending ? "Saving…" : "Save prices"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Super admin view of one business's messaging account health, with the
+ * daily limit that can be set (and locked) by hand.
+ */
+function CompanyMessagingHealth({ companyId, health, tiers }: { companyId: number; health?: AccountHealth; tiers: number[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const setLimit = useMutation({
+    mutationFn: async (input: { tier: number; pinned: boolean }) => {
+      const res = await fetch(`/api/admin/companies/${companyId}/messaging-limit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not change the limit");
+      return json;
+    },
+    onSuccess: () => {
+      toast({ title: "Messaging limit updated" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/messaging-overview"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  const quality = health ? QUALITY_LABEL[health.quality] : null;
+  const current = health?.tier ?? tiers[0];
+  return (
+    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs" data-testid={`messaging-health-${companyId}`}>
+      <span className="text-muted-foreground">Messaging:</span>
+      {quality ? (
+        <span className={`rounded-full px-2 py-0.5 font-semibold ${quality.className}`}>Quality {quality.text}</span>
+      ) : (
+        <span className="text-muted-foreground">no campaigns yet</span>
+      )}
+      {health && health.negativeRatePercent > 0 && (
+        <span className="text-muted-foreground">{health.negativeRatePercent}% blocked/opted out/reported this week</span>
+      )}
+      <span className="text-muted-foreground">Daily limit</span>
+      <Select
+        value={String(current)}
+        onValueChange={(v) => setLimit.mutate({ tier: Number(v), pinned: true })}
+        disabled={setLimit.isPending}
+      >
+        <SelectTrigger className="h-7 w-[150px] text-xs" aria-label="Daily messaging limit" data-testid={`select-messaging-limit-${companyId}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {tiers.map((t) => <SelectItem key={t} value={String(t)}>{t.toLocaleString("en-IN")} / day</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {health?.pinned ? (
+        <Button size="sm" variant="ghost" className="h-7 text-xs" disabled={setLimit.isPending}
+          onClick={() => setLimit.mutate({ tier: current, pinned: false })}>
+          Locked · let it grow automatically
+        </Button>
+      ) : (
+        <span className="text-muted-foreground">grows automatically</span>
+      )}
+      {health?.restriction ? (
+        <Badge variant="destructive">Campaigns paused</Badge>
+      ) : health && health.effectiveLimit < health.tier && (
+        <Badge variant="destructive">Lowered to {health.effectiveLimit.toLocaleString("en-IN")} for low quality</Badge>
+      )}
+      <CompanyPolicyActions companyId={companyId} restricted={Boolean(health?.restriction)} notices={health?.notices ?? []} />
+    </div>
+  );
+}
+
+/** Warn a business, pause its campaigns, or let them run again -- with the reason it will see. */
+function CompanyPolicyActions({ companyId, restricted, notices }: { companyId: number; restricted: boolean; notices: PolicyNotice[] }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState<null | PolicyNotice["action"]>(null);
+  const [reason, setReason] = useState("");
+  const act = useMutation({
+    mutationFn: async (input: { action: PolicyNotice["action"]; reason: string }) => {
+      const res = await fetch(`/api/admin/companies/${companyId}/policy-actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken()}` },
+        body: JSON.stringify(input),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not save");
+      return json;
+    },
+    onSuccess: (_d, input) => {
+      toast({ title: NOTICE_LABEL[input.action], description: "The business has been told." });
+      setOpen(null);
+      setReason("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/messaging-overview"] });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <>
+      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setOpen("warning")} data-testid={`button-warn-${companyId}`}>Warn</Button>
+      {restricted ? (
+        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setOpen("lifted")} data-testid={`button-lift-${companyId}`}>Resume campaigns</Button>
+      ) : (
+        <Button size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={() => setOpen("restricted")} data-testid={`button-restrict-${companyId}`}>Pause campaigns</Button>
+      )}
+      {notices.length > 0 && (
+        <span className="text-muted-foreground" title={notices.map((n) => `${new Date(n.createdAt).toLocaleDateString()} ${NOTICE_LABEL[n.action]}: ${n.reason}`).join("\n")}>
+          Last action: {NOTICE_LABEL[notices[0].action]} · {new Date(notices[0].createdAt).toLocaleDateString()}
+        </span>
+      )}
+      <Dialog open={open !== null} onOpenChange={(o) => { if (!o) setOpen(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{open ? NOTICE_LABEL[open] : ""}</DialogTitle>
+            <DialogDescription>
+              {open === "restricted"
+                ? "The business can still reply to customers, send order updates and codes, but no campaigns run until you resume them."
+                : open === "lifted" ? "Campaigns can run again within the business's daily limit."
+                : "The business sees this warning in its Account health card and gets a notification."}
+            </DialogDescription>
+          </DialogHeader>
+          <Label htmlFor={`policy-reason-${companyId}`}>Reason the business will see</Label>
+          <Textarea id={`policy-reason-${companyId}`} value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
+            placeholder="e.g. Several customers reported unwanted promotional messages." />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(null)}>Cancel</Button>
+            <Button onClick={() => open && act.mutate({ action: open, reason })} disabled={act.isPending || reason.trim().length < 5}
+              variant={open === "restricted" ? "destructive" : "default"}>
+              {act.isPending ? "Saving…" : "Confirm"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 function describeAuditLog(log: any): string {
   const value = log.newValue?.value;
   if (log.metadata?.key === "user_minutes_granted" && value) {

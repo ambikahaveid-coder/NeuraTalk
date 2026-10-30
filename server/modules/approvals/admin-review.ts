@@ -15,6 +15,10 @@ import { approvalRequests, organizations, templates, templateVersions, users, AP
 import { requireAuth, requireSuperAdmin } from "../../role-middleware";
 import { logger } from "../../observability";
 import { approveRequest, rejectRequest, AlreadyDecidedError, NotFoundError, ValidationError } from "./service";
+import { getAccountHealth, setMessagingLimit, MESSAGING_TIERS, type AccountHealth } from "../messaging/account-health";
+import { getMessagePrices, setMessagePrices } from "../messaging/pricing";
+import { addPolicyAction, listPolicyActions } from "../messaging/policy";
+import { sendPushNotification } from "../../firebase-admin";
 
 const TEMPLATE_RESOURCE = "template_version";
 
@@ -125,7 +129,15 @@ async function messagingOverview(_req: Request, res: Response) {
     for (const row of rows(result)) byBusiness[row.businessId] = { marketing: row.marketing, utility: row.utility, otp: row.otp, chat: row.chat, blocked: 0, pendingTemplates: 0 };
     for (const row of rows(blocks)) (byBusiness[row.businessId] ??= { marketing: 0, utility: 0, otp: 0, chat: 0, blocked: 0, pendingTemplates: 0 }).blocked = row.blocked;
     for (const row of rows(pending)) (byBusiness[row.businessId] ??= { marketing: 0, utility: 0, otp: 0, chat: 0, blocked: 0, pendingTemplates: 0 }).pendingTemplates = row.pending;
-    return res.json({ success: true, days: 30, byBusiness });
+    // Quality rating + daily limit per business (same numbers the business sees).
+    const health: Record<string, AccountHealth> = {};
+    for (const businessId of Object.keys(byBusiness)) {
+      try {
+        const h = await getAccountHealth(Number(businessId));
+        if (h) health[businessId] = h;
+      } catch { /* one business failing must not hide the rest */ }
+    }
+    return res.json({ success: true, days: 30, byBusiness, health, tiers: MESSAGING_TIERS });
   } catch (error) {
     logger.error("TemplateReview", "Overview failed", error as Error);
     return res.status(500).json({ success: false, error: "Could not load messaging overview" });
@@ -137,4 +149,72 @@ export function registerTemplateReviewRoutes(app: Express): void {
   app.post("/api/admin/template-reviews/:requestId/approve", requireAuth, requireSuperAdmin, (req, res) => decide(req, res, true));
   app.post("/api/admin/template-reviews/:requestId/reject", requireAuth, requireSuperAdmin, (req, res) => decide(req, res, false));
   app.get("/api/admin/messaging-overview", requireAuth, requireSuperAdmin, messagingOverview);
+  // Business message prices (paise per delivered message).
+  app.get("/api/admin/messaging-prices", requireAuth, requireSuperAdmin, async (_req, res) => {
+    return res.json({ success: true, prices: await getMessagePrices() });
+  });
+  app.put("/api/admin/messaging-prices", requireAuth, requireSuperAdmin, async (req, res) => {
+    const paise = z.number().int().min(0).max(10_000);
+    const parsed = z.object({ marketingPaise: paise, utilityPaise: paise, otpPaise: paise }).safeParse(req.body ?? {});
+    if (!parsed.success) return res.status(400).json({ success: false, error: "Prices must be whole paise between 0 and 10,000." });
+    const prices = await setMessagePrices(parsed.data, req.user!.id);
+    logger.info("MessagingPrices", "Business message prices changed", { ...parsed.data, by: req.user!.id });
+    return res.json({ success: true, prices });
+  });
+
+  // Warnings / restrictions on a business, with history.
+  app.get("/api/admin/companies/:id/policy-actions", requireAuth, requireSuperAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, error: "Invalid company" });
+    return res.json({ success: true, actions: await listPolicyActions(id, 50) });
+  });
+  app.post("/api/admin/companies/:id/policy-actions", requireAuth, requireSuperAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    const parsed = z.object({
+      action: z.enum(["warning", "restricted", "lifted"]),
+      reason: z.string().trim().min(5, "Write the reason the business will see.").max(1000),
+      reportId: z.number().int().positive().optional(),
+    }).safeParse(req.body ?? {});
+    if (!Number.isSafeInteger(id) || id <= 0 || !parsed.success) {
+      return res.status(400).json({ success: false, error: parsed.success ? "Invalid company" : parsed.error.issues[0]?.message });
+    }
+    const [org] = await db.select({ id: organizations.id, name: organizations.name }).from(organizations).where(eq(organizations.id, id));
+    if (!org) return res.status(404).json({ success: false, error: "Company not found" });
+    const action = await addPolicyAction(id, parsed.data.action, parsed.data.reason, req.user!.id, parsed.data.reportId);
+    logger.info("MessagingPolicy", "Policy action on business", { businessId: id, action: action.action, by: req.user!.id });
+    // Tell the business's admins right away.
+    const admins = await db.select({ id: users.id }).from(users)
+      .where(and(eq(users.organizationId, id), eq(users.role, "company_admin")));
+    const title = action.action === "warning" ? "Warning from NeuraTalk"
+      : action.action === "restricted" ? "NeuraTalk paused your campaigns" : "Your campaigns can run again";
+    for (const admin of admins) {
+      sendPushNotification(admin.id, { title, body: action.reason, data: { type: "business_notice", businessId: String(id) } }).catch(() => {});
+    }
+    return res.json({ success: true, action, health: await getAccountHealth(id) });
+  });
+
+  app.get("/api/admin/companies/:id/messaging-health", requireAuth, requireSuperAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, error: "Invalid company" });
+    const health = await getAccountHealth(id).catch(() => null);
+    if (!health) return res.status(404).json({ success: false, error: "Company not found" });
+    return res.json({ success: true, health, tiers: MESSAGING_TIERS });
+  });
+  app.patch("/api/admin/companies/:id/messaging-limit", requireAuth, requireSuperAdmin, async (req, res) => {
+    const id = Number(req.params.id);
+    const parsed = z.object({ tier: z.number().int(), pinned: z.boolean().default(true) }).safeParse(req.body ?? {});
+    if (!Number.isSafeInteger(id) || id <= 0 || !parsed.success || !(MESSAGING_TIERS as readonly number[]).includes(parsed.data.tier)) {
+      return res.status(400).json({ success: false, error: `Limit must be one of ${MESSAGING_TIERS.join(", ")}` });
+    }
+    const [org] = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, id));
+    if (!org) return res.status(404).json({ success: false, error: "Company not found" });
+    try {
+      const limit = await setMessagingLimit(id, parsed.data.tier, parsed.data.pinned);
+      logger.info("MessagingHealth", "Messaging limit set by admin", { businessId: id, tier: limit.tier, pinned: limit.pinned, by: req.user?.id });
+      return res.json({ success: true, limit, health: await getAccountHealth(id) });
+    } catch (error) {
+      logger.error("MessagingHealth", "Set messaging limit failed", error as Error);
+      return res.status(500).json({ success: false, error: "Could not change the limit" });
+    }
+  });
 }

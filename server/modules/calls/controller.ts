@@ -66,6 +66,7 @@ import {
   buildUnifiedSessionFromSmartCall,
 } from "./session-view";
 import { isPSTNAvailable } from "../../pstn/registry";
+import { subscribeToRemoteIncomingCalls } from "../messaging/realtime";
 import { isLegacyTwilioBridgeEnabled } from "../../call-platform-config";
 import { verifyWebhook as verifyLiveKitWebhook } from "../../livekit-service";
 
@@ -965,10 +966,13 @@ export async function incomingStream(req: Request, res: Response) {
   };
 
   svc.incomingCallBus.on(`incoming:${userId}`, onIncoming);
+  // Calls created on another server instance arrive through Redis.
+  const unsubscribeRemote = subscribeToRemoteIncomingCalls(userId, onIncoming);
 
   const cleanup = () => {
     clearInterval(heartbeat);
     svc.incomingCallBus.off(`incoming:${userId}`, onIncoming);
+    unsubscribeRemote();
   };
 
   req.on("close", cleanup);

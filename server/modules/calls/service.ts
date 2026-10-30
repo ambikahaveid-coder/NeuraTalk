@@ -31,6 +31,7 @@ import { storage } from "../../storage";
 import { db } from "../../db";
 import { getRedisClient } from "../../redis";
 import { logger } from "../../observability";
+import { publishIncomingCallEvent } from "../messaging/realtime";
 import { registeredDevices, auditLogs, users } from "@shared/schema";
 import { eq, and, or, sql } from "drizzle-orm";
 import type { StrictBillingPlanConfig } from "../../billing-config";
@@ -219,8 +220,10 @@ export async function queueIncomingCall(userId: string, payload: Omit<IncomingCa
     removeIncomingCallFromMemory(userId, entry.callId);
   }
 
-  // Notify any open SSE connections immediately (no polling needed)
+  // Ring open SSE connections immediately: this instance's directly, other
+  // instances' through Redis (the callee's stream may live on another server).
   incomingCallBus.emit(`incoming:${userId}`, entry);
+  publishIncomingCallEvent(userId, { ...entry });
 }
 
 /**

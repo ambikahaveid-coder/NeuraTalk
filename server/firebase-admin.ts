@@ -282,6 +282,14 @@ export async function sendVoIPPush(
   };
 }
 
+/** Chat pushes an app can answer with "Reply" right from the notification. */
+const REPLYABLE_PUSH_TYPES = new Set([
+  "personal_chat_message",
+  "group_chat_message",
+  "business_message", // a business wrote to a customer
+  "business_inbox_message", // a customer wrote to the business (agents)
+]);
+
 /**
  * Send a general push notification to all active devices of a user.
  * Used for missed calls, payment confirmations, subscription alerts, etc.
@@ -305,15 +313,9 @@ export async function sendPushNotification(
   }
 
   const devices = await db
-    .select({ pushToken: registeredDevices.pushToken, platform: registeredDevices.platform })
+    .select({ pushToken: registeredDevices.pushToken, platform: registeredDevices.platform, capabilities: registeredDevices.capabilities })
     .from(registeredDevices)
     .where(and(eq(registeredDevices.userId, userId), eq(registeredDevices.isActive, true)));
-
-  const tokens = Array.from(
-    new Set(devices.map((d) => d.pushToken).filter((t): t is string => typeof t === "string" && t.length > 0)),
-  );
-
-  if (tokens.length === 0) return { sent: 0, failed: 0 };
 
   const data: Record<string, string> = {};
   if (notification.data) {
@@ -322,20 +324,51 @@ export async function sendPushNotification(
     }
   }
 
-  const response = await firebaseAdminApp.messaging().sendEachForMulticast({
-    tokens,
-    notification: { title: notification.title, body: notification.body },
-    data,
-    android: { priority: "high" },
-    apns: { headers: { "apns-priority": "10" } },
-  });
+  // Chat messages go to apps that can reply from the notification as
+  // data-only messages: the app builds the notification itself, with a
+  // Reply button. Every other device keeps the system notification.
+  const replyable = REPLYABLE_PUSH_TYPES.has(data.type ?? "");
+  const inlineTokens = new Set<string>();
+  const systemTokens = new Set<string>();
+  for (const d of devices) {
+    if (typeof d.pushToken !== "string" || d.pushToken.length === 0) continue;
+    const caps = (d.capabilities as Record<string, unknown> | null) ?? {};
+    if (replyable && d.platform === "android" && caps.chatInlineReply === true) inlineTokens.add(d.pushToken);
+    else systemTokens.add(d.pushToken);
+  }
+  inlineTokens.forEach((t) => systemTokens.delete(t));
+  if (inlineTokens.size === 0 && systemTokens.size === 0) return { sent: 0, failed: 0 };
+
+  let sent = 0;
+  let failed = 0;
+  if (systemTokens.size > 0) {
+    const response = await firebaseAdminApp.messaging().sendEachForMulticast({
+      tokens: Array.from(systemTokens),
+      notification: { title: notification.title, body: notification.body },
+      data,
+      android: { priority: "high" },
+      apns: { headers: { "apns-priority": "10" } },
+    });
+    sent += response.successCount;
+    failed += response.failureCount;
+  }
+  if (inlineTokens.size > 0) {
+    const response = await firebaseAdminApp.messaging().sendEachForMulticast({
+      tokens: Array.from(inlineTokens),
+      data: { ...data, title: notification.title, body: notification.body },
+      android: { priority: "high", ttl: 24 * 60 * 60 * 1000 },
+    });
+    sent += response.successCount;
+    failed += response.failureCount;
+  }
 
   logger.info("FirebaseAdmin", "General push notification sent", {
     userId,
     title: notification.title,
-    sent: response.successCount,
-    failed: response.failureCount,
+    sent,
+    failed,
+    inlineReply: inlineTokens.size,
   });
 
-  return { sent: response.successCount, failed: response.failureCount };
+  return { sent, failed };
 }

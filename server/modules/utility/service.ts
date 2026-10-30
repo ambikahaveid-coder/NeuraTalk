@@ -41,6 +41,7 @@ import { findOrCreateCustomerConversation } from "../messaging/service";
 import { deliverCommittedMessage } from "../messaging/delivery";
 import { linkCustomerToNeuraTalkUser } from "../customers/service";
 import { chargeUtilityMessage, PLACEHOLDER_COST_PER_UTILITY_MESSAGE_PAISE } from "./billing";
+import { getMessagePrices } from "../messaging/pricing";
 import { createAuditLog, AUDIT_ACTION_UTILITY } from "./audit";
 
 export class NotFoundError extends Error {
@@ -194,7 +195,8 @@ export async function triggerUtilityMessage(businessId: number, input: TriggerUt
       throw err;
     }
 
-    const charge = await chargeUtilityMessage(tx, businessId, PLACEHOLDER_COST_PER_UTILITY_MESSAGE_PAISE);
+    // Price set by NeuraTalk in Admin (defaults to the old fixed price).
+    const charge = await chargeUtilityMessage(tx, businessId, (await getMessagePrices()).utilityPaise ?? PLACEHOLDER_COST_PER_UTILITY_MESSAGE_PAISE);
     if (!charge.charged) {
       return fail(charge.reason === "billing_not_configured" ? UTILITY_FAILURE_REASON.BILLING_NOT_CONFIGURED : UTILITY_FAILURE_REASON.INSUFFICIENT_CREDIT);
     }

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../widgets/nt_ui.dart';
+import '../utils/phone_format.dart';
 
 /// Real blocked-contacts management -- server/blocking.ts. Separate from the
 /// per-conversation Block/Unblock menu item in conversation_screen.dart,
@@ -132,7 +133,7 @@ class _BlockedContactsScreenState extends State<BlockedContactsScreen> {
                           leading: NtAvatar(name: name, avatarUrl: c['avatarUrl'] as String?, size: 46),
                           title: Text(name, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 16)),
                           subtitle: c['phone'] != null
-                              ? Text(c['phone'].toString(), style: TextStyle(color: AppColors.textSecondary, fontSize: 14))
+                              ? Text(prettyPhone(c['phone']), style: TextStyle(color: AppColors.textSecondary, fontSize: 14))
                               : null,
                           trailing: OutlinedButton(
                             onPressed: () => _confirmUnblock(c),

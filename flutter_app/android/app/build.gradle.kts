@@ -25,6 +25,8 @@ android {
     ndkVersion = "28.2.13676358"
 
     compileOptions {
+        // Needed by flutter_local_notifications (java.time on older Android).
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -36,7 +38,8 @@ android {
     defaultConfig {
         applicationId = "com.Mindwhile.neuratalk"
         minSdk = 24
-        targetSdk = 34
+        // Google Play accepts only apps targeting Android 16 (API 36) since 31 Aug 2026.
+        targetSdk = 36
         // Was hardcoded to versionCode=1/versionName="1.0.0" on every build,
         // regardless of pubspec.yaml — meant every release APK looked
         // identical to Android's package installer, which rejects installing
@@ -100,4 +103,10 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // NotificationCompat / ServiceCompat for the ongoing-call service.
+    implementation("androidx.core:core-ktx:1.13.1")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

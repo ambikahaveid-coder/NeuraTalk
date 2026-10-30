@@ -34,6 +34,7 @@ import { AUDIT_ACTION } from "@shared/schema";
 import { publishMessagingEvent } from "./realtime";
 import { deliverCommittedMessage, deliveryStatusByMessage } from "./delivery";
 import { revealInAppOtpCodes } from "../otp/reveal";
+import { attachReactions, businessParticipantId } from "./reactions";
 import { attachmentLabel, attachmentsByMessage, messageTypeFor, shareAttachment, type AttachmentInput, type MessageAttachment } from "./attachments";
 
 export class InvalidParticipantError extends Error {
@@ -489,10 +490,12 @@ async function withDeliveryStatus(
 }
 
 export interface ListMessagesResult {
-  messages: MessageWithDelivery[];
+  messages: Array<MessageWithDelivery & { reactions: Record<string, string> }>;
   total: number;
   limit: number;
   offset: number;
+  /** The business's own participant id (its reactions are keyed by it). */
+  businessParticipantId?: number | null;
 }
 
 export async function listMessages(
@@ -516,8 +519,8 @@ export async function listMessages(
     .limit(limit)
     .offset(offset);
 
-  const messages = await withDeliveryStatus(bizConversation.conversationId, rows);
-  return { messages, total: messages.length, limit, offset };
+  const messages = await attachReactions(await withDeliveryStatus(bizConversation.conversationId, rows));
+  return { messages, total: messages.length, limit, offset, businessParticipantId: await businessParticipantId(bizConversation.conversationId) };
 }
 
 export interface SendUserInitiatedMessageInput {

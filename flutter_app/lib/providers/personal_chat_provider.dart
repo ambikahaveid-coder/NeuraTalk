@@ -32,6 +32,20 @@ class PersonalChatProvider extends ChangeNotifier {
   /// same Chats list as people -- like WhatsApp.
   List<Map<String, dynamic>> businessThreads = [];
 
+  /// Unread messages across personal and business chats (muted chats left
+  /// out), for the badge on the Chats tab.
+  int get totalUnread {
+    int sum = 0;
+    for (final t in threads) {
+      if (t['isMuted'] == true || t['isArchived'] == true) continue;
+      sum += (t['unreadCount'] as num?)?.toInt() ?? 0;
+    }
+    for (final t in businessThreads) {
+      sum += (t['unreadCount'] as num?)?.toInt() ?? 0;
+    }
+    return sum;
+  }
+
   Future<void> loadBusinessThreads() async {
     if (businessThreads.isEmpty) {
       final prefs = await _prefs();
@@ -331,6 +345,51 @@ class PersonalChatProvider extends ChangeNotifier {
       }
     } catch (_) {
       rethrow;
+    }
+  }
+
+  /// One reaction per person per message; null removes mine. Shown at once,
+  /// then replaced by the server's copy (which has both people's reactions).
+  Future<void> reactToMessage(int threadId, int messageId, String? emoji, {required String myUserId}) async {
+    final idx = messages.indexWhere((m) => m['id'] == messageId);
+    Map<String, dynamic>? before;
+    if (idx != -1) {
+      before = messages[idx];
+      final reactions = Map<String, dynamic>.from((before['reactions'] as Map?) ?? const {});
+      if (emoji == null) {
+        reactions.remove(myUserId);
+      } else {
+        reactions[myUserId] = emoji;
+      }
+      messages[idx] = {...before, 'reactions': reactions};
+      notifyListeners();
+    }
+    try {
+      final res = await ApiService.post('/api/personal-chats/$threadId/messages/$messageId/reaction', {'emoji': emoji});
+      final updated = res['message'] as Map<String, dynamic>?;
+      final i = messages.indexWhere((m) => m['id'] == messageId);
+      if (updated != null && i != -1) {
+        messages[i] = {...messages[i], 'reactions': updated['reactions'] ?? const {}};
+        notifyListeners();
+      }
+    } catch (_) {
+      final i = messages.indexWhere((m) => m['id'] == messageId);
+      if (before != null && i != -1) {
+        messages[i] = before;
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  /// Edits my own text message (allowed for 15 minutes after sending).
+  Future<void> editMessage(int threadId, int messageId, String content) async {
+    final res = await ApiService.patch('/api/personal-chats/$threadId/messages/$messageId', {'content': content});
+    final updated = res['message'] as Map<String, dynamic>?;
+    final i = messages.indexWhere((m) => m['id'] == messageId);
+    if (updated != null && i != -1) {
+      messages[i] = {...messages[i], ...updated};
+      notifyListeners();
     }
   }
 

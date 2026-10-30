@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken, useAuth } from "@/hooks/use-auth";
+import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth } from "@/lib/account-health";
 
 /**
  * Business Messaging studio: everything a business needs to message its
@@ -136,6 +137,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
   const props = { base, v1, toast, queryClient };
   return (
     <div className="space-y-4" data-testid="messaging-studio">
+      <AccountHealthCard base={base} />
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Messaging sections">
         {sections.map((s) => (
           <Button
@@ -163,6 +165,76 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
       {section === "campaigns" && <CampaignsSection {...props} />}
       {section === "codes" && <CodesSection {...props} customers={customersQuery.data?.customers ?? []} />}
     </div>
+  );
+}
+
+/**
+ * Quality rating and daily messaging limit -- how many customers a day this
+ * business may start messaging, earned by keeping quality high.
+ */
+function AccountHealthCard({ base }: { base: string }) {
+  const q = useQuery<{ health: AccountHealth }>({ queryKey: [base, "messaging", "health"], queryFn: () => call("GET", `${base}/messaging/health`), retry: false });
+  const h = q.data?.health;
+  if (q.isLoading) return null;
+  if (!h) return null;
+  const quality = QUALITY_LABEL[h.quality];
+  const usedPct = Math.min(100, Math.round((h.usedLast24h / Math.max(1, h.effectiveLimit)) * 100));
+  return (
+    <Card data-testid="card-account-health">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4" /> Account health
+        </CardTitle>
+        <CardDescription>Keep quality high to reach more customers each day.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs text-muted-foreground">Quality (last 7 days)</p>
+            <span className={`inline-block mt-1 rounded-full px-3 py-1 text-sm font-semibold ${quality.className}`} data-testid="text-health-quality">{quality.text}</span>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Daily limit</p>
+            <p className="mt-1 text-lg font-semibold" data-testid="text-health-limit">
+              {h.effectiveLimit.toLocaleString("en-IN")} customers
+              {h.pinned && <span className="ml-2 text-xs font-normal text-muted-foreground">set by NeuraTalk</span>}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Reached in the last 24 hours</p>
+            <p className="mt-1 text-lg font-semibold">{h.usedLast24h.toLocaleString("en-IN")}</p>
+            <div className="mt-1 h-1.5 w-full rounded bg-muted" aria-hidden="true">
+              <div className={`h-1.5 rounded ${usedPct >= 90 ? "bg-red-500" : "bg-primary"}`} style={{ width: `${usedPct}%` }} />
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          This week: {h.reachedLast7d.toLocaleString("en-IN")} customers reached · {h.negative.blocks} blocked you · {h.negative.optOuts} turned off offers · {h.negative.reports} reported you
+        </p>
+        {h.restriction && (
+          <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" role="alert">
+            <strong>Campaigns paused by NeuraTalk.</strong> {h.restriction.reason}
+          </div>
+        )}
+        <p className="text-sm" data-testid="text-health-advice">{h.advice}</p>
+        {(h.notices?.length ?? 0) > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Messages from NeuraTalk</p>
+            {h.notices!.slice(0, 5).map((n) => (
+              <p key={n.id} className="text-xs">
+                <span className="font-semibold">{NOTICE_LABEL[n.action]}</span> · {new Date(n.createdAt).toLocaleDateString()} — {n.reason}
+              </p>
+            ))}
+          </div>
+        )}
+        {h.prices && (
+          <p className="text-xs text-muted-foreground">
+            Prices per delivered message: offers {rupees(h.prices.marketingPaise)} · order updates {rupees(h.prices.utilityPaise)} · codes {rupees(h.prices.otpPaise)}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">Replies to customers who message you first never count toward the limit.</p>
+      </CardContent>
+    </Card>
   );
 }
 

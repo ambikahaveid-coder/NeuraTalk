@@ -107,7 +107,57 @@ class GroupChatProvider extends ChangeNotifier {
     _pollTimer = null;
   }
 
-  Future<void> sendMessage(int groupId, String content) async {
+  /// One reaction per member; null removes mine. Shown at once, then the
+  /// server's copy (everyone's reactions) replaces it.
+  Future<void> reactToMessage(int groupId, int messageId, String? emoji, {required String myUserId}) async {
+    final idx = messages.indexWhere((m) => m['id'] == messageId);
+    Map<String, dynamic>? before;
+    if (idx != -1) {
+      before = messages[idx];
+      final reactions = Map<String, dynamic>.from((before['reactions'] as Map?) ?? const {});
+      if (emoji == null) {
+        reactions.remove(myUserId);
+      } else {
+        reactions[myUserId] = emoji;
+      }
+      messages[idx] = {...before, 'reactions': reactions};
+      notifyListeners();
+    }
+    try {
+      final res = await ApiService.post('/api/group-chats/$groupId/messages/$messageId/reaction', {'emoji': emoji});
+      final i = messages.indexWhere((m) => m['id'] == messageId);
+      if (i != -1) {
+        messages[i] = {...messages[i], 'reactions': res['reactions'] ?? const {}};
+        notifyListeners();
+      }
+    } catch (_) {
+      final i = messages.indexWhere((m) => m['id'] == messageId);
+      if (before != null && i != -1) {
+        messages[i] = before;
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  /// Edits my own text message (15 minutes after sending).
+  Future<void> editMessage(int groupId, int messageId, String content) async {
+    final res = await ApiService.patch('/api/group-chats/$groupId/messages/$messageId', {'content': content});
+    final i = messages.indexWhere((m) => m['id'] == messageId);
+    if (i != -1) {
+      messages[i] = {
+        ...messages[i],
+        'originalContent': res['originalContent'] ?? content,
+        'displayContent': res['displayContent'] ?? content,
+        'editedAt': res['editedAt'],
+      };
+      notifyListeners();
+    }
+    // Translations for everyone else came back with the edit; refresh mine.
+    await _fetchMessages(groupId);
+  }
+
+  Future<void> sendMessage(int groupId, String content, {List<int> mentions = const []}) async {
     final clientKey = DateTime.now().microsecondsSinceEpoch;
     final optimistic = {
       'id': clientKey,
@@ -124,6 +174,7 @@ class GroupChatProvider extends ChangeNotifier {
       await ApiService.post('/api/group-chats/$groupId/messages', {
         'content': content,
         'messageType': 'text',
+        if (mentions.isNotEmpty) 'mentions': mentions,
       });
     } finally {
       await _fetchMessages(groupId);

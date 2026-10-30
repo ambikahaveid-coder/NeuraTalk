@@ -384,6 +384,39 @@ describe("14. MANDATORY multi-instance test -- an event published from one proce
     expect(receivedForWrongUser).toHaveLength(0);
   });
 
+  it("a call created on instance A rings the callee's stream on instance B, only for that callee, and never twice on A", async () => {
+    vi.resetModules();
+    vi.doMock("../../server/redis", () => ({
+      getRedisClient: () => makeFakeMainClient(),
+      getRedisSubscriberClient: () => makeFakeSubscriberClient(),
+      isRedisReady: () => redisReady,
+    }));
+    const instanceA = await import("../../server/modules/messaging/realtime");
+    const ringsOnA: Record<string, unknown>[] = [];
+    instanceA.subscribeToRemoteIncomingCalls("42", (p) => ringsOnA.push(p));
+
+    vi.resetModules();
+    vi.doMock("../../server/redis", () => ({
+      getRedisClient: () => makeFakeMainClient(),
+      getRedisSubscriberClient: () => makeFakeSubscriberClient(),
+      isRedisReady: () => redisReady,
+    }));
+    const instanceB = await import("../../server/modules/messaging/realtime");
+    const ringsOnB: Record<string, unknown>[] = [];
+    const ringsForOtherUser: Record<string, unknown>[] = [];
+    instanceB.subscribeToRemoteIncomingCalls("42", (p) => ringsOnB.push(p));
+    instanceB.subscribeToRemoteIncomingCalls("99", (p) => ringsForOtherUser.push(p));
+
+    instanceA.publishIncomingCallEvent("42", { callId: "call-1", callerId: "7", callType: "voice" });
+
+    expect(ringsOnB).toHaveLength(1);
+    expect(ringsOnB[0]).toMatchObject({ callId: "call-1", callerId: "7" });
+    expect(ringsForOtherUser).toHaveLength(0);
+    // Instance A rings its own streams through the calls module's local bus,
+    // so the Redis echo must not ring them a second time.
+    expect(ringsOnA).toHaveLength(0);
+  });
+
   it("personal-chat events still reach same-instance listeners when Redis is unavailable", async () => {
     redisReady = false;
     const { publishPersonalChatEvent, subscribeToPersonalChatEvents } = await import("../../server/modules/messaging/realtime");

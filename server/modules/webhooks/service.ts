@@ -111,7 +111,7 @@ function isDisallowedIpv6(ip: string): boolean {
   return false;
 }
 
-function isDisallowedIp(ip: string): boolean {
+export function isDisallowedIp(ip: string): boolean {
   const version = isIP(ip);
   if (version === 4) return isDisallowedIpv4(ip);
   if (version === 6) return isDisallowedIpv6(ip);

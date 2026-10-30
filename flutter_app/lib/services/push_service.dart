@@ -17,6 +17,7 @@ import '../screens/group_conversation_screen.dart';
 import 'api_service.dart';
 import 'call_service.dart';
 import 'callkit_service.dart';
+import 'chat_notifications.dart';
 
 /// Registers each signed-in device for FCM pushes and routes message taps.
 class PushService {
@@ -45,12 +46,24 @@ class PushService {
       onError: (Object error) => debugPrint('Push tap listener failed: $error'),
     );
     _initialMessageFuture =
-        FirebaseMessaging.instance.getInitialMessage().then((message) {
-      if (message != null) _pendingTap = message;
+        FirebaseMessaging.instance.getInitialMessage().then((message) async {
+      if (message != null) {
+        _pendingTap = message;
+        return;
+      }
+      // Or the app was opened from one of our own chat notifications.
+      final launched = await ChatNotifications.launchData();
+      if (launched != null) _pendingTap = _messageFromData(launched);
     }).catchError((Object error) {
       debugPrint('Could not read the notification that opened the app: $error');
     });
+    unawaited(ChatNotifications.init(onOpen: (data) => unawaited(_queueMessageTap(_messageFromData(data)))));
   }
+
+  static RemoteMessage _messageFromData(Map<String, dynamic> data) => RemoteMessage(
+        data: data.map((k, v) => MapEntry(k, v)),
+        messageId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      );
 
   static Future<void> init({required int userId}) async {
     startListening();
@@ -137,15 +150,16 @@ class PushService {
         return;
       }
 
-      final notification = message.notification;
+      // System notifications carry title/body; data-only chat pushes carry
+      // them in the data (newer app versions).
+      final title = message.notification?.title ?? data['title']?.toString();
+      final body = message.notification?.body ?? data['body']?.toString();
       final context = navigatorKey.currentContext;
-      if (notification == null || context == null || !context.mounted) return;
+      if (title == null || context == null || !context.mounted) return;
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            notification.body == null || notification.body!.isEmpty
-                ? notification.title ?? 'New message'
-                : '${notification.title ?? 'New message'}: ${notification.body}',
+            body == null || body.isEmpty ? title : '$title: $body',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -268,6 +282,8 @@ class PushService {
           'deviceId': deviceId,
           'platform': Platform.isIOS ? 'ios' : 'android',
           'token': pushToken,
+          // This version shows chat notifications itself, with a Reply button.
+          'capabilities': {'chatInlineReply': Platform.isAndroid},
         });
         _registeredUserId = userId;
         _registeredToken = pushToken;

@@ -168,11 +168,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               tooltip: 'NEURA AI',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatScreen())),
             ),
-            IconButton(
-              icon: Icon(Icons.storefront_outlined, color: AppColors.cyan),
-              tooltip: 'Business messages',
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessMessagesScreen())),
-            ),
+            // Two icons and a menu: business chats already appear in this
+            // list, so their full list lives in the menu.
             IconButton(
               icon: Icon(Icons.groups_outlined, color: AppColors.cyan),
               tooltip: 'Groups',
@@ -184,11 +181,14 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               onSelected: (v) {
                 if (v == 'contacts') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen()));
+                } else if (v == 'business') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessMessagesScreen()));
                 } else if (v == 'archived') {
                   setState(() => _showArchived = true);
                 }
               },
               itemBuilder: (_) => const [
+                PopupMenuItem(value: 'business', child: ListTile(leading: Icon(Icons.storefront_outlined), title: Text('Business messages'), contentPadding: EdgeInsets.zero)),
                 PopupMenuItem(value: 'contacts', child: ListTile(leading: Icon(Icons.contacts_outlined), title: Text('Contacts'), contentPadding: EdgeInsets.zero)),
                 PopupMenuItem(value: 'archived', child: ListTile(leading: Icon(Icons.archive_outlined), title: Text('Archived chats'), contentPadding: EdgeInsets.zero)),
               ],
@@ -198,13 +198,15 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
       ),
       floatingActionButton: _showArchived
           ? null
-          : FloatingActionButton.extended(
+          // Compact, so it never sits on top of the last chat's preview.
+          : FloatingActionButton(
               heroTag: 'new-chat',
+              tooltip: 'New chat',
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserDiscoveryScreen())),
               backgroundColor: AppColors.cyan,
               foregroundColor: AppColors.onAccent,
-              icon: const Icon(Icons.chat_outlined),
-              label: const Text('New chat', style: TextStyle(fontWeight: FontWeight.w700)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: const Icon(Icons.add_comment_outlined),
             ),
       body: RefreshIndicator(
         onRefresh: provider.loadThreads,
@@ -339,6 +341,13 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     );
   }
 
+  static bool _isTranslatedPair(Map<String, dynamic> thread) {
+    String base(Object? v) => (v?.toString() ?? '').toLowerCase().split(RegExp(r'[-_]')).first;
+    final mine = base(thread['viewerLanguage']);
+    final theirs = base(thread['peerLanguage']);
+    return mine.isNotEmpty && theirs.isNotEmpty && mine != theirs;
+  }
+
   Widget _threadTile(Map<String, dynamic> thread) {
     final peer = (thread['peer'] as Map<String, dynamic>?) ?? const {};
     final avatarUrl = peer['avatarUrl'] as String?;
@@ -364,18 +373,27 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           if (isMuted) Padding(padding: EdgeInsets.only(left: 4), child: Icon(Icons.notifications_off, size: 13, color: AppColors.textMuted)),
         ],
       ),
-      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2, bottom: 2),
-          child: LanguagePairChip(mine: thread['viewerLanguage']?.toString(), theirs: thread['peerLanguage']?.toString(), compact: true),
-        ),
-        Text(
-        thread['lastMessagePreview']?.toString() ?? 'Say hello 👋',
-        style: TextStyle(color: unread > 0 ? AppColors.textPrimary : AppColors.textSecondary, fontSize: 14.5),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      // Two lines like every messenger: name, then the last message. The
+      // language pair lives in the chat itself; here a small translate mark
+      // only says "this chat is translated" when the two languages differ.
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Row(children: [
+          if (_isTranslatedPair(thread))
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(Icons.translate, size: 14, color: AppColors.cyan, semanticLabel: 'Translated chat'),
+            ),
+          Expanded(
+            child: Text(
+              thread['lastMessagePreview']?.toString() ?? 'Say hello 👋',
+              style: TextStyle(color: unread > 0 ? AppColors.textPrimary : AppColors.textSecondary, fontSize: 14.5),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
       ),
-      ]),
       trailing: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.end,

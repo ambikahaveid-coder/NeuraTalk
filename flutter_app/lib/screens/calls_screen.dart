@@ -96,13 +96,15 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
           _callList(_missed),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      // Same compact shape as the Chats button.
+      floatingActionButton: FloatingActionButton(
         heroTag: 'new-call',
+        tooltip: 'New call',
         onPressed: _showNewCall,
         backgroundColor: AppColors.cyan,
         foregroundColor: AppColors.onAccent,
-        icon: const Icon(Icons.dialpad),
-        label: const Text('New call', style: TextStyle(fontWeight: FontWeight.w700)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: const Icon(Icons.add_call),
       ),
     );
   }
@@ -169,23 +171,23 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
         ),
       );
     } else {
+      final groups = _groupCalls(calls);
       content = Column(
         children: [
-          for (var i = 0; i < calls.length; i++) ...[
+          for (final group in groups)
             _CallTile(
-              call: calls[i],
+              call: group.first,
+              count: group.length,
               onOpen: () {
-                final callId = calls[i]['callId'];
+                final callId = group.first['callId'];
                 if (callId == null) return;
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString(), call: calls[i])),
+                  MaterialPageRoute(builder: (_) => TranscriptDetailScreen(callId: callId.toString(), call: group.first)),
                 );
               },
-              onCallBack: (video) => _callBack(calls[i], video: video),
+              onCallBack: (video) => _callBack(group.first, video: video),
             ),
-            if (i < calls.length - 1) Divider(color: AppColors.border, height: 1, indent: 76),
-          ],
         ],
       );
     }
@@ -198,6 +200,30 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
         children: [if (showFaceToFace) _faceToFaceCard(), content],
       ),
     );
+  }
+
+  /// Back-to-back calls with the same person, on the same day and of the same
+  /// kind (missed or not), shown as one row: "Ravi (4)". The list is newest
+  /// first, so each row shows the latest call of its run.
+  static List<List<Map<String, dynamic>>> _groupCalls(List<Map<String, dynamic>> calls) {
+    String who(Map<String, dynamic> c) =>
+        (c['remotePhone'] ?? c['remoteName'] ?? c['calleeIdentifier'] ?? c['callId'] ?? '').toString();
+    String day(Map<String, dynamic> c) {
+      final dt = DateTime.tryParse(c['createdAt']?.toString() ?? '')?.toLocal();
+      return dt == null ? '' : '${dt.year}-${dt.month}-${dt.day}';
+    }
+    bool missed(Map<String, dynamic> c) => c['outcome']?.toString() == 'missed';
+
+    final groups = <List<Map<String, dynamic>>>[];
+    for (final c in calls) {
+      final last = groups.isEmpty ? null : groups.last.first;
+      if (last != null && who(last) == who(c) && who(c).isNotEmpty && day(last) == day(c) && missed(last) == missed(c)) {
+        groups.last.add(c);
+      } else {
+        groups.add([c]);
+      }
+    }
+    return groups;
   }
 
   Future<void> _callBack(Map<String, dynamic> call, {required bool video}) async {
@@ -237,9 +263,10 @@ class _CallsScreenState extends State<CallsScreen> with SingleTickerProviderStat
 
 class _CallTile extends StatelessWidget {
   final Map<String, dynamic> call;
+  final int count;
   final VoidCallback onOpen;
   final void Function(bool video) onCallBack;
-  const _CallTile({required this.call, required this.onOpen, required this.onCallBack});
+  const _CallTile({required this.call, this.count = 1, required this.onOpen, required this.onCallBack});
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +296,7 @@ class _CallTile extends StatelessWidget {
       contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
       leading: NtAvatar(name: initial == null ? '' : name, size: 48),
       title: Text(
-        name,
+        count > 1 ? '$name ($count)' : name,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(color: missed ? AppColors.red : AppColors.ink, fontWeight: FontWeight.w600),
@@ -280,7 +307,9 @@ class _CallTile extends StatelessWidget {
           const SizedBox(width: 4),
           Flexible(
             child: Text(
-              [label, if (duration != null) duration, time].join(' · '),
+              // The arrow already says incoming/outgoing; words only for
+              // the outcomes that need attention.
+              [if (missed || outcome == 'not_answered') label, if (duration != null) duration, time].join(' · '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
@@ -313,10 +342,12 @@ class _CallTile extends StatelessWidget {
     final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
     final clock = '$hour12:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
     final diff = today.difference(day).inDays;
-    if (diff == 0) return clock;
-    if (diff == 1) return 'Yesterday';
-    if (diff < 7) return const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
-    return '${dt.day}/${dt.month}/${dt.year % 100}';
+    // Always with the time: "when did they call" matters in a call log.
+    if (diff == 0) return 'Today, $clock';
+    if (diff == 1) return 'Yesterday, $clock';
+    if (diff < 7) return '${const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1]}, $clock';
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${dt.day} ${months[dt.month - 1]}, $clock';
   }
 }
 

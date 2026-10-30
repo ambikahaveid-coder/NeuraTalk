@@ -16,6 +16,7 @@ import { isTranslationConsentDenied } from "./translation-consent";
 import { transcribeVoiceNote } from "./voice-note-transcript";
 import { translateChatText } from "./translation/chat-translate";
 import { publishPersonalChatEvent, subscribeToPersonalChatEvents } from "./modules/messaging/realtime";
+import { getRedisClient, isRedisReady } from "./redis";
 
 const router = Router();
 
@@ -123,24 +124,68 @@ function typingKey(threadId: number, userId: number) {
   return `${threadId}:${userId}`;
 }
 
+// Presence ("Online" / "last seen") and typing live in Redis so every server
+// instance sees the same state, and "last seen" survives a restart. The
+// in-memory maps stay as a fallback when Redis is unavailable.
+const PRESENCE_REDIS_TTL_SECONDS = 60 * 60 * 24 * 30;
+const PRESENCE_WRITE_INTERVAL_MS = 15_000;
+const presenceWrittenAt = new Map<number, number>();
+
+function presenceRedisKey(userId: number) {
+  return `presence:last:${userId}`;
+}
+
+function typingRedisKey(threadId: number, userId: number) {
+  return `typing:${threadId}:${userId}`;
+}
+
 function markUserPresence(userId: number) {
-  activePresence.set(userId, Date.now());
+  const now = Date.now();
+  activePresence.set(userId, now);
+  // Throttled: a busy chat calls this on every request.
+  if (now - (presenceWrittenAt.get(userId) ?? 0) < PRESENCE_WRITE_INTERVAL_MS) return;
+  presenceWrittenAt.set(userId, now);
+  if (!isRedisReady()) return;
+  try {
+    void getRedisClient().set(presenceRedisKey(userId), String(now), "EX", PRESENCE_REDIS_TTL_SECONDS).catch(() => undefined);
+  } catch { /* fallback stays in memory */ }
+}
+
+async function getLastActiveAt(userId: number): Promise<number | null> {
+  const local = activePresence.get(userId) ?? null;
+  if (!isRedisReady()) return local;
+  try {
+    const raw = await getRedisClient().get(presenceRedisKey(userId));
+    const shared = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(shared)) return local;
+    return Math.max(shared, local ?? 0);
+  } catch {
+    return local;
+  }
 }
 
 function setTyping(threadId: number, userId: number, isTyping: boolean) {
   const key = typingKey(threadId, userId);
   if (!isTyping) {
     typingState.delete(key);
-    return;
+  } else {
+    typingState.set(key, {
+      isTyping: true,
+      updatedAt: Date.now(),
+    });
   }
-
-  typingState.set(key, {
-    isTyping: true,
-    updatedAt: Date.now(),
-  });
+  if (!isRedisReady()) return;
+  try {
+    const client = getRedisClient();
+    const redisKey = typingRedisKey(threadId, userId);
+    const op = isTyping
+      ? client.set(redisKey, "1", "PX", TYPING_TTL_MS)
+      : client.del(redisKey);
+    void op.catch(() => undefined);
+  } catch { /* fallback stays in memory */ }
 }
 
-function getTyping(threadId: number, userId: number) {
+function getLocalTyping(threadId: number, userId: number) {
   const key = typingKey(threadId, userId);
   const existing = typingState.get(key);
   if (!existing) return false;
@@ -149,6 +194,25 @@ function getTyping(threadId: number, userId: number) {
     return false;
   }
   return existing.isTyping;
+}
+
+async function getTyping(threadId: number, userId: number): Promise<boolean> {
+  if (getLocalTyping(threadId, userId)) return true;
+  if (!isRedisReady()) return false;
+  try {
+    return (await getRedisClient().exists(typingRedisKey(threadId, userId))) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** { "<userId>": "👍" } from a message's metadata, ignoring anything malformed. */
+function reactionsObject(metadata: unknown): Record<string, string> {
+  const raw = (metadata as { reactions?: unknown } | null)?.reactions;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0),
+  );
 }
 
 function normalizePair(userA: number, userB: number) {
@@ -325,6 +389,9 @@ function formatMessage(
     attachmentSize: typeof (message.metadata as any)?.attachmentSize === "number" ? (message.metadata as any).attachmentSize : null,
     attachmentMime: typeof (message.metadata as any)?.attachmentMime === "string" ? (message.metadata as any).attachmentMime : null,
     voiceTranscribed: (message.metadata as any)?.voiceTranscribed === true,
+    reactions: message.isDeleted ? {} : reactionsObject(message.metadata),
+    forwarded: !message.isDeleted && (message.metadata as any)?.forwarded === true,
+    editedAt: !message.isDeleted && typeof (message.metadata as any)?.editedAt === "string" ? (message.metadata as any).editedAt : null,
     translatedContent: message.isDeleted ? null : translatedContent,
     displayContent,
     displayLanguage: !isOwn && translatedContent ? viewerLanguage : normalizeLanguage(message.originalLanguage),
@@ -731,15 +798,14 @@ async function finishMessageInBackground(job: {
     }
     const [current] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, job.messageId));
     if (!current || current.isDeleted) return;
+    // Edited while this was translating: the edit's own job owns the result.
+    if (!voiceTranscribed && current.originalContent !== job.content) return;
     await db.update(personalChatMessages).set({
       originalContent: voiceTranscribed ? content : current.originalContent,
       originalLanguage,
       translations,
-      metadata: {
-        ...((current.metadata as Record<string, unknown> | null) || {}),
-        voiceTranscribed,
-        translationPending: false,
-      },
+      // Merged in the database, so a reaction added meanwhile is kept.
+      metadata: sql`coalesce(${personalChatMessages.metadata}, '{}'::jsonb) || ${JSON.stringify({ voiceTranscribed, translationPending: false })}::jsonb`,
     }).where(eq(personalChatMessages.id, job.messageId));
     emitPersonalChatEvent([job.viewerId, job.peerUserId], {
       type: "message_created",
@@ -947,6 +1013,337 @@ router.delete("/api/personal-chats/:threadId/messages/:messageId", requireAuth, 
   }
 });
 
+// Letters, digits, spaces or markup -- anything that is not an emoji.
+const NOT_AN_EMOJI = new RegExp("[\\p{L}\\p{N}\\s<>]", "u");
+
+/**
+ * Lets one more person read a chat file someone forwards. The original
+ * uploader stays the owner; this only adds a reader. Callers must already
+ * have checked that the forwarder can read the file (they're in its chat).
+ */
+async function addAttachmentReader(objectPath: string, readerUserId: number): Promise<void> {
+  if (!objectPath.startsWith("/objects/")) return;
+  const objectStorage = new ObjectStorageService();
+  const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+  const existing = await getObjectAclPolicy(objectFile);
+  if (!existing) return;
+  const readers = new Set<string>([String(readerUserId)]);
+  const otherRules = [];
+  for (const rule of existing.aclRules ?? []) {
+    if (rule.group?.type === ObjectAccessGroupType.USER_LIST) {
+      try {
+        for (const id of JSON.parse(rule.group.id) as string[]) readers.add(String(id));
+      } catch { /* ignore malformed rule */ }
+    } else {
+      otherRules.push(rule);
+    }
+  }
+  await setObjectAclPolicy(objectFile, {
+    ...existing,
+    aclRules: [
+      ...otherRules,
+      { group: { type: ObjectAccessGroupType.USER_LIST, id: JSON.stringify(Array.from(readers)) }, permission: ObjectPermission.READ },
+    ],
+  });
+}
+
+const forwardSchema = z.object({ targetThreadIds: z.array(z.number().int().positive()).min(1).max(5) });
+
+// Forward one message to up to 5 of my chats. Text is translated for each
+// new reader; photos/files stay private (the new reader is added to them).
+router.post("/api/personal-chats/:threadId/messages/:messageId/forward", requireAuth, personalChatSendLimiter, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    markUserPresence(viewerId);
+    const threadId = Number(req.params.threadId);
+    const messageId = Number(req.params.messageId);
+    if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) return res.status(400).json({ error: "Invalid request." });
+    const input = forwardSchema.parse(req.body ?? {});
+
+    const [source] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!source || (source.participantAUserId !== viewerId && source.participantBUserId !== viewerId)) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const [message] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, messageId));
+    if (!message || message.threadId !== threadId || message.isDeleted) return res.status(404).json({ error: "Message not found." });
+    const meta = (message.metadata as Record<string, unknown> | null) || {};
+    const messageType = (message.messageType || "text") as "text" | "voice_note" | "attachment" | "file" | "location";
+    const attachmentUrl = typeof meta.attachmentUrl === "string" ? meta.attachmentUrl : null;
+    // What the forwarder actually saw: their own words, or the version in their language.
+    const viewerLanguage = getViewerContext(source, viewerId).viewerLanguage;
+    const translations = translationsObject(message.translations);
+    const content = messageType === "text" && message.senderUserId !== viewerId && translations[viewerLanguage]
+      ? translations[viewerLanguage]
+      : message.originalContent;
+    const contentLanguage = content === message.originalContent ? normalizeLanguage(message.originalLanguage) : viewerLanguage;
+
+    const [senderRow] = await db.select({
+      translationEnabled: users.translationEnabled,
+      consentTranslation: users.consentTranslation,
+      consentTimestamp: users.consentTimestamp,
+    }).from(users).where(eq(users.id, viewerId));
+    const translationAllowed = senderRow?.translationEnabled !== false
+      && !isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
+
+    const forwarded: Array<{ threadId: number; messageId: number }> = [];
+    const failed: Array<{ threadId: number; reason: string }> = [];
+    for (const targetId of Array.from(new Set(input.targetThreadIds))) {
+      const [target] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, targetId));
+      if (!target || (target.participantAUserId !== viewerId && target.participantBUserId !== viewerId)) {
+        failed.push({ threadId: targetId, reason: "not_your_chat" });
+        continue;
+      }
+      const context = getViewerContext(target, viewerId);
+      if (await isBlocked(viewerId, context.peerUserId)) {
+        failed.push({ threadId: targetId, reason: "blocked" });
+        continue;
+      }
+      if (attachmentUrl && messageType !== "location") {
+        try {
+          await addAttachmentReader(attachmentUrl, context.peerUserId);
+        } catch {
+          failed.push({ threadId: targetId, reason: "attachment_unavailable" });
+          continue;
+        }
+      }
+      const isText = messageType === "text";
+      const expiresAt = target.disappearingSeconds ? new Date(Date.now() + target.disappearingSeconds * 1000) : null;
+      const [created] = await db.insert(personalChatMessages).values({
+        threadId: targetId,
+        senderUserId: viewerId,
+        messageType,
+        originalContent: content,
+        originalLanguage: contentLanguage,
+        translations: {},
+        deliveryStatus: "sent",
+        expiresAt,
+        metadata: {
+          peerLanguage: context.peerLanguage,
+          viewerLanguage: context.viewerLanguage,
+          attachmentUrl,
+          attachmentTitle: typeof meta.attachmentTitle === "string" ? meta.attachmentTitle : null,
+          attachmentSize: typeof meta.attachmentSize === "number" ? meta.attachmentSize : null,
+          attachmentMime: typeof meta.attachmentMime === "string" ? meta.attachmentMime : null,
+          voiceTranscribed: false,
+          forwarded: true,
+          translationPending: isText && translationAllowed,
+        },
+      }).returning();
+      const preview = `↪ ${buildMessagePreview(messageType, content, typeof meta.attachmentTitle === "string" ? meta.attachmentTitle : null)}`;
+      await db.update(personalChatThreads)
+        .set({ lastMessageAt: new Date(), lastMessagePreview: preview, updatedAt: new Date() })
+        .where(eq(personalChatThreads.id, targetId));
+      emitPersonalChatEvent([viewerId, context.peerUserId], {
+        type: "message_created",
+        threadId: targetId,
+        messageId: created.id,
+        senderUserId: viewerId,
+        messageType,
+        lastMessagePreview: preview,
+        messageCreatedAt: new Date().toISOString(),
+      });
+      sendPushNotification(context.peerUserId, {
+        title: publicName(req.user as { displayName?: string | null; username?: string | null }, "New message"),
+        body: preview,
+        data: { type: "personal_chat_message", threadId: String(targetId) },
+      }).catch(() => {});
+      if (isText && translationAllowed) {
+        void finishMessageInBackground({
+          messageId: created.id,
+          threadId: targetId,
+          viewerId,
+          peerUserId: context.peerUserId,
+          viewerLanguage: context.viewerLanguage,
+          peerLanguage: context.peerLanguage,
+          content,
+          languageHint: contentLanguage,
+          voiceAttachmentUrl: null,
+          isTextMessage: true,
+          translationAllowed: true,
+        });
+      }
+      forwarded.push({ threadId: targetId, messageId: created.id });
+    }
+    res.json({ forwarded, failed });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: "Pick 1 to 5 chats." });
+    console.error("[PersonalChat] forward failed:", error);
+    res.status(500).json({ error: "Failed to forward message." });
+  }
+});
+
+const reactionSchema = z.object({
+  // One emoji (may be several code points, e.g. 👍🏽 or ❤️); null removes it.
+  emoji: z.string().trim().min(1).max(16)
+    .refine((value) => !NOT_AN_EMOJI.test(value), "Pick an emoji.")
+    .nullable(),
+});
+
+// React to a message -- one reaction per person per message, either
+// participant, like other messengers. Stored in metadata.reactions.
+router.post("/api/personal-chats/:threadId/messages/:messageId/reaction", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    markUserPresence(viewerId);
+    const threadId = Number(req.params.threadId);
+    const messageId = Number(req.params.messageId);
+    if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
+      return res.status(400).json({ error: "Invalid request." });
+    }
+    const input = reactionSchema.parse(req.body ?? {});
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+    if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const context = getViewerContext(thread, viewerId);
+    if (input.emoji && await isBlocked(viewerId, context.peerUserId)) {
+      return res.status(403).json({ error: "You can't message this user.", code: "BLOCKED" });
+    }
+
+    const [message] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, messageId));
+    if (!message || message.threadId !== threadId || message.isDeleted) {
+      return res.status(404).json({ error: "Message not found." });
+    }
+
+    const key = String(viewerId);
+    // Atomic in the database, so two people reacting at once both count.
+    const reactions = input.emoji
+      ? sql`coalesce(${personalChatMessages.metadata}->'reactions', '{}'::jsonb) || jsonb_build_object(${key}::text, ${input.emoji}::text)`
+      : sql`coalesce(${personalChatMessages.metadata}->'reactions', '{}'::jsonb) - ${key}::text`;
+    const [updated] = await db.update(personalChatMessages)
+      .set({ metadata: sql`jsonb_set(coalesce(${personalChatMessages.metadata}, '{}'::jsonb), '{reactions}', ${reactions})` })
+      .where(eq(personalChatMessages.id, messageId))
+      .returning();
+
+    emitPersonalChatEvent([viewerId, context.peerUserId], {
+      type: "message_created",
+      update: true,
+      threadId,
+      messageId,
+      senderUserId: viewerId,
+    });
+
+    // Tell the author when someone else reacts (not for removing a reaction).
+    if (input.emoji && message.senderUserId !== viewerId) {
+      sendPushNotification(message.senderUserId, {
+        title: publicName(req.user as { displayName?: string | null; username?: string | null }, "NeuraTalk"),
+        body: `Reacted ${input.emoji} to your message`,
+        data: { type: "personal_chat_message", threadId: String(threadId) },
+      }).catch(() => {});
+    }
+
+    res.json({ message: formatMessage(updated, viewerId, context.viewerLanguage) });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues[0]?.message || "Invalid reaction." });
+    }
+    console.error("[PersonalChat] reaction failed:", error);
+    res.status(500).json({ error: "Failed to react to message." });
+  }
+});
+
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+const editMessageSchema = z.object({ content: z.string().trim().min(1).max(4000) });
+
+// Edit your own text message within 15 minutes; it is translated again.
+router.patch("/api/personal-chats/:threadId/messages/:messageId", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const viewerId = req.user!.id;
+    markUserPresence(viewerId);
+    const threadId = Number(req.params.threadId);
+    const messageId = Number(req.params.messageId);
+    if (!Number.isFinite(threadId) || !Number.isFinite(messageId)) {
+      return res.status(400).json({ error: "Invalid request." });
+    }
+    const input = editMessageSchema.parse(req.body ?? {});
+
+    const [thread] = await db.select().from(personalChatThreads).where(eq(personalChatThreads.id, threadId));
+    if (!thread) return res.status(404).json({ error: "Chat thread not found." });
+    if (thread.participantAUserId !== viewerId && thread.participantBUserId !== viewerId) {
+      return res.status(403).json({ error: "Access denied." });
+    }
+    const context = getViewerContext(thread, viewerId);
+
+    const [message] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, messageId));
+    if (!message || message.threadId !== threadId || message.isDeleted) {
+      return res.status(404).json({ error: "Message not found." });
+    }
+    if (message.senderUserId !== viewerId) return res.status(403).json({ error: "You can only edit your own messages." });
+    if (message.messageType !== "text") return res.status(400).json({ error: "Only text messages can be edited." });
+    const sentAt = message.createdAt ? new Date(message.createdAt).getTime() : 0;
+    if (Date.now() - sentAt > EDIT_WINDOW_MS) {
+      return res.status(400).json({ error: "Messages can only be edited for 15 minutes after sending.", code: "EDIT_WINDOW_PASSED" });
+    }
+    if (input.content === message.originalContent) {
+      return res.json({ message: formatMessage(message, viewerId, context.viewerLanguage) });
+    }
+
+    const [senderRow] = await db.select({
+      translationEnabled: users.translationEnabled,
+      consentTranslation: users.consentTranslation,
+      consentTimestamp: users.consentTimestamp,
+    }).from(users).where(eq(users.id, viewerId));
+    const translationAllowed = senderRow?.translationEnabled !== false
+      && !isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp);
+
+    const editedAt = new Date().toISOString();
+    const [updated] = await db.update(personalChatMessages)
+      .set({
+        originalContent: input.content,
+        translations: {},
+        updatedAt: new Date(),
+        metadata: sql`coalesce(${personalChatMessages.metadata}, '{}'::jsonb) || ${JSON.stringify({ editedAt, translationPending: translationAllowed })}::jsonb`,
+      })
+      .where(eq(personalChatMessages.id, messageId))
+      .returning();
+
+    // Keep the chat list preview in step when the last message was edited.
+    const [latest] = await db.select({ id: personalChatMessages.id }).from(personalChatMessages)
+      .where(eq(personalChatMessages.threadId, threadId))
+      .orderBy(desc(personalChatMessages.id))
+      .limit(1);
+    if (latest?.id === messageId) {
+      await db.update(personalChatThreads)
+        .set({ lastMessagePreview: buildMessagePreview("text", input.content), updatedAt: new Date() })
+        .where(eq(personalChatThreads.id, threadId));
+    }
+
+    emitPersonalChatEvent([viewerId, context.peerUserId], {
+      type: "message_created",
+      update: true,
+      threadId,
+      messageId,
+      senderUserId: viewerId,
+    });
+
+    res.json({ message: formatMessage(updated, viewerId, context.viewerLanguage) });
+
+    if (translationAllowed) {
+      void finishMessageInBackground({
+        messageId,
+        threadId,
+        viewerId,
+        peerUserId: context.peerUserId,
+        viewerLanguage: context.viewerLanguage,
+        peerLanguage: context.peerLanguage,
+        content: input.content,
+        languageHint: null,
+        voiceAttachmentUrl: null,
+        isTextMessage: true,
+        translationAllowed: true,
+      });
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues[0]?.message || "Invalid message." });
+    }
+    console.error("[PersonalChat] edit message failed:", error);
+    res.status(500).json({ error: "Failed to edit message." });
+  }
+});
+
 // Clear chat -- hides everything up to now from the requester's own view
 // only; the other participant's view and the underlying rows are untouched.
 router.post("/api/personal-chats/:threadId/clear", requireAuth, async (req: AuthedRequest, res: Response) => {
@@ -1140,11 +1537,11 @@ router.get("/api/personal-chats/:threadId/presence", requireAuth, async (req: Au
     }
 
     const { peerUserId } = getViewerContext(thread, viewerId);
-    const lastActiveAt = activePresence.get(peerUserId) || null;
+    const lastActiveAt = await getLastActiveAt(peerUserId);
 
     res.json({
       peerUserId,
-      isTyping: getTyping(threadId, peerUserId),
+      isTyping: await getTyping(threadId, peerUserId),
       lastActiveAt: lastActiveAt ? new Date(lastActiveAt).toISOString() : null,
       isRecentlyActive: lastActiveAt ? (Date.now() - lastActiveAt) < 60_000 : false,
     });

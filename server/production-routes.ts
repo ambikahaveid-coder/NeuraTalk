@@ -18,7 +18,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { db } from "./db";
 import { 
-  appVersions, rateLimitRules, abuseReports, userSuspensions,
+  appVersions, rateLimitRules, abuseReports, userSuspensions, organizations,
   userConsents, dataSubjectRequests, backupJobs, systemHealthLogs,
   userAccessibilityPrefs, dataResidencyPolicies, environmentConfigs,
   users, bridgedCalls, registeredDevices, callBillingRecords
@@ -869,7 +869,15 @@ export function registerProductionRoutes(app: Express): void {
   app.post("/api/abuse/report", loadUser, requireAuth, createRateLimiter("strict"), async (req, res) => {
     try {
       const input = abuseReportSchema.parse(req.body);
-      
+
+      // A report about a business must name a real one (it counts against
+      // that business's messaging quality rating).
+      if (input.reportedEntityType === "business") {
+        if (!input.reportedEntityId) return res.status(400).json({ success: false, message: "Which business?" });
+        const [org] = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, input.reportedEntityId));
+        if (!org) return res.status(404).json({ success: false, message: "Business not found" });
+      }
+
       const [report] = await db.insert(abuseReports).values({
         reporterUserId: req.user!.id,
         reportedUserId: input.reportedUserId,
@@ -920,11 +928,19 @@ export function registerProductionRoutes(app: Express): void {
         ? await db.select({ id: users.id, username: users.username, email: users.email }).from(users).where(inArray(users.id, userIds))
         : [];
       const userById = new Map(userRows.map((u) => [u.id, u]));
+      const businessIds = Array.from(new Set(
+        reports.filter((r) => r.reportedEntityType === "business" && typeof r.reportedEntityId === "number").map((r) => r.reportedEntityId as number),
+      ));
+      const businessRows = businessIds.length > 0
+        ? await db.select({ id: organizations.id, name: organizations.name }).from(organizations).where(inArray(organizations.id, businessIds))
+        : [];
+      const businessById = new Map(businessRows.map((b) => [b.id, b]));
 
       res.json({
         success: true,
         reports: reports.map((r) => ({
           ...r,
+          reportedBusiness: r.reportedEntityType === "business" && r.reportedEntityId ? businessById.get(r.reportedEntityId) || null : null,
           reporter: r.reporterUserId ? userById.get(r.reporterUserId) || null : null,
           reportedUser: r.reportedUserId ? userById.get(r.reportedUserId) || null : null,
           reviewer: r.reviewedBy ? userById.get(r.reviewedBy) || null : null,

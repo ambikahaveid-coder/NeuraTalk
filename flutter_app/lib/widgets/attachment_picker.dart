@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/media_store.dart';
 import '../theme/app_theme.dart';
 
@@ -66,10 +65,7 @@ class AttachmentPicker {
     try {
       switch (choice) {
         case 'gallery':
-          if ((await Permission.photos.status).isPermanentlyDenied) {
-            _toast(context, 'Photo access is turned off for NeuraTalk. Turn it on in Settings > Apps > NeuraTalk > Permissions.');
-            return const [];
-          }
+          // The system Photo Picker needs no permission.
           final media = await ImagePicker().pickMultipleMedia(limit: maxItems);
           picked = [for (final x in media) (File(x.path), _nameOf(x))];
         case 'camera':

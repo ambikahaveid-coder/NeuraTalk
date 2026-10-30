@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,6 +12,8 @@ import '../theme/app_theme.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
+import '../widgets/reactions.dart';
+import '../widgets/link_preview.dart';
 import 'call_screen.dart';
 
 /// Messages from businesses (NeuraTalk's own business chat): order updates,
@@ -168,10 +171,15 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
     return ListTile(
       leading: NtAvatar(name: name, avatarUrl: t['logoUrl'] as String?),
       title: Row(children: [
-        Flexible(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600))),
-        if (t['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan)),
-        const Spacer(),
+        // The name takes all the room it needs; the tick stays right after it.
+        Expanded(
+          child: Row(children: [
+            Flexible(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: AppColors.ink, fontWeight: unread > 0 ? FontWeight.w700 : FontWeight.w600))),
+            if (t['verified'] == true) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 16, color: AppColors.cyan)),
+          ]),
+        ),
+        const SizedBox(width: 8),
         Text(formatBusinessTime(last['createdAt']), style: TextStyle(color: unread > 0 ? AppColors.cyan : AppColors.textMuted, fontSize: 12)),
       ]),
       subtitle: Row(children: [
@@ -199,6 +207,14 @@ String formatBusinessTime(dynamic raw) {
     return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
   }
   return '${dt.day}/${dt.month}/${dt.year % 100}';
+}
+
+/// "12:48 PM" -- the time inside a message bubble.
+String formatClockTime(dynamic raw) {
+  final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
+  if (dt == null) return '';
+  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
 }
 
 String _rupees(dynamic paise) => paise == null ? 'Price on request' : '₹${((paise as num) / 100).toStringAsFixed((paise % 100) == 0 ? 0 : 2)}';
@@ -309,6 +325,8 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
       if (newest != null && newest != _lastReadId) {
         _lastReadId = newest;
         unawaited(ApiService.post('$_base/read', {}).catchError((_) => <String, dynamic>{}));
+        // Order status changes arrive as new messages from the shop.
+        unawaited(_loadOrders());
       }
     } catch (e) {
       if (!mounted || quiet) return;
@@ -373,43 +391,194 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
+  /// Orders I placed here, by the chat message that carries each one.
+  Map<int, Map<String, dynamic>> _orders = {};
+  final Map<int, int> _cart = {};
+
+  Future<void> _loadOrders() async {
+    try {
+      final res = await ApiService.get('$_base/orders');
+      final byMessage = <int, Map<String, dynamic>>{};
+      for (final o in (res['orders'] as List? ?? const []).whereType<Map>()) {
+        final messageId = (o['messageId'] as num?)?.toInt();
+        if (messageId != null) byMessage[messageId] = Map<String, dynamic>.from(o);
+      }
+      if (mounted) setState(() => _orders = byMessage);
+    } catch (_) {}
+  }
+
+  int get _cartCount => _cart.values.fold(0, (a, b) => a + b);
+  int get _cartTotal => _cart.entries.fold(0, (sum, e) {
+        final item = _catalog.firstWhere((c) => (c['id'] as num?)?.toInt() == e.key, orElse: () => const {});
+        return sum + ((item['pricePaise'] as num?)?.toInt() ?? 0) * e.value;
+      });
+
+  Future<void> _placeOrder(String note) async {
+    if (_cart.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/orders', {
+        'items': [for (final e in _cart.entries) {'itemId': e.key, 'quantity': e.value}],
+        if (note.trim().isNotEmpty) 'note': note.trim(),
+      });
+      _cart.clear();
+      await _load(quiet: true);
+      await _loadOrders();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order sent. The shop will confirm it here.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Order not sent. Try again.')));
+      _loadCatalog();
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _cancelOrder(Map<String, dynamic> order) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text('Cancel order #${order['id']}?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Keep')),
+          TextButton(onPressed: () => Navigator.pop(d, true), child: Text('Cancel order', style: TextStyle(color: AppColors.red))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await ApiService.post('$_base/orders/${order['id']}/cancel', {});
+      await _load(quiet: true);
+      await _loadOrders();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not cancel.')));
+    }
+  }
+
+  static const _orderStatus = {
+    'placed': ('Waiting for the shop', Icons.schedule),
+    'accepted': ('Accepted', Icons.thumb_up_alt_outlined),
+    'ready': ('Ready', Icons.inventory_2_outlined),
+    'delivered': ('Delivered', Icons.check_circle_outline),
+    'cancelled': ('Cancelled', Icons.cancel_outlined),
+  };
+
+  Widget _orderStrip(Map<String, dynamic> order) {
+    final status = order['status']?.toString() ?? 'placed';
+    final (label, icon) = _orderStatus[status] ?? ('Order', Icons.receipt_long_outlined);
+    final color = status == 'cancelled' ? AppColors.red : status == 'delivered' ? AppColors.green : AppColors.cyan;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 4),
+        Text('Order #${order['id']} · $label', style: TextStyle(color: color, fontSize: 12.5, fontWeight: FontWeight.w600)),
+        if (status == 'placed') ...[
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () => _cancelOrder(order),
+            child: Text('Cancel', style: TextStyle(color: AppColors.red, fontSize: 12.5, decoration: TextDecoration.underline)),
+          ),
+        ],
+      ]),
+    );
+  }
+
   void _openCatalog() {
+    final note = TextEditingController();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheet) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.6,
-        builder: (_, controller) => ListView(
-          controller: controller,
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text('${_name ?? 'Business'} — catalog', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            for (final item in _catalog)
-              Card(
-                color: AppColors.background,
-                child: ListTile(
-                  leading: item['imageUrl'] is String
-                      ? SizedBox(width: 52, height: 52, child: ChatImageAttachment(objectPath: item['imageUrl'] as String, name: item['name']?.toString() ?? 'item'))
-                      : Icon(Icons.shopping_bag_outlined, color: AppColors.cyan),
-                  title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                  subtitle: Text([_rupees(item['pricePaise']), if (item['description'] != null) item['description']].join('\n'),
-                      style: TextStyle(color: AppColors.textSecondary)),
-                  isThreeLine: item['description'] != null,
-                  trailing: TextButton(
-                    onPressed: () {
-                      _input.text = 'Hi, I am interested in ${item['name']} (${_rupees(item['pricePaise'])}).';
-                      Navigator.pop(sheet);
-                    },
-                    child: const Text('Ask'),
-                  ),
+      builder: (sheet) => StatefulBuilder(
+        builder: (sheetContext, setSheet) {
+          void change(int itemId, int delta) {
+            final q = (_cart[itemId] ?? 0) + delta;
+            setSheet(() => q <= 0 ? _cart.remove(itemId) : _cart[itemId] = q.clamp(1, 99));
+            setState(() {});
+          }
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.7,
+            maxChildSize: 0.95,
+            builder: (_, controller) => Column(children: [
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Text('${_name ?? 'Business'} — catalog', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('Add items and send an order. You pay the shop directly.', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    const SizedBox(height: 12),
+                    for (final item in _catalog)
+                      Builder(builder: (_) {
+                        final itemId = (item['id'] as num).toInt();
+                        final qty = _cart[itemId] ?? 0;
+                        return Card(
+                          color: AppColors.background,
+                          child: ListTile(
+                            leading: item['imageUrl'] is String
+                                ? SizedBox(width: 52, height: 52, child: ChatImageAttachment(objectPath: item['imageUrl'] as String, name: item['name']?.toString() ?? 'item'))
+                                : Icon(Icons.shopping_bag_outlined, color: AppColors.cyan),
+                            title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                            subtitle: Text([_rupees(item['pricePaise']), if (item['description'] != null) item['description']].join('\n'),
+                                maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary)),
+                            isThreeLine: item['description'] != null,
+                            trailing: qty == 0
+                                ? Row(mainAxisSize: MainAxisSize.min, children: [
+                                    IconButton(
+                                      tooltip: 'Ask about this',
+                                      icon: Icon(Icons.chat_bubble_outline, color: AppColors.textSecondary, size: 20),
+                                      onPressed: () {
+                                        _input.text = 'Hi, I am interested in ${item['name']} (${_rupees(item['pricePaise'])}).';
+                                        Navigator.pop(sheet);
+                                      },
+                                    ),
+                                    FilledButton(onPressed: () => change(itemId, 1), child: const Text('Add')),
+                                  ])
+                                : Row(mainAxisSize: MainAxisSize.min, children: [
+                                    IconButton(tooltip: 'Less', icon: const Icon(Icons.remove_circle_outline), onPressed: () => change(itemId, -1)),
+                                    Text('$qty', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 16)),
+                                    IconButton(tooltip: 'More', icon: Icon(Icons.add_circle_outline, color: AppColors.cyan), onPressed: () => change(itemId, 1)),
+                                  ]),
+                          ),
+                        );
+                      }),
+                  ],
                 ),
               ),
-          ],
-        ),
+              if (_cart.isNotEmpty)
+                Container(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + MediaQuery.of(sheetContext).viewInsets.bottom),
+                  decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    TextField(
+                      controller: note,
+                      maxLength: 500,
+                      decoration: const InputDecoration(hintText: 'Note for the shop (address, time…)', counterText: '', isDense: true),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        icon: const Icon(Icons.shopping_cart_checkout),
+                        onPressed: _sending
+                            ? null
+                            : () {
+                                final text = note.text;
+                                Navigator.pop(sheet);
+                                _placeOrder(text);
+                              },
+                        label: Text('Send order · $_cartCount ${_cartCount == 1 ? 'item' : 'items'} · ${_rupees(_cartTotal)}'),
+                      ),
+                    ),
+                  ]),
+                ),
+            ]),
+          );
+        },
       ),
     );
   }
@@ -440,6 +609,65 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
+  /// Reports this business to NeuraTalk (Admin → Abuse Reports). It also
+  /// counts against the business's quality rating.
+  Future<void> _report() async {
+    const reasons = ['Spam or too many messages', 'Scam or fraud', 'Offensive or abusive', 'Pretending to be someone else', 'Other'];
+    String? reason;
+    final details = TextEditingController();
+    bool alsoBlock = !_blocked;
+    final send = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, setLocal) => AlertDialog(
+          title: Text('Report ${_name ?? 'this business'}'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final r in reasons)
+                RadioListTile<String>(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: r,
+                  groupValue: reason,
+                  onChanged: (v) => setLocal(() => reason = v),
+                  title: Text(r),
+                ),
+              TextField(controller: details, maxLines: 3, maxLength: 1000, decoration: const InputDecoration(hintText: 'What happened? (optional)')),
+              if (!_blocked)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: alsoBlock,
+                  onChanged: (v) => setLocal(() => alsoBlock = v ?? false),
+                  title: const Text('Also block this business'),
+                ),
+              Text('NeuraTalk reviews every report. The business is not told who reported it.', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+            TextButton(onPressed: reason == null ? null : () => Navigator.pop(d, true), child: Text('Report', style: TextStyle(color: AppColors.red))),
+          ],
+        ),
+      ),
+    );
+    if (send != true || reason == null) return;
+    try {
+      await ApiService.post('/api/abuse/report', {
+        'reportedEntityType': 'business',
+        'reportedEntityId': widget.businessId,
+        'category': reason,
+        if (details.text.trim().isNotEmpty) 'description': details.text.trim(),
+      });
+      if (alsoBlock && !_blocked) {
+        await ApiService.put('$_base/block', {'blocked': true});
+        if (mounted) setState(() => _blocked = true);
+      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report sent. Thank you.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not send the report.')));
+    }
+  }
+
   void _openInfo() {
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => BusinessInfoScreen(
@@ -453,6 +681,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
         onOffers: _offers == null ? null : _setOffers,
         blocked: _blocked,
         onBlock: _offers == null ? null : _setBlocked,
+        onReport: _report,
       ),
     ));
   }
@@ -509,12 +738,14 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               if (v == 'info') _openInfo();
               if (v == 'offers') _setOffers(!(_offers ?? false));
               if (v == 'block') _setBlocked(!_blocked);
+              if (v == 'report') _report();
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'info', child: Text('Business info')),
               if (_offers != null) CheckedPopupMenuItem(value: 'offers', checked: _offers ?? false, child: const Text('Receive offers')),
               if (_offers != null)
                 PopupMenuItem(value: 'block', child: Text(_blocked ? 'Unblock' : 'Block', style: TextStyle(color: _blocked ? null : AppColors.red))),
+              PopupMenuItem(value: 'report', child: Text('Report', style: TextStyle(color: AppColors.red))),
             ],
           ),
         ],
@@ -612,9 +843,16 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     final showingOriginal = _showOriginal.contains(id);
     final shown = translated != null && !showingOriginal ? translated : original;
     final attachments = (m['attachments'] as List? ?? const []).whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList();
+    final link = attachments.isEmpty ? firstLinkIn(shown) : null;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress: () => _messageActions(m, mine),
+        child: WithReactions(
+        reactions: m['reactions'] as Map?,
+        alignEnd: mine,
+        onTap: () => _messageActions(m, mine),
+        child: Container(
         constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -635,7 +873,9 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
             ),
           for (final a in attachments) Padding(padding: const EdgeInsets.only(bottom: 6), child: _attachment(a, original)),
           if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
-            SelectableText(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+            Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
+          if (link != null) LinkPreviewCard(url: link),
+          if (_orders[id] != null) _orderStrip(_orders[id]!),
           if (translated != null)
             GestureDetector(
               onTap: () => setState(() => showingOriginal ? _showOriginal.remove(id) : _showOriginal.add(id)),
@@ -647,12 +887,88 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
             ),
           const SizedBox(height: 2),
           Text(
-            [formatBusinessTime(m['createdAt']), if (tick != null) tick].join(' · '),
+            // Time of day, like personal chats; the day dividers show the date.
+            [if (m['editedAt'] != null) 'Edited', formatClockTime(m['createdAt']), if (tick != null) tick].join(' · '),
             style: TextStyle(color: AppColors.textMuted, fontSize: 11),
           ),
         ]),
       ),
+      ),
+      ),
     );
+  }
+
+  /// React, copy, or edit (my own text message, 15 minutes).
+  void _messageActions(Map<String, dynamic> m, bool mine) {
+    final id = (m['id'] as num?)?.toInt();
+    if (id == null) return;
+    final myReaction = ((m['reactions'] as Map?) ?? const {})['$_me']?.toString();
+    final sent = DateTime.tryParse(m['createdAt']?.toString() ?? '');
+    final canEdit = mine && m['messageType'] == 'text' && m['category'] == 'conversational'
+        && !_orders.containsKey(id) && sent != null && DateTime.now().difference(sent.toLocal()) < const Duration(minutes: 15);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          QuickReactionRow(mine: myReaction, onPick: (emoji) {
+            Navigator.pop(sheet);
+            _react(id, myReaction == emoji ? null : emoji);
+          }),
+          Divider(height: 1, color: AppColors.border),
+          ListTile(
+            leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+            title: const Text('Copy'),
+            onTap: () {
+              Navigator.pop(sheet);
+              Clipboard.setData(ClipboardData(text: (m['translatedContent'] ?? m['content'] ?? '').toString()));
+            },
+          ),
+          if (canEdit)
+            ListTile(
+              leading: Icon(Icons.edit_outlined, color: AppColors.cyan),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _edit(id, m['content']?.toString() ?? '');
+              },
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _react(int messageId, String? emoji) async {
+    try {
+      await ApiService.post('$_base/messages/$messageId/reaction', {'emoji': emoji});
+      await _load(quiet: true);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not react. Try again.')));
+    }
+  }
+
+  Future<void> _edit(int messageId, String current) async {
+    final ctrl = TextEditingController(text: current);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Edit message'),
+        content: TextField(controller: ctrl, autofocus: true, maxLines: 5, minLines: 1),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(d, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (next == null || next.isEmpty || next == current) return;
+    try {
+      await ApiService.patch('$_base/messages/$messageId', {'content': next});
+      await _load(quiet: true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not edit.')));
+    }
   }
 }
 
@@ -677,7 +993,10 @@ class BusinessInfoScreen extends StatelessWidget {
     this.onOffers,
     this.blocked = false,
     this.onBlock,
+    this.onReport,
   });
+
+  final VoidCallback? onReport;
 
   final int businessId;
   final Map<String, dynamic>? profile;
@@ -792,6 +1111,12 @@ class BusinessInfoScreen extends StatelessWidget {
             leading: Icon(Icons.block, color: blocked ? AppColors.textSecondary : AppColors.red),
             title: Text(blocked ? 'Unblock $title' : 'Block $title', style: TextStyle(color: blocked ? AppColors.ink : AppColors.red)),
             onTap: () { Navigator.pop(context); onBlock!(!blocked); },
+          ),
+        if (onReport != null)
+          ListTile(
+            leading: const Icon(Icons.flag_outlined, color: AppColors.red),
+            title: Text('Report $title', style: const TextStyle(color: AppColors.red)),
+            onTap: () { Navigator.pop(context); onReport!(); },
           ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),

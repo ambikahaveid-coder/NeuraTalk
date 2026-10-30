@@ -91,6 +91,8 @@ dependencies:
   open_filex: ^4.7.0
   geocoding: ^5.0.0
   flutter_ringtone_player: ^4.0.0+4
+  # Chat notifications with a Reply button (lib/services/chat_notifications.dart)
+  flutter_local_notifications: 17.2.4
 
 dev_dependencies:
   flutter_test:

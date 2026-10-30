@@ -13,6 +13,7 @@ import 'providers/group_chat_provider.dart';
 import 'services/call_service.dart';
 import 'services/callkit_service.dart';
 import 'services/push_service.dart';
+import 'services/chat_notifications.dart';
 import 'services/contact_resolver.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/login_screen.dart';
@@ -42,6 +43,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       callerName: data['callerName'] as String? ?? 'Unknown',
       callType: data['callType'] as String? ?? 'voice',
     );
+    return;
+  }
+  // Chat messages arrive data-only for this app version; show them with a
+  // Reply button (the system shows nothing for data-only pushes).
+  if (ChatNotifications.isChatPush(data)) {
+    await ChatNotifications.showChat(data);
   }
 }
 

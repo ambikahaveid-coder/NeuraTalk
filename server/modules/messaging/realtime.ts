@@ -82,7 +82,16 @@ type PersonalChatRealtimeEnvelope = {
   payload: Record<string, unknown>;
 };
 
-type RedisRealtimeMessage = MessagingRealtimeEvent | PersonalChatRealtimeEnvelope;
+// A call ringing for a user whose incoming-call stream may be open on a
+// different server instance than the one that created the call.
+type IncomingCallRealtimeEnvelope = {
+  type: "incoming-call.event";
+  originInstanceId: string;
+  userId: string;
+  payload: Record<string, unknown>;
+};
+
+type RedisRealtimeMessage = MessagingRealtimeEvent | PersonalChatRealtimeEnvelope | IncomingCallRealtimeEnvelope;
 
 const localBus = new EventEmitter();
 localBus.setMaxListeners(512);
@@ -106,6 +115,10 @@ function personalChatKey(userId: number): string {
   return `personal-chat:${userId}`;
 }
 
+function incomingCallKey(userId: string): string {
+  return `incoming-call:${userId}`;
+}
+
 function emitLocally(event: MessagingRealtimeEvent): void {
   localBus.emit(businessKey(event.businessId), event);
   if ((event.type === "message.created" || event.type === "delivery.updated") && event.customerUserId != null) {
@@ -123,6 +136,15 @@ function isRedisRealtimeMessage(value: unknown): value is RedisRealtimeMessage {
 
   if (message.type === "personal-chat.event") {
     return Number.isSafeInteger(message.userId)
+      && typeof message.originInstanceId === "string"
+      && Boolean(message.payload)
+      && typeof message.payload === "object"
+      && !Array.isArray(message.payload);
+  }
+
+  if (message.type === "incoming-call.event") {
+    return typeof message.userId === "string"
+      && message.userId.length > 0
       && typeof message.originInstanceId === "string"
       && Boolean(message.payload)
       && typeof message.payload === "object"
@@ -168,6 +190,13 @@ function ensureSubscriber(): void {
       if (event.type === "personal-chat.event") {
         if (event.originInstanceId !== instanceId) {
           localBus.emit(personalChatKey(event.userId), event.payload);
+        }
+        return;
+      }
+      if (event.type === "incoming-call.event") {
+        // The origin instance already rang its own streams directly.
+        if (event.originInstanceId !== instanceId) {
+          localBus.emit(incomingCallKey(event.userId), event.payload);
         }
         return;
       }
@@ -278,6 +307,43 @@ export function publishPersonalChatEvent(userIds: number[], event: Record<string
       );
     }
   }
+}
+
+/**
+ * Tells OTHER server instances that a call is ringing for this user. The
+ * instance that created the call rings its own streams itself (the calls
+ * module's local incomingCallBus), so this only goes out over Redis.
+ * Best-effort: FCM push and the polling/queue paths remain the backstop.
+ */
+export function publishIncomingCallEvent(userId: string, payload: Record<string, unknown>): void {
+  if (!userId || !isRedisReady()) return;
+  const envelope: IncomingCallRealtimeEnvelope = {
+    type: "incoming-call.event",
+    originInstanceId: instanceId,
+    userId,
+    payload,
+  };
+  try {
+    void getRedisClient().publish(CHANNEL, JSON.stringify(envelope)).catch((error) => {
+      logger.error("MessagingRealtime", "Failed to publish incoming-call event", error instanceof Error ? error : new Error(String(error)));
+    });
+  } catch (error) {
+    logger.error("MessagingRealtime", "Failed to publish incoming-call event", error instanceof Error ? error : new Error(String(error)));
+  }
+}
+
+/**
+ * Calls ringing for this user that were created on another server instance.
+ * The caller must derive userId from the validated session.
+ */
+export function subscribeToRemoteIncomingCalls(
+  userId: string,
+  listener: (payload: Record<string, unknown>) => void,
+): () => void {
+  ensureSubscriber();
+  const key = incomingCallKey(userId);
+  localBus.on(key, listener);
+  return () => localBus.off(key, listener);
 }
 
 /**

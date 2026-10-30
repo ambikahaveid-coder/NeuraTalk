@@ -184,6 +184,10 @@ export function registerNotificationRoutes(app: Express): void {
     platform: z.enum(["android", "ios", "web"]),
     deviceId: z.string().optional(),
     deviceName: z.string().optional(),
+    // What this app version can do, e.g. { chatInlineReply: true } -- the
+    // server only sends features a device has said it understands.
+    capabilities: z.record(z.boolean()).optional(),
+    appVersion: z.string().max(40).optional(),
   });
 
   app.post("/api/notifications/device-token", loadUser, requireAuth, async (req: Request, res: Response) => {
@@ -194,7 +198,7 @@ export function registerNotificationRoutes(app: Express): void {
       }
 
       const userId = req.user!.id;
-      const { token, platform, deviceId, deviceName } = parsed.data;
+      const { token, platform, deviceId, deviceName, capabilities, appVersion } = parsed.data;
       const effectiveDeviceId = deviceId ?? `anon-${userId}-${Date.now()}`;
 
       const [existing] = await db
@@ -206,7 +210,16 @@ export function registerNotificationRoutes(app: Express): void {
       if (existing) {
         await db
           .update(registeredDevices)
-          .set({ pushToken: token, platform, isActive: true, lastSeenAt: new Date() })
+          .set({
+            pushToken: token,
+            platform,
+            isActive: true,
+            lastSeenAt: new Date(),
+            // An older app version re-registering (no capabilities) resets
+            // them, so it never receives a format it can't show.
+            capabilities: capabilities ?? {},
+            ...(appVersion ? { appVersion } : {}),
+          })
           .where(eq(registeredDevices.id, existing.id));
       } else {
         await db.insert(registeredDevices).values({
@@ -215,6 +228,8 @@ export function registerNotificationRoutes(app: Express): void {
           platform,
           deviceId: effectiveDeviceId,
           deviceName: deviceName ?? null,
+          capabilities: capabilities ?? {},
+          appVersion: appVersion ?? null,
           isActive: true,
         });
       }

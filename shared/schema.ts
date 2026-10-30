@@ -3630,6 +3630,36 @@ export const businessCatalogItems = pgTable("business_catalog_items", {
   index("business_catalog_items_business_idx").on(t.businessId, t.sortOrder),
 ]);
 
+// === STATUS (24-hour updates) ===
+// Text or photo shown for 24 hours to the people you chat with. Text is
+// translated into each viewer's language (cached in `translations`).
+// Tables are also created at startup (server/index.ts, additive).
+export const statusPosts = pgTable("status_posts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // Set when a business posts it (userId is then the team member who posted).
+  businessId: integer("business_id"),
+  kind: text("kind").notNull(), // "text" | "photo"
+  textContent: text("text_content"),
+  mediaUrl: text("media_url"),
+  background: text("background"), // hex colour for text statuses
+  originalLanguage: text("original_language"),
+  translations: jsonb("translations").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (t) => [
+  index("status_posts_user_expires_idx").on(t.userId, t.expiresAt),
+]);
+
+export const statusViews = pgTable("status_views", {
+  id: serial("id").primaryKey(),
+  statusId: integer("status_id").notNull().references(() => statusPosts.id, { onDelete: "cascade" }),
+  viewerId: integer("viewer_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  viewedAt: timestamp("viewed_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("status_views_status_viewer_idx").on(t.statusId, t.viewerId),
+]);
+
 export const messagingTranslations = pgTable("messaging_translations", {
   id: serial("id").primaryKey(),
   messageId: integer("message_id").notNull().references(() => messagingMessages.id, { onDelete: "cascade" }),
@@ -4035,6 +4065,11 @@ export const CAMPAIGN_SKIP_REASON = {
   // specific anti-spam control, not applied to operational messaging).
   CUSTOMER_FREQUENCY_CAP_EXCEEDED: "customer_frequency_cap_exceeded",
   BUSINESS_THROUGHPUT_CAP_EXCEEDED: "business_throughput_cap_exceeded",
+  // Account health: the business reached its daily limit of customers it
+  // may start messaging (server/modules/messaging/account-health.ts).
+  MESSAGING_LIMIT_REACHED: "messaging_limit_reached",
+  // NeuraTalk restricted this business's campaigns (messaging/policy.ts).
+  BUSINESS_RESTRICTED: "business_restricted",
 } as const;
 export type CampaignSkipReason = typeof CAMPAIGN_SKIP_REASON[keyof typeof CAMPAIGN_SKIP_REASON];
 

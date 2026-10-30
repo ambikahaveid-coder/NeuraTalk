@@ -12,6 +12,7 @@ import '../services/call_service.dart';
 import 'conversation_screen.dart';
 import 'call_screen.dart';
 import 'user_discovery_screen.dart';
+import '../utils/phone_format.dart';
 
 /// Privacy-preserving contacts sync: reads the device address book locally,
 /// sends ONLY phone numbers to the server (never names/photos/emails --
@@ -403,17 +404,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
       contentPadding: const EdgeInsets.fromLTRB(20, 2, 16, 2),
       leading: _avatar(contact.displayName),
       title: Text(contact.displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-      subtitle: Text(contact.phones.isNotEmpty ? contact.phones.first.number : '',
+      subtitle: Text(contact.phones.isNotEmpty ? prettyPhone(contact.phones.first.number) : '',
           style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
-      trailing: OutlinedButton(
+      // A quiet text button: on a long address book, a column of outlined
+      // buttons drowned out the names.
+      trailing: TextButton(
         onPressed: () => Share.share(
           "Let's talk on NeuraTalk: calls and chat translated live into your language. https://neuratalk.in",
         ),
-        style: OutlinedButton.styleFrom(
+        style: TextButton.styleFrom(
           foregroundColor: AppColors.cyan,
-          side: BorderSide(color: AppColors.cyan),
-          shape: const StadiumBorder(),
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           minimumSize: const Size(0, 36),
         ),
         child: const Text('Invite'),

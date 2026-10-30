@@ -47,6 +47,9 @@ import { findNeuraTalkUserForContact, isEligibleForChannel, linkCustomerToNeuraT
 import { countDeliveryOutcomes, deliverCommittedMessage } from "../messaging/delivery";
 import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeCampaignMessage, PLACEHOLDER_COST_PER_MESSAGE_PAISE } from "./billing";
+import { createDailyMessagingGate } from "../messaging/account-health";
+import { campaignPricePaise } from "../messaging/pricing";
+import { logger } from "../../observability";
 import { reserveCustomerFrequencySlot, reserveBusinessThroughputSlot, findCustomersAtFrequencyCap, peekBusinessThroughputStatus, DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY, DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR } from "./frequency";
 import { createAuditLog, AUDIT_ACTION_CAMPAIGN } from "./audit";
 
@@ -415,9 +418,20 @@ export async function executeCampaign(businessId: number, actorUserId: number | 
     : undefined;
 
   let sent = 0, skipped = 0;
+  // If account health can't be read, the run continues: the hourly
+  // throughput cap below still limits it, and a broken health query must
+  // never stop a business's order/account updates.
+  let dailyGate: Awaited<ReturnType<typeof createDailyMessagingGate>> | undefined;
+  if (pending.length > 0) {
+    try {
+      dailyGate = await createDailyMessagingGate(businessId);
+    } catch (err) {
+      logger.error("Campaigns", "Daily messaging limit unavailable -- running without it", err as Error);
+    }
+  }
   for (const recipient of pending) {
     const committed: CommittedSend[] = [];
-    const result = await processOneRecipient(businessId, current, version, recipient, committed);
+    const result = await processOneRecipient(businessId, current, version, recipient, committed, dailyGate);
     if (result === "sent") sent++;
     else if (result === "skipped") skipped++;
     for (const send of committed) {
@@ -456,6 +470,7 @@ async function processOneRecipient(
   version: (typeof templateVersions.$inferSelect) | undefined,
   recipient: typeof campaignRecipients.$inferSelect,
   committed: CommittedSend[] = [],
+  dailyGate?: { allow(customerId: number): boolean; restricted?: boolean },
 ): Promise<RecipientOutcome> {
   let pendingSend: CommittedSend | null = null;
   return db.transaction(async (tx) => {
@@ -494,6 +509,14 @@ async function processOneRecipient(
     // BEFORE billing (so a capped-out send is never charged). Atomic
     // per-slot reservation -- see campaigns/frequency.ts for the
     // concurrency proof.
+    // Account health: a business may start conversations with only as many
+    // customers a day as its quality has earned (messaging/account-health).
+    // Checked before the frequency counters so a limited send uses none of
+    // their budget, and before billing so it is never charged.
+    if (dailyGate && !dailyGate.allow(customer.id)) {
+      return skip(dailyGate.restricted ? CAMPAIGN_SKIP_REASON.BUSINESS_RESTRICTED : CAMPAIGN_SKIP_REASON.MESSAGING_LIMIT_REACHED);
+    }
+
     if (campaign.category === MESSAGE_CATEGORY.MARKETING) {
       const customerSlot = await reserveCustomerFrequencySlot(tx, businessId, customer.id);
       if (!customerSlot.allowed) return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_FREQUENCY_CAP_EXCEEDED);
@@ -511,7 +534,10 @@ async function processOneRecipient(
       throw err;
     }
 
-    const charge = await chargeCampaignMessage(tx, businessId, PLACEHOLDER_COST_PER_MESSAGE_PAISE);
+    // Price set by NeuraTalk in Admin (falls back to the old fixed price).
+    let pricePaise = PLACEHOLDER_COST_PER_MESSAGE_PAISE;
+    try { pricePaise = await campaignPricePaise(campaign.category); } catch { /* fixed price */ }
+    const charge = await chargeCampaignMessage(tx, businessId, pricePaise);
     if (!charge.charged) {
       return skip(charge.reason === "billing_not_configured" ? CAMPAIGN_SKIP_REASON.BILLING_NOT_CONFIGURED : CAMPAIGN_SKIP_REASON.INSUFFICIENT_CREDIT);
     }
@@ -799,8 +825,10 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
   const [billingAccount] = await db.select().from(billingAccounts).where(eq(billingAccounts.organizationId, businessId));
   const billingConfigured = !!billingAccount && !billingAccount.isBlocked;
   const availableBalancePaise = billingAccount?.walletBalancePaise ?? 0;
-  const estimatedCostPaise = eligibleCount * PLACEHOLDER_COST_PER_MESSAGE_PAISE;
-  const affordableRecipientCount = billingConfigured ? Math.floor(availableBalancePaise / PLACEHOLDER_COST_PER_MESSAGE_PAISE) : 0;
+  let unitPricePaise = PLACEHOLDER_COST_PER_MESSAGE_PAISE;
+  try { unitPricePaise = await campaignPricePaise(campaign.category); } catch { /* fixed price */ }
+  const estimatedCostPaise = eligibleCount * unitPricePaise;
+  const affordableRecipientCount = billingConfigured && unitPricePaise > 0 ? Math.floor(availableBalancePaise / unitPricePaise) : (billingConfigured ? eligibleCount : 0);
   const sufficientCreditForAllEligible = billingConfigured && availableBalancePaise >= estimatedCostPaise;
 
   if (!billingConfigured) reasons.push("Billing is not configured or the account is blocked");

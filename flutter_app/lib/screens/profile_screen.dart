@@ -12,6 +12,7 @@ import 'settings_screen.dart';
 import 'teams_screen.dart';
 import 'transcript_history_screen.dart';
 import 'wallet_screen.dart';
+import '../utils/phone_format.dart';
 
 /// Profile / Subscription (brand mockup 13). Plan and minutes come from GET /api/billing/wallet.
 class ProfileScreen extends StatefulWidget {
@@ -52,7 +53,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
-    final contact = (user?['phone'] ?? user?['email'] ?? '').toString();
+    final contact = user?['phone'] != null ? prettyPhone(user?['phone']) : (user?['email'] ?? '').toString();
     final username = (user?['username'] ?? '').toString();
     final hasName = username.isNotEmpty && username != contact;
     final avatarUrl = user?['avatarUrl'] as String?;

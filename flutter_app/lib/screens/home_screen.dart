@@ -226,7 +226,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
     return Row(children: [
       action(Icons.chat_bubble_outline, 'New chat', AppColors.cyan, () => _push(const UserDiscoveryScreen())),
-      action(Icons.call_outlined, 'Call', AppColors.green, () => widget.onOpenTab(2)),
+      action(Icons.call_outlined, 'Call', AppColors.green, () => widget.onOpenTab(3)),
       action(Icons.record_voice_over_outlined, 'In person', AppColors.orange, () => _push(const FaceToFaceScreen())),
       action(Icons.groups_outlined, 'Groups', AppColors.purple, () => _push(const GroupChatListScreen())),
       action(Icons.auto_awesome_outlined, 'Assistant', const Color(0xFF0891B2), () => _push(const ChatScreen())),

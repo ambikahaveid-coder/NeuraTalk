@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 import 'business_categories.dart';
+import '../utils/phone_format.dart';
 
 /// Business profile, as customers see it: logo, name, category, about,
 /// address, email and website (WhatsApp Business → Business profile).
@@ -179,7 +180,7 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
             Row(children: [
               Icon(Icons.phone_outlined, size: 18, color: AppColors.textMuted),
               const SizedBox(width: 8),
-              Expanded(child: Text('Business number: ${account.business?['phone'] ?? ''}', style: TextStyle(color: AppColors.textSecondary))),
+              Expanded(child: Text('Business number: ${prettyPhone(account.business?['phone'])}', style: TextStyle(color: AppColors.textSecondary))),
             ]),
           ],
         ),

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import '../widgets/location_share.dart';
 import 'package:record/record.dart';
@@ -24,6 +23,8 @@ import '../services/api_service.dart';
 import '../services/call_service.dart';
 import '../services/contact_resolver.dart';
 import 'call_screen.dart';
+import 'contact_info_screen.dart';
+import '../widgets/link_preview.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -233,10 +234,134 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     }
   }
 
+  static const _quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+  static const _editWindow = Duration(minutes: 15);
+
+  String? get _myUserId => context.read<AuthProvider>().user?['id']?.toString();
+
+  Future<void> _react(Map<String, dynamic> message, String emoji) async {
+    final id = message['id'];
+    final me = _myUserId;
+    if (id is! int || me == null) return;
+    final mine = ((message['reactions'] as Map?) ?? const {})[me]?.toString();
+    try {
+      // Tapping the same emoji again takes it back, like other messengers.
+      await context.read<PersonalChatProvider>().reactToMessage(_threadId, id, mine == emoji ? null : emoji, myUserId: me);
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not react. Check your connection.')));
+    }
+  }
+
+  bool _canEdit(Map<String, dynamic> message) {
+    if (message['isOwn'] != true || message['isDeleted'] == true) return false;
+    if ((message['messageType']?.toString() ?? 'text') != 'text' || message['id'] is! int) return false;
+    final sent = DateTime.tryParse(message['createdAt']?.toString() ?? '');
+    return sent != null && DateTime.now().difference(sent.toLocal()) < _editWindow;
+  }
+
+  Future<void> _editMessage(Map<String, dynamic> message) async {
+    final ctrl = TextEditingController(text: message['originalContent']?.toString() ?? '');
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('Edit message', style: TextStyle(color: AppColors.ink)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 6,
+          maxLength: 4000,
+          style: TextStyle(color: AppColors.ink),
+          decoration: const InputDecoration(counterText: ''),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, ctrl.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (next == null || next.isEmpty || next == message['originalContent']?.toString() || !mounted) return;
+    try {
+      await context.read<PersonalChatProvider>().editMessage(_threadId, message['id'] as int, next);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message.isNotEmpty ? e.message : 'Could not edit message.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not edit message.')));
+    }
+  }
+
+  Future<void> _openContactInfo(PersonalChatProvider provider, String displayName, String? avatarUrl) async {
+    final thread = provider.activeThread ?? widget.thread;
+    final action = await Navigator.push<ContactInfoAction>(context, MaterialPageRoute(
+      builder: (_) => ContactInfoScreen(
+        threadId: _threadId,
+        name: displayName,
+        phone: _peer['phone']?.toString(),
+        avatarUrl: avatarUrl,
+        language: _peerLanguage(provider),
+        presence: _presenceLabel(provider),
+        muted: thread['isMuted'] == true,
+        blockedByMe: _blockedByMe,
+        disappearingSeconds: (thread['disappearingSeconds'] as num?)?.toInt(),
+        messages: provider.messages,
+      ),
+    ));
+    if (!mounted || action == null) return;
+    switch (action) {
+      case ContactInfoAction.call:
+        await _startCall(video: false);
+      case ContactInfoAction.video:
+        await _startCall(video: true);
+      case ContactInfoAction.disappearing:
+        await _showDisappearingDialog();
+      case ContactInfoAction.block:
+        await _toggleBlock();
+      case ContactInfoAction.report:
+        await _showReportDialog();
+    }
+  }
+
+  /// Pick up to 5 of my chats and forward this message to them.
+  Future<void> _forward(Map<String, dynamic> message) async {
+    final id = message['id'];
+    if (id is! int) return;
+    final provider = context.read<PersonalChatProvider>();
+    if (provider.threads.isEmpty) await provider.loadThreads();
+    if (!mounted) return;
+    final targets = provider.threads.where((t) => t['id'] != _threadId && t['id'] is int).toList();
+    final picked = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) => _ForwardPicker(threads: targets),
+    );
+    if (picked == null || picked.isEmpty || !mounted) return;
+    try {
+      final res = await ApiService.post('/api/personal-chats/$_threadId/messages/$id/forward', {'targetThreadIds': picked});
+      final done = (res['forwarded'] as List?)?.length ?? 0;
+      final failed = (res['failed'] as List?)?.length ?? 0;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          failed == 0 ? 'Forwarded to $done chat${done == 1 ? '' : 's'}' : 'Forwarded to $done, could not send to $failed',
+        )));
+      }
+      unawaited(provider.loadThreads());
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message.isNotEmpty ? e.message : 'Could not forward.')));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not forward. Check your connection.')));
+    }
+  }
+
   void _showMessageActions(Map<String, dynamic> message) {
     final isOwn = message['isOwn'] == true;
     final isDeleted = message['isDeleted'] == true;
     if (isDeleted) return;
+    final canReact = message['id'] is int;
+    final mine = ((message['reactions'] as Map?) ?? const {})[_myUserId]?.toString();
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -245,6 +370,38 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (canReact)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 14, 12, 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    for (final emoji in _quickReactions)
+                      Semantics(
+                        button: true,
+                        label: 'React $emoji',
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _react(message, emoji);
+                          },
+                          child: Container(
+                            width: 46,
+                            height: 46,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: mine == emoji ? AppColors.blueTint : Colors.transparent,
+                            ),
+                            child: Text(emoji, style: const TextStyle(fontSize: 26)),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            if (canReact) Divider(height: 1, color: AppColors.border),
             ListTile(
               leading: Icon(Icons.reply, color: AppColors.cyan),
               title: Text('Reply', style: TextStyle(color: AppColors.ink)),
@@ -261,10 +418,28 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 _copyMessage(message);
               },
             ),
+            if (message['id'] is int)
+              ListTile(
+                leading: Icon(Icons.shortcut, color: AppColors.cyan),
+                title: Text('Forward', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _forward(message);
+                },
+              ),
+            if (_canEdit(message))
+              ListTile(
+                leading: Icon(Icons.edit_outlined, color: AppColors.cyan),
+                title: Text('Edit', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _editMessage(message);
+                },
+              ),
             if (isOwn)
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: AppColors.red),
-                title: const Text('Delete', style: TextStyle(color: AppColors.red)),
+                title: const Text('Delete for everyone', style: TextStyle(color: AppColors.red)),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _deleteMessage(message);
@@ -431,11 +606,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   /// Photos and videos from the gallery, up to 10 at once. Sent as the original
   /// files, so GIFs stay animated and photos keep full quality.
   Future<void> _pickFromGallery() async {
-    final photosStatus = await Permission.photos.status;
-    if (photosStatus.isPermanentlyDenied) {
-      _toast('Photo access is turned off for NeuraTalk. Turn it on in Settings > Apps > NeuraTalk > Permissions.');
-      return;
-    }
+    // The system Photo Picker needs no permission.
     List<XFile> picked;
     try {
       picked = await ImagePicker().pickMultipleMedia(limit: _maxGalleryItems);
@@ -744,21 +915,25 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       backgroundColor: AppColors.background,
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            NtAvatar(name: displayName, avatarUrl: avatarUrl, size: 40, online: provider.peerRecentlyActive, openOnTap: true),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(displayName, style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
-                  Text(_presenceLabel(provider), style: TextStyle(color: provider.peerTyping ? AppColors.cyan : AppColors.textSecondary, fontSize: 12.5)),
-                ],
+        // Tapping the name opens the contact page, like every messenger.
+        title: InkWell(
+          onTap: () => _openContactInfo(provider, displayName, avatarUrl),
+          child: Row(
+            children: [
+              NtAvatar(name: displayName, avatarUrl: avatarUrl, size: 40, online: provider.peerRecentlyActive),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(displayName, style: TextStyle(color: AppColors.ink, fontSize: 17, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
+                    Text(_presenceLabel(provider), style: TextStyle(color: provider.peerTyping ? AppColors.cyan : AppColors.textSecondary, fontSize: 12.5)),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           // Real UX gap found from physical-device testing: tapping either
@@ -1059,6 +1234,86 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 }
 
+/// Multi-select list of my chats (up to 5) for forwarding a message.
+class _ForwardPicker extends StatefulWidget {
+  final List<Map<String, dynamic>> threads;
+  const _ForwardPicker({required this.threads});
+
+  @override
+  State<_ForwardPicker> createState() => _ForwardPickerState();
+}
+
+class _ForwardPickerState extends State<_ForwardPicker> {
+  final _selected = <int>{};
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    String nameOf(Map<String, dynamic> t) {
+      final peer = (t['peer'] as Map?) ?? const {};
+      return ContactResolver.instance.nameFor(peer['phone']?.toString()) ?? peer['displayName']?.toString() ?? 'Unknown';
+    }
+    final visible = widget.threads.where((t) => nameOf(t).toLowerCase().contains(_query.toLowerCase())).toList();
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.75,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+            child: Row(children: [
+              Expanded(child: Text('Forward to…', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w700))),
+              Text('${_selected.length}/5', style: TextStyle(color: AppColors.textSecondary)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: TextField(
+              decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search chats', isDense: true),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+          ),
+          Expanded(
+            child: visible.isEmpty
+                ? Center(child: Text('No other chats yet', style: TextStyle(color: AppColors.textSecondary)))
+                : ListView.builder(
+                    itemCount: visible.length,
+                    itemBuilder: (_, i) {
+                      final t = visible[i];
+                      final id = t['id'] as int;
+                      final peer = (t['peer'] as Map?) ?? const {};
+                      final selected = _selected.contains(id);
+                      return CheckboxListTile(
+                        value: selected,
+                        onChanged: (on) => setState(() {
+                          if (on == true && _selected.length < 5) {
+                            _selected.add(id);
+                          } else {
+                            _selected.remove(id);
+                          }
+                        }),
+                        secondary: NtAvatar(name: nameOf(t), avatarUrl: peer['avatarUrl'] as String?, size: 42),
+                        title: Text(nameOf(t), style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                      );
+                    },
+                  ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected.toList()),
+                icon: const Icon(Icons.send),
+                label: Text(_selected.isEmpty ? 'Pick chats' : 'Send to ${_selected.length}'),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 class _PersonalMessageBubble extends StatefulWidget {
   final Map<String, dynamic> message;
   final VoidCallback onRetry;
@@ -1183,7 +1438,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
       ]);
       return Align(
         alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
-        child: GestureDetector(
+        child: _withReactions(isOwn, GestureDetector(
           onLongPress: widget.onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1216,13 +1471,13 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
                     ]),
                   ),
           ),
-        ),
+        )),
       );
     }
 
     return Align(
       alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
+      child: _withReactions(isOwn, GestureDetector(
         onLongPress: widget.onLongPress,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1242,6 +1497,15 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (message['forwarded'] == true && !isDeleted)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(isMedia ? 8 : 0, isMedia ? 4 : 0, 0, 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.shortcut, size: 14, color: AppColors.textMuted),
+                    const SizedBox(width: 4),
+                    Text('Forwarded', style: TextStyle(color: AppColors.textMuted, fontSize: 12, fontStyle: FontStyle.italic)),
+                  ]),
+                ),
               if (widget.repliedMessage != null)
                 Container(
                   margin: const EdgeInsets.only(bottom: 6),
@@ -1273,6 +1537,7 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
               if (hasText) ...[
                 if (isVoice) const SizedBox(height: 8),
                 Text(texts.primary, style: TextStyle(color: fg, fontSize: 16, height: 1.35)),
+                if (firstLinkIn(texts.primary) != null) LinkPreviewCard(url: firstLinkIn(texts.primary)!),
                 if (texts.secondary != null) ...[
                   const SizedBox(height: 6),
                   Text(texts.secondaryLabel!, style: TextStyle(color: AppColors.cyan, fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
@@ -1288,7 +1553,48 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
             ],
           ),
         ),
-      ),
+      )),
+    );
+  }
+
+  /// The small reactions badge hanging off the bottom of a bubble.
+  Widget _withReactions(bool isOwn, Widget bubble) {
+    final raw = (widget.message['reactions'] as Map?) ?? const {};
+    if (raw.isEmpty || widget.message['isDeleted'] == true) return bubble;
+    final counts = <String, int>{};
+    for (final value in raw.values) {
+      final emoji = value?.toString() ?? '';
+      if (emoji.isNotEmpty) counts[emoji] = (counts[emoji] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return bubble;
+    final total = counts.values.fold<int>(0, (a, b) => a + b);
+    return Column(
+      crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        bubble,
+        Transform.translate(
+          offset: const Offset(0, -9),
+          child: GestureDetector(
+            onTap: widget.onLongPress,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 4, offset: const Offset(0, 1))],
+              ),
+              child: Text(
+                '${counts.keys.join()}${total > 1 ? ' $total' : ''}',
+                semanticsLabel: 'Reactions: ${counts.keys.join(' ')}',
+                style: TextStyle(fontSize: 14, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1309,6 +1615,8 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       if (texts != null) NtListenButton(text: texts.listenText, language: texts.listenLang),
       if (texts != null) const SizedBox(width: 8),
+      if (widget.message['editedAt'] != null && widget.message['isDeleted'] != true)
+        Text('Edited · ', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5, fontStyle: FontStyle.italic)),
       Text(_clock(widget.message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
       if (isOwn && status != null) ...[
         const SizedBox(width: 4),

@@ -38,6 +38,7 @@ import { generateOtpCode, hashOtpCode } from "./generate";
 import { assertOtpTemplateShape, renderRedactedForRecord, DEFAULT_OTP_CONTENT, DEFAULT_OTP_VARIABLES } from "./render";
 import { findOrCreateCustomerConversation } from "../messaging/service";
 import { chargeOtpMessage, PLACEHOLDER_COST_PER_OTP_PAISE } from "./billing";
+import { getMessagePrices } from "../messaging/pricing";
 import { createAuditLog, AUDIT_ACTION_OTP } from "./audit";
 import { isOtpVerifyLockedOut, recordOtpVerifyFailure, clearOtpVerifyFailures } from "../../rate-limit";
 import { assertLegalOtpTransition } from "./lifecycle";
@@ -206,7 +207,8 @@ async function issueChallenge(
 ) {
   // SMS/email have no provider connected; only the in-app channel delivers.
   if (channel !== BUSINESS_OTP_CHANNEL.IN_APP && !isBusinessOtpDeliveryEnabled()) throw new OtpDeliveryUnavailableError();
-  const charge = await chargeOtpMessage(tx, businessId, PLACEHOLDER_COST_PER_OTP_PAISE);
+  // Price set by NeuraTalk in Admin (defaults to the old fixed price).
+  const charge = await chargeOtpMessage(tx, businessId, (await getMessagePrices()).otpPaise ?? PLACEHOLDER_COST_PER_OTP_PAISE);
   if (!charge.charged) throw new BillingError(charge.reason ?? "unknown");
 
   const code = generateOtpCode();

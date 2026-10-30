@@ -9,6 +9,10 @@ import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 import 'business_catalog_screen.dart';
+import 'business_broadcasts_screen.dart';
+import 'business_orders_screen.dart';
+import 'business_status_screen.dart';
+import 'business_categories.dart';
 import 'business_messaging_settings.dart';
 import 'business_profile_screen.dart';
 
@@ -34,17 +38,21 @@ class BusinessToolsScreen extends StatelessWidget {
           children: [
             BusinessIdentityCard(onTap: () => open(const BusinessProfileScreen())),
             const _VerificationCard(),
+            const _AccountHealthCard(),
             const _Section('Your business'),
             _tool(Icons.storefront_outlined, 'Business profile', 'Logo, about, address, website', () => open(const BusinessProfileScreen())),
             _tool(Icons.shopping_bag_outlined, 'Catalog', 'Products and services with prices', () => open(const BusinessCatalogScreen())),
+            _tool(Icons.receipt_long_outlined, 'Orders', 'Orders customers sent from your catalog', () => open(const BusinessOrdersScreen())),
             _tool(Icons.qr_code_2, 'Short link & QR code', 'Let customers start a chat with you', () => open(const BusinessLinkScreen())),
             const _Section('Messaging'),
             _tool(Icons.waving_hand_outlined, 'Greeting message', 'Welcome new customers automatically', () => open(const GreetingMessageScreen())),
             _tool(Icons.schedule_outlined, 'Away message & hours', 'Reply when you are closed', () => open(const AwayMessageScreen())),
             _tool(Icons.bolt_outlined, 'Quick replies', 'Type / in a chat to send saved answers', () => open(const QuickRepliesScreen())),
             _tool(Icons.insights_outlined, 'Statistics', 'Messages sent, delivered, read, received', () => open(const BusinessStatsScreen())),
+            _tool(Icons.campaign_outlined, 'Broadcasts', 'Send offers and updates to your customers', () => open(const BusinessBroadcastsScreen())),
+            _tool(Icons.amp_stories_outlined, 'Status', 'Offers and news for 24 hours, in each customer\'s language', () => open(const BusinessStatusScreen())),
             const _Section('More'),
-            _tool(Icons.campaign_outlined, 'Broadcasts, templates & team', 'On neuratalk.in → Company dashboard → Messaging', null),
+            _tool(Icons.groups_outlined, 'Team & reports', 'On neuratalk.in → Company dashboard', null),
           ],
         ),
       ),
@@ -95,7 +103,7 @@ class BusinessIdentityCard extends StatelessWidget {
                 if (account.verified) Padding(padding: const EdgeInsets.only(left: 4), child: Icon(Icons.verified, size: 20, color: AppColors.cyan)),
               ]),
               const SizedBox(height: 2),
-              Text([b['category'], b['city']].where((v) => v != null && '$v'.isNotEmpty).join(' · '),
+              Text([businessCategoryLabel(b['category']), b['city']].where((v) => v != null && '$v'.isNotEmpty).join(' · '),
                   style: TextStyle(color: AppColors.textSecondary)),
               if (account.logoUrl == null)
                 Text('Add your logo →', style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600)),
@@ -104,6 +112,134 @@ class BusinessIdentityCard extends StatelessWidget {
           if (onTap != null) const Icon(Icons.chevron_right),
         ]),
       ),
+    );
+  }
+}
+
+/// Quality rating and daily messaging limit (server: messaging/account-health).
+/// Hidden when the account can't see it (e.g. a team member without access).
+class _AccountHealthCard extends StatefulWidget {
+  const _AccountHealthCard();
+
+  @override
+  State<_AccountHealthCard> createState() => _AccountHealthCardState();
+}
+
+class _AccountHealthCardState extends State<_AccountHealthCard> {
+  Map<String, dynamic>? _health;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final account = context.read<BusinessAccount>();
+    if (account.business == null) return;
+    try {
+      final res = await ApiService.get('${account.base}/messaging/health');
+      if (mounted && res is Map && res['health'] is Map) setState(() => _health = Map<String, dynamic>.from(res['health'] as Map));
+    } catch (_) {
+      // Not available for this account: show nothing.
+    }
+  }
+
+  static String _n(Object? v) {
+    final n = (v as num?)?.toInt() ?? 0;
+    final s = n.toString();
+    if (s.length <= 3) return s;
+    // Indian grouping: 1,00,000
+    final last3 = s.substring(s.length - 3);
+    var rest = s.substring(0, s.length - 3);
+    final parts = <String>[];
+    while (rest.length > 2) {
+      parts.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) parts.insert(0, rest);
+    return '${parts.join(',')},$last3';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final h = _health;
+    if (h == null) return const SizedBox.shrink();
+    final quality = h['quality']?.toString() ?? 'new';
+    final (label, color) = switch (quality) {
+      'high' => ('High', AppColors.green),
+      'medium' => ('Medium', AppColors.orange),
+      'low' => ('Low', AppColors.red),
+      _ => ('New', AppColors.textSecondary),
+    };
+    final limit = (h['effectiveLimit'] as num?)?.toInt() ?? 250;
+    final used = (h['usedLast24h'] as num?)?.toInt() ?? 0;
+    final progress = (used / (limit <= 0 ? 1 : limit)).clamp(0.0, 1.0);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(Icons.health_and_safety_outlined, color: AppColors.cyan),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Account health', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700))),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+            child: Text('Quality $label', style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12.5)),
+          ),
+        ]),
+        const SizedBox(height: 10),
+        Text('You can message ${_n(limit)} customers a day${h['pinned'] == true ? ' (set by NeuraTalk)' : ''}',
+            style: TextStyle(color: AppColors.textPrimary)),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            color: progress >= 0.9 ? AppColors.red : AppColors.cyan,
+            backgroundColor: AppColors.border,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text('${_n(used)} reached in the last 24 hours', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+        if (h['restriction'] is Map) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+            child: Text('Campaigns paused by NeuraTalk. ${(h['restriction'] as Map)['reason'] ?? ''}',
+                style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w600)),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(h['advice']?.toString() ?? '', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+        for (final n in ((h['notices'] as List?) ?? const []).take(3).whereType<Map>())
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '${const {'warning': 'Warning', 'restricted': 'Campaigns paused', 'lifted': 'Campaigns resumed'}[n['action']] ?? 'Notice'}: ${n['reason'] ?? ''}',
+              style: TextStyle(color: n['action'] == 'lifted' ? AppColors.green : AppColors.orange, fontSize: 12.5),
+            ),
+          ),
+        if (h['prices'] is Map)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Per message: offers ₹${(((h['prices'] as Map)['marketingPaise'] as num? ?? 0) / 100).toStringAsFixed(2)} · '
+              'updates ₹${(((h['prices'] as Map)['utilityPaise'] as num? ?? 0) / 100).toStringAsFixed(2)} · '
+              'codes ₹${(((h['prices'] as Map)['otpPaise'] as num? ?? 0) / 100).toStringAsFixed(2)}',
+              style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
+          ),
+      ]),
     );
   }
 }

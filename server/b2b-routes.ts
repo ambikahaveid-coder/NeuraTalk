@@ -24,9 +24,11 @@ import {
   queuedCalls,
   QUEUED_CALL_STATUS,
   billingLedgerEntries,
+  enterpriseApiKeys,
 } from "@shared/schema";
 import { existingAccountSignupRefusal } from "./company-signup-guard";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { storage } from "./storage";
 import {
@@ -1278,15 +1280,21 @@ export function registerB2BRoutes(app: Express): void {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
 
-      const org = await db.query.organizations.findFirst({
-        where: eq(organizations.id, req.user.organizationId),
-      });
-
-      const settings = (org?.settings as Record<string, any>) || {};
-      res.json({
-        success: true,
-        key: settings.apiKey || null,
-      });
+      // Real API keys only (stored hashed; the full key is shown once, at
+      // creation). The old plain-text settings.apiKey never worked anywhere.
+      const keys = await db.select({
+        id: enterpriseApiKeys.id,
+        keyPrefix: enterpriseApiKeys.keyPrefix,
+        name: enterpriseApiKeys.name,
+        status: enterpriseApiKeys.status,
+        permissions: enterpriseApiKeys.permissions,
+        lastUsedAt: enterpriseApiKeys.lastUsedAt,
+        createdAt: enterpriseApiKeys.createdAt,
+      }).from(enterpriseApiKeys)
+        .where(eq(enterpriseApiKeys.organizationId, req.user.organizationId))
+        .orderBy(desc(enterpriseApiKeys.createdAt))
+        .limit(20);
+      res.json({ success: true, keys });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to fetch API key", err as Error);
       res.status(500).json({ success: false, message: "Failed to fetch API key" });
@@ -1302,35 +1310,39 @@ export function registerB2BRoutes(app: Express): void {
         return res.status(400).json({ success: false, message: "No company associated" });
       }
 
-      // Generate a new API key
-      const prefix = "ntk_live_";
-      const randomPart = Array.from({ length: 32 }, () => 
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".charAt(Math.floor(Math.random() * 62))
-      ).join("");
-      const newKey = prefix + randomPart;
+      // A real, hashed messaging API key (same kind the API accepts), waiting
+      // for NeuraTalk to activate it in Admin → API & Keys. Shown once.
+      const rawKey = "ntk_ent_" + randomBytes(20).toString("hex");
+      const keyHash = createHash("sha256").update(rawKey).digest("hex");
+      const keyPrefix = rawKey.substring(0, 16);
+      const name = typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim().slice(0, 80) : "Messaging API key";
+      const [created] = await db.insert(enterpriseApiKeys).values({
+        organizationId: req.user.organizationId,
+        keyHash,
+        keyPrefix,
+        name,
+        status: "pending",
+        permissions: ["messages:send"],
+        usageCount: 0,
+        usageToday: 0,
+      } as any).returning({ id: enterpriseApiKeys.id });
 
-      // Get current org
-      const org = await db.query.organizations.findFirst({
-        where: eq(organizations.id, req.user.organizationId),
-      });
-
-      // Update org settings with new API key
-      const currentSettings = (org?.settings as Record<string, any>) || {};
+      // Remove the old plain-text key that never authenticated anything.
       await db.update(organizations)
-        .set({ 
-          settings: { ...currentSettings, apiKey: newKey, apiKeyCreatedAt: new Date().toISOString() } 
-        })
+        .set({ settings: sql`coalesce(${organizations.settings}, '{}'::jsonb) - 'apiKey' - 'apiKeyCreatedAt'` })
         .where(eq(organizations.id, req.user.organizationId));
 
-      // Audit log
       if (req.user) {
-        AuditHelpers.logCreate(req.user.id, "api_key", 0, { action: "generated" });
+        AuditHelpers.logCreate(req.user.id, "api_key", created.id, { action: "generated", keyPrefix });
       }
 
-      res.json({
+      res.status(201).json({
         success: true,
-        key: newKey,
-        message: "API key generated successfully",
+        key: rawKey,
+        keyId: created.id,
+        keyPrefix,
+        status: "pending",
+        message: "Save this key now -- it will not be shown again. NeuraTalk activates it after a quick check.",
       });
     } catch (err) {
       logger.error("B2BRoutes", "Failed to generate API key", err as Error);

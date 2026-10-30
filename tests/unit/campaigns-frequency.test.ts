@@ -64,12 +64,13 @@ class SelectChain implements PromiseLike<Row[]> {
 
 class InsertChain implements PromiseLike<Row[]> {
   private row: Row | null = null;
+  private conflict = false;
+  private doNothing = false;
   constructor(private tableName: string) {}
   values(data: Row) {
     if (findUniqueConflict(this.tableName, data)) {
-      const err: any = new Error("duplicate key value violates unique constraint");
-      err.code = "23505";
-      throw err;
+      this.conflict = true;
+      return this;
     }
     const id = (idCounters.get(this.tableName) ?? 0) + 1;
     idCounters.set(this.tableName, id);
@@ -77,8 +78,17 @@ class InsertChain implements PromiseLike<Row[]> {
     tables.get(this.tableName)!.push(this.row);
     return this;
   }
-  returning() { return Promise.resolve([this.row]); }
-  then<T1, T2>(res?: any, rej?: any) { return Promise.resolve([this.row]).then(res, rej); }
+  onConflictDoNothing() { this.doNothing = true; return this; }
+  private result(): Promise<Row[]> {
+    if (this.conflict && !this.doNothing) {
+      const err: any = new Error("duplicate key value violates unique constraint");
+      err.code = "23505";
+      return Promise.reject(err);
+    }
+    return Promise.resolve(this.conflict ? [] : [this.row!]);
+  }
+  returning() { return this.result(); }
+  then<T1, T2>(res?: any, rej?: any) { return this.result().then(res, rej); }
 }
 
 function applySqlExpr(row: Row, field: string, expr: any) {

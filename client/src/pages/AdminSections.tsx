@@ -1065,7 +1065,9 @@ export function AbuseReportsSection() {
                 <div className="text-xs text-muted-foreground grid grid-cols-2 gap-2">
                   <p>Reported by: <span className="text-foreground">{r.reporter?.username || r.reporter?.email || `User #${r.reporterUserId}`}</span></p>
                   {r.reportedUser && <p>Reported user: <span className="text-foreground">{r.reportedUser.username || r.reportedUser.email}</span></p>}
-                  <p>Entity: <span className="text-foreground">{r.reportedEntityType}{r.reportedEntityId ? ` #${r.reportedEntityId}` : ""}</span></p>
+                  {r.reportedBusiness
+                    ? <p>Reported business: <span className="text-foreground font-medium">{r.reportedBusiness.name}</span> <span>(#{r.reportedBusiness.id} · counts against its messaging quality)</span></p>
+                    : <p>Entity: <span className="text-foreground">{r.reportedEntityType}{r.reportedEntityId ? ` #${r.reportedEntityId}` : ""}</span></p>}
                   {r.reviewer && <p>Reviewed by: <span className="text-foreground">{r.reviewer.username || r.reviewer.email}</span></p>}
                 </div>
                 {r.description && <p className="text-sm p-2 rounded bg-muted/30">{r.description}</p>}

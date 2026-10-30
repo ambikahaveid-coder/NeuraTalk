@@ -6,5 +6,12 @@ const kBusinessCategories = <String>[
   'Event planning', 'Entertainment', 'Non-profit', 'Public service', 'Other',
 ];
 
+/// "retail" (older businesses) -> "Retail"; the listed categories are unchanged.
+String businessCategoryLabel(Object? raw) {
+  final text = raw?.toString().trim() ?? '';
+  if (text.isEmpty) return '';
+  return text[0].toUpperCase() + text.substring(1);
+}
+
 /// Chat labels a business can put on a conversation (WhatsApp Business style).
 const kChatLabels = <String>['New customer', 'New order', 'Pending payment', 'Paid', 'Order complete', 'Follow up'];

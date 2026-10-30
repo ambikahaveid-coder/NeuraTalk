@@ -1628,37 +1628,44 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: apiKeyData, isLoading: keyLoading } = useQuery({
+  // Keys are stored hashed: the full key is shown once, right after creating it.
+  const { data: apiKeyData, isLoading: keyLoading } = useQuery<{ keys: Array<{ id: number; keyPrefix: string; name: string; status: string; lastUsedAt: string | null; createdAt: string }> }>({
     queryKey: ["/api/company/api-key"],
     queryFn: async () => {
       const token = getAuthToken();
       const res = await fetch("/api/company/api-key", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return { key: null };
+      if (!res.ok) return { keys: [] };
       return res.json();
     },
   });
+  const [newKey, setNewKey] = useState<string | null>(null);
 
   const generateKeyMutation = useMutation({
     mutationFn: async () => {
       const token = getAuthToken();
       const res = await fetch("/api/company/api-key/generate", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       });
-      if (!res.ok) throw new Error("Failed to generate key");
+      if (!res.ok) throw new Error("Failed to create key");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: { key: string }) => {
+      setNewKey(data.key);
+      setShowKey(true);
       queryClient.invalidateQueries({ queryKey: ["/api/company/api-key"] });
-      toast({ title: "Success", description: "New API key generated" });
+      toast({ title: "API key created", description: "Copy it now. NeuraTalk activates it after a quick check." });
     },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const apiKey = apiKeyData?.key || "";
+  const apiKey = newKey || "";
   const billing = billingData?.data;
-  const maskedKey = apiKey ? `ntk_live_••••••••${apiKey.slice(-8)}` : "No API key";
+  const keys = apiKeyData?.keys ?? [];
+  const maskedKey = apiKey ? `${apiKey.slice(0, 12)}••••••••${apiKey.slice(-6)}` : keys.length ? "Full key shown only once — create a new one if you lost it" : "No API key yet";
 
   return (
     <div className="space-y-6">
@@ -1698,7 +1705,7 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
               ) : (
                 <RefreshCw className="w-4 h-4 mr-2" />
               )}
-              Rotate Key
+              Create API key
             </Button>
             <Link href="/api-docs">
               <Button size="sm" variant="outline">
@@ -1707,6 +1714,22 @@ function ApiTab({ billingData }: { billingData?: CompanyBillingDashboardResponse
               </Button>
             </Link>
           </div>
+          {keys.length > 0 && (
+            <div className="space-y-1 text-sm" data-testid="list-api-keys">
+              {keys.map((k) => (
+                <div key={k.id} className="flex flex-wrap items-center gap-2">
+                  <code className="text-xs">{k.keyPrefix}…</code>
+                  <span>{k.name}</span>
+                  <Badge variant={k.status === "active" ? "default" : "outline"} className="capitalize">
+                    {k.status === "pending" ? "Waiting for NeuraTalk" : k.status}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    created {new Date(k.createdAt).toLocaleDateString()}{k.lastUsedAt ? ` · last used ${new Date(k.lastUsedAt).toLocaleDateString()}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

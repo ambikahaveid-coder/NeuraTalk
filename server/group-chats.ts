@@ -490,6 +490,14 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       }
     }
     
+    // @mentions: only real members of this group (never the sender).
+    const memberIds = new Set(members.map((m) => m.userId));
+    const mentions: number[] = Array.isArray(req.body.mentions)
+      ? Array.from(new Set((req.body.mentions as unknown[]).map(Number)))
+          .filter((id) => Number.isSafeInteger(id) && id !== senderId && memberIds.has(id))
+          .slice(0, 50)
+      : [];
+
     const message = await db.insert(groupChatMessages).values({
       groupChatId: groupId,
       senderId,
@@ -498,16 +506,19 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
       originalLanguage: detectedLang,
       translations,
       replyToId: replyToId || null,
-      metadata: isLocation
-        ? { attachmentUrl, attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null }
-        : isAttachment
-        ? {
-            attachmentUrl,
-            attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null,
-            attachmentSize: Number.isFinite(attachmentSize) ? attachmentSize : null,
-            attachmentMime: typeof attachmentMime === "string" ? attachmentMime.slice(0, 120) : null,
-          }
-        : {},
+      metadata: {
+        ...(isLocation
+          ? { attachmentUrl, attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null }
+          : isAttachment
+          ? {
+              attachmentUrl,
+              attachmentTitle: typeof attachmentTitle === "string" ? attachmentTitle.slice(0, 240) : null,
+              attachmentSize: Number.isFinite(attachmentSize) ? attachmentSize : null,
+              attachmentMime: typeof attachmentMime === "string" ? attachmentMime.slice(0, 120) : null,
+            }
+          : {}),
+        ...(mentions.length > 0 ? { mentions } : {}),
+      },
     }).returning();
     
     await db.update(groupChats)
@@ -517,20 +528,128 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     // Background/terminated-app push to every other member -- best-effort.
     const [senderRow] = await db.select({ username: sql<string>`coalesce(nullif(trim(${users.displayName}), ''), ${users.username})` }).from(users).where(eq(users.id, senderId));
     const recipients = members.map((m) => m.userId).filter((id) => id !== senderId);
+    const [groupRow] = mentions.length > 0
+      ? await db.select({ name: groupChats.name }).from(groupChats).where(eq(groupChats.id, groupId))
+      : [];
     for (const recipientId of recipients) {
+      const mentioned = mentions.includes(recipientId);
       sendPushNotification(recipientId, {
-        title: senderRow?.username || "New group message",
+        title: mentioned
+          ? `${senderRow?.username || "Someone"} mentioned you${groupRow?.name ? ` in ${groupRow.name}` : ""}`
+          : senderRow?.username || "New group message",
         body: groupMessagePreview(messageType || "text", content, attachmentTitle),
-        data: { type: "group_chat_message", groupId: String(groupId) },
+        data: { type: "group_chat_message", groupId: String(groupId), ...(mentioned ? { mentioned: "1" } : {}) },
       }).catch(() => {});
     }
 
     const saved = message[0];
     const meta = (saved.metadata as Record<string, unknown> | null) || {};
-    res.status(201).json({ ...saved, ...meta, displayContent: saved.originalContent });
+    res.status(201).json({ ...saved, ...meta, mentions, reactions: {}, editedAt: null, displayContent: saved.originalContent });
   } catch (error) {
     console.error("Error sending message:", error);
     res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+// --- Reactions and edits (same rules as 1:1 chats) ---------------------------
+
+// Letters, digits, spaces or markup -- anything that is not an emoji.
+const NOT_AN_EMOJI = new RegExp("[\\p{L}\\p{N}\\s<>]", "u");
+const GROUP_EDIT_WINDOW_MS = 15 * 60 * 1000;
+
+async function memberOf(groupId: number, userId: number) {
+  const [member] = await db.select().from(groupChatMembers)
+    .where(and(eq(groupChatMembers.groupChatId, groupId), eq(groupChatMembers.userId, userId)));
+  return member ?? null;
+}
+
+function reactionsOf(metadata: unknown): Record<string, string> {
+  const raw = (metadata as { reactions?: unknown } | null)?.reactions;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string" && e[1].length > 0));
+}
+
+// One reaction per member per message; { emoji: null } removes mine.
+router.post("/api/group-chats/:groupId/messages/:messageId/reaction", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const groupId = parseInt(req.params.groupId);
+    const messageId = parseInt(req.params.messageId);
+    const emoji = req.body?.emoji;
+    if (emoji !== null && (typeof emoji !== "string" || !emoji.trim() || emoji.length > 16 || NOT_AN_EMOJI.test(emoji))) {
+      return res.status(400).json({ error: "Pick an emoji." });
+    }
+    if (!(await memberOf(groupId, userId))) return res.status(403).json({ error: "Not a member of this group" });
+    const [message] = await db.select().from(groupChatMessages).where(eq(groupChatMessages.id, messageId));
+    if (!message || message.groupChatId !== groupId || message.isDeleted) return res.status(404).json({ error: "Message not found" });
+
+    const key = String(userId);
+    const reactions = emoji
+      ? sql`coalesce(${groupChatMessages.metadata}->'reactions', '{}'::jsonb) || jsonb_build_object(${key}::text, ${emoji}::text)`
+      : sql`coalesce(${groupChatMessages.metadata}->'reactions', '{}'::jsonb) - ${key}::text`;
+    const [updated] = await db.update(groupChatMessages)
+      .set({ metadata: sql`jsonb_set(coalesce(${groupChatMessages.metadata}, '{}'::jsonb), '{reactions}', ${reactions})` })
+      .where(eq(groupChatMessages.id, messageId))
+      .returning();
+
+    if (emoji && message.senderId !== userId) {
+      const [me] = await db.select({ name: sql<string>`coalesce(nullif(trim(${users.displayName}), ''), ${users.username})` }).from(users).where(eq(users.id, userId));
+      sendPushNotification(message.senderId, {
+        title: me?.name || "NeuraTalk",
+        body: `Reacted ${emoji} to your message`,
+        data: { type: "group_chat_message", groupId: String(groupId) },
+      }).catch(() => {});
+    }
+    res.json({ id: messageId, reactions: reactionsOf(updated.metadata) });
+  } catch (error) {
+    console.error("Error reacting to group message:", error);
+    res.status(500).json({ error: "Failed to react" });
+  }
+});
+
+// Edit my own text message within 15 minutes; translated again for everyone.
+router.patch("/api/group-chats/:groupId/messages/:messageId", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const groupId = parseInt(req.params.groupId);
+    const messageId = parseInt(req.params.messageId);
+    const content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+    if (!content || content.length > 4000) return res.status(400).json({ error: "Message can't be empty." });
+    if (!(await memberOf(groupId, userId))) return res.status(403).json({ error: "Not a member of this group" });
+    const [message] = await db.select().from(groupChatMessages).where(eq(groupChatMessages.id, messageId));
+    if (!message || message.groupChatId !== groupId || message.isDeleted) return res.status(404).json({ error: "Message not found" });
+    if (message.senderId !== userId) return res.status(403).json({ error: "You can only edit your own messages." });
+    if ((message.messageType || "text") !== "text") return res.status(400).json({ error: "Only text messages can be edited." });
+    if (Date.now() - new Date(message.createdAt ?? 0).getTime() > GROUP_EDIT_WINDOW_MS) {
+      return res.status(400).json({ error: "Messages can only be edited for 15 minutes after sending.", code: "EDIT_WINDOW_PASSED" });
+    }
+
+    const detectedLang = await detectLanguage(content, req.user!.preferredLanguage || message.originalLanguage || undefined);
+    const [senderRow] = await db.select({ consentTranslation: users.consentTranslation, consentTimestamp: users.consentTimestamp }).from(users).where(eq(users.id, userId));
+    const translations: Record<string, string> = {};
+    if (!isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp)) {
+      const targets = Array.from(new Set((await groupMemberLanguages(groupId)).map((m) => m.language)));
+      for (const lang of targets) {
+        if (lang !== detectedLang) translations[lang] = await translateText(content, detectedLang, lang);
+      }
+    }
+    const editedAt = new Date().toISOString();
+    const [updated] = await db.update(groupChatMessages)
+      .set({
+        originalContent: content,
+        originalLanguage: detectedLang,
+        translations,
+        voiceTranslations: {},
+        isEdited: true,
+        updatedAt: new Date(),
+        metadata: sql`coalesce(${groupChatMessages.metadata}, '{}'::jsonb) || ${JSON.stringify({ editedAt })}::jsonb`,
+      })
+      .where(eq(groupChatMessages.id, messageId))
+      .returning();
+    res.json({ ...updated, displayContent: updated.originalContent, editedAt, reactions: reactionsOf(updated.metadata) });
+  } catch (error) {
+    console.error("Error editing group message:", error);
+    res.status(500).json({ error: "Failed to edit message" });
   }
 });
 
@@ -731,6 +850,10 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
       const meta = (msg.metadata as Record<string, unknown> | null) || {};
       return {
         ...msg,
+        reactions: reactionsOf(meta),
+        editedAt: typeof meta.editedAt === "string" ? meta.editedAt : null,
+        mentions: Array.isArray(meta.mentions) ? meta.mentions : [],
+        mentionsMe: Array.isArray(meta.mentions) && (meta.mentions as unknown[]).includes(userId),
         attachmentUrl: typeof meta.attachmentUrl === "string" ? meta.attachmentUrl : null,
         attachmentTitle: typeof meta.attachmentTitle === "string" ? meta.attachmentTitle : null,
         attachmentSize: typeof meta.attachmentSize === "number" ? meta.attachmentSize : null,

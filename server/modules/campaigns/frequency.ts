@@ -39,11 +39,6 @@ export function startOfUtcHour(at: Date = new Date()): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), at.getUTCHours()));
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err as any)?.code ?? (err as any)?.cause?.code;
-  return code === "23505";
-}
-
 export interface FrequencyReservation {
   allowed: boolean;
 }
@@ -63,22 +58,24 @@ export async function reserveCustomerFrequencySlot(
   windowStart: Date = startOfUtcDay(),
   cap: number = DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY,
 ): Promise<FrequencyReservation> {
-  try {
-    await tx.insert(customerMarketingFrequency).values({ businessId, customerId, windowStart, sentCount: 1 });
-    return { allowed: true };
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-    const [updated] = await tx.update(customerMarketingFrequency)
-      .set({ sentCount: sql`${customerMarketingFrequency.sentCount} + ${1}`, updatedAt: new Date() })
-      .where(and(
-        eq(customerMarketingFrequency.businessId, businessId),
-        eq(customerMarketingFrequency.customerId, customerId),
-        eq(customerMarketingFrequency.windowStart, windowStart),
-        lt(customerMarketingFrequency.sentCount, cap),
-      ))
-      .returning();
-    return { allowed: !!updated };
-  }
+  // ON CONFLICT DO NOTHING, not insert-and-catch: inside a transaction a
+  // failed INSERT aborts every later statement, which broke a broadcast to
+  // any customer who had already had an offer that day.
+  const [inserted] = await tx.insert(customerMarketingFrequency)
+    .values({ businessId, customerId, windowStart, sentCount: 1 })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted) return { allowed: true };
+  const [updated] = await tx.update(customerMarketingFrequency)
+    .set({ sentCount: sql`${customerMarketingFrequency.sentCount} + ${1}`, updatedAt: new Date() })
+    .where(and(
+      eq(customerMarketingFrequency.businessId, businessId),
+      eq(customerMarketingFrequency.customerId, customerId),
+      eq(customerMarketingFrequency.windowStart, windowStart),
+      lt(customerMarketingFrequency.sentCount, cap),
+    ))
+    .returning();
+  return { allowed: !!updated };
 }
 
 /** Same atomic idiom, business-scoped instead of customer-scoped -- the per-business throughput gate. */
@@ -88,21 +85,20 @@ export async function reserveBusinessThroughputSlot(
   windowStart: Date = startOfUtcHour(),
   cap: number = DEFAULT_BUSINESS_MARKETING_THROUGHPUT_PER_HOUR,
 ): Promise<FrequencyReservation> {
-  try {
-    await tx.insert(businessMarketingThroughput).values({ businessId, windowStart, sentCount: 1 });
-    return { allowed: true };
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-    const [updated] = await tx.update(businessMarketingThroughput)
-      .set({ sentCount: sql`${businessMarketingThroughput.sentCount} + ${1}`, updatedAt: new Date() })
-      .where(and(
-        eq(businessMarketingThroughput.businessId, businessId),
-        eq(businessMarketingThroughput.windowStart, windowStart),
-        lt(businessMarketingThroughput.sentCount, cap),
-      ))
-      .returning();
-    return { allowed: !!updated };
-  }
+  const [inserted] = await tx.insert(businessMarketingThroughput)
+    .values({ businessId, windowStart, sentCount: 1 })
+    .onConflictDoNothing()
+    .returning();
+  if (inserted) return { allowed: true };
+  const [updated] = await tx.update(businessMarketingThroughput)
+    .set({ sentCount: sql`${businessMarketingThroughput.sentCount} + ${1}`, updatedAt: new Date() })
+    .where(and(
+      eq(businessMarketingThroughput.businessId, businessId),
+      eq(businessMarketingThroughput.windowStart, windowStart),
+      lt(businessMarketingThroughput.sentCount, cap),
+    ))
+    .returning();
+  return { allowed: !!updated };
 }
 
 // ---------------------------------------------------------------------------

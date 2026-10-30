@@ -67,6 +67,34 @@ class _WalletScreenState extends State<WalletScreen> {
   /// checkout the web app already uses, rather than building a new native
   /// payment flow.
   Future<void> _openCheckout(BuildContext context) async {
+    // Payments can be switched off on the server (no gateway configured yet).
+    // Opening the billing page then led nowhere, so say so plainly instead.
+    bool paymentsOn = true;
+    try {
+      final status = await ApiService.get('/api/payments/status');
+      paymentsOn = status is Map && status['enabled'] == true;
+    } catch (_) {
+      // Unknown: fall through to the billing page, which explains itself.
+    }
+    if (!context.mounted) return;
+    if (!paymentsOn) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text('Buying minutes is coming soon', style: TextStyle(color: AppColors.ink)),
+          content: Text(
+            'Online payment is not open yet. Your free minutes keep working. '
+            'To add minutes now, write to support@mindwhile.com.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK')),
+          ],
+        ),
+      );
+      return;
+    }
     final opened = await ExternalLink.open('${ApiService.baseUrl}/billing');
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
