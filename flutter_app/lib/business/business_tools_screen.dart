@@ -13,6 +13,7 @@ import 'business_broadcasts_screen.dart';
 import 'business_orders_screen.dart';
 import 'business_status_screen.dart';
 import 'business_verification_screen.dart';
+import 'business_import_screen.dart';
 import 'business_categories.dart';
 import 'business_messaging_settings.dart';
 import 'business_profile_screen.dart';
@@ -51,6 +52,7 @@ class BusinessToolsScreen extends StatelessWidget {
             _tool(Icons.bolt_outlined, 'Quick replies', 'Type / in a chat to send saved answers', () => open(const QuickRepliesScreen())),
             _tool(Icons.insights_outlined, 'Statistics', 'Messages sent, delivered, read, received', () => open(const BusinessStatsScreen())),
             _tool(Icons.campaign_outlined, 'Broadcasts', 'Send offers and updates to your customers', () => open(const BusinessBroadcastsScreen())),
+            _tool(Icons.group_add_outlined, 'Import customers', 'From a CSV file or your phone contacts', () => open(const BusinessImportScreen())),
             _tool(Icons.amp_stories_outlined, 'Status', 'Offers and news for 24 hours, in each customer\'s language', () => open(const BusinessStatusScreen())),
             const _Section('More'),
             _tool(Icons.groups_outlined, 'Team & reports', 'On neuratalk.in → Company dashboard', null),

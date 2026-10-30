@@ -23,7 +23,7 @@ import {
 import { requireAuth, requireCompanyAccess, requirePermission, requireAnyPermission } from "../../role-middleware";
 import { createTemplate, createOrEditDraftVersion } from "../templates/service";
 import { createAudience, addMember } from "../audiences/service";
-import { createCampaign, updateCampaign, executeCampaign, getCampaignReport } from "./service";
+import { cancelCampaign, createCampaign, updateCampaign, executeCampaign, getCampaignReport, scheduleCampaign } from "./service";
 import { createApprovalRequest, approveRequest } from "../approvals/service";
 import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons, templateFooterSchema, templateHeaderSchema } from "../messaging/template-send";
 
@@ -169,6 +169,7 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       const request = requests.find((r) => r.resourceId === c.id);
       out.push({
         id: c.id, name: c.name, category: c.category, status: c.status, createdAt: c.createdAt, failureReason: c.failureReason, report,
+        scheduledAt: c.scheduledAt,
         approval: request ? { status: request.status, requestedByMe: request.requestedBy === req.user!.id, reason: request.reason } : null,
       });
     }
@@ -179,8 +180,20 @@ export function registerBroadcastRoutes(expressApp: Express): void {
   app.post("/api/business/:businessId/broadcasts", ...send, async (req: Request, res: Response) => {
     const businessId = Number(req.params.businessId);
     const actor = req.user!.id;
-    const parsed = z.object({ versionId: z.number().int().positive(), name: z.string().trim().max(80).optional() }).safeParse(req.body ?? {});
+    const parsed = z.object({
+      versionId: z.number().int().positive(),
+      name: z.string().trim().max(80).optional(),
+      // Send later: a time from 5 minutes to 30 days ahead.
+      scheduledAt: z.string().datetime({ offset: true }).optional(),
+    }).safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: "Pick a template." });
+    const scheduledAt = parsed.data.scheduledAt ? new Date(parsed.data.scheduledAt) : null;
+    if (scheduledAt) {
+      const ahead = scheduledAt.getTime() - Date.now();
+      if (ahead < 5 * 60 * 1000 || ahead > 30 * 24 * 60 * 60 * 1000) {
+        return res.status(400).json({ success: false, error: "Pick a time between 5 minutes and 30 days from now." });
+      }
+    }
     try {
       const [version] = await db.select().from(templateVersions).where(eq(templateVersions.id, parsed.data.versionId));
       const [template] = version ? await db.select().from(templates).where(eq(templates.id, version.templateId)) : [];
@@ -200,6 +213,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
 
       const campaign = await createCampaign(businessId, actor, { name: label, category: template.category });
       await updateCampaign(businessId, actor, campaign.id, { templateVersionId: version.id, audienceId: (audience as { id: number }).id });
+      // The wanted time is kept on the draft; it becomes a real schedule once approved.
+      if (scheduledAt) await db.update(campaigns).set({ scheduledAt }).where(eq(campaigns.id, campaign.id));
 
       const request = await createApprovalRequest(businessId, actor, "campaign", campaign.id);
       let approved = false;
@@ -210,11 +225,11 @@ export function registerBroadcastRoutes(expressApp: Express): void {
         // Needs a second admin of this business (the usual two-person rule).
       }
       if (!approved) {
-        return res.status(202).json({ success: true, campaignId: campaign.id, status: "waiting_for_approval", recipients: people.length,
+        return res.status(202).json({ success: true, campaignId: campaign.id, status: "waiting_for_approval", recipients: people.length, scheduledAt,
           message: "Another admin of your business needs to approve this broadcast before it is sent." });
       }
-      const result = await executeCampaign(businessId, actor, campaign.id);
-      return res.json({ success: true, campaignId: campaign.id, status: result.campaignStatus, recipients: people.length, sent: result.sent, skipped: result.skipped });
+      const outcome = await sendOrSchedule(businessId, actor, campaign.id);
+      return res.json({ success: true, campaignId: campaign.id, recipients: people.length, ...outcome });
     } catch (err) {
       return res.status(400).json({ success: false, error: message(err) });
     }
@@ -243,8 +258,7 @@ export function registerBroadcastRoutes(expressApp: Express): void {
     }
     try {
       await approveRequest(businessId, req.user!.id, found.request.id, false);
-      const result = await executeCampaign(businessId, req.user!.id, found.campaign.id);
-      return res.json({ success: true, status: result.campaignStatus, sent: result.sent, skipped: result.skipped });
+      return res.json({ success: true, ...(await sendOrSchedule(businessId, req.user!.id, found.campaign.id)) });
     } catch (err) {
       const msg = message(err);
       return res.status(400).json({ success: false, error: /own request|self/i.test(msg) ? "Another admin has to approve your broadcast." : msg });
@@ -260,10 +274,38 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       return res.status(409).json({ success: false, error: "Not approved yet." });
     }
     try {
-      const result = await executeCampaign(businessId, req.user!.id, found.campaign.id);
-      return res.json({ success: true, status: result.campaignStatus, sent: result.sent, skipped: result.skipped });
+      return res.json({ success: true, ...(await sendOrSchedule(businessId, req.user!.id, found.campaign.id)) });
     } catch (err) {
       return res.status(400).json({ success: false, error: message(err) });
     }
   });
+
+  // Cancel a broadcast that hasn't gone out yet (waiting or scheduled).
+  app.post("/api/business/:businessId/broadcasts/:campaignId/cancel", ...manage, async (req: Request, res: Response) => {
+    const businessId = Number(req.params.businessId);
+    const campaignId = Number(req.params.campaignId);
+    const [campaign] = await db.select().from(campaigns).where(and(eq(campaigns.id, campaignId), eq(campaigns.businessId, businessId)));
+    if (!campaign) return res.status(404).json({ success: false, error: "Broadcast not found." });
+    if (campaign.status !== CAMPAIGN_STATUS.DRAFT && campaign.status !== CAMPAIGN_STATUS.SCHEDULED) {
+      const already = campaign.status === CAMPAIGN_STATUS.CANCELLED ? "This broadcast is already cancelled." : "This broadcast was already sent.";
+      return res.status(409).json({ success: false, error: already });
+    }
+    try {
+      await cancelCampaign(businessId, req.user!.id, campaignId);
+      return res.json({ success: true, status: "cancelled" });
+    } catch (err) {
+      return res.status(409).json({ success: false, error: message(err) });
+    }
+  });
+}
+
+/** Approved: send now, or schedule for the time asked (if it is still ahead). */
+async function sendOrSchedule(businessId: number, actor: number, campaignId: number) {
+  const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, campaignId));
+  if (campaign?.scheduledAt && campaign.scheduledAt.getTime() > Date.now() + 30_000) {
+    const scheduled = await scheduleCampaign(businessId, actor, campaignId, campaign.scheduledAt);
+    return { status: "scheduled", scheduledAt: scheduled.scheduledAt };
+  }
+  const result = await executeCampaign(businessId, actor, campaignId);
+  return { status: result.campaignStatus, sent: result.sent, skipped: result.skipped };
 }

@@ -16,6 +16,8 @@ export function registerCustomerRoutes(app: Express): void {
   const view = [requireAuth, requireCompanyAccess("businessId"), requireAnyPermission(PERMISSIONS.CUSTOMERS_MANAGE, PERMISSIONS.CUSTOMERS_VIEW)];
 
   app.post("/api/business/:businessId/customers", ...manage, ctrl.postCustomer);
+  // Bulk add (CSV from the Business app / website): up to 2,000 per request.
+  app.post("/api/business/:businessId/customers/import", ...manage, ctrl.postImportCustomers);
   app.get("/api/business/:businessId/customers", ...view, ctrl.getCustomers);
   app.get("/api/business/:businessId/customers/:customerId", ...view, ctrl.getCustomerById);
   app.put("/api/business/:businessId/customers/:customerId", ...manage, ctrl.putCustomer);

@@ -49,6 +49,57 @@ export async function postCustomer(req: Request, res: Response) {
   }
 }
 
+const importSchema = z.object({
+  rows: z.array(z.object({
+    name: z.string().trim().max(200).optional(),
+    phone: z.string().trim().max(30).optional(),
+    email: z.string().trim().max(200).optional(),
+  })).min(1).max(2000),
+  // The business confirms these people agreed to receive offers (like the
+  // WhatsApp Business opt-in rule). Without it they get order/account updates only.
+  offersConsentConfirmed: z.boolean().optional(),
+});
+
+/**
+ * Add many customers at once. Each row goes through the same createCustomer
+ * checks (phone/email format, no duplicates); bad rows are reported, not fatal.
+ */
+export async function postImportCustomers(req: Request, res: Response) {
+  const businessId = parseId(req.params.businessId);
+  if (businessId === null) return badRequest(res, "Invalid businessId");
+  const parsed = importSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return badRequest(res, parsed.error.issues[0]?.message ?? "Check the file");
+
+  let added = 0;
+  let alreadyThere = 0;
+  let onNeuraTalk = 0;
+  const problems: Array<{ row: number; reason: string }> = [];
+  for (let i = 0; i < parsed.data.rows.length; i++) {
+    const row = parsed.data.rows[i];
+    const email = row.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email) ? row.email : undefined;
+    if (!row.phone && !email) {
+      problems.push({ row: i + 1, reason: "No phone number or email" });
+      continue;
+    }
+    try {
+      const customer = await createCustomer(businessId, req.user!.id, { name: row.name || undefined, phone: row.phone || undefined, email, source: "import" });
+      added++;
+      if (customer.linkedUserId) onNeuraTalk++;
+      if (parsed.data.offersConsentConfirmed) {
+        await setChannelConsent(businessId, req.user!.id, customer.id, CUSTOMER_CONSENT_CHANNEL.MARKETING, true, "import_confirmed").catch(() => undefined);
+      }
+    } catch (error) {
+      if (error instanceof DuplicateCustomerError) alreadyThere++;
+      else if (error instanceof ValidationError) problems.push({ row: i + 1, reason: error.message });
+      else {
+        logger.error("Customers", "Import row failed", error as Error);
+        problems.push({ row: i + 1, reason: "Could not add this row" });
+      }
+    }
+  }
+  return res.json({ success: true, added, alreadyThere, onNeuraTalk, problems: problems.slice(0, 50), problemCount: problems.length });
+}
+
 export async function getCustomers(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");

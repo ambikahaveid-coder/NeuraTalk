@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/api_service.dart';
@@ -100,8 +101,29 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
     if (created == true) _load();
   }
 
+  static String _when(Object? iso) {
+    final t = DateTime.tryParse(iso?.toString() ?? '')?.toLocal();
+    if (t == null) return '';
+    return DateFormat('d MMM, h:mm a').format(t);
+  }
+
+  /// Date + time picker for a scheduled broadcast (5 minutes to 30 days ahead).
+  Future<DateTime?> _pickTime() async {
+    final now = DateTime.now();
+    final day = await showDatePicker(context: context, firstDate: now, lastDate: now.add(const Duration(days: 30)), initialDate: now);
+    if (day == null || !mounted) return null;
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))));
+    if (time == null || !mounted) return null;
+    final at = DateTime(day.year, day.month, day.day, time.hour, time.minute);
+    if (at.isBefore(now.add(const Duration(minutes: 5)))) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a time at least 5 minutes from now.')));
+      return null;
+    }
+    return at;
+  }
+
   Future<void> _send(Map<String, dynamic> template) async {
-    final ok = await showDialog<bool>(
+    final choice = await showDialog<String>(
       context: context,
       builder: (d) => AlertDialog(
         title: const Text('Send to all your customers?'),
@@ -111,20 +133,31 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
           'Each delivered message is charged to your wallet.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Send')),
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Cancel')),
+          OutlinedButton(onPressed: () => Navigator.pop(d, 'schedule'), child: const Text('Schedule')),
+          FilledButton(onPressed: () => Navigator.pop(d, 'now'), child: const Text('Send now')),
         ],
       ),
     );
-    if (ok != true || !mounted) return;
+    if (choice == null || !mounted) return;
+    DateTime? at;
+    if (choice == 'schedule') {
+      at = await _pickTime();
+      if (at == null) return;
+    }
     setState(() => _sending = true);
     try {
-      final res = await ApiService.post('$_base/broadcasts', {'versionId': template['versionId']});
+      final res = await ApiService.post('$_base/broadcasts', {
+        'versionId': template['versionId'],
+        if (at != null) 'scheduledAt': at.toUtc().toIso8601String(),
+      });
       if (!mounted) return;
       final status = res['status']?.toString();
       final text = status == 'waiting_for_approval'
           ? (res['message']?.toString() ?? 'Waiting for another admin to approve.')
-          : 'Sent to ${res['sent'] ?? 0} customers${(res['skipped'] ?? 0) > 0 ? ', ${res['skipped']} skipped (no consent, blocked, limit or wallet)' : ''}.';
+          : status == 'scheduled'
+              ? 'Scheduled for ${_when(res['scheduledAt'])}.'
+              : 'Sent to ${res['sent'] ?? 0} customers${(res['skipped'] ?? 0) > 0 ? ', ${res['skipped']} skipped (no consent, blocked, limit or wallet)' : ''}.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
       _load();
     } catch (e) {
@@ -147,11 +180,20 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
     final mine = approval['requestedByMe'] == true;
     String line;
     Widget? action;
+    final cancel = TextButton(onPressed: _sending ? null : () => _decide(b, 'cancel'), child: const Text('Cancel'));
+    final later = b['scheduledAt'] != null ? ' · for ${_when(b['scheduledAt'])}' : '';
     if (status == 'completed' || status == 'running') {
       line = 'Sent $sent · delivered $delivered · read $read';
+    } else if (status == 'scheduled') {
+      line = 'Scheduled for ${_when(b['scheduledAt'])}';
+      action = cancel;
+    } else if (status == 'cancelled') {
+      line = 'Cancelled';
     } else if (status == 'draft' && approvalStatus == 'pending') {
-      line = mine ? 'Waiting for another admin to approve' : 'Waiting for your approval';
-      if (!mine) action = FilledButton(onPressed: _sending ? null : () => _decide(b, 'approve'), child: const Text('Approve'));
+      line = (mine ? 'Waiting for another admin to approve' : 'Waiting for your approval') + later;
+      action = mine
+          ? cancel
+          : FilledButton(onPressed: _sending ? null : () => _decide(b, 'approve'), child: const Text('Approve'));
     } else if (status == 'draft' && approvalStatus == 'approved') {
       line = 'Approved — not sent yet';
       action = FilledButton(onPressed: _sending ? null : () => _decide(b, 'send'), child: const Text('Send now'));
@@ -178,7 +220,13 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
     try {
       final res = await ApiService.post('$_base/broadcasts/${b['id']}/$step', {});
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sent to ${res['sent'] ?? 0} customers.')));
+      final status = res['status']?.toString();
+      final text = step == 'cancel'
+          ? 'Broadcast cancelled.'
+          : status == 'scheduled'
+              ? 'Approved. It goes out ${_when(res['scheduledAt'])}.'
+              : 'Sent to ${res['sent'] ?? 0} customers.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
       _load();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not send. Try again.')));

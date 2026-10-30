@@ -152,6 +152,13 @@ export async function linkCustomerToNeuraTalkUser(
   return updated?.linkedUserId ?? null;
 }
 
+/** A phone number must have 10–15 digits (Indian 10-digit or international). */
+function assertPhoneLooksReal(phone: string | null | undefined) {
+  if (!phone?.trim()) return;
+  const digits = phone.replace(/\D/g, "").length;
+  if (digits < 10 || digits > 15) throw new ValidationError("Phone number should have 10 to 15 digits");
+}
+
 export async function createCustomer(businessId: number, actorUserId: number, input: CreateCustomerInput) {
   const [business] = await db.select({ id: organizations.id }).from(organizations).where(eq(organizations.id, businessId));
   if (!business) throw new NotFoundError("Business not found");
@@ -160,6 +167,7 @@ export async function createCustomer(businessId: number, actorUserId: number, in
     throw new ValidationError("At least one of name, phone, or email is required");
   }
 
+  assertPhoneLooksReal(input.phone);
   const normalizedPhone = input.phone ? normalizePhoneForIndia(input.phone) : "";
   const normalizedEmailValue = input.email ? normalizeEmail(input.email) : "";
   const externalRef = input.externalRef?.trim() ?? "";
@@ -377,6 +385,7 @@ export async function updateCustomer(businessId: number, actorUserId: number, cu
   let externalRef = existing.externalRef;
 
   if (input.phone !== undefined) {
+    assertPhoneLooksReal(input.phone);
     patch.phone = input.phone.trim() || null;
     normalizedPhone = input.phone.trim() ? normalizePhoneForIndia(input.phone) : null;
     patch.normalizedPhone = normalizedPhone;
