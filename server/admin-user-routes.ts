@@ -360,11 +360,28 @@ export function registerAdminUserRoutes(app: Express) {
       if (data.role !== undefined) updateData.role = data.role;
       if (data.organizationId !== undefined) updateData.organizationId = data.organizationId;
       if (data.username !== undefined) updateData.username = data.username;
+      if (data.isActive !== undefined) {
+        if (existing.role === "super_admin" && data.isActive === false) {
+          return res.status(403).json({ success: false, message: "A super admin can't be deactivated here." });
+        }
+        updateData.isActive = data.isActive;
+      }
 
-      const [updated] = await db.update(users)
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ success: false, message: "Nothing to change." });
+      }
+
+      const [row] = await db.update(users)
         .set(updateData)
         .where(eq(users.id, userId))
         .returning();
+      // Never send the password hash back.
+      const { password: _password, ...updated } = row as typeof row & { password?: unknown };
+
+      // A deactivated account is signed out everywhere right away.
+      if (data.isActive === false) {
+        await db.execute(sql`DELETE FROM user_sessions WHERE user_id = ${userId}`).catch((e) => logger.warn("AdminUsers", `session cleanup failed: ${String(e)}`));
+      }
 
       await AuditHelpers.logUpdate(
         req.user!.id,
