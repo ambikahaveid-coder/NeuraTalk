@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../screens/business_messages_screen.dart' show formatBusinessTime;
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/money.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 
@@ -53,7 +54,7 @@ class _BusinessOrdersScreenState extends State<BusinessOrdersScreen> {
     }
   }
 
-  static String _rupees(num paise) => '₹${(paise / 100).toStringAsFixed(paise % 100 == 0 ? 0 : 2)}';
+  static String _rupees(num paise) => formatRupees(paise);
 
   static const _labels = {
     'placed': 'New',
@@ -166,7 +167,7 @@ class _BusinessOrdersScreenState extends State<BusinessOrdersScreen> {
             Wrap(spacing: 8, runSpacing: 6, children: [
               for (final s in next)
                 s == 'cancelled'
-                    ? OutlinedButton(onPressed: busy ? null : () => _set(o, s), child: Text(_actions[s]!, style: TextStyle(color: AppColors.red)))
+                    ? TextButton(onPressed: busy ? null : () => _set(o, s), child: Text(_actions[s]!, style: TextStyle(color: AppColors.red)))
                     : FilledButton(onPressed: busy ? null : () => _set(o, s), child: Text(_actions[s] ?? s)),
             ]),
           ],

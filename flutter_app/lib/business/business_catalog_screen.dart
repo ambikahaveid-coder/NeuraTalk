@@ -7,10 +7,11 @@ import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../services/media_store.dart';
 import '../theme/app_theme.dart';
+import '../utils/money.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
 
-String rupeesOf(dynamic paise) => paise == null ? 'Price on request' : '₹${((paise as num) / 100).toStringAsFixed((paise % 100) == 0 ? 0 : 2)}';
+String rupeesOf(dynamic paise) => paise is num ? formatRupees(paise) : 'Price on request';
 
 /// Catalog: products/services with photo and price. Customers open it from
 /// the chat and tap "Ask" (WhatsApp Business → Catalog).
@@ -70,7 +71,7 @@ class _BusinessCatalogScreenState extends State<BusinessCatalogScreen> {
                   ? const NtEmptyState(
                       icon: Icons.shopping_bag_outlined,
                       title: 'Show what you sell',
-                      message: 'Add products or services with a photo and price. Customers see them in your chat and can ask about any item.',
+                      message: 'Add products or services with a photo and price. Customers see them in your chat, ask about them or order them.',
                     )
                   : RefreshIndicator(
                       onRefresh: _load,

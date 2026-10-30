@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/call_service.dart';
 import '../services/media_store.dart';
 import '../theme/app_theme.dart';
+import '../utils/money.dart';
 import '../widgets/attachment_picker.dart';
 import '../widgets/chat_attachments.dart';
 import '../widgets/nt_ui.dart';
@@ -217,7 +218,7 @@ String formatClockTime(dynamic raw) {
   return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
 }
 
-String _rupees(dynamic paise) => paise == null ? 'Price on request' : '₹${((paise as num) / 100).toStringAsFixed((paise % 100) == 0 ? 0 : 2)}';
+String _rupees(dynamic paise) => paise is num ? formatRupees(paise) : 'Price on request';
 
 /// One business chat: messages in your language (tap to see the original),
 /// photos and files, the business's catalog, and a translated call.

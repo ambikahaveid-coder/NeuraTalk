@@ -74,6 +74,15 @@ function rupees(paise: number): string {
   return `₹${Number.isInteger(r) ? r.toLocaleString("en-IN") : r.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Raw SQL returns `timestamp` (UTC, no zone) as text; mark it UTC so the
+// app shows the right local time.
+function iso(v: unknown): string | null {
+  if (v instanceof Date) return v.toISOString();
+  const s = v == null ? "" : String(v);
+  if (!s) return null;
+  return /([zZ]|[+-]\d\d:?\d\d)$/.test(s) ? s : `${s.replace(" ", "T")}Z`;
+}
+
 function present(o: OrderRow, customerName?: string | null) {
   return {
     id: o.id,
@@ -85,8 +94,8 @@ function present(o: OrderRow, customerName?: string | null) {
     note: o.note,
     status: o.status,
     cancelReason: o.cancel_reason,
-    createdAt: o.created_at,
-    updatedAt: o.updated_at,
+    createdAt: iso(o.created_at),
+    updatedAt: iso(o.updated_at),
     nextStatuses: NEXT[o.status],
     ...(customerName !== undefined ? { customerName } : {}),
   };

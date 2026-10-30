@@ -22,6 +22,7 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
   bool _loading = true;
   String? _error;
   bool _sending = false;
+  bool _noAccess = false;
 
   String get _base => context.read<BusinessAccount>().base;
 
@@ -46,9 +47,30 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e is ApiException && e.statusCode == 403 ? 'Only business admins can send broadcasts.' : "Couldn't load broadcasts.";
+          _noAccess = e is ApiException && e.statusCode == 403;
+          _error = _noAccess ? 'Broadcast tools are off for you' : "Couldn't load broadcasts.";
         });
       }
+    }
+  }
+
+  /// Same as "Turn on" on the website: gives me the business tools
+  /// (customers, templates, broadcasts). Only an owner/admin may do it.
+  Future<void> _turnOn() async {
+    setState(() => _loading = true);
+    try {
+      final g = await ApiService.get('$_base/rbac/grantable-permissions');
+      await ApiService.post('$_base/rbac/grant-business-access', {'permissions': g['permissions']});
+      _noAccess = false;
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(e is ApiException && e.statusCode == 403
+            ? 'Only the business owner or an admin can turn this on. Ask them.'
+            : 'Could not turn it on. Try again.'),
+      ));
     }
   }
 
@@ -176,6 +198,18 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
         ),
         body: _loading
             ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
+            : _noAccess
+                ? ListView(padding: const EdgeInsets.all(24), children: [
+                    const SizedBox(height: 40),
+                    NtEmptyState(
+                      icon: Icons.campaign_outlined,
+                      title: _error!,
+                      message: 'Turn on business tools to write templates and send offers to your customers. '
+                          'NeuraTalk reviews every template before it can be sent.',
+                    ),
+                    const SizedBox(height: 16),
+                    Center(child: FilledButton(onPressed: _turnOn, child: const Text('Turn on business tools'))),
+                  ])
             : _error != null
                 ? NtEmptyState(icon: Icons.campaign_outlined, title: _error!, message: 'Pull down to try again.', error: true)
                 : TabBarView(children: [
@@ -226,7 +260,7 @@ class _BusinessBroadcastsScreenState extends State<BusinessBroadcastsScreen> {
                       ]),
                     ),
                   ]),
-        floatingActionButton: FloatingActionButton.extended(
+        floatingActionButton: _loading || _error != null ? null : FloatingActionButton.extended(
           heroTag: 'new-template',
           onPressed: _newTemplate,
           backgroundColor: AppColors.cyan,
