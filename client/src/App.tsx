@@ -17,6 +17,7 @@ const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
+const WebAppPage = lazy(() => import("@/pages/WebAppPage"));
 const BusinessChatPage = lazy(() => import("@/pages/BusinessChatPage"));
 const BusinessMessagesPage = lazy(() => import("@/pages/BusinessMessagesPage"));
 const BusinessLinkPage = lazy(() => import("@/pages/BusinessLinkPage"));
@@ -205,7 +206,8 @@ function Router() {
     if (isSuperAdmin) return "/admin";
     if (isInvestor) return "/investor";
     if (isCompanyAdmin || isAgent) return "/company";
-    return "/dashboard";
+    // People land on their chats, like WhatsApp Web; calls and billing are one click away.
+    return "/web";
   };
 
   const signupFlow = sessionStorage.getItem("neuratalk_signup_flow");
@@ -348,6 +350,11 @@ function Router() {
 
       <Route path="/chat">
         <ProtectedRoute component={ChatPage} />
+      </Route>
+
+      {/* NeuraTalk Web: WhatsApp-Web-style chats, updates, channels, communities. */}
+      <Route path="/web">
+        <ProtectedRoute component={WebAppPage} />
       </Route>
 
       {/* P1-3: any authenticated NeuraTalk user (no allowedRoles restriction,

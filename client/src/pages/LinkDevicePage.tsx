@@ -48,7 +48,7 @@ export default function LinkDevicePage() {
         const data = await res.json();
         if (data?.status === "linked" && data.token && data.user) {
           setAuth(data.token, data.user);
-          setLocation("/login"); // signed-in visitors are sent on to their own dashboard
+          setLocation(data.user?.role === "consumer" || !data.user?.role ? "/web" : "/login");
           return;
         }
         if (data?.status === "expired") {

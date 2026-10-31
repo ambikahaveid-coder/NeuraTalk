@@ -127,7 +127,7 @@ router.post("/api/link-device/approve", requireAuth, async (req: Request, res: R
 
 function describeDevice(ua: string | null | undefined): string {
   const s = String(ua ?? "").replace(/^\[Linked\]\s*/, "");
-  const browser = /Edg\//.test(s) ? "Edge" : /Chrome\//.test(s) ? "Chrome" : /Firefox\//.test(s) ? "Firefox" : /Safari\//.test(s) ? "Safari" : /Dart|okhttp/i.test(s) ? "NeuraTalk app" : "Browser";
+  const browser = /Edg\//.test(s) ? "Edge" : /Chrome\//.test(s) ? "Chrome" : /Firefox\//.test(s) ? "Firefox" : /Safari\//.test(s) ? "Safari" : /Dart|okhttp/i.test(s) || !s.trim() ? "NeuraTalk app" : "Browser";
   const os = /Windows/.test(s) ? "Windows" : /Mac OS X/.test(s) && !/iPhone|iPad/.test(s) ? "Mac" : /Android/.test(s) ? "Android" : /iPhone|iPad/.test(s) ? "iPhone" : /Linux/.test(s) ? "Linux" : "";
   return os ? `${browser} on ${os}` : browser;
 }

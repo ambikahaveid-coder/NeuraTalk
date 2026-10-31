@@ -53,7 +53,7 @@ export default function AppNavigation({ title, showBack = true, backPath }: AppN
     { path: "/calls/video-translation", label: "Video Translation", icon: Video, show: true },
     { path: "/calls/b2c", label: "Agent Console", icon: Users, show: isCompanyAdmin || isAgent },
     { path: "/calls/b2b", label: "Control Room", icon: Building2, show: isSuperAdmin || isCompanyAdmin },
-    { path: "/chat", label: "Chat", icon: MessageSquare, show: true },
+    { path: "/web", label: "Chats", icon: MessageSquare, show: true },
     { path: "/billing", label: "Billing", icon: CreditCard, show: true },
   ];
 

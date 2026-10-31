@@ -259,8 +259,19 @@ router.get("/api/group-chats/my-groups", requireAuth, async (req: Request, res: 
         role: groupChatMembers.role,
         nickname: groupChatMembers.nickname,
       }).from(groupChatMembers).where(eq(groupChatMembers.groupChatId, group.id));
-      
-      return { ...group, members };
+      // Newest message for the chat list (in the reader's language when translated).
+      const [last] = await db.select({
+        senderId: groupChatMessages.senderId, content: groupChatMessages.originalContent, translations: groupChatMessages.translations,
+        messageType: groupChatMessages.messageType, createdAt: groupChatMessages.createdAt,
+      }).from(groupChatMessages)
+        .where(and(eq(groupChatMessages.groupChatId, group.id), eq(groupChatMessages.isDeleted, false)))
+        .orderBy(desc(groupChatMessages.createdAt)).limit(1);
+      const lang = req.user!.preferredLanguage || "en";
+      const lastText = last ? ((last.translations as Record<string, string> | null)?.[lang] ?? last.content ?? "") : null;
+      return {
+        ...group, members,
+        lastMessage: last ? { preview: groupMessagePreview(last.messageType || "text", lastText ?? "", undefined).slice(0, 120), createdAt: last.createdAt, isMine: last.senderId === userId } : null,
+      };
     }));
     
     res.json(groupsWithMembers);

@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import AppNavigation from "@/components/AppNavigation";
 import PhoneIdentityCard from "@/components/PhoneIdentityCard";
+import { LANGUAGES } from "@/pages/website/site-facts";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -216,7 +217,7 @@ export default function ConsumerDashboard() {
                 <Sparkles className="w-3 h-3" /> AI translation
               </Badge>
               <Badge variant="secondary" className="gap-1">
-                <Globe className="w-3 h-3" /> 12+ languages
+                <Globe className="w-3 h-3" /> {LANGUAGES.length} languages
               </Badge>
               <Badge variant="secondary" className="gap-1">
                 <Mic className="w-3 h-3" /> Emotion-preserving

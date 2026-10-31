@@ -51,13 +51,13 @@ export async function requestVerification(req: Request, res: Response) {
 
   if (!phone) {
     return res.status(400).json({
-      error: "Profile lo phone number add cheyyi first (Settings → Profile)",
+      error: "Add your phone number in Settings → Profile first.",
     });
   }
 
   if (!process.env.MSG91_AUTH_KEY) {
     return res.status(503).json({
-      error: "MSG91 not configured — set MSG91_AUTH_KEY in server environment",
+      error: "Number verification is not available right now. Please try again later.",
     });
   }
 

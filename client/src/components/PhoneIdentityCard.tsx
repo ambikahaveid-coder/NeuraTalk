@@ -62,7 +62,7 @@ export default function PhoneIdentityCard() {
       showToast(`OTP sent to ${data?.phone}`, true);
     },
     onError: (e: any) => {
-      showToast(e?.message || "OTP send cheyyadam fail aindi", false);
+      showToast(e?.message || "Couldn't send the code. Please try again.", false);
     },
   });
 
@@ -77,7 +77,7 @@ export default function PhoneIdentityCard() {
       qc.invalidateQueries({ queryKey: ["/api/caller-id/status"] });
     },
     onError: (e: any) => {
-      showToast(e?.message || "OTP incorrect — try again", false);
+      showToast(e?.message || "That code didn't match. Please try again.", false);
     },
   });
 
@@ -164,17 +164,17 @@ export default function PhoneIdentityCard() {
                   <ShieldCheck className="w-4 h-4" />
                 )}
                 {data?.msg91Configured
-                  ? "Send OTP to verify my number"
-                  : "MSG91 not configured (set MSG91_AUTH_KEY)"}
+                  ? "Send a code to verify my number"
+                  : "Number verification is not available right now"}
               </Button>
             ) : (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  {phone} ki OTP vachindi — enter cheyyi:
+                  Enter the code we sent to {phone}:
                 </p>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Enter OTP"
+                    placeholder="6-digit code"
                     value={otp}
                     onChange={e => setOtp(e.target.value)}
                     maxLength={6}
@@ -192,7 +192,7 @@ export default function PhoneIdentityCard() {
                   className="text-xs text-primary underline"
                   onClick={() => { setStep("idle"); setOtp(""); }}
                 >
-                  Resend OTP
+                  Send a new code
                 </button>
               </div>
             )}
@@ -200,8 +200,8 @@ export default function PhoneIdentityCard() {
         )}
 
         {!phone && (
-          <p className="text-xs text-secondary bg-secondary/10 border border-secondary/20 rounded px-3 py-2">
-            Profile → Settings lo phone number add cheyyi, tharwata verify cheyyachu.
+          <p className="text-sm text-foreground bg-muted/60 border border-border rounded-lg px-3 py-2">
+            Add your phone number in Settings → Profile, then come back here to verify it.
           </p>
         )}
 
@@ -212,20 +212,20 @@ export default function PhoneIdentityCard() {
               className="w-full flex items-center justify-between px-3 py-2 bg-primary/10 hover:bg-primary/20 text-sm font-medium text-primary"
               onClick={() => setShowForwarding(v => !v)}
             >
-              <span>Friend calls you → App lo receive cheyyali? Set up forwarding</span>
+              <span>Get your normal calls in NeuraTalk — set up forwarding</span>
               {showForwarding ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
 
             {showForwarding && (
               <div className="px-3 py-3 space-y-3 text-sm">
                 <p className="text-muted-foreground text-xs">
-                  Friend meeru number ki call chesthadu → Meeru 30s lo pick up cheyakapothey → NeuraTalk ki forward → App lo translation tho receive chesthaamu.
+                  When someone calls your number and you don't pick up within 30 seconds, the call moves to NeuraTalk so you can answer it in the app with translation.
                   <br />
                   <strong>One-time setup only.</strong>
                 </p>
 
                 <div>
-                  <p className="text-xs font-semibold text-foreground mb-1">Android — Dialpad lo type cheyyi:</p>
+                  <p className="text-xs font-semibold text-foreground mb-1">Android — type this in your phone dialer:</p>
                   <div className="flex items-center gap-2 bg-black/40 text-primary font-mono text-sm rounded px-3 py-2">
                     <span className="flex-1 select-all">{fwd.android}</span>
                     <button onClick={() => copyToClipboard(fwd.android)} title="Copy">

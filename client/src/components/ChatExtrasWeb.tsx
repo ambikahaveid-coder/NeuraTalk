@@ -42,7 +42,7 @@ export function ChatExtrasWeb({
   const [error, setError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const auth = { Authorization: `Bearer ${getAuthToken() ?? ""}` };
-  const box = cn("max-w-[85%] rounded-2xl border p-3 text-sm", isOwn ? "bg-primary/10 border-primary/20" : "bg-card");
+  const box = cn("w-full max-w-sm rounded-2xl border p-3 text-sm", isOwn ? "bg-primary/10 border-primary/20" : "bg-card");
 
   if (message.messageType === "sticker" && message.attachmentUrl && !message.viewOnce) {
     return <StickerImg path={message.attachmentUrl} />;
