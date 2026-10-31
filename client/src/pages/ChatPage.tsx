@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { ChatMessage } from "@/components/ChatMessage";
+import { ChatExtrasWeb, isSpecialMessage, type WebContact, type WebPoll } from "@/components/ChatExtrasWeb";
 import { TypingIndicator } from "@/components/TypingIndicator";
 import { useToast } from "@/hooks/use-toast";
 import { useContacts } from "@/hooks/use-contacts";
@@ -57,7 +58,11 @@ type PersonalThreadSummary = {
 type PersonalThreadMessage = {
   id: number;
   senderUserId: number;
-  messageType?: "text" | "voice_note" | "attachment" | "file" | "location";
+  messageType?: "text" | "voice_note" | "attachment" | "file" | "location" | "poll" | "contact" | "sticker";
+  poll?: WebPoll | null;
+  contact?: WebContact | null;
+  viewOnce?: boolean;
+  viewOnceOpened?: boolean;
   originalContent: string;
   originalLanguage: string;
   translatedContent?: string | null;
@@ -1290,6 +1295,15 @@ export default function ChatPage() {
                               : "flex flex-col items-start"
                           }
                         >
+                          {isSpecialMessage(message) ? (
+                            <ChatExtrasWeb
+                              message={message}
+                              apiBase={`/api/personal-chats/${selectedThreadId}`}
+                              isOwn={message.isOwn}
+                              question={message.poll ? primaryContent : undefined}
+                              onChanged={() => queryClient.invalidateQueries({ queryKey: ["/api/personal-chats", selectedThreadId] })}
+                            />
+                          ) : (
                           <ChatMessage
                             role={message.isOwn ? "user" : "assistant"}
                             content={primaryContent}
@@ -1304,8 +1318,9 @@ export default function ChatPage() {
                             attachmentUrl={message.attachmentUrl}
                             attachmentSize={message.attachmentSize}
                             attachmentMime={message.attachmentMime}
-                            messageType={message.messageType}
+                            messageType={message.messageType as "text" | "voice_note" | "attachment" | "file" | "location" | undefined}
                           />
+                          )}
                           {showToggle ? (
                             <button
                               type="button"
