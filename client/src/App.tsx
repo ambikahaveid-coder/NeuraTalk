@@ -12,6 +12,7 @@ import { Sparkles } from "lucide-react";
 
 const Landing = lazy(() => import("@/pages/Landing"));
 const AppLogin = lazy(() => import("@/pages/AppLogin"));
+const LinkDevicePage = lazy(() => import("@/pages/LinkDevicePage"));
 const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
@@ -229,6 +230,11 @@ function Router() {
       {/* Mobile-app phone login (in-app WebView); never redirects on web auth state. */}
       <Route path="/app-login">
         <Suspense fallback={<PageLoader />}><AppLogin /></Suspense>
+      </Route>
+
+      {/* Use NeuraTalk on a computer by approving it from the phone (QR / code). */}
+      <Route path="/link-device">
+        <Suspense fallback={<PageLoader />}><LinkDevicePage /></Suspense>
       </Route>
       
       <Route path="/login">

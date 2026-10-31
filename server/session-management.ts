@@ -178,8 +178,11 @@ router.delete("/api/sessions/:id", requireAuth, async (req: Request, res: Respon
       return res.status(404).json({ error: "Session not found" });
     }
 
-    if (session.userId !== userId && req.user!.role !== "super_admin" && req.user!.role !== "company_admin") {
-      return res.status(403).json({ error: "Not authorized to delete this session" });
+    if (session.userId !== userId && req.user!.role !== "super_admin") {
+      // A company admin may only sign out people in their own company.
+      const [owner] = await db.select({ organizationId: users.organizationId }).from(users).where(eq(users.id, session.userId));
+      const sameCompany = req.user!.role === "company_admin" && req.user!.organizationId != null && owner?.organizationId === req.user!.organizationId;
+      if (!sameCompany) return res.status(403).json({ error: "Not authorized to delete this session" });
     }
 
     await forceLogoutSession(sessionId);

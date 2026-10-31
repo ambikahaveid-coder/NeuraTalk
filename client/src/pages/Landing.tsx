@@ -390,6 +390,7 @@ export default function Landing() {
           <div className="mb-6">
             <h2 className="text-2xl font-bold text-foreground">Welcome back</h2>
             <p className="text-sm text-muted-foreground mt-1">Sign in with your mobile number or email. New here? We'll create your account.</p>
+            <p className="text-sm mt-2"><a href="/link-device" className="text-primary underline" data-testid="link-link-device">Already use NeuraTalk on your phone? Link this computer with a QR code</a></p>
           </div>
                     <AnimatePresence mode="wait">
             {step === "identifier" && (

@@ -93,6 +93,7 @@ dependencies:
   flutter_ringtone_player: ^4.0.0+4
   # Chat notifications with a Reply button (lib/services/chat_notifications.dart)
   flutter_local_notifications: 17.2.4
+  mobile_scanner: ^7.4.2
 
 dev_dependencies:
   flutter_test:

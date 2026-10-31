@@ -16,6 +16,7 @@ import 'wallet_screen.dart';
 import 'voice_clone_screen.dart';
 import '../services/call_readiness.dart';
 import '../widgets/chat_extras.dart';
+import 'linked_devices_screen.dart';
 
 /// "More" tab — Settings (brand mockup 12).
 class SettingsScreen extends StatelessWidget {
@@ -50,6 +51,7 @@ class SettingsScreen extends StatelessWidget {
       _Row(Icons.notifications_none, 'Notifications', 'Messages and calls', () => _go(context, const NotificationsSettingsScreen())),
       _Row(Icons.call_outlined, 'Calls', 'Microphone and call audio', () => _go(context, const CallsSettingsScreen())),
       _Row(Icons.shield_outlined, 'Privacy', 'Last seen, read receipts, blocked contacts', () => _go(context, const PrivacyScreen())),
+      _Row(Icons.devices_other, 'Linked devices', 'Use NeuraTalk on your computer; sign devices out', () => _go(context, const LinkedDevicesScreen())),
       _Row(Icons.star_outline, 'Starred messages', 'Messages you starred in any chat', () => _go(context, const StarredMessagesScreen())),
       _Row(Icons.record_voice_over_outlined, 'Your voice', 'Translated calls in your own voice', () => _go(context, const VoiceCloneScreen())),
       _Row(Icons.ring_volume_outlined, 'Calls when the app is closed', 'Allow notifications, full-screen calls, no battery limit', () => CallReadiness.ensure(context, force: true)),
