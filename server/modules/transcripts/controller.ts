@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
-import { AuditHelpers, getAuditLogs } from "../../audit";
+import { AuditHelpers, getAuditLogs, createAuditLog } from "../../audit";
 import { db } from "../../db";
 import { users, callConsents, organizations } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -143,6 +143,19 @@ export async function deleteTranscript(req: Request, res: Response) {
 function requireOrgAdmin(req: Request, res: Response): number | null {
   const user = req.user!;
   const orgId = (user as any).organizationId as number | undefined;
+  // The platform super admin belongs to no company: they must choose one, and it is recorded.
+  if (user.role === "super_admin" && !orgId) {
+    const picked = Number((req.query as any)?.organizationId ?? (req.body as any)?.organizationId);
+    if (!Number.isSafeInteger(picked) || picked <= 0) {
+      res.status(400).json({ error: "Choose a company first.", needsCompany: true });
+      return null;
+    }
+    void createAuditLog({
+      userId: user.id, organizationId: picked, action: "access", entityType: "transcript",
+      metadata: { path: req.path, method: req.method },
+    }).catch(() => {});
+    return picked;
+  }
   if (!orgId || (user.role !== "company_admin" && user.role !== "super_admin")) {
     res.status(403).json({ error: "Organization admin access required" });
     return null;

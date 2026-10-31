@@ -17,6 +17,7 @@
 import { logger } from "../observability";
 import { MSG91Provider } from "./msg91";
 import { TwilioProvider } from "./twilio";
+import { LiveKitSipProvider, getLiveKitOutboundTrunkId } from "./livekit-sip";
 import type { PSTNProvider } from "./provider";
 
 const FAILOVER_RESET_MS =
@@ -33,8 +34,11 @@ function buildProvider(name: string): PSTNProvider {
       return new MSG91Provider();
     case "twilio":
       return new TwilioProvider();
+    case "livekit_sip":
+    case "exotel":
+      return new LiveKitSipProvider();
     default:
-      throw new Error(`Unknown PSTN provider: "${name}". Valid values: msg91, twilio`);
+      throw new Error(`Unknown PSTN provider: "${name}". Valid values: msg91, twilio, livekit_sip`);
   }
 }
 
@@ -117,6 +121,7 @@ export async function checkProviderHealth(): Promise<{
  */
 export function isPSTNAvailable(): boolean {
   const primaryName = (process.env.PSTN_PROVIDER || "msg91").toLowerCase();
+  if (primaryName === "livekit_sip" || primaryName === "exotel") return Boolean(getLiveKitOutboundTrunkId());
   if (primaryName === "msg91" && !process.env.MSG91_AUTH_KEY) return false;
   if (primaryName === "twilio" && (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN)) return false;
   return true;

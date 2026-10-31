@@ -38,7 +38,7 @@ export function describeActivity(action: string, resource: string): string {
   };
   const verb: Record<string, string> = {
     create: "added", update: "updated", delete: "removed", cancel: "cancelled", approve: "approved", reject: "rejected",
-    send: "sent", consent_action: "consent updated", schedule: "scheduled", assign: "assigned", revoke: "revoked", login: "signed in",
+    send: "sent", consent_action: "consent updated", schedule: "scheduled", assign: "assigned", revoke: "revoked", login: "signed in", access: "opened by NeuraTalk support",
   };
   const name = thing[kind?.toLowerCase()] ?? (kind ? kind.charAt(0).toUpperCase() + kind.slice(1).replace(/_/g, " ") : "Item");
   const did = verb[String(action).toLowerCase()] ?? String(action).replace(/_/g, " ");

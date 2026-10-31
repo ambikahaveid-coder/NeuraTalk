@@ -18,6 +18,9 @@ import '../widgets/nt_ui.dart';
 import '../widgets/reactions.dart';
 import '../widgets/link_preview.dart';
 import 'business_account.dart';
+import '../screens/linked_devices_screen.dart';
+import '../screens/two_step_screens.dart';
+import '../utils/external_link.dart';
 import 'business_categories.dart';
 import 'business_onboarding_screen.dart';
 import 'business_profile_screen.dart';
@@ -118,6 +121,25 @@ class _BusinessSettings extends StatelessWidget {
           title: const Text('Make sure notifications and calls ring'),
           subtitle: const Text('Allow notifications, full-screen calls and no battery restriction'),
           onTap: () => CallReadiness.ensure(context, force: true),
+        ),
+        // Same account tools as WhatsApp Business: use it on a computer, protect it with a PIN, get help.
+        ListTile(
+          leading: const Icon(Icons.devices_other),
+          title: const Text('Linked devices'),
+          subtitle: const Text('Use NeuraTalk Business on your computer; sign devices out'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LinkedDevicesScreen())),
+        ),
+        ListTile(
+          leading: const Icon(Icons.pin_outlined),
+          title: const Text('Two-step verification'),
+          subtitle: const Text('Ask for a PIN when this number signs in again'),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TwoStepSettingsScreen())),
+        ),
+        ListTile(
+          leading: const Icon(Icons.help_outline),
+          title: const Text('Help and policies'),
+          subtitle: const Text('Business messaging rules, terms, contact us'),
+          onTap: () => ExternalLink.open('https://neuratalk.in/business-messaging-policy'),
         ),
         ListTile(
           leading: Icon(Icons.logout, color: AppColors.red),

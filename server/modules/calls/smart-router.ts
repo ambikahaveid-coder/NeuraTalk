@@ -1468,7 +1468,9 @@ async function initiateCallLocked(
     if (!process.env.APP_BASE_URL?.trim()) {
       throw new Error("APP_BASE_URL_REQUIRED_FOR_PSTN_WEBHOOKS");
     }
-    if (!process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
+    // LiveKit SIP dials straight into the room, so it needs no SIP domain; provider-API bridges (MSG91/Twilio) do.
+    const dialsThroughLiveKit = ["livekit_sip", "exotel"].includes((process.env.PSTN_PROVIDER || "").toLowerCase());
+    if (!dialsThroughLiveKit && !process.env.LIVEKIT_SIP_DOMAIN?.trim()) {
       throw new Error("LIVEKIT_SIP_DOMAIN_REQUIRED_FOR_PSTN");
     }
 

@@ -1258,6 +1258,8 @@ export const AUDIT_ACTION = {
   FAIL: "fail",
   VERIFY: "verify",
   RESEND: "resend",
+  /** A platform super admin opened a company's private data (e.g. call text). */
+  ACCESS: "access",
 } as const;
 
 export type AuditAction = typeof AUDIT_ACTION[keyof typeof AUDIT_ACTION];

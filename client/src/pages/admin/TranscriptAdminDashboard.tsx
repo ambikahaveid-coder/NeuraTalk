@@ -65,7 +65,14 @@ const PAGE_SIZE = 20;
 
 export default function TranscriptAdminDashboard() {
   const { toast } = useToast();
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, user } = useAuth();
+  // The platform super admin belongs to no company, so they choose whose call text to search (recorded in the audit log).
+  const pickCompany = isSuperAdmin && !user?.organizationId;
+  const [companyId, setCompanyId] = useState("");
+  const { data: companiesData } = useQuery<{ companies: Array<{ id: number; name: string }> }>({
+    queryKey: ["/api/admin/companies"],
+    enabled: pickCompany,
+  });
 
   const [query, setQuery] = useState("");
   const [userIdFilter, setUserIdFilter] = useState("");
@@ -96,6 +103,7 @@ export default function TranscriptAdminDashboard() {
     setSearching(true);
     try {
       const params = new URLSearchParams({ q: query.trim(), limit: String(PAGE_SIZE), offset: String(reset ? 0 : offset) });
+      if (pickCompany) params.set("organizationId", companyId);
       if (userIdFilter.trim()) params.set("userId", userIdFilter.trim());
       if (dateFrom) params.set("dateFrom", new Date(dateFrom).toISOString());
       if (dateTo) params.set("dateTo", new Date(dateTo).toISOString());
@@ -179,6 +187,18 @@ export default function TranscriptAdminDashboard() {
           <CardDescription>Search across all calls belonging to members of your organization</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {pickCompany && (
+            <div className="space-y-1.5">
+              <Label>Company</Label>
+              <Select value={companyId} onValueChange={(v) => { setCompanyId(v); setResults(null); }}>
+                <SelectTrigger className="w-full sm:w-80" data-testid="select-transcript-company"><SelectValue placeholder="Choose a company" /></SelectTrigger>
+                <SelectContent>
+                  {(companiesData?.companies ?? []).map((c) => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Searching a company's call text is recorded in the audit log.</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <input
               type="search"
@@ -214,7 +234,7 @@ export default function TranscriptAdminDashboard() {
             <Button
               size="sm"
               onClick={() => runSearch(true)}
-              disabled={query.trim().length < 2 || searching}
+              disabled={query.trim().length < 2 || searching || (pickCompany && !companyId)}
               data-testid="button-admin-search-transcripts"
             >
               {searching ? "Searching…" : "Search"}

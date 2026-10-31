@@ -66,11 +66,29 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
 
 export default function SuperAdminDashboard() {
   const { user, logout } = useAuth();
-  const [activeSection, setActiveSection] = useState<Section>("overview");
+  // The open section lives in the address (#companies), so a refresh keeps it and links can be shared.
+  const sectionFromHash = (): Section => {
+    const h = typeof window === "undefined" ? "" : window.location.hash.replace(/^#/, "");
+    return (menuItems.some((m) => m.id === h) ? h : "overview") as Section;
+  };
+  const [activeSection, setActiveSectionState] = useState<Section>(sectionFromHash);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const setActiveSection = (s: Section) => {
+    setActiveSectionState(s);
+    setMenuOpen(false);
+    try { window.history.replaceState(null, "", `#${s}`); } catch { /* ignore */ }
+  };
+  useEffect(() => {
+    const onHash = () => setActiveSectionState(sectionFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const activeItem = menuItems.find((m) => m.id === activeSection);
 
   return (
     <div className="min-h-screen bg-background flex">
-      <aside className="w-64 border-r bg-card/50 flex flex-col">
+      {menuOpen && <button type="button" aria-label="Close menu" className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setMenuOpen(false)} />}
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 border-r bg-card flex flex-col transition-transform md:static md:z-auto md:translate-x-0 md:bg-card/50 ${menuOpen ? "translate-x-0" : "-translate-x-full"}`}>
         <div className="p-4 border-b">
           <Link href="/admin">
             <div className="flex items-center gap-2 cursor-pointer">
@@ -126,21 +144,24 @@ export default function SuperAdminDashboard() {
           </div>
           <Button variant="outline" size="sm" className="w-full" onClick={logout} data-testid="button-logout">
             <LogOut className="w-4 h-4 mr-2" />
-            Logout
+            Log out
           </Button>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
-        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold capitalize">{activeSection}</h1>
+      <main className="min-w-0 flex-1 overflow-auto">
+        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b px-4 py-4 md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <Button variant="outline" size="sm" className="md:hidden" onClick={() => setMenuOpen(true)} data-testid="button-admin-menu">Menu</Button>
+              <div className="min-w-0">
+              <h1 className="text-2xl font-bold" data-testid="text-admin-section-title">{activeItem?.label ?? "Overview"}</h1>
               <p className="text-sm text-muted-foreground">
                 {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", voices: "Voices people recorded for translated calls", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
               </p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <ThemeToggle />
               <Link href="/admin/live">
                 <Button size="sm" variant="destructive" data-testid="button-live-monitor">
@@ -170,8 +191,8 @@ export default function SuperAdminDashboard() {
           </div>
         </header>
 
-        <div className="p-6">
-          {activeSection === "overview" && <OverviewSection />}
+        <div className="p-4 md:p-6">
+          {activeSection === "overview" && <OverviewSection onOpen={setActiveSection} />}
           {activeSection === "companies" && <CompaniesSection />}
           {activeSection === "users" && <UsersSection />}
           {activeSection === "billing" && <BillingSection />}
@@ -202,7 +223,7 @@ export default function SuperAdminDashboard() {
   );
 }
 
-function OverviewSection() {
+function OverviewSection({ onOpen }: { onOpen: (s: Section) => void }) {
   const { data: stats, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["/api/admin/stats"],
     queryFn: async () => {
@@ -233,6 +254,36 @@ function OverviewSection() {
   });
 
   const pendingCount = pendingCompanies?.companies?.filter((c: any) => c.status === "pending").length || 0;
+  const authGet = async (path: string) => {
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return res.json();
+  };
+  const reviews = useQuery<{ reviews: Array<{ status: string }> }>({ queryKey: ["/api/admin/template-reviews"], queryFn: () => authGet("/api/admin/template-reviews"), refetchInterval: 60_000 });
+  const verifications = useQuery<{ requests: Array<{ status: string }> }>({ queryKey: ["/api/admin/verification-requests"], queryFn: () => authGet("/api/admin/verification-requests"), refetchInterval: 60_000 });
+  const abuse = useQuery<{ reports: Array<{ status: string }> }>({ queryKey: ["/api/admin/abuse-reports"], queryFn: () => authGet("/api/admin/abuse-reports"), refetchInterval: 60_000 });
+  // Real service checks (the server tests each one); nothing here is assumed to be up.
+  const health = useQuery<Record<string, boolean>>({ queryKey: ["/api/health/keys"], queryFn: () => authGet("/api/health/keys"), refetchInterval: 30_000 });
+
+  const pendingItems = [
+    { n: pendingCount, label: "companies waiting for approval", section: "companies" as Section },
+    { n: (reviews.data?.reviews ?? []).filter((r) => r.status === "pending").length, label: "message templates to review", section: "companies" as Section },
+    { n: (verifications.data?.requests ?? []).filter((r) => r.status === "pending").length, label: "verified-tick requests", section: "companies" as Section },
+    { n: (abuse.data?.reports ?? []).filter((r) => r.status === "pending" || r.status === "open").length, label: "abuse reports to review", section: "abuse" as Section },
+  ].filter((i) => i.n > 0);
+  const pendingLoading = reviews.isLoading || verifications.isLoading || abuse.isLoading;
+
+  const h = health.data;
+  const services: Array<{ label: string; ok: boolean | undefined; off: string }> = [
+    { label: "Database", ok: h?.database, off: "Down" },
+    { label: "Cache and presence (Redis)", ok: h?.redis, off: "Down" },
+    { label: "Calls (LiveKit)", ok: h?.livekit, off: "Not connected" },
+    { label: "Translation (AI)", ok: h ? Boolean(h.openai && h.azure_translate) : undefined, off: "Not working" },
+    { label: "Speech recognition", ok: h?.azure_stt, off: "Not working" },
+    { label: "Push notifications", ok: h?.firebase_admin, off: "Not connected" },
+    { label: "SMS / phone calls (MSG91)", ok: h?.msg91, off: "Off" },
+    { label: "Payments (Razorpay)", ok: h?.razorpay, off: "Off" },
+  ];
 
   if (isError) {
     return (
@@ -249,26 +300,10 @@ function OverviewSection() {
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
         ) : (
         <>
-        <StatCard
-          title="Total Companies"
-          value={stats?.companies || 0}
-          icon={<Building2 className="w-5 h-5" />}
-        />
-        <StatCard
-          title="Users"
-          value={stats?.users || 0}
-          icon={<Users className="w-5 h-5" />}
-        />
-        <StatCard
-          title="Call revenue (all time)"
-          value={`₹${(stats?.revenue || 0).toLocaleString()}`}
-          icon={<DollarSign className="w-5 h-5" />}
-        />
-        <StatCard
-          title="Total Calls"
-          value={stats?.calls || 0}
-          icon={<Phone className="w-5 h-5" />}
-        />
+        <StatCard title="Total Companies" value={stats?.companies || 0} icon={<Building2 className="w-5 h-5" />} />
+        <StatCard title="Users" value={stats?.users || 0} icon={<Users className="w-5 h-5" />} />
+        <StatCard title="Call revenue (all time)" value={`₹${(stats?.revenue || 0).toLocaleString()}`} icon={<DollarSign className="w-5 h-5" />} />
+        <StatCard title="Total Calls" value={stats?.calls || 0} icon={<Phone className="w-5 h-5" />} />
         </>
         )}
       </div>
@@ -278,31 +313,25 @@ function OverviewSection() {
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
               <Bell className="w-5 h-5 text-amber-500" />
-              Pending Actions
+              Needs your attention
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {pendingCount > 0 ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-amber-500" />
-                    </div>
-                    <div>
-                      <p className="font-medium">{pendingCount} Companies Pending</p>
-                      <p className="text-sm text-muted-foreground">Awaiting approval</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-amber-500 border-amber-500">
-                    Review
-                  </Badge>
-                </div>
+            {pendingLoading ? (
+              <Skeleton className="h-20 rounded-lg" />
+            ) : pendingItems.length > 0 ? (
+              <div className="space-y-2" data-testid="admin-pending-list">
+                {pendingItems.map((i) => (
+                  <button key={i.label} type="button" onClick={() => onOpen(i.section)} className="flex w-full items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-left hover:bg-amber-500/15">
+                    <span className="flex items-center gap-3"><Clock className="w-5 h-5 text-amber-500" /><span className="font-medium">{i.n} {i.label}</span></span>
+                    <Badge variant="outline" className="text-amber-600 border-amber-500 dark:text-amber-400">Review</Badge>
+                  </button>
+                ))}
               </div>
             ) : (
-              <div className="text-center py-6 text-muted-foreground">
+              <div className="text-center py-6 text-muted-foreground" data-testid="admin-pending-empty">
                 <Check className="w-8 h-8 mx-auto mb-2 text-green-500" />
-                <p>All caught up!</p>
+                <p>Nothing waiting: no companies, templates, verifications or reports to review.</p>
               </div>
             )}
           </CardContent>
@@ -329,18 +358,14 @@ function OverviewSection() {
                   <span className="text-xs">Test Call</span>
                 </Button>
               </Link>
-              <Link href="/admin?tab=analytics">
-                <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2">
-                  <Receipt className="w-5 h-5" />
-                  <span className="text-xs">View Reports</span>
-                </Button>
-              </Link>
-              <Link href="/admin?tab=users">
-                <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2">
-                  <UserCheck className="w-5 h-5" />
-                  <span className="text-xs">Add User</span>
-                </Button>
-              </Link>
+              <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2" onClick={() => onOpen("analytics")} data-testid="button-quick-reports">
+                <Receipt className="w-5 h-5" />
+                <span className="text-xs">View Reports</span>
+              </Button>
+              <Button variant="outline" className="w-full h-auto py-4 flex-col gap-2" onClick={() => onOpen("users")} data-testid="button-quick-users">
+                <UserCheck className="w-5 h-5" />
+                <span className="text-xs">Add User</span>
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -354,29 +379,23 @@ function OverviewSection() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium">API Status</span>
-              </div>
-              <p className="text-2xl font-bold text-green-500">Online</p>
+          {health.isError ? (
+            <p className="text-sm text-destructive">Couldn't check the services right now.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="admin-health">
+              {services.map((s) => (
+                <div key={s.label} className={`p-4 rounded-lg border ${s.ok === undefined ? "bg-muted/40" : s.ok ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`w-2 h-2 rounded-full ${s.ok === undefined ? "bg-muted-foreground" : s.ok ? "bg-green-500" : "bg-red-500"}`} />
+                    <span className="text-sm font-medium">{s.label}</span>
+                  </div>
+                  <p className={`text-lg font-semibold ${s.ok === undefined ? "text-muted-foreground" : s.ok ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {s.ok === undefined ? "Checking…" : s.ok ? "Working" : s.off}
+                  </p>
+                </div>
+              ))}
             </div>
-            <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium">Database</span>
-              </div>
-              <p className="text-2xl font-bold text-green-500">Healthy</p>
-            </div>
-            <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-sm font-medium">WebSocket</span>
-              </div>
-              <p className="text-2xl font-bold text-green-500">Active</p>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

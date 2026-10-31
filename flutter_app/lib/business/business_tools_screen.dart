@@ -9,6 +9,8 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
 import 'business_account.dart';
+import '../screens/channels_screen.dart';
+import '../screens/linked_devices_screen.dart';
 import 'business_catalog_screen.dart';
 import 'business_broadcasts_screen.dart';
 import 'business_orders_screen.dart';
@@ -57,7 +59,8 @@ class BusinessToolsScreen extends StatelessWidget {
             _tool(Icons.group_add_outlined, 'Import customers', 'From a CSV file or your phone contacts', () => open(const BusinessImportScreen())),
             _tool(Icons.amp_stories_outlined, 'Status', 'Offers and news for 24 hours, in each customer\'s language', () => open(const BusinessStatusScreen())),
             const _Section('More'),
-            _tool(Icons.groups_outlined, 'Team & reports', 'On neuratalk.in → Company dashboard', null),
+            _tool(Icons.podcasts_outlined, 'Channels', 'Post updates that followers read in their own language', () => open(const ChannelDirectoryScreen())),
+            _tool(Icons.computer_outlined, 'Team, inbox and reports on a computer', 'Open neuratalk.in, tap Log in and scan the QR code here', () => open(const LinkedDevicesScreen())),
           ],
         ),
       ),

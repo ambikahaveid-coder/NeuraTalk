@@ -14,6 +14,29 @@ import { messagingTranslations, users, MESSAGE_CATEGORY } from "@shared/schema";
 import { isTranslationConsentDenied } from "../../translation-consent";
 import { translateChatTextToLanguage } from "../../translation/chat-translate";
 import { logger } from "../../observability";
+import { createHash } from "crypto";
+import { getRedisClient, isRedisReady } from "../../redis";
+
+// A broadcast stores one message per customer. Without this, the same offer sent to
+// 10,000 Telugu readers would be translated 10,000 times. Same text + same language
+// is translated once and reused (30 days).
+const SHARED_TTL_SECONDS = 30 * 24 * 60 * 60;
+const sharedKey = (text: string, language: string) =>
+  `bt:${language}:${createHash("sha256").update(text.trim()).digest("hex")}`;
+
+async function sharedTranslation(text: string, language: string): Promise<string | null> {
+  try {
+    if (!isRedisReady()) return null;
+    return await getRedisClient().get(sharedKey(text, language));
+  } catch { return null; }
+}
+
+async function rememberShared(text: string, language: string, translated: string): Promise<void> {
+  try {
+    if (!isRedisReady() || !translated.trim()) return;
+    await getRedisClient().set(sharedKey(text, language), translated, "EX", SHARED_TTL_SECONDS);
+  } catch { /* best effort */ }
+}
 
 /** Script ranges: a message already in the viewer's script needs no translation. */
 const SCRIPT: Record<string, RegExp> = {
@@ -76,7 +99,9 @@ export async function withTranslations<T extends Translatable>(
   const missing = candidates.filter((m) => !byId.has(m.id)).slice(0, 25); // bound one request's work
   await Promise.all(missing.map(async (m) => {
     try {
-      const translated = await translateChatTextToLanguage(m.content, language);
+      const reused = await sharedTranslation(m.content, language);
+      const translated = reused ?? await translateChatTextToLanguage(m.content, language);
+      if (!reused) await rememberShared(m.content, language, translated);
       byId.set(m.id, translated);
       await db.insert(messagingTranslations).values({ messageId: m.id, language, translatedContent: translated });
     } catch (error) {
