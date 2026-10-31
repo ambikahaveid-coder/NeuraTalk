@@ -211,10 +211,11 @@ async function validateAdminToken(url: string): Promise<number | null> {
     if (!token) return null;
 
     const { userSessions } = await import("@shared/schema");
+    const { sessionTokenMatches } = await import("./role-middleware");
     const [session] = await db
       .select()
       .from(userSessions)
-      .where(eq(userSessions.token, token))
+      .where(sessionTokenMatches(token))
       .limit(1);
 
     if (!session || !session.userId) return null;

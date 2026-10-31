@@ -1,8 +1,8 @@
 import { Request, Response, Router } from "express";
 import { db } from "./db";
 import { userSessions, users, organizations } from "@shared/schema";
-import { eq, and, desc, lt, gt } from "drizzle-orm";
-import { requireAuth, requireRole } from "./role-middleware";
+import { eq, and, desc, gt, notInArray } from "drizzle-orm";
+import { requireAuth, requireRole, sessionTokenForms } from "./role-middleware";
 
 const DEFAULT_MAX_SESSIONS = 5;
 const ENTERPRISE_MAX_SESSIONS = 10;
@@ -100,7 +100,8 @@ export async function forceLogoutAllExceptCurrent(userId: number, currentToken: 
     .from(userSessions)
     .where(eq(userSessions.userId, userId));
   
-  const sessionsToRevoke = allSessions.filter(s => s.token !== currentToken);
+  const keep = sessionTokenForms(currentToken);
+  const sessionsToRevoke = allSessions.filter(s => !keep.includes(s.token));
   
   for (const session of sessionsToRevoke) {
     revokeToken(session.token);
@@ -109,18 +110,11 @@ export async function forceLogoutAllExceptCurrent(userId: number, currentToken: 
   const result = await db.delete(userSessions)
     .where(and(
       eq(userSessions.userId, userId),
-      lt(userSessions.token, currentToken)
+      notInArray(userSessions.token, keep)
     ))
     .returning();
 
-  const result2 = await db.delete(userSessions)
-    .where(and(
-      eq(userSessions.userId, userId),
-      gt(userSessions.token, currentToken)
-    ))
-    .returning();
-
-  return result.length + result2.length;
+  return result.length;
 }
 
 const router = Router();

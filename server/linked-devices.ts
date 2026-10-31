@@ -7,11 +7,12 @@
  */
 import { Router, type Request, type Response } from "express";
 import crypto from "crypto";
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { userSessions, users } from "@shared/schema";
-import { requireAuth, createSession } from "./role-middleware";
+import { requireAuth, createSession, sessionTokenForms } from "./role-middleware";
+import { describeDevice } from "./device-label";
 import { authLimiter } from "./rate-limit";
 
 const router = Router();
@@ -125,12 +126,6 @@ router.post("/api/link-device/approve", requireAuth, async (req: Request, res: R
   res.json({ success: true, device: describeDevice(row.user_agent) });
 });
 
-function describeDevice(ua: string | null | undefined): string {
-  const s = String(ua ?? "").replace(/^\[Linked\]\s*/, "");
-  const browser = /Edg\//.test(s) ? "Edge" : /Chrome\//.test(s) ? "Chrome" : /Firefox\//.test(s) ? "Firefox" : /Safari\//.test(s) ? "Safari" : /Dart|okhttp/i.test(s) || !s.trim() ? "NeuraTalk app" : "Browser";
-  const os = /Windows/.test(s) ? "Windows" : /Mac OS X/.test(s) && !/iPhone|iPad/.test(s) ? "Mac" : /Android/.test(s) ? "Android" : /iPhone|iPad/.test(s) ? "iPhone" : /Linux/.test(s) ? "Linux" : "";
-  return os ? `${browser} on ${os}` : browser;
-}
 
 // ---------------------------------------------------------------- signed-in devices
 function currentToken(req: Request): string | null {
@@ -147,6 +142,7 @@ router.get("/api/linked-devices", requireAuth, async (req: Request, res: Respons
     .where(and(eq(userSessions.userId, req.user!.id), gt(userSessions.expiresAt, new Date())))
     .orderBy(desc(userSessions.lastActivityAt));
   const mine = currentToken(req);
+  const mineForms = mine ? sessionTokenForms(mine) : [];
   res.json({
     success: true,
     sessions: rows.map((r) => ({
@@ -156,7 +152,7 @@ router.get("/api/linked-devices", requireAuth, async (req: Request, res: Respons
       ip: r.ipAddress ? r.ipAddress.replace(/\.\d+$/, ".x") : null,
       createdAt: r.createdAt,
       lastActivityAt: r.lastActivityAt,
-      current: mine !== null && r.token === mine,
+      current: mineForms.includes(r.token),
     })),
   });
 });
@@ -174,7 +170,7 @@ router.post("/api/linked-devices/sign-out-others", requireAuth, async (req: Requ
   const mine = currentToken(req);
   if (!mine) return res.status(400).json({ success: false, message: "Use the app to do this." });
   const deleted = await db.delete(userSessions)
-    .where(and(eq(userSessions.userId, req.user!.id), sql`${userSessions.token} <> ${mine}`))
+    .where(and(eq(userSessions.userId, req.user!.id), notInArray(userSessions.token, sessionTokenForms(mine))))
     .returning({ id: userSessions.id });
   res.json({ success: true, signedOut: deleted.length });
 });

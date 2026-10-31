@@ -410,6 +410,16 @@ app.use((req, res, next) => {
       WHERE u."id" = s."user_id" AND u."role" <> 'super_admin'
         AND s."expires_at" > now()
         AND s."expires_at" - coalesce(s."last_activity_at", s."created_at") < interval '2 days'`);
+    // Never keep usable login tokens in the database: replace old plain tokens with
+    // their SHA-256 fingerprint (the server hashes what the client sends). Idempotent.
+    if ((await import("./role-middleware")).STORE_HASHED_TOKENS) await _db.execute(_sql`
+      UPDATE "user_sessions" SET "token" = 'h1:' || encode(sha256(convert_to("token", 'UTF8')), 'hex')
+      WHERE "token" LIKE 'sess\\_%'`);
+    // Browser logins (and linked computers) end after 14 days without use, like WhatsApp Web.
+    await _db.execute(_sql`
+      UPDATE "user_sessions"
+      SET "expires_at" = least("expires_at", coalesce("last_activity_at", "created_at") + interval '14 days')
+      WHERE "user_agent" ~ 'Mozilla/' AND "user_agent" ~ '(Safari|Firefox)/' AND "user_agent" !~ '; wv\\)'`);
     // Business catalog shown to customers in business chats (additive).
     await _db.execute(_sql`
       CREATE TABLE IF NOT EXISTS "business_catalog_items" (

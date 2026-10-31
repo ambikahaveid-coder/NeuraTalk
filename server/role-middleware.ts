@@ -12,9 +12,10 @@
  * - consumer: B2C user, personal use only
  */
 
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { Request, Response, NextFunction } from "express";
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, eq, gt, lt, inArray, type SQL } from "drizzle-orm";
+import { describeDevice, isBrowserAgent } from "./device-label";
 import { db } from "./db";
 import {
   users,
@@ -251,6 +252,48 @@ const SESSION_EXPIRY_HOURS = 24;
 export const LONG_SESSION_DAYS = 90;
 const LONG_SESSION_MS = LONG_SESSION_DAYS * 24 * 60 * 60 * 1000;
 const SHORT_SESSION_MS = SESSION_EXPIRY_HOURS * 60 * 60 * 1000;
+// Web browsers (and computers linked by QR) sign out after 14 days without use, like WhatsApp Web.
+export const WEB_SESSION_DAYS = 14;
+const WEB_SESSION_MS = WEB_SESSION_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * The database never stores a usable login token: only its SHA-256 fingerprint.
+ * Someone who reads the sessions table cannot sign in with what they find.
+ */
+/**
+ * Rollout switch. Step 1 ships with this false: the server ACCEPTS fingerprints but
+ * still writes plain tokens, so the old server that runs side by side during a deploy
+ * keeps working. Step 2 (next deploy) turns it on: new logins are stored as
+ * fingerprints, old rows are converted at startup and on first use.
+ */
+export const STORE_HASHED_TOKENS = false;
+
+export function sessionTokenKey(rawToken: string): string {
+  return `h1:${createHash("sha256").update(rawToken).digest("hex")}`;
+}
+
+/** The stored forms that a token the client sent may match (hashed, or a not-yet-upgraded old row). */
+export function sessionTokenForms(rawToken: string): string[] {
+  // Only real tokens ("sess_…") may match an old plain row, so a stolen fingerprint is never accepted as a token.
+  return rawToken.startsWith("sess_") ? [sessionTokenKey(rawToken), rawToken] : [sessionTokenKey(rawToken)];
+}
+
+export function sessionTokenMatches(rawToken: string): SQL {
+  return inArray(userSessions.token, sessionTokenForms(rawToken));
+}
+
+/** Tell the person on their phone that a browser just signed in to their account. */
+function alertNewBrowserSignIn(userId: number, userAgent: string | undefined): void {
+  if (!isBrowserAgent(userAgent)) return;
+  const when = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  void import("./firebase-admin")
+    .then(({ sendPushNotification }) => sendPushNotification(userId, {
+      title: "New sign-in to your NeuraTalk account",
+      body: `${describeDevice(userAgent)}, ${when}. If this wasn't you, open NeuraTalk → Linked devices and sign it out.`,
+      data: { type: "security_new_sign_in" },
+    }))
+    .catch((error) => logger.warn("Session", `New sign-in alert failed for user ${userId}: ${String(error)}`));
+}
 
 /**
  * Generate cryptographically secure session token
@@ -302,13 +345,13 @@ export async function createSession(
 ): Promise<string> {
   const token = generateSecureToken();
   const [owner] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId)).catch(() => []);
-  const expiresAt = new Date(Date.now() + (owner?.role === "super_admin" ? SHORT_SESSION_MS : LONG_SESSION_MS));
+  const expiresAt = new Date(Date.now() + (owner?.role === "super_admin" ? SHORT_SESSION_MS : isBrowserAgent(userAgent) ? WEB_SESSION_MS : LONG_SESSION_MS));
 
   try {
     const sessionOptions = await resolveSessionCreateOptions(userId, options);
 
     await db.insert(userSessions).values({
-      token,
+      token: STORE_HASHED_TOKENS ? sessionTokenKey(token) : token,
       userId,
       organizationId: sessionOptions.organizationId,
       tenantSlug: sessionOptions.tenantSlug,
@@ -324,6 +367,7 @@ export async function createSession(
       .catch((error) => logger.warn("Session", `Could not record last login for user ${userId}: ${String(error)}`));
 
     logger.debug("Session", `Session created for user ${userId}`);
+    alertNewBrowserSignIn(userId, userAgent);
     return token;
   } catch (error) {
     logger.error("Session", "Failed to create session", error as Error);
@@ -337,13 +381,13 @@ export async function getSessionDetails(
 ) {
   try {
     const { isTokenRevoked } = await import("./session-management");
-    if (isTokenRevoked(token)) {
+    if (sessionTokenForms(token).some((form) => isTokenRevoked(form))) {
       return null;
     }
 
     const session = await db.query.userSessions.findFirst({
       where: and(
-        eq(userSessions.token, token),
+        sessionTokenMatches(token),
         gt(userSessions.expiresAt, new Date()),
       ),
     });
@@ -381,12 +425,15 @@ export async function getSessionDetails(
     // Keep the window this session was created with (long for app users,
     // short for super-admins): renew by the same length.
     const lastSeen = (session.lastActivityAt ?? session.createdAt ?? new Date()).getTime();
-    const windowMs = session.expiresAt.getTime() - lastSeen > 2 * SHORT_SESSION_MS ? LONG_SESSION_MS : SHORT_SESSION_MS;
+    const longWindow = session.expiresAt.getTime() - lastSeen > 2 * SHORT_SESSION_MS;
+    const windowMs = !longWindow ? SHORT_SESSION_MS : isBrowserAgent(session.userAgent) ? WEB_SESSION_MS : LONG_SESSION_MS;
     const newExpiresAt = new Date(Date.now() + windowMs);
     await db.update(userSessions)
       .set({
         lastActivityAt: new Date(),
         expiresAt: newExpiresAt,
+        // An old row that still held the plain token is upgraded to the fingerprint on first use.
+        ...(STORE_HASHED_TOKENS && session.token === token ? { token: sessionTokenKey(token) } : {}),
       })
       .where(eq(userSessions.id, session.id));
 
@@ -417,7 +464,7 @@ export async function validateSession(
  */
 export async function invalidateSession(token: string): Promise<void> {
   try {
-    await db.delete(userSessions).where(eq(userSessions.token, token));
+    await db.delete(userSessions).where(sessionTokenMatches(token));
     logger.debug("Session", "Session invalidated");
   } catch (error) {
     logger.error("Session", "Failed to invalidate session", error as Error);

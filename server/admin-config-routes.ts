@@ -10,11 +10,12 @@ import { db } from "./db";
 import { users, userSessions } from "@shared/schema";
 import { eq, and, gt } from "drizzle-orm";
 import { z } from "zod";
+import { sessionTokenMatches } from "./role-middleware";
 
 async function validateSession(token: string): Promise<number | null> {
   const session = await db.query.userSessions.findFirst({
     where: and(
-      eq(userSessions.token, token),
+      sessionTokenMatches(token),
       gt(userSessions.expiresAt, new Date())
     ),
   });
