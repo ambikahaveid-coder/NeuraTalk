@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Menu, Phone, Globe, Mail, MapPin, Linkedin, Twitter, Youtube, ArrowRight, Building2, Users, Shield, FileText } from "lucide-react";
+import { Menu, Phone, Mail, MapPin, Linkedin, Twitter, Youtube, Building2 } from "lucide-react";
 import { ThemeToggle, usePublicTheme } from "@/components/theme-toggle";
 import AIChatbot from "./AIChatbot";
 import { LogoWithIcon } from "@/components/Logo";
@@ -102,13 +102,13 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
             <ThemeToggle />
 
             <Link href="/login" className="hidden sm:block">
-              <Button variant="ghost" size="sm" data-testid="button-login-header">
+              <Button variant="ghost" size="sm" className="rounded-full" data-testid="button-login-header">
                 Log in
               </Button>
             </Link>
 
             <Link href="/login" className="hidden md:block">
-              <Button size="sm" data-testid="button-start-header">
+              <Button size="sm" className="rounded-full px-4" data-testid="button-start-header">
                 Start free
               </Button>
             </Link>
@@ -154,134 +154,57 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
 
       <AIChatbot />
 
-      <footer className="bg-muted/50 border-t">
-        <div className="max-w-7xl mx-auto px-4 py-12">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
-            <div className="col-span-2 md:col-span-1">
-              <div className="flex items-center gap-2 mb-4">
-                <LogoWithIcon size="sm" />
-              </div>
-              <p className="text-sm text-muted-foreground mb-4">
-                Calls, chats and business messages translated into your language — in your own voice.
+      <footer className="border-t bg-background">
+        <div className="max-w-6xl mx-auto px-4 pt-16 pb-10">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+            <div>
+              <LogoWithIcon size="sm" />
+              <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                Calls, chats and business messages translated into your language, in your own voice.
               </p>
-              <div className="flex gap-3">
-                <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
-                  <Linkedin className="w-5 h-5" />
-                </a>
-                <a href="https://twitter.com/neuratalk_in" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
-                  <Twitter className="w-5 h-5" />
-                </a>
-                <a href="https://youtube.com/@neuratalk" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary">
-                  <Youtube className="w-5 h-5" />
-                </a>
+              <div className="mt-5 flex gap-4">
+                <a href="https://linkedin.com/company/neuratalk" target="_blank" rel="noopener noreferrer" aria-label="NeuraTalk on LinkedIn" className="text-muted-foreground hover:text-foreground"><Linkedin className="w-5 h-5" /></a>
+                <a href="https://twitter.com/neuratalk_in" target="_blank" rel="noopener noreferrer" aria-label="NeuraTalk on X" className="text-muted-foreground hover:text-foreground"><Twitter className="w-5 h-5" /></a>
+                <a href="https://youtube.com/@neuratalk" target="_blank" rel="noopener noreferrer" aria-label="NeuraTalk on YouTube" className="text-muted-foreground hover:text-foreground"><Youtube className="w-5 h-5" /></a>
               </div>
             </div>
-
-            <div>
-              <h4 className="font-semibold mb-4 flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Product
-              </h4>
-              <ul className="space-y-2">
-                {footerLinks.product.map((link) => (
-                  <li key={link.href + link.label}>
-                    <Link href={link.href}>
-                      <span className="text-sm text-muted-foreground hover:text-primary cursor-pointer">
-                        {link.label}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4 flex items-center gap-2">
-                <Building2 className="w-4 h-4" /> Company
-              </h4>
-              <ul className="space-y-2">
-                {footerLinks.company.map((link) => (
-                  <li key={link.href + link.label}>
-                    <Link href={link.href}>
-                      <span className="text-sm text-muted-foreground hover:text-primary cursor-pointer">
-                        {link.label}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4 flex items-center gap-2">
-                <Shield className="w-4 h-4" /> Legal
-              </h4>
-              <ul className="space-y-2">
-                {footerLinks.legal.map((link) => (
-                  <li key={link.href + link.label}>
-                    <Link href={link.href}>
-                      <span className="text-sm text-muted-foreground hover:text-primary cursor-pointer">
-                        {link.label}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4 flex items-center gap-2">
-                <Users className="w-4 h-4" /> Get Started
-              </h4>
-              <ul className="space-y-2">
-                {footerLinks.resources.map((link, idx) => (
-                  <li key={link.href + link.label + idx}>
-                    <Link href={link.href}>
-                      <span className="text-sm text-muted-foreground hover:text-primary cursor-pointer flex items-center gap-1">
-                        {link.label} <ArrowRight className="w-3 h-3" />
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            {([["Product", footerLinks.product], ["Company", footerLinks.company], ["Help", footerLinks.resources]] as const).map(([title, links]) => (
+              <div key={title}>
+                <h4 className="text-sm font-semibold">{title}</h4>
+                <ul className="mt-4 space-y-2.5">
+                  {links.map((link) => (
+                    <li key={link.href + link.label}>
+                      <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground">{link.label}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
 
-          <div className="border-t mt-8 pt-8">
-            <div className="grid md:grid-cols-2 gap-6 mb-6">
-              <div className="flex flex-col gap-2">
-                <h5 className="font-medium text-sm">Contact Information</h5>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Mail className="w-4 h-4" />
-                  <a href="mailto:support@mindwhile.com" className="hover:text-foreground">support@mindwhile.com</a>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Phone className="w-4 h-4" />
-                  <a href="tel:+918143752025" className="hover:text-foreground">+91 81437 52025</a>
-                </div>
-                <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <MapPin className="w-4 h-4 mt-0.5" />
-                  <span>Mindwhile IT Solutions Pvt Ltd<br/>4th Floor, Mayuri Tech Park<br/>Mangalagiri, Guntur, AP 522503</span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2">
-                <h5 className="font-medium text-sm">Privacy & Compliance</h5>
-                <div className="flex flex-wrap gap-2">
-                    <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">DPDP Act 2023</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Calls and messages are encrypted in transit. We follow India's DPDP Act 2023.
-                </p>
-              </div>
-            </div>
+          <div className="mt-12 border-t pt-8">
+            <h4 className="text-sm font-semibold">Policies</h4>
+            <ul className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2.5 sm:grid-cols-3 lg:grid-cols-4">
+              {footerLinks.legal.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className="text-sm text-muted-foreground hover:text-foreground">{link.label}</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
 
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-4 border-t">
-              <p className="text-sm text-muted-foreground">
-                © {currentYear} Mindwhile IT Solutions Pvt Ltd. All rights reserved.
-              </p>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>CIN: U72900AP2022PTC122855</span>
-              </div>
+          <div className="mt-12 grid gap-6 border-t pt-8 text-sm text-muted-foreground md:grid-cols-3">
+            <div className="space-y-1.5">
+              <a href="mailto:support@mindwhile.com" className="flex items-center gap-2 hover:text-foreground"><Mail className="w-4 h-4" />support@mindwhile.com</a>
+              <a href="tel:+918143752025" className="flex items-center gap-2 hover:text-foreground"><Phone className="w-4 h-4" />+91 81437 52025</a>
             </div>
+            <p className="flex items-start gap-2"><MapPin className="w-4 h-4 mt-0.5 shrink-0" /><span>Mindwhile IT Solutions Pvt Ltd, 4th Floor, Mayuri Tech Park, Mangalagiri, Guntur, AP 522503</span></p>
+            <p>Calls and messages are encrypted in transit. We follow India's DPDP Act 2023.</p>
+          </div>
+
+          <div className="mt-8 flex flex-col gap-2 border-t pt-6 text-xs text-muted-foreground sm:flex-row sm:justify-between">
+            <p>© {currentYear} Mindwhile IT Solutions Pvt Ltd. All rights reserved.</p>
+            <p>CIN: U72900AP2022PTC122855</p>
           </div>
         </div>
       </footer>
