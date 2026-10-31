@@ -129,10 +129,15 @@ async function sendInboundPush(userId: string, payload: {
 export async function handleInboundCall(
   body: unknown,
   headers: Record<string, string>,
+  /**
+   * LiveKit SIP: the call is already in a LiveKit room (created by our dispatch rule), so there
+   * is no provider webhook to parse and no SIP URI to bridge to. callId = that room's name.
+   */
+  alreadyInRoom?: { event: PSTNInboundEvent; callId: string },
 ): Promise<{ status: number; body: unknown }> {
   const provider = getPSTNProvider();
 
-  const event: PSTNInboundEvent | null = provider.parseInboundWebhook(body, headers);
+  const event: PSTNInboundEvent | null = alreadyInRoom?.event ?? provider.parseInboundWebhook(body, headers);
   if (!event) {
     logger.warn("PSTNInbound", "Could not parse inbound webhook", { body });
     return { status: 400, body: { error: "unrecognised_payload" } };
@@ -153,12 +158,12 @@ export async function handleInboundCall(
   // the provider tries (and fails) to dial a SIP URI on a domain that was
   // never really provisioned.
   const sipBridge = getSIPBridgeStatus();
-  if (!sipBridge.configured) {
+  if (!alreadyInRoom && !sipBridge.configured) {
     logger.error("PSTNInbound", `Rejecting inbound call — SIP bridge not configured: ${sipBridge.warning}`);
     return { status: 200, body: { action: "reject", reason: "busy" } };
   }
 
-  const callId = `call_${randomUUID()}`;
+  const callId = alreadyInRoom?.callId ?? `call_${randomUUID()}`;
 
   // Guard against double-booking the callee: two simultaneous inbound calls
   // to the same DID/user (or an inbound call arriving while the callee is

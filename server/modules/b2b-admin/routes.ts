@@ -124,14 +124,26 @@ async function listOrgDIDs(req: Request, res: Response) {
   return res.json({ success: true, data: dids });
 }
 
+/** Keep the LiveKit incoming line in step with business numbers (best effort; super admin can re-sync). */
+function syncPhoneLineSoon(): void {
+  // Only when this server really runs phone lines through LiveKit (production with PSTN_PROVIDER=exotel):
+  // a test or staging server must never edit the live LiveKit incoming line.
+  if (!["exotel", "livekit_sip"].includes((process.env.PSTN_PROVIDER || "").toLowerCase())) return;
+  void import("../../telephony-admin")
+    .then(({ syncInboundNumbers }) => syncInboundNumbers())
+    .catch((e) => logger.warn("B2BAdmin", `phone line sync after number change failed: ${String(e)}`));
+}
+
 async function addOrgDID(req: Request, res: Response) {
   const user = getUser(req);
   const orgId = Number(req.params.orgId);
   if (!Number.isFinite(orgId)) return badRequest(res, "Invalid orgId");
-  if (!isOrgAdmin(user, orgId)) return forbidden(res);
+  // Numbers come from NeuraTalk's telephone provider. Incoming calls are routed by number, so a
+  // business must never be able to claim one itself (it could take another business's calls).
+  if (!isSuperAdmin(user)) return res.status(403).json({ success: false, error: "Phone numbers are assigned by NeuraTalk." });
 
   const schema = z.object({
-    phoneNumber: z.string().min(8),
+    phoneNumber: z.string().regex(/^\+[1-9]\d{7,14}$/, "Use international format, e.g. +918012345678"),
     label: z.string().optional(),
     type: z.enum(["inbound", "outbound", "both"]).default("both"),
     provider: z.string().default("msg91"),
@@ -147,6 +159,10 @@ async function addOrgDID(req: Request, res: Response) {
     .from(organizations).where(eq(organizations.id, orgId));
   if (!org) return res.status(404).json({ success: false, error: "Organization not found" });
 
+  const [taken] = await db.select({ organizationId: orgDIDNumbers.organizationId }).from(orgDIDNumbers)
+    .where(eq(orgDIDNumbers.phoneNumber, parsed.data.phoneNumber)).limit(1);
+  if (taken) return res.status(409).json({ success: false, error: taken.organizationId === orgId ? "This number is already on this business." : "This number belongs to another business." });
+
   const [inserted] = await db.insert(orgDIDNumbers).values({
     organizationId: orgId,
     phoneNumber: parsed.data.phoneNumber,
@@ -159,6 +175,7 @@ async function addOrgDID(req: Request, res: Response) {
   } as InsertOrgDIDNumber).returning();
 
   logger.info("B2BAdmin", "Org DID added", { orgId, phoneNumber: parsed.data.phoneNumber });
+  syncPhoneLineSoon();
   return res.status(201).json({ success: true, data: inserted });
 }
 
@@ -193,11 +210,12 @@ async function deleteOrgDID(req: Request, res: Response) {
   const orgId = Number(req.params.orgId);
   const didId = Number(req.params.didId);
   if (!Number.isFinite(orgId) || !Number.isFinite(didId)) return badRequest(res, "Invalid id");
-  if (!isOrgAdmin(user, orgId)) return forbidden(res);
+  if (!isSuperAdmin(user)) return res.status(403).json({ success: false, error: "Phone numbers are removed by NeuraTalk." });
 
   await db.delete(orgDIDNumbers)
     .where(and(eq(orgDIDNumbers.id, didId), eq(orgDIDNumbers.organizationId, orgId)));
 
+  syncPhoneLineSoon();
   return res.json({ success: true });
 }
 

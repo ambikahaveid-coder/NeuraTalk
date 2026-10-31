@@ -31,10 +31,11 @@ import {
 } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDuration, languageName, CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, VoiceClonesSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
+import { PhoneLinesSection } from "./admin/PhoneLinesSection";
 import { LogoWithIcon } from "@/components/Logo";
 import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth, type PolicyNotice } from "@/lib/account-health";
 
-type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "voices" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations";
+type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "voices" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations" | "phone-lines";
 
 const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="w-4 h-4" />, group: "Dashboard" },
@@ -49,6 +50,7 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: "integrations", label: "API & Keys", icon: <Key className="w-4 h-4" />, group: "Platform" },
   { id: "webhooks", label: "Webhooks", icon: <Key className="w-4 h-4" />, group: "Platform" },
   { id: "communication-api", label: "Communication API", icon: <Key className="w-4 h-4" />, group: "Platform" },
+  { id: "phone-lines", label: "Phone Lines", icon: <PhoneCall className="w-4 h-4" />, group: "Platform" },
   { id: "locations", label: "Locations", icon: <Globe className="w-4 h-4" />, group: "Platform" },
   { id: "feature-flags", label: "Feature Flags", icon: <ToggleLeft className="w-4 h-4" />, group: "Platform" },
   { id: "platform-settings", label: "Platform Settings", icon: <Settings className="w-4 h-4" />, group: "Platform" },
@@ -157,7 +159,7 @@ export default function SuperAdminDashboard() {
               <div className="min-w-0">
               <h1 className="text-2xl font-bold" data-testid="text-admin-section-title">{activeItem?.label ?? "Overview"}</h1>
               <p className="text-sm text-muted-foreground">
-                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", voices: "Voices people recorded for translated calls", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
+                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", "phone-lines": "Exotel line, incoming calls and business numbers", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", voices: "Voices people recorded for translated calls", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
               </p>
               </div>
             </div>
@@ -215,6 +217,7 @@ export default function SuperAdminDashboard() {
           {activeSection === "tenants" && <TenantsSection />}
           {activeSection === "communication-api" && <CommunicationApiSection />}
           {activeSection === "locations" && <LocationsSection />}
+          {activeSection === "phone-lines" && <PhoneLinesSection />}
           {activeSection === "audit" && <AuditSection />}
           {activeSection === "settings" && <SettingsSection />}
         </div>

@@ -25,7 +25,7 @@ import { loadUser, requireAuth, requireSuperAdmin } from "../role-middleware";
 import { logger } from "../observability";
 import type { PSTNStatusEvent } from "./provider";
 
-async function processStatusEvent(event: PSTNStatusEvent): Promise<void> {
+export async function processStatusEvent(event: PSTNStatusEvent): Promise<void> {
   const callId = event.internalCallId;
   if (!callId) {
     // Try to find by providerCallId (inbound calls)

@@ -8,7 +8,7 @@ import {
 import { getAuthToken } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
-type Tab = "overview" | "inbox" | "messaging" | "marketing" | "agents" | "reports" | "api" | "settings";
+type Tab = "overview" | "inbox" | "calls" | "messaging" | "marketing" | "agents" | "reports" | "api" | "settings";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Authorization: `Bearer ${getAuthToken() ?? ""}` } });

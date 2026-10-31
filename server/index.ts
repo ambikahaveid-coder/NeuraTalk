@@ -482,6 +482,9 @@ app.use((req, res, next) => {
     await ensureChatExtrasTables();
     const { ensureTwoStepTables } = await import("./two-step");
     await ensureTwoStepTables();
+    // Business phone lines (Exotel etc. through LiveKit SIP): trunk table + load the connected line.
+    const { ensureTelephonyTables } = await import("./telephony-admin");
+    await ensureTelephonyTables().catch((e) => console.warn("[Startup] telephony tables:", String(e)));
     const { ensureStickersTable } = await import("./stickers");
     await ensureStickersTable();
     const { ensureLinkedDevicesTable } = await import("./linked-devices");

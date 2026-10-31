@@ -13,6 +13,7 @@ import MarketingControlCenter from "@/pages/marketing/MarketingControlCenter";
 import MessagingStudio from "@/pages/messaging/MessagingStudio";
 import BusinessInboxPanel from "@/pages/inbox/BusinessInboxPanel";
 import { BusinessHome } from "./business/BusinessHome";
+import { BusinessCalls } from "./business/BusinessCalls";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -72,7 +73,7 @@ const BUSINESS_PERMISSION_LABELS: Record<string, { label: string; group: string 
   "messaging:send": { label: "Send business messages", group: "Messaging" },
 };
 
-type Tab = "overview" | "inbox" | "messaging" | "marketing" | "agents" | "reports" | "api" | "settings";
+type Tab = "overview" | "inbox" | "calls" | "messaging" | "marketing" | "agents" | "reports" | "api" | "settings";
 
 interface CompanyCreditResponse {
   success: boolean;
@@ -253,6 +254,7 @@ export default function CompanyDashboard() {
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "overview", label: "Home", icon: <BarChart3 className="w-4 h-4" /> },
     { id: "inbox", label: "Chats", icon: <MessagesSquare className="w-4 h-4" /> },
+    { id: "calls", label: "Calls", icon: <Phone className="w-4 h-4" /> },
     { id: "messaging", label: "Business tools", icon: <Send className="w-4 h-4" /> },
     { id: "marketing", label: "Broadcasts", icon: <Sparkles className="w-4 h-4" /> },
     { id: "agents", label: "Team", icon: <Users className="w-4 h-4" /> },
@@ -354,6 +356,7 @@ export default function CompanyDashboard() {
           )}
 
           {activeTab === "inbox" && <BusinessInboxPanel businessId={businessId} />}
+          {activeTab === "calls" && <BusinessCalls businessId={businessId} />}
           {activeTab === "messaging" && <MessagingStudio businessId={businessId} />}
           {activeTab === "marketing" && <MarketingControlCenter businessId={businessId} />}
           {activeTab === "agents" && (

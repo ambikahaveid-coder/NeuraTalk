@@ -66,6 +66,7 @@ import { registerAuthRoutes } from "./modules/auth/routes";
 import { registerCallsRoutes } from "./modules/calls/routes";
 import { registerQueueRoutes } from "./modules/calls/queue-routes";
 import { registerPSTNRoutes } from "./pstn/routes";
+import { registerTelephonyAdminRoutes } from "./telephony-admin";
 import { registerCallerIdRoutes } from "./modules/caller-id/routes";
 import { registerTranscriptRoutes } from "./modules/transcripts/routes";
 import { registerB2BAdminRoutes } from "./modules/b2b-admin/routes";
@@ -205,6 +206,7 @@ export async function registerRoutes(
   registerCallsRoutes(app); console.log("[Routes] ✓ Calls module (LiveKit) routes");
   registerQueueRoutes(app); console.log("[Routes] ✓ ACD queue routes (join/status/abandon)");
   registerPSTNRoutes(app); console.log("[Routes] ✓ PSTN routes (inbound/outbound webhooks, CDR, health)");
+  registerTelephonyAdminRoutes(app); console.log("[Routes] ✓ Business phone lines (LiveKit SIP)");
   registerCallerIdRoutes(app); console.log("[Routes] ✓ Caller ID verification + inbound call routes");
   registerTranscriptRoutes(app); console.log("[Routes] ✓ Transcript system routes");
   registerB2BAdminRoutes(app); console.log("[Routes] ✓ B2B admin routes (virtual numbers, DID, agent skills)");

@@ -1168,6 +1168,20 @@ export async function livekitWebhook(req: Request, res: Response) {
     const authHeader = req.headers.authorization || "";
     const event = await verifyLiveKitWebhook(rawBody, authHeader);
 
+    // Phone lines through LiveKit SIP (Exotel etc.): ring agents for inbound calls,
+    // and turn the phone participant joining/leaving into answered/ended call states.
+    if (event.event === "participant_joined" || event.event === "participant_left") {
+      const sip = await import("../../pstn/livekit-sip");
+      if (sip.isSipParticipant(event.participant as any) || event.room?.name?.startsWith(sip.INBOUND_ROOM_PREFIX)) {
+        const [{ handleInboundCall }, { processStatusEvent }, { removeParticipant }] = await Promise.all([
+          import("../../pstn/inbound"), import("../../pstn/routes"), import("../../livekit-service"),
+        ]);
+        const outcome = await sip.handleLiveKitSipEvent(event as any, { handleInboundCall, processStatusEvent, removeParticipant })
+          .catch((error) => { logger.warn("LiveKitWebhook", `phone line event failed: ${String(error)}`); return "error"; });
+        if (outcome !== "ignored") logger.info("LiveKitWebhook", `phone line ${event.event} in ${event.room?.name}: ${outcome}`);
+      }
+    }
+
     const callId = event.room?.name;
     if (callId && svc.isSmartCallId(callId)) {
       if (event.event === "room_finished") {
