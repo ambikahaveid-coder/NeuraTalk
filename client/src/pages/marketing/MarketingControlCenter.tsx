@@ -161,6 +161,11 @@ async function fetchMarketingJson(path: string) {
   return res.json();
 }
 
+const STATUS_WORDS: Record<string, string> = {
+  completed: "finished", running: "sending", cancelled: "cancelled", failed: "failed", draft: "draft",
+  scheduled: "scheduled", pending_approval: "waiting for approval", paused: "paused",
+};
+
 function renderMetricValue(value: number | string | null | undefined, fallback: string = "—") {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) return value;
@@ -213,14 +218,14 @@ export function MarketingOverviewPage({ businessId }: { businessId: number }) {
         <MetricCard label="Active campaigns" value={activeCampaigns} icon={BarChart3} tone="default" testId="metric-active-campaigns" />
         <MetricCard label="Scheduled campaigns" value={scheduledCampaigns} icon={CalendarRange} tone="default" testId="metric-scheduled-campaigns" />
         <MetricCard label="Sent" value={sent} icon={CheckCircle2} tone="positive" testId="metric-sent-overview" />
-        <MetricCard label="Suppressed" value={skipped} icon={ShieldAlert} tone="warning" testId="metric-suppressed-overview" />
+        <MetricCard label="Skipped (no consent or daily limit)" value={skipped} icon={ShieldAlert} tone="warning" testId="metric-suppressed-overview" />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Eligible" value={renderMetricValue(Math.max(0, targeted - skipped), "NOT AVAILABLE")} icon={Users} tone="default" testId="metric-eligible-overview" />
+        <MetricCard label="Could receive" value={renderMetricValue(Math.max(0, targeted - skipped), "Not available")} icon={Users} tone="default" testId="metric-eligible-overview" />
         <MetricCard label="Actual spend" value={formatPaise(totalCost)} icon={CreditCard} tone="default" testId="metric-actual-spend" />
-        <MetricCard label="Failed" value={renderMetricValue(Math.max(0, sent === 0 && targeted > 0 ? targeted - sent - skipped : 0), "NOT AVAILABLE")} icon={ShieldAlert} tone="negative" testId="metric-failed-overview" />
-        <MetricCard label="Available credits" value={"NOT AVAILABLE"} icon={Sparkles} tone="default" testId="metric-available-credits" />
+        <MetricCard label="Failed" value={renderMetricValue(Math.max(0, sent === 0 && targeted > 0 ? targeted - sent - skipped : 0), "Not available")} icon={ShieldAlert} tone="negative" testId="metric-failed-overview" />
+        <MetricCard label="Broadcasts in total" value={report?.campaignCount ?? campaigns.length} icon={Sparkles} tone="default" testId="metric-campaign-total" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -237,13 +242,12 @@ export function MarketingOverviewPage({ businessId }: { businessId: number }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Campaign summary</CardTitle>
+            <CardTitle className="text-sm">Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Targeted</span><span className="font-semibold">{targeted}</span></div>
-            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Skipped</span><span className="font-semibold">{skipped}</span></div>
-            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Campaign count</span><span className="font-semibold">{report?.campaignCount ?? campaigns.length}</span></div>
-            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Status mix</span><span className="font-semibold">{Object.keys(report?.campaignsByStatus ?? {}).length ? Object.entries(report?.campaignsByStatus ?? {}).map(([k, v]) => `${k}:${v}`).join(", ") : "—"}</span></div>
+            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Customers chosen</span><span className="font-semibold">{targeted}</span></div>
+            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Skipped (no consent, blocked or daily limit)</span><span className="font-semibold">{skipped}</span></div>
+            <div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">By status</span><span className="text-right font-semibold">{Object.keys(report?.campaignsByStatus ?? {}).length ? Object.entries(report?.campaignsByStatus ?? {}).map(([k, v]) => `${v} ${STATUS_WORDS[k] ?? k.replace(/_/g, " ")}`).join(" · ") : "—"}</span></div>
           </CardContent>
         </Card>
       </div>
@@ -664,7 +668,7 @@ function MarketingReportsPage({ businessId }: { businessId: number }) {
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard label="Sent" value={report?.totals?.sent ?? 0} icon={CheckCircle2} tone="positive" testId="metric-report-sent" />
-        <MetricCard label="Suppressed" value={report?.totals?.skipped ?? 0} icon={ShieldAlert} tone="warning" testId="metric-report-suppressed" />
+        <MetricCard label="Skipped" value={report?.totals?.skipped ?? 0} icon={ShieldAlert} tone="warning" testId="metric-report-suppressed" />
         <MetricCard label="Actual cost" value={formatPaise(report?.totals?.cost?.totalChargedPaise ?? 0)} icon={CreditCard} tone="default" testId="metric-report-cost" />
       </div>
 

@@ -12,6 +12,7 @@ import { useUpload } from "@/hooks/use-upload";
 import MarketingControlCenter from "@/pages/marketing/MarketingControlCenter";
 import MessagingStudio from "@/pages/messaging/MessagingStudio";
 import BusinessInboxPanel from "@/pages/inbox/BusinessInboxPanel";
+import { BusinessHome } from "./business/BusinessHome";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -250,13 +251,13 @@ export default function CompanyDashboard() {
   });
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "overview", label: "Overview", icon: <BarChart3 className="w-4 h-4" /> },
-    { id: "inbox", label: "Inbox", icon: <MessagesSquare className="w-4 h-4" /> },
-    { id: "messaging", label: "Messaging", icon: <Send className="w-4 h-4" /> },
-    { id: "marketing", label: "Marketing", icon: <Sparkles className="w-4 h-4" /> },
+    { id: "overview", label: "Home", icon: <BarChart3 className="w-4 h-4" /> },
+    { id: "inbox", label: "Chats", icon: <MessagesSquare className="w-4 h-4" /> },
+    { id: "messaging", label: "Business tools", icon: <Send className="w-4 h-4" /> },
+    { id: "marketing", label: "Broadcasts", icon: <Sparkles className="w-4 h-4" /> },
     { id: "agents", label: "Team", icon: <Users className="w-4 h-4" /> },
     { id: "reports", label: "Reports", icon: <FileText className="w-4 h-4" /> },
-    { id: "api", label: "API & SDK", icon: <Key className="w-4 h-4" /> },
+    { id: "api", label: "Developers", icon: <Key className="w-4 h-4" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
   ];
   const visibleTabs = tabs.filter((tab) => {
@@ -278,93 +279,93 @@ export default function CompanyDashboard() {
     return <PendingApprovalScreen user={user} logout={logout} />;
   }
 
+  const businessId = user?.organization?.id ?? 0;
+  const businessName = dashboard?.company?.name || user?.organization?.name || "Your business";
+  const verified = Boolean(dashboard?.company?.verifiedAt);
+  const wallet = creditsData?.billing || billingData?.data?.strictAccount;
+  const current = visibleTabs.find((t) => t.id === activeTab);
+
   return (
-    <div className="min-h-screen mesh-bg text-foreground overflow-hidden flex flex-col font-sans">
-      <header className="border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="container mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/company">
-              <div className="flex items-center gap-2 cursor-pointer hover:opacity-80 font-bold">
-                <LogoWithIcon size="sm" />
-              </div>
-            </Link>
-            <Badge variant="secondary" className="text-xs hidden sm:flex">
-              {user?.organization?.name || "Company"}
-            </Badge>
+    <div className="flex h-[100dvh] flex-col bg-[#F5F2EC] text-foreground dark:bg-background md:flex-row">
+      {/* One menu: a sidebar on a computer, a top bar with scrolling sections on a phone. */}
+      <aside className="flex w-full shrink-0 flex-col border-b bg-background md:w-64 md:border-b-0 md:border-r">
+        <div className="flex items-center gap-3 px-4 py-3 md:px-5 md:py-5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground md:h-10 md:w-10 md:text-lg">{businessName.charAt(0).toUpperCase()}</span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold leading-tight" data-testid="text-business-name">{businessName}</p>
+            <p className="hidden text-xs text-muted-foreground md:block">NeuraTalk Business</p>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground hidden sm:block">
-              {user?.email || user?.username}
-            </span>
+          <div className="flex items-center md:hidden">
             <ThemeToggle />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={logout}
-              data-testid="button-logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
+            <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out"><LogOut className="h-4 w-4" /></Button>
           </div>
         </div>
-      </header>
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-none">
-            {visibleTabs.map((tab) => (
-              <Button
-                key={tab.id}
-                variant={activeTab === tab.id ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 font-bold transition-all ${
-                  activeTab === tab.id 
-                    ? "shadow-lg shadow-primary/20 scale-105" 
-                    : "hover:bg-muted"
-                }`}
-                data-testid={`tab-${tab.id}`}
-              >
-                {tab.icon}
-                {tab.label}
-              </Button>
-            ))}
+        <nav className="flex gap-1 overflow-x-auto px-3 pb-2 scrollbar-none md:flex-1 md:flex-col md:overflow-y-auto md:pb-0" aria-label="Business">
+          {visibleTabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm transition-colors md:w-full md:gap-3 md:px-4 md:py-2.5 md:text-left ${activeTab === tab.id ? "bg-primary text-primary-foreground md:bg-primary/10 md:font-semibold md:text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+              data-testid={`tab-${tab.id}`}
+              aria-current={activeTab === tab.id ? "page" : undefined}
+            >
+              {tab.icon}{tab.label}
+            </button>
+          ))}
+        </nav>
+        <div className="hidden space-y-1 border-t p-3 md:block">
+          <Link href="/web" className="flex items-center gap-3 rounded-full px-4 py-2.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+            <MessagesSquare className="h-4 w-4" />My personal chats
+          </Link>
+          <div className="flex items-center justify-between px-2 pt-1">
+            <span className="truncate px-2 text-xs text-muted-foreground">{user?.displayName || user?.email || user?.username}</span>
+            <div className="flex items-center">
+              <ThemeToggle />
+              <Button variant="ghost" size="icon" onClick={logout} aria-label="Log out" data-testid="button-logout"><LogOut className="h-4 w-4" /></Button>
+            </div>
           </div>
+        </div>
+      </aside>
+
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        <div className={`mx-auto px-4 py-6 md:px-8 md:py-8 ${activeTab === "inbox" ? "max-w-[1400px]" : "max-w-6xl"}`}>
+          {activeTab !== "overview" && current && (
+            <h1 className="mb-6 hidden text-2xl font-semibold tracking-tight md:block">{current.label}</h1>
+          )}
 
           {activeTab === "overview" && (
-            <OverviewTab dashboard={dashboard} billingData={billingData} creditsData={creditsData} auditData={auditData} isLoading={dashboardLoading} isError={dashboardIsError} error={dashboardError} onRetry={refetchDashboard} canManageCompany={canManageCompany} />
+            dashboardIsError ? (
+              <div className="mx-auto max-w-md py-8"><QueryErrorState error={dashboardError} onRetry={() => refetchDashboard()} label="your business home" /></div>
+            ) : dashboardLoading ? (
+              <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            ) : (
+              <BusinessHome
+                businessId={businessId}
+                businessName={businessName}
+                verified={verified}
+                canManage={canManageCompany}
+                wallet={wallet}
+                onOpen={setActiveTab}
+                auditLogs={auditData?.logs}
+                clientConnect={<ClientConnectCard />}
+              />
+            )
           )}
 
-          {activeTab === "inbox" && (
-            <BusinessInboxPanel businessId={user?.organization?.id ?? 0} />
-          )}
-
-          {activeTab === "messaging" && (
-            <MessagingStudio businessId={user?.organization?.id ?? 0} />
-          )}
-
-          {activeTab === "marketing" && (
-            <MarketingControlCenter businessId={user?.organization?.id ?? 0} />
-          )}
-
+          {activeTab === "inbox" && <BusinessInboxPanel businessId={businessId} />}
+          {activeTab === "messaging" && <MessagingStudio businessId={businessId} />}
+          {activeTab === "marketing" && <MarketingControlCenter businessId={businessId} />}
           {activeTab === "agents" && (
-            <AgentsTab agents={agents} isLoading={agentsLoading} isError={agentsIsError} error={agentsError} onRetry={refetchAgents} canManageCompany={canManageCompany} businessId={user?.organization?.id ?? 0} />
+            <AgentsTab agents={agents} isLoading={agentsLoading} isError={agentsIsError} error={agentsError} onRetry={refetchAgents} canManageCompany={canManageCompany} businessId={businessId} />
           )}
-
           {activeTab === "reports" && (
             <ReportsTab billingData={billingData} creditsData={creditsData} auditData={auditData} paymentHistory={paymentHistory} />
           )}
-
-          {activeTab === "api" && (
-            <ApiTab billingData={billingData} />
-          )}
-
-          {activeTab === "settings" && (
-            <SettingsTab organization={user?.organization} user={user} canManageCompany={canManageCompany} />
-          )}
+          {activeTab === "api" && <ApiTab billingData={billingData} />}
+          {activeTab === "settings" && <SettingsTab organization={user?.organization} user={user} canManageCompany={canManageCompany} />}
         </div>
-      </div>
+      </main>
     </div>
   );
 }
@@ -424,363 +425,6 @@ function downloadCsv(filename: string, rows: string[][]) {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function OverviewTab({ dashboard, billingData, creditsData, auditData, isLoading, isError, error, onRetry, canManageCompany }: { dashboard: any; billingData?: CompanyBillingDashboardResponse; creditsData?: CompanyCreditResponse; auditData?: AuditLogResponse; isLoading: boolean; isError?: boolean; error?: unknown; onRetry?: () => void; canManageCompany: boolean }) {
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-6 h-6 animate-spin" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="max-w-md mx-auto py-8">
-        <QueryErrorState error={error} onRetry={() => onRetry?.()} label="your company dashboard" />
-      </div>
-    );
-  }
-
-  const wallet = creditsData?.billing || billingData?.data?.strictAccount;
-  const recentActivity = auditData?.logs || [];
-  const recentInvoices = billingData?.data?.recentInvoices || [];
-  const recentLedger = creditsData?.ledger || [];
-  const exportAuditCsv = () => {
-    downloadCsv("company_audit_activity.csv", [
-      ["Timestamp", "User", "Action", "Resource", "Status", "IP"],
-      ...recentActivity.map((entry) => [entry.timestamp, entry.user, entry.action, entry.resource, entry.status, entry.ip]),
-    ]);
-  };
-  const exportInvoicesCsv = () => {
-    downloadCsv("company_invoices.csv", [
-      ["Invoice Number", "Created At", "Status", "Amount"],
-      ...recentInvoices.map((invoice) => [invoice.invoiceNumber, invoice.createdAt, invoice.status, formatPaise(invoice.totalAmountPaise)]),
-    ]);
-  };
-  const exportLedgerCsv = () => {
-    downloadCsv("company_wallet_ledger.csv", [
-      ["Created At", "Entry Type", "Direction", "Amount", "Balance After"],
-      ...recentLedger.map((entry) => [entry.createdAt, entry.entryType, entry.direction, formatPaise(entry.amountPaise), formatPaise(entry.balanceAfterPaise ?? 0)]),
-    ]);
-  };
-
-  const stats = [
-    { label: "Available Wallet", value: formatPaise(wallet?.availableWalletPaise), icon: <Wallet className="w-5 h-5" /> },
-    { label: "Active Agents", value: dashboard?.agents?.length || 0, icon: <Users className="w-5 h-5" /> },
-    { label: "Active Calls", value: billingData?.data?.activeCallCount || 0, icon: <Phone className="w-5 h-5" /> },
-    { label: "30d Usage", value: `${billingData?.data?.usageSummary?.totalMinutes || 0} min`, icon: <Activity className="w-5 h-5" /> },
-  ];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-          >
-            <Card className="glass-card overflow-hidden shine-effect">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] text-primary font-bold uppercase tracking-widest opacity-70">{stat.label}</p>
-                    <p className="text-3xl font-display font-bold mt-1 tabular-nums">{stat.value}</p>
-                  </div>
-                  <div className="p-2 rounded-lg bg-primary/10 text-primary">{stat.icon}</div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <motion.div 
-          className="space-y-6"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.4 }}
-        >
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
-                <Activity className="w-4 h-4 text-primary" />
-                Quick Actions
-              </CardTitle>
-              <CardDescription className="text-xs">Primary-safe calling first, legacy meeting links only when explicitly enabled</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Link href="/calls/video-translation">
-                <Button className="w-full justify-start shine-effect" data-testid="button-video-call">
-                  <Video className="mr-3 h-4 w-4" />
-                  Video Translation Call {legacyMeetingTransportEnabled ? "" : "(legacy route)"}
-                </Button>
-              </Link>
-              <Link href="/calls/voice-translation">
-                <Button variant="outline" className="w-full justify-start hover:bg-muted" data-testid="button-voice-call">
-                  <Phone className="mr-3 h-4 w-4" />
-                  Voice Translation Call {legacyMeetingTransportEnabled ? "" : "(legacy route)"}
-                </Button>
-              </Link>
-              <Link href="/calls/b2b">
-                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-600 dark:text-green-400" data-testid="button-sim-call">
-                  <PhoneCall className="mr-3 h-4 w-4" />
-                  Phone Bridge Call
-                </Button>
-              </Link>
-              <Link href="/enterprise/hub">
-                <Button variant="outline" className="w-full justify-start bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400">
-                  <Phone className="mr-3 h-4 w-4" />
-                  Number Integration Hub
-                </Button>
-              </Link>
-              <Link href="/enterprise/org-structure">
-                <Button variant="outline" className="w-full justify-start bg-blue-500/10 border-blue-500/20 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400">
-                  <Building2 className="mr-3 h-4 w-4" />
-                  Org Structure
-                </Button>
-              </Link>
-              <Link href="/enterprise/telephony">
-                <Button variant="outline" className="w-full justify-start bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400">
-                  <Phone className="mr-3 h-4 w-4" />
-                  IVR &amp; Call Queues
-                </Button>
-              </Link>
-              <Link href="/enterprise/presence">
-                <Button variant="outline" className="w-full justify-start bg-green-500/10 border-green-500/20 hover:bg-green-500/20 text-green-600 dark:text-green-400">
-                  <Activity className="mr-3 h-4 w-4" />
-                  Agent Presence
-                </Button>
-              </Link>
-              <Link href="/enterprise/supervisor">
-                <Button variant="outline" className="w-full justify-start bg-red-500/10 border-red-500/20 hover:bg-red-500/20 text-red-600 dark:text-red-400">
-                  <Radio className="mr-3 h-4 w-4" />
-                  Supervisor Monitor
-                </Button>
-              </Link>
-              <Link href="/enterprise/cost-centers">
-                <Button variant="outline" className="w-full justify-start bg-yellow-500/10 border-yellow-500/20 hover:bg-yellow-500/20 text-yellow-600 dark:text-yellow-400">
-                  <PiggyBank className="mr-3 h-4 w-4" />
-                  Cost Centers
-                </Button>
-              </Link>
-              <Link href="/enterprise/billing-contracts">
-                <Button variant="outline" className="w-full justify-start bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/20 text-violet-600 dark:text-violet-400">
-                  <FileText className="mr-3 h-4 w-4" />
-                  Billing Contract
-                </Button>
-              </Link>
-              <Link href="/admin/transcripts">
-                <Button variant="outline" className="w-full justify-start bg-teal-500/10 border-teal-500/20 hover:bg-teal-500/20 text-teal-600 dark:text-teal-400" data-testid="button-transcript-admin">
-                  <FileText className="mr-3 h-4 w-4" />
-                  Transcript Admin
-                </Button>
-              </Link>
-              <p className="text-[11px] text-muted-foreground">
-                PSTN caller identity is best-effort. Final number display depends on provider verification and telecom rules.
-              </p>
-            </CardContent>
-          </Card>
-
-          <ClientConnectCard />
-
-          <Card className="glass-card">
-            <CardHeader>
-              <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-primary" />
-                Billing Snapshot
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Billing Type</span>
-                <Badge variant="outline">{wallet?.billingType || "prepaid"}</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Wallet Balance</span>
-                <span className="font-semibold">{formatPaise(wallet?.walletBalancePaise)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Locked Balance</span>
-                <span className="font-semibold">{formatPaise(wallet?.lockedBalancePaise)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Included Seconds</span>
-                <span className="font-semibold">{wallet?.includedSecondsRemaining ?? 0}s</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Service Status</span>
-                <Badge className={wallet?.canUsePaidServices === false ? "bg-red-600" : "bg-green-600"}>
-                  {wallet?.canUsePaidServices === false ? "Restricted" : "Active"}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div 
-          className="lg:col-span-2"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.5 }}
-        >
-          <Card className="glass-card h-full">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm font-display font-bold flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-primary" />
-                  Recent Organization Activity
-                </CardTitle>
-                {canManageCompany && recentActivity.length > 0 ? (
-                  <Button size="sm" variant="outline" onClick={exportAuditCsv}>
-                    <FileText className="w-4 h-4 mr-2" />
-                    Export CSV
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {!canManageCompany ? (
-                <div className="flex flex-col items-center justify-center py-16 opacity-70 space-y-4">
-                  <div className="w-12 h-12 rounded-full border border-dashed border-border flex items-center justify-center">
-                    <ShieldCheck className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground font-medium text-center max-w-md">
-                    Audit logs, invoices, and billing controls are restricted to company admins and super admins.
-                  </p>
-                </div>
-              ) : recentActivity.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 opacity-50 space-y-4">
-                  <div className="w-12 h-12 rounded-full border border-dashed border-border flex items-center justify-center">
-                    <Activity className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <p className="text-sm text-muted-foreground font-medium">
-                    No recent audit activity yet.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {recentActivity.slice(0, 6).map((entry) => (
-                    <div key={entry.id} className="rounded-xl border border-border bg-muted/50 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold">{entry.action}</p>
-                          <p className="text-xs text-muted-foreground">{entry.resource} by {entry.user}</p>
-                        </div>
-                        <Badge variant="outline">{entry.status}</Badge>
-                      </div>
-                      <p className="mt-2 text-[11px] text-muted-foreground">{entry.timestamp} • {entry.ip}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-                <div className="rounded-xl border border-border bg-muted/50 p-4">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Receipt className="w-4 h-4 text-primary" />
-                      <p className="text-sm font-semibold">Recent Invoices</p>
-                    </div>
-                    {recentInvoices.length > 0 ? (
-                      <Button size="sm" variant="ghost" onClick={exportInvoicesCsv}>
-                        <FileText className="w-4 h-4 mr-2" />
-                        Export
-                      </Button>
-                    ) : null}
-                  </div>
-                  {recentInvoices.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No invoices generated yet.</p>
-                  ) : (
-                    <div className="space-y-2">
-                       {recentInvoices.slice(0, 3).map((invoice) => (
-                          <div key={invoice.id} className="flex items-center justify-between text-xs">
-                            <div>
-                              <p className="font-medium">{invoice.invoiceNumber}</p>
-                              <p className="text-muted-foreground">{new Date(invoice.createdAt).toLocaleDateString()}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-semibold">{formatPaise(invoice.totalAmountPaise)}</p>
-                              <p className="text-muted-foreground">{invoice.status}</p>
-                              <button
-                                type="button"
-                                className="mt-1 text-primary hover:underline"
-                                onClick={() => window.open(`/api/billing/invoices/${invoice.id}/html`, "_blank")}
-                              >
-                                Open
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                     </div>
-                  )}
-                </div>
-                <div className="rounded-xl border border-border bg-muted/50 p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShieldCheck className="w-4 h-4 text-primary" />
-                    <p className="text-sm font-semibold">Subscription Health</p>
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Plan Status</span>
-                      <Badge variant="outline">{billingData?.data?.subscription?.status || "inactive"}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Billing Model</span>
-                      <span>{billingData?.data?.subscription?.billingModel || wallet?.billingType || "prepaid"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">30d Cost</span>
-                      <span>{formatPaise(billingData?.data?.usageSummary?.totalCost)}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-border bg-muted/50 p-4">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-primary" />
-                      <p className="text-sm font-semibold">Recent Ledger</p>
-                    </div>
-                    {recentLedger.length > 0 ? (
-                      <Button size="sm" variant="ghost" onClick={exportLedgerCsv}>
-                        <FileText className="w-4 h-4 mr-2" />
-                        Export
-                      </Button>
-                    ) : null}
-                  </div>
-                  {recentLedger.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No wallet activity recorded yet.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {recentLedger.slice(0, 3).map((entry) => (
-                        <div key={entry.id} className="flex items-center justify-between text-xs">
-                          <div>
-                            <p className="font-medium">{entry.entryType.replace(/_/g, " ")}</p>
-                            <p className="text-muted-foreground">{new Date(entry.createdAt).toLocaleDateString()}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold">{formatPaise(entry.amountPaise)}</p>
-                            <p className="text-muted-foreground">{entry.direction}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-    </motion.div>
-  );
 }
 
 const LANGUAGES = [

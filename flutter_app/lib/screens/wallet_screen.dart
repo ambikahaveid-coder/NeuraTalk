@@ -232,8 +232,11 @@ class _PlanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = plan['displayName'] ?? plan['name'] ?? 'Plan';
-    final price = plan['priceFormatted'] ?? '₹0';
+    // The server builds these from the plan's real numbers ("2,000 translated call minutes · 90 days",
+    // "/3 months"); older servers only send the raw count.
+    final price = '${plan['priceFormatted'] ?? '₹0'}${plan['periodSuffix'] ?? ''}';
     final minutes = plan['callMinutesIncluded'] ?? 0;
+    final minutesLabel = (plan['minutesLabel'] as String?) ?? (minutes is num && minutes >= 99999 ? 'Minutes agreed with our team' : '$minutes minutes included');
     final features = (plan['featureHighlights'] as List?)?.cast<String>() ?? [];
 
     return Container(
@@ -255,7 +258,7 @@ class _PlanCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text('$minutes minutes included', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          Text(minutesLabel, style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
           if (features.isNotEmpty) ...[
             const SizedBox(height: 12),
             ...features.take(3).map((f) => Padding(
@@ -263,7 +266,7 @@ class _PlanCard extends StatelessWidget {
               child: Row(children: [
                 Icon(Icons.check_circle_outline, color: AppColors.cyan, size: 14),
                 const SizedBox(width: 8),
-                Text(f, style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                Expanded(child: Text(f, style: TextStyle(color: AppColors.textSecondary, fontSize: 12))),
               ]),
             )),
           ],
