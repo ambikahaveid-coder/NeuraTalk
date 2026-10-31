@@ -50,6 +50,7 @@ import { requireAuth } from "./role-middleware";
 import { sendPushNotification } from "./firebase-admin";
 import { groupChatSendLimiter } from "./rate-limit";
 import { contactInputSchema, contactMetadata, extrasForViewer, extrasPreview, pollInputSchema, pollMetadata } from "./chat-extras";
+import { mayPostInGroup } from "./communities";
 
 /**
  * A member reads and hears the group in their own profile language. The
@@ -484,6 +485,9 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     if (await isSenderBlockedInGroup(groupId, senderId)) {
       return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
     }
+    if (!(await mayPostInGroup(groupId, senderId))) {
+      return res.status(403).json({ error: "Only admins can send messages in this group.", code: "ADMINS_ONLY" });
+    }
 
     if (isAttachment) {
       const problem = await finalizeGroupAttachment(senderId, groupId, attachmentUrl, !viewOnce);
@@ -740,6 +744,9 @@ router.post("/api/group-chats/:groupId/voice-messages", requireAuth, groupChatSe
 
     if (await isSenderBlockedInGroup(groupId, senderId)) {
       return res.status(403).json({ error: "You can't message this group.", code: "BLOCKED" });
+    }
+    if (!(await mayPostInGroup(groupId, senderId))) {
+      return res.status(403).json({ error: "Only admins can send messages in this group.", code: "ADMINS_ONLY" });
     }
 
     const message = await db.insert(groupChatMessages).values({

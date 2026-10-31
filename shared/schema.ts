@@ -455,6 +455,39 @@ export const starredMessages = pgTable("starred_messages", {
   index("starred_messages_user_idx").on(table.userId, table.createdAt),
 ]);
 
+// Communities: groups under one roof with an admins-only announcement group.
+export const communities = pgTable("communities", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdBy: integer("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  announcementGroupId: integer("announcement_group_id"),
+  inviteCode: text("invite_code").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("communities_invite_code").on(table.inviteCode),
+]);
+
+export const communityMembers = pgTable("community_members", {
+  id: serial("id").primaryKey(),
+  communityId: integer("community_id").notNull().references(() => communities.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"),
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("community_members_unique").on(table.communityId, table.userId),
+]);
+
+export const communityGroups = pgTable("community_groups", {
+  id: serial("id").primaryKey(),
+  communityId: integer("community_id").notNull().references(() => communities.id, { onDelete: "cascade" }),
+  groupId: integer("group_id").notNull().references(() => groupChats.id, { onDelete: "cascade" }),
+  addedAt: timestamp("added_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("community_groups_unique").on(table.communityId, table.groupId),
+]);
+
 // Channels: one-way updates to private followers, read in each follower's language.
 export const channels = pgTable("channels", {
   id: serial("id").primaryKey(),
@@ -615,6 +648,9 @@ export const groupChats = pgTable("group_chats", {
   defaultLanguage: text("default_language").default("en"),
   
   isActive: boolean("is_active").default(true),
+  // "Only admins can send messages" (announcement groups use it).
+  onlyAdminsSend: boolean("only_admins_send").notNull().default(false),
+  communityId: integer("community_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

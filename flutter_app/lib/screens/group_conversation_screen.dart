@@ -672,7 +672,18 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
               ]),
             ),
           _mentionSuggestions(),
-          _inputBar(),
+          if (provider.activeGroup?['onlyAdminsSend'] == true && !_selfIsAdmin)
+            SafeArea(
+              top: false,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                color: AppColors.background,
+                child: Text('Only admins can send messages', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
+              ),
+            )
+          else
+            _inputBar(),
           if (_showEmoji)
             SizedBox(
               height: 300,

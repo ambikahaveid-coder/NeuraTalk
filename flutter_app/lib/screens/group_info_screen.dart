@@ -220,6 +220,24 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                         ),
                       ]),
                     ),
+                    if (_selfIsAdmin)
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                        value: _group?['onlyAdminsSend'] == true,
+                        title: Text('Only admins can send messages', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                        subtitle: Text('Members can still read and react.', style: TextStyle(color: AppColors.textSecondary)),
+                        onChanged: (v) async {
+                          setState(() => _group?['onlyAdminsSend'] = v);
+                          try {
+                            await ApiService.patch('/api/group-chats/${widget.groupId}/settings', {'onlyAdminsSend': v});
+                          } catch (_) {
+                            if (mounted) {
+                              setState(() => _group?['onlyAdminsSend'] = !v);
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not change this setting.')));
+                            }
+                          }
+                        },
+                      ),
                     NtSectionHeader('${members.length} member${members.length == 1 ? '' : 's'}'),
                     if (_selfCanAddMembers)
                       ListTile(

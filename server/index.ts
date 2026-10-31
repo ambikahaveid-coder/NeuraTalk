@@ -476,6 +476,8 @@ app.use((req, res, next) => {
     await ensureLinkedDevicesTable();
     const { ensureChannelTables } = await import("./channels");
     await ensureChannelTables();
+    const { ensureCommunityTables } = await import("./communities");
+    await ensureCommunityTables();
   }, { optional: true });
   let redisOperational = false;
   try {

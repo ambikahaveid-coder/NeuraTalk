@@ -10,6 +10,7 @@ import 'chat_screen.dart';
 import 'group_chat_list_screen.dart';
 import 'business_messages_screen.dart';
 import 'contacts_screen.dart';
+import 'communities_screen.dart';
 import '../services/contact_resolver.dart';
 import '../widgets/chat_lock.dart';
 
@@ -211,6 +212,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen()));
                 } else if (v == 'business') {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const BusinessMessagesScreen()));
+                } else if (v == 'communities') {
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CommunitiesScreen()));
                 } else if (v == 'archived') {
                   setState(() => _showArchived = true);
                 }
@@ -218,6 +221,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'business', child: ListTile(leading: Icon(Icons.storefront_outlined), title: Text('Business messages'), contentPadding: EdgeInsets.zero)),
                 PopupMenuItem(value: 'contacts', child: ListTile(leading: Icon(Icons.contacts_outlined), title: Text('Contacts'), contentPadding: EdgeInsets.zero)),
+                PopupMenuItem(value: 'communities', child: ListTile(leading: Icon(Icons.groups_2_outlined), title: Text('Communities'), contentPadding: EdgeInsets.zero)),
                 PopupMenuItem(value: 'archived', child: ListTile(leading: Icon(Icons.archive_outlined), title: Text('Archived chats'), contentPadding: EdgeInsets.zero)),
               ],
             ),
