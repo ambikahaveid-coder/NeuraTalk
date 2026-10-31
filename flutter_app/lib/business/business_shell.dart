@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/business_forms.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:provider/provider.dart';
@@ -717,6 +718,21 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     }
   }
 
+  Future<void> _sendForm() async {
+    final formId = await pickBusinessForm(context, _base);
+    if (formId == null || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/form', {'formId': formId});
+      await _load(quiet: true);
+    } catch (e) {
+      if (e is ApiException && e.statusCode == 409 && mounted) setState(() => _windowOpen = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Form not sent. Try again.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _attach() async {
     final picked = await AttachmentPicker.show(context, onLocation: _shareLocation);
     for (final (file, name) in picked.take(5)) {
@@ -950,6 +966,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             decoration: BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border))),
             child: Row(children: [
               IconButton(tooltip: 'Attach a photo, file or location', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
+              IconButton(tooltip: 'Send a form', onPressed: _sending ? null : _sendForm, icon: Icon(Icons.assignment_outlined, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,

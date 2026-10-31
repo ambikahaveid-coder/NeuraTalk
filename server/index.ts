@@ -459,6 +459,8 @@ app.use((req, res, next) => {
     await ensureReactionsTable();
     const { ensureOrdersTable } = await import("./modules/messaging/orders");
     await ensureOrdersTable();
+    const { ensureFormsTables } = await import("./modules/messaging/forms");
+    await ensureFormsTables();
     const { ensureVerificationTable } = await import("./modules/business-verification/routes");
     await ensureVerificationTable();
     // Business chat: location / buttons / button replies live here.

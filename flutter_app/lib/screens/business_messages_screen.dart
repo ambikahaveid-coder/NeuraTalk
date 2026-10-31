@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../widgets/business_forms.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -898,8 +899,23 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     return ChatFileAttachment(objectPath: path, name: label.replaceFirst(RegExp(r'^\S+\s'), ''), size: size, mime: mime);
   }
 
+  /// Customer answers a form the business sent.
+  Future<void> _submitForm(int messageId, Map<String, String> answers) async {
+    try {
+      await ApiService.post('$_base/forms/$messageId/submit', {'answers': answers});
+      await _load(quiet: true);
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not send. Try again.')));
+    }
+  }
+
+  bool _formAnswered(int messageId) => _messages.any((x) => ((x['metadata'] as Map?)?['formResponse'] as Map?)?['formMessageId'] == messageId);
+
   Widget _bubble(Map<String, dynamic> m) {
     final id = (m['id'] as num).toInt();
+    final form = m['messageType'] == 'form' ? ((m['metadata'] as Map?)?['form'] as Map?) : null;
     final mine = _me != null && (m['senderParticipantId'] as num?)?.toInt() == _me;
     final isCode = m['category'] == 'authentication';
     final tick = mine ? _ticks[m['deliveryToBusiness']] : null;
@@ -943,7 +959,13 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               fromLabel: _isMine(m['replyTo'] as Map) ? 'You' : (_name ?? 'Business'),
             ),
           for (final a in attachments) Padding(padding: const EdgeInsets.only(bottom: 6), child: _attachment(a, original)),
-          if (location != null)
+          if (form != null)
+            FormMessageCard(
+              form: Map<String, dynamic>.from(form),
+              submitted: _formAnswered(id),
+              onSubmit: mine || _blocked ? null : (answers) => _submitForm(id, answers),
+            )
+          else if (location != null)
             ChatLocationAttachment(
               geo: 'geo:${location['latitude']},${location['longitude']}',
               title: (location['name'] ?? location['address'])?.toString(),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/business_forms.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -52,6 +53,7 @@ class BusinessToolsScreen extends StatelessWidget {
             _tool(Icons.bolt_outlined, 'Quick replies', 'Type / in a chat to send saved answers', () => open(const QuickRepliesScreen())),
             _tool(Icons.insights_outlined, 'Statistics', 'Messages sent, delivered, read, received', () => open(const BusinessStatsScreen())),
             _tool(Icons.campaign_outlined, 'Broadcasts', 'Send offers and updates to your customers', () => open(const BusinessBroadcastsScreen())),
+            _tool(Icons.assignment_outlined, 'Forms', 'Bookings, enquiries and feedback filled in inside the chat', () => open(const BusinessFormsScreen())),
             _tool(Icons.group_add_outlined, 'Import customers', 'From a CSV file or your phone contacts', () => open(const BusinessImportScreen())),
             _tool(Icons.amp_stories_outlined, 'Status', 'Offers and news for 24 hours, in each customer\'s language', () => open(const BusinessStatusScreen())),
             const _Section('More'),

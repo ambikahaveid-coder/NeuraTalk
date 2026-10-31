@@ -327,6 +327,8 @@ export interface CreateMessageInput {
   buttonReply?: { messageId: number; buttonId: string; title?: string };
   /** Interactive message: up to 3 buttons (already validated). */
   buttons?: Array<Record<string, unknown>>;
+  /** Server-built extras (a form, a form response). Never taken from a request body. */
+  extraMetadata?: Record<string, unknown>;
 }
 
 export interface LocationInput { latitude: number; longitude: number; name?: string; address?: string }
@@ -377,7 +379,11 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   }
   const senderParticipantId = ownParticipant.id;
 
-  const messageType = input.location
+  // Form messages exist only when the server built their details (forms.ts).
+  const serverBuiltType = input.extraMetadata && (input.messageType === "form" || input.messageType === "form_response") ? input.messageType : null;
+  const messageType = serverBuiltType
+    ? serverBuiltType
+    : input.location
     ? "location"
     : input.attachment
       ? messageTypeFor(input.attachment, input.messageType)
@@ -424,6 +430,7 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   if (input.location) metadata.location = input.location;
   if (buttonReply) metadata.buttonReply = buttonReply;
   if (input.buttons?.length) metadata.buttons = input.buttons;
+  if (input.extraMetadata) Object.assign(metadata, input.extraMetadata);
   // A tapped button replies to the message it was on.
   if (buttonReply && !replyToMessageId) replyToMessageId = buttonReply.messageId;
 
@@ -613,6 +620,8 @@ export interface SendUserInitiatedMessageInput {
   replyToMessageId?: number;
   location?: LocationInput;
   buttonReply?: { messageId: number; buttonId: string; title?: string };
+  /** Server-built extras (a form response). Never taken from a request body. */
+  extraMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -727,6 +736,7 @@ export async function sendUserInitiatedMessage(
       replyToMessageId: input.replyToMessageId,
       location: input.location,
       buttonReply: input.buttonReply,
+      extraMetadata: input.extraMetadata,
     });
   });
 
