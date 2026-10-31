@@ -11,6 +11,7 @@ import 'group_chat_list_screen.dart';
 import 'business_messages_screen.dart';
 import 'contacts_screen.dart';
 import '../services/contact_resolver.dart';
+import '../widgets/chat_lock.dart';
 
 /// Real human-to-human conversations (server/personal-chat-routes.ts).
 /// This is the "Chat" bottom-nav tab. NEURA AI (the existing assistant,
@@ -25,7 +26,21 @@ class HumanChatListScreen extends StatefulWidget {
 
 class _HumanChatListScreenState extends State<HumanChatListScreen> {
   bool _showArchived = false;
+  bool _showLocked = false;
   String _query = '';
+
+  void _onLock() {
+    if (!mounted) return;
+    // Leaving the app closes the locked folder.
+    if (_showLocked && !ChatLock.instance.unlocked) _showLocked = false;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    ChatLock.instance.removeListener(_onLock);
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -34,6 +49,8 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     provider.loadThreads();
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.connectStream();
+    ChatLock.instance.addListener(_onLock);
+    ChatLock.instance.load();
     // Show saved contact names (as Home and Calls do) once contacts are read.
     ContactResolver.instance.ensureLoaded().then((_) {
       if (mounted) setState(() {});
@@ -61,7 +78,9 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
   List<Map<String, dynamic>> _visibleThreads(PersonalChatProvider provider) {
     final q = _query.trim().toLowerCase();
     final filtered = provider.threads.where((t) {
-      if ((t['isArchived'] == true) != _showArchived) return false;
+      final locked = ChatLock.instance.isLocked('p:${t['id']}');
+      if (locked != _showLocked) return false;
+      if (!_showLocked && (t['isArchived'] == true) != _showArchived) return false;
       if (q.isEmpty) return true;
       final peer = (t['peer'] as Map?) ?? const {};
       final saved = ContactResolver.instance.nameFor(peer['phone']?.toString()) ?? '';
@@ -81,7 +100,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
   /// People and businesses in one list (like WhatsApp): pinned first, then newest.
   List<Map<String, dynamic>> _visibleItems(PersonalChatProvider provider) {
     final personal = _visibleThreads(provider);
-    if (_showArchived) return personal;
+    if (_showArchived || _showLocked) return personal;
     final q = _query.trim().toLowerCase();
     final business = provider.businessThreads
         .where((b) => q.isEmpty || '${b['businessName'] ?? ''} ${(b['lastMessage'] as Map?)?['content'] ?? ''}'.toLowerCase().contains(q))
@@ -136,6 +155,15 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               },
             ),
             ListTile(
+              leading: Icon(ChatLock.instance.isLocked('p:$threadId') ? Icons.lock_open : Icons.lock_outline, color: AppColors.cyan),
+              title: Text(ChatLock.instance.isLocked('p:$threadId') ? 'Unlock chat' : 'Lock chat', style: TextStyle(color: AppColors.ink)),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                final key = 'p:$threadId';
+                ChatLock.instance.isLocked(key) ? ChatLock.instance.unlockChat(context, key) : ChatLock.instance.lock(context, key);
+              },
+            ),
+            ListTile(
               leading: Icon(isArchived ? Icons.unarchive_outlined : Icons.archive_outlined, color: AppColors.cyan),
               title: Text(isArchived ? 'Unarchive' : 'Archive', style: TextStyle(color: AppColors.ink)),
               onTap: () {
@@ -157,12 +185,12 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(_showArchived ? 'Archived' : 'Chats'),
-        leading: _showArchived
-            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _showArchived = false))
+        title: Text(_showLocked ? 'Locked chats' : _showArchived ? 'Archived' : 'Chats'),
+        leading: _showArchived || _showLocked
+            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() { _showArchived = false; _showLocked = false; }))
             : null,
         actions: [
-          if (!_showArchived) ...[
+          if (!_showArchived && !_showLocked) ...[
             IconButton(
               icon: Icon(Icons.auto_awesome, color: AppColors.cyan),
               tooltip: 'NEURA AI',
@@ -196,7 +224,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
           ],
         ],
       ),
-      floatingActionButton: _showArchived
+      floatingActionButton: _showArchived || _showLocked
           ? null
           // Compact, so it never sits on top of the last chat's preview.
           : FloatingActionButton(
@@ -239,11 +267,20 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                               ),
                             ),
                           ),
+                          if (!_showArchived && !_showLocked && ChatLock.instance.count > 0 && _query.isEmpty)
+                            ListTile(
+                              leading: CircleAvatar(backgroundColor: AppColors.blueTint, child: Icon(Icons.lock_outline, color: AppColors.cyan)),
+                              title: Text('Locked chats', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+                              subtitle: Text('Open with your secret code', style: TextStyle(color: AppColors.textSecondary)),
+                              onTap: () async {
+                                if (await ChatLock.instance.verify(context) && mounted) setState(() => _showLocked = true);
+                              },
+                            ),
                           if (visible.isEmpty)
                             Padding(
                               padding: const EdgeInsets.all(32),
                               child: Center(
-                                child: Text(_showArchived && _query.isEmpty ? 'No archived chats' : 'No chats match "$_query"',
+                                child: Text(_showLocked && _query.isEmpty ? 'No locked chats' : _showArchived && _query.isEmpty ? 'No archived chats' : 'No chats match "$_query"',
                                     style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
                               ),
                             ),

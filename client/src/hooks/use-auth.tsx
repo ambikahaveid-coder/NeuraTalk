@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type User, type Organization, USER_ROLES } from "@shared/schema";
 import { normalizePhoneNumber } from "@shared/phone";
 import { useLocation } from "wouter";
+import { TwoStepDialog, type TwoStepResult } from "@/components/TwoStepDialog";
 
 export type UserWithOrg = User & {
   organization?: Organization | null;
@@ -68,6 +69,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const [authState, setAuthState] = useState<AuthState>(getStoredAuth);
+  // Two-step verification: the PIN dialog shown in the middle of a sign-in.
+  const [twoStep, setTwoStep] = useState<null | {
+    ticket: string;
+    resetAvailableAt: string | null;
+    resolve: (r: TwoStepResult) => void;
+    reject: (e: Error) => void;
+  }>(null);
 
   const updateAuth = useCallback((auth: AuthState) => {
     setAuthState(auth);
@@ -128,6 +136,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       const data = await res.json();
+      if (data.success && data.twoStepRequired && data.ticket) {
+        const done = await new Promise<TwoStepResult>((resolve, reject) => {
+          setTwoStep({ ticket: data.ticket, resetAvailableAt: data.resetAvailableAt ?? null, resolve, reject });
+        });
+        updateAuth({ user: done.user, token: done.token });
+        return { success: true, token: done.token, user: done.user, userId: done.user?.id };
+      }
       if (data.success && data.token && data.user) {
         updateAuth({ user: data.user, token: data.token });
       }
@@ -229,6 +244,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={value}>
       {children}
+      {twoStep && (
+        <TwoStepDialog
+          ticket={twoStep.ticket}
+          resetAvailableAt={twoStep.resetAvailableAt}
+          onDone={(r) => { twoStep.resolve(r); setTwoStep(null); }}
+          onCancel={(reason) => { twoStep.reject(new Error(reason)); setTwoStep(null); }}
+        />
+      )}
     </AuthContext.Provider>
   );
 }

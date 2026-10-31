@@ -16,6 +16,7 @@ import { USER_ROLES, users, billingPlans, subscriptions, personalChatThreads, gr
 import { normalizePhoneNumber } from "@shared/phone";
 import { normalizeTenantSlug, usesFirebasePhoneOtp } from "@shared/auth-runtime";
 import { eq, and, or } from "drizzle-orm";
+import { twoStepGate } from "../../two-step";
 import { ObjectStorageService } from "../../ai_integrations/object_storage/objectStorage";
 import { setObjectAclPolicy } from "../../ai_integrations/object_storage/objectAcl";
 
@@ -41,7 +42,7 @@ interface AuthRequestContext {
   requestedTenantSlug?: string | null;
 }
 
-function buildSessionBinding(organization?: { id: number; slug: string } | null) {
+export function buildSessionBinding(organization?: { id: number; slug: string } | null) {
   return {
     organizationId: organization?.id ?? null,
     tenantSlug: organization?.slug ?? null,
@@ -282,6 +283,10 @@ export async function firebaseVerify(idToken: string) {
     return { error: "USER_INACTIVE" as const };
   }
 
+  // Two-step verification: the PIN is asked before a session exists.
+  const gate = isNewUser ? null : await twoStepGate(user.id);
+  if (gate) return { twoStepRequired: true as const, ticket: gate.ticket, resetAvailableAt: gate.resetAvailableAt };
+
   const organization = user.organizationId
     ? await storage.getOrganization(user.organizationId)
     : null;
@@ -304,7 +309,8 @@ export async function requestAuthOtp(identifier: string, channel: "email" | "mob
 }
 
 export type VerifyAuthOtpResult =
-  | { success: true; token: string; userId: number; user: any; message?: string }
+  | { success: true; twoStepRequired?: false; token: string; userId: number; user: any; message?: string }
+  | { success: true; twoStepRequired: true; ticket: string; resetAvailableAt: string | null }
   | { success: false; status: number; message: string };
 
 export async function verifyAuthOtp(params: {
@@ -405,6 +411,9 @@ export async function verifyAuthOtp(params: {
       };
     }
   }
+
+  const gate = await twoStepGate(result.userId, { userAgent, ipAddress });
+  if (gate) return { success: true, twoStepRequired: true, ticket: gate.ticket, resetAvailableAt: gate.resetAvailableAt };
 
   const token = await createSession(
     result.userId,

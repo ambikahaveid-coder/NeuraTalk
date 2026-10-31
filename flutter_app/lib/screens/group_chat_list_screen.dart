@@ -6,6 +6,7 @@ import '../widgets/nt_ui.dart';
 import '../providers/group_chat_provider.dart';
 import 'group_conversation_screen.dart';
 import 'create_group_screen.dart';
+import '../widgets/chat_lock.dart';
 
 /// Real group chat list — server/group-chats.ts:my-groups. Separate from
 /// 1:1 chat (personal_chat_provider.dart) and from NEURA AI.
@@ -17,15 +18,33 @@ class GroupChatListScreen extends StatefulWidget {
 }
 
 class _GroupChatListScreenState extends State<GroupChatListScreen> {
+  bool _showLocked = false;
+
+  void _onLock() {
+    if (!mounted) return;
+    if (_showLocked && !ChatLock.instance.unlocked) _showLocked = false;
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     context.read<GroupChatProvider>().loadGroups();
+    ChatLock.instance.addListener(_onLock);
+    ChatLock.instance.load();
+  }
+
+  @override
+  void dispose() {
+    ChatLock.instance.removeListener(_onLock);
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<GroupChatProvider>();
+    final groups = provider.groups.where((g) => ChatLock.instance.isLocked('g:${g['id']}') == _showLocked).toList();
+    final lockedCount = provider.groups.where((g) => ChatLock.instance.isLocked('g:${g['id']}')).length;
 
     Future<void> createGroup() async {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGroupScreen()));
@@ -34,7 +53,10 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Groups')),
+      appBar: AppBar(
+        title: Text(_showLocked ? 'Locked groups' : 'Groups'),
+        leading: _showLocked ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _showLocked = false)) : null,
+      ),
       floatingActionButton: provider.groups.isEmpty
           ? null
           : FloatingActionButton.extended(
@@ -65,11 +87,28 @@ class _GroupChatListScreenState extends State<GroupChatListScreen> {
                           onAction: createGroup,
                         ),
                       ])
-                    : ListView.separated(
+                    : ListView(
                         padding: const EdgeInsets.only(bottom: 96),
-                        itemCount: provider.groups.length,
-                        separatorBuilder: (_, __) => Divider(height: 1, indent: 84, color: AppColors.border),
-                        itemBuilder: (_, i) => _groupTile(provider.groups[i]),
+                        children: [
+                          if (!_showLocked && lockedCount > 0)
+                            ListTile(
+                              leading: CircleAvatar(backgroundColor: AppColors.blueTint, child: Icon(Icons.lock_outline, color: AppColors.cyan)),
+                              title: Text('Locked groups', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+                              subtitle: Text('Open with your secret code', style: TextStyle(color: AppColors.textSecondary)),
+                              onTap: () async {
+                                if (await ChatLock.instance.verify(context) && mounted) setState(() => _showLocked = true);
+                              },
+                            ),
+                          if (groups.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Center(child: Text(_showLocked ? 'No locked groups' : 'All your groups are locked', style: TextStyle(color: AppColors.textMuted))),
+                            ),
+                          for (var i = 0; i < groups.length; i++) ...[
+                            _groupTile(groups[i]),
+                            if (i < groups.length - 1) Divider(height: 1, indent: 84, color: AppColors.border),
+                          ],
+                        ],
                       ),
       ),
     );

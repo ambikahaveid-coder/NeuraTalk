@@ -803,3 +803,169 @@ class _PrivacyTogglesState extends State<PrivacyToggles> {
     ]);
   }
 }
+
+// ------------------------------------------------------------------ stickers
+
+/// A sticker in a chat: the picture alone, no bubble.
+class StickerImage extends StatelessWidget {
+  final String objectPath;
+  final double size;
+  const StickerImage({super.key, required this.objectPath, this.size = 150});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: FutureBuilder<File>(
+        future: MediaStore.download(objectPath, 'sticker-${objectPath.split('/').last}.img'),
+        builder: (_, snap) {
+          if (snap.hasData) return Image.file(snap.data!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(Icons.broken_image_outlined, color: AppColors.textMuted));
+          if (snap.hasError) return Icon(Icons.broken_image_outlined, color: AppColors.textMuted);
+          return Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.cyan)));
+        },
+      ),
+    );
+  }
+}
+
+/// "My stickers" sheet. Returns the chosen sticker's object path.
+Future<String?> showStickerPicker(BuildContext context) {
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (_) => const _StickerSheet(),
+  );
+}
+
+class _StickerSheet extends StatefulWidget {
+  const _StickerSheet();
+  @override
+  State<_StickerSheet> createState() => _StickerSheetState();
+}
+
+class _StickerSheetState extends State<_StickerSheet> {
+  List<Map<String, dynamic>>? _stickers;
+  bool _adding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final res = await ApiService.get('/api/stickers');
+      if (mounted) setState(() => _stickers = ((res['stickers'] as List?) ?? const []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList());
+    } catch (_) {
+      if (mounted) setState(() => _stickers = []);
+    }
+  }
+
+  void _toast(String t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+
+  Future<void> _add() async {
+    try {
+      // Small square-ish pictures make good stickers; the picker shrinks big photos.
+      final x = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 90);
+      if (x == null) return;
+      setState(() => _adding = true);
+      final name = x.name.isNotEmpty ? x.name : 'sticker.png';
+      final path = await MediaStore.upload(File(x.path), name);
+      await ApiService.post('/api/stickers', {'objectPath': path});
+      await _load();
+    } on ApiException catch (e) {
+      _toast(e.message);
+    } catch (_) {
+      _toast('Could not add the sticker.');
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  Future<void> _delete(Map<String, dynamic> s) async {
+    try {
+      await ApiService.delete('/api/stickers/${s['id']}');
+      setState(() => _stickers!.remove(s));
+    } catch (_) {
+      _toast('Could not delete the sticker.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _stickers;
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.55,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+            child: Row(children: [
+              Expanded(child: Text('My stickers', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w800))),
+              TextButton.icon(
+                onPressed: _adding ? null : _add,
+                icon: _adding ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_photo_alternate_outlined),
+                label: const Text('Make from photo'),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: list == null
+                ? const Center(child: CircularProgressIndicator())
+                : list.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text('No stickers yet. Make one from a photo, or tap and hold a sticker someone sent you and choose "Save sticker".',
+                              textAlign: TextAlign.center, style: TextStyle(color: AppColors.textMuted)),
+                        ),
+                      )
+                    : GridView.count(
+                        crossAxisCount: 4,
+                        padding: const EdgeInsets.all(12),
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        children: [
+                          for (final s in list)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => Navigator.pop(context, s['objectPath']?.toString()),
+                              onLongPress: () async {
+                                final ok = await showDialog<bool>(
+                                  context: context,
+                                  builder: (d) => AlertDialog(
+                                    title: const Text('Delete this sticker?'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                                      TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('Delete', style: TextStyle(color: AppColors.red))),
+                                    ],
+                                  ),
+                                );
+                                if (ok == true) _delete(s);
+                              },
+                              child: Padding(padding: const EdgeInsets.all(4), child: StickerImage(objectPath: s['objectPath'].toString(), size: 72)),
+                            ),
+                        ],
+                      ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Saves a sticker someone sent into "My stickers".
+Future<void> saveStickerFromChat(BuildContext context, String chatType, int chatId, int messageId) async {
+  try {
+    await ApiService.post('/api/stickers/save', {'chatType': chatType, 'chatId': chatId, 'messageId': messageId});
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to My stickers')));
+  } on ApiException catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save the sticker.')));
+  }
+}

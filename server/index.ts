@@ -468,6 +468,10 @@ app.use((req, res, next) => {
     // Starred messages + privacy settings (last seen, read receipts).
     const { ensureChatExtrasTables } = await import("./chat-extras");
     await ensureChatExtrasTables();
+    const { ensureTwoStepTables } = await import("./two-step");
+    await ensureTwoStepTables();
+    const { ensureStickersTable } = await import("./stickers");
+    await ensureStickersTable();
   }, { optional: true });
   let redisOperational = false;
   try {

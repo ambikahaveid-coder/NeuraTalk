@@ -40,7 +40,7 @@ const sendMessageSchema = z.object({
   // non-image file upload succeeded (the object storage PUT genuinely
   // completed) and then failed at the message-send step with a 400,
   // silently losing the message the recipient was supposed to see.
-  messageType: z.enum(["text", "voice_note", "attachment", "file", "location", "poll", "contact"]).optional(),
+  messageType: z.enum(["text", "voice_note", "attachment", "file", "location", "poll", "contact", "sticker"]).optional(),
   attachmentUrl: z.string().trim().min(1).max(2000).optional(),
   attachmentTitle: z.string().trim().min(1).max(240).optional(),
   // Shown in the bubble ("PDF · 2.4 MB") and used to pick the right preview.
@@ -880,6 +880,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
       Object.assign(extraMeta, await contactMetadata(input.contact));
       input.content = input.contact.name;
     }
+    if (input.messageType === "sticker" && !input.attachmentUrl) return res.status(400).json({ error: "Pick a sticker." });
     const viewOnce = input.viewOnce === true;
     if (viewOnce) {
       const mime = input.attachmentMime ?? (input.messageType === "attachment" ? "image/" : "");
@@ -951,7 +952,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     }).returning();
 
     const lastMessagePreview = extrasPreview(input.messageType || "text", extraMeta, input.content) ?? buildMessagePreview(
-      (input.messageType === "poll" || input.messageType === "contact" ? "text" : input.messageType || "text"),
+      (input.messageType === "poll" || input.messageType === "contact" || input.messageType === "sticker" ? "text" : input.messageType || "text"),
       input.content,
       input.attachmentTitle,
     );

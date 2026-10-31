@@ -15,6 +15,7 @@ import 'face_to_face_screen.dart';
 import 'group_chat_list_screen.dart';
 import 'language_preferences_screen.dart';
 import 'user_discovery_screen.dart';
+import '../widgets/chat_lock.dart';
 
 /// Home: calm and quick. A search bar to reach anyone, one row of ways to
 /// talk, then your recent people. Translation status is a quiet line, not a
@@ -83,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final username = (user?['username'] ?? '').toString();
     final firstName = username.isNotEmpty && username != phone ? username.split(' ').first : null;
     final myLang = Languages.of(user?['preferredLanguage']?.toString());
-    final recent = [...chats.threads.where((t) => t['isArchived'] != true)]
+    final recent = [...chats.threads.where((t) => t['isArchived'] != true && !ChatLock.instance.isLocked('p:${t['id']}'))]
       ..sort((a, b) => (b['lastMessageAt']?.toString() ?? '').compareTo(a['lastMessageAt']?.toString() ?? ''));
 
     return Scaffold(

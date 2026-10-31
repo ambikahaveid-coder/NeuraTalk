@@ -7,6 +7,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/push_service.dart';
 
+/// The account has two-step verification: ask the PIN, then call completeTwoStep.
+class TwoStepRequired implements Exception {
+  final String ticket;
+  final String? resetAvailableAt;
+  const TwoStepRequired(this.ticket, this.resetAvailableAt);
+  @override
+  String toString() => 'Enter your two-step PIN.';
+}
+
 class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _user;
   bool _loading = false;
@@ -144,7 +153,7 @@ class AuthProvider extends ChangeNotifier {
       );
       await _signInWithCredential(credential);
     } catch (e) {
-      _error = _friendlyFirebaseError(e);
+      _error = e is TwoStepRequired ? null : _friendlyFirebaseError(e);
       rethrow;
     } finally {
       _loading = false;
@@ -161,7 +170,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       await _signInWithCredential(credential);
     } catch (e) {
-      _error = _friendlyFirebaseError(e);
+      _error = e is TwoStepRequired ? null : _friendlyFirebaseError(e);
       rethrow;
     } finally {
       _loading = false;
@@ -192,11 +201,22 @@ class AuthProvider extends ChangeNotifier {
     if (idToken == null) throw Exception('Firebase sign-in succeeded but no ID token returned.');
 
     final res = await ApiService.post('/api/auth/firebase-verify', {'idToken': idToken});
+    if (res['twoStepRequired'] == true && res['ticket'] is String) {
+      throw TwoStepRequired(res['ticket'] as String, res['resetAvailableAt']?.toString());
+    }
     final token = res['token'] as String?;
     if (token == null) throw Exception('Login failed: server did not return a session.');
     await ApiService.saveToken(token);
     _user = res['user'] as Map<String, dynamic>?;
     unawaited(_saveCachedUser(_user));
+  }
+
+  /// Finishes a sign-in that asked for the two-step PIN.
+  Future<void> completeTwoStep(String ticket, String pin) async {
+    final res = await ApiService.post('/api/auth/two-step/verify', {'ticket': ticket, 'pin': pin});
+    final token = res['token'] as String?;
+    if (token == null) throw ApiException('Login failed. Please try again.', 500);
+    await completeWebLogin(token, res['user'] as Map<String, dynamic>?);
   }
 
   /// Completes a login done through the in-app web OTP page, which already

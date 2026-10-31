@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/brand_logo.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import 'two_step_screens.dart';
 
 enum LoginStep { phone, otp }
 
@@ -35,6 +36,19 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _completing = false;
   Timer? _challengeTimer;
   static bool _nativeCheckFailed = false;
+
+  /// Two-step verification: ask the PIN, then go into the app.
+  Future<void> _askTwoStepPin(String ticket, String? resetAvailableAt) async {
+    setState(() { _loading = false; _error = null; });
+    final ok = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => TwoStepPinScreen(ticket: ticket, resetAvailableAt: resetAvailableAt)));
+    if (!mounted) return;
+    if (ok == true) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      _completing = false;
+      setState(() { _step = LoginStep.phone; _error = 'Sign-in not finished. Please try again.'; });
+    }
+  }
 
   Future<void> _continue() async {
     if (_step == LoginStep.phone) {
@@ -97,6 +111,8 @@ class _LoginScreenState extends State<LoginScreen> {
           if (!mounted) return;
           // Signed in: the app root (main.dart) now shows the home screen.
           Navigator.of(context).popUntil((route) => route.isFirst);
+        } on TwoStepRequired catch (t) {
+          if (mounted) await _askTwoStepPin(t.ticket, t.resetAvailableAt);
         } catch (e) {
           if (!mounted) return;
           setState(() { _error = context.read<AuthProvider>().error ?? e.toString(); _loading = false; });
@@ -176,6 +192,13 @@ class _LoginScreenState extends State<LoginScreen> {
         _challengeTimer?.cancel();
         setState(() { _loading = false; _bridgeChallenge = false; _error = data['message']?.toString() ?? 'Something went wrong. Please try again.'; });
         break;
+      case 'twoStep':
+        final ticket = data['ticket'];
+        if (ticket is! String || ticket.isEmpty || _completing) return;
+        _completing = true;
+        _challengeTimer?.cancel();
+        await _askTwoStepPin(ticket, data['resetAvailableAt']?.toString());
+        break;
       case 'login':
         final token = data['token'];
         if (token is! String || token.isEmpty || _completing) return;
@@ -213,6 +236,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       // Signed in: the app root (main.dart) now shows the home screen.
           Navigator.of(context).popUntil((route) => route.isFirst);
+    } on TwoStepRequired catch (t) {
+      if (mounted) await _askTwoStepPin(t.ticket, t.resetAvailableAt);
     } catch (e) {
       if (!mounted) return;
       setState(() { _error = context.read<AuthProvider>().error ?? e.toString(); });

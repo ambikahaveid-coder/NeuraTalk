@@ -13,6 +13,7 @@ import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
 import 'blocked_contacts_screen.dart';
 import '../widgets/chat_extras.dart';
+import 'two_step_screens.dart';
 
 /// Privacy hub. Only shows controls the backend actually enforces
 /// (blocking, data export, account deletion); no switches that don't persist.
@@ -122,6 +123,13 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
         children: [
           const NtSectionHeader('Who can see', inset: true),
           const NtCard(child: PrivacyToggles()),
+          const SizedBox(height: NtSpace.m),
+          _tile(
+            icon: Icons.password_outlined,
+            title: 'Two-step verification',
+            subtitle: 'Ask a 6-digit PIN after the SMS code when signing in',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TwoStepSettingsScreen())),
+          ),
           const SizedBox(height: NtSpace.m),
           _tile(
             icon: Icons.block_outlined,

@@ -185,6 +185,9 @@ export async function firebaseVerify(req: Request, res: Response) {
       return res.status(reason === "FIREBASE_NOT_CONFIGURED" || reason === "FIREBASE_PROJECT_MISMATCH" ? 503 : 401)
         .json({ success: false, code: reason, message });
     }
+    if ("twoStepRequired" in result) {
+      return res.json({ success: true, twoStepRequired: true, ticket: result.ticket, resetAvailableAt: result.resetAvailableAt });
+    }
     res.json({ success: true, token: result.token, user: result.user, isNewUser: result.isNewUser });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -340,6 +343,9 @@ export async function otpVerify(req: Request, res: Response) {
       return res.status(result.status).json({ success: false, message: result.message });
     }
     void clearOtpVerifyFailures(input.identifier);
+    if (result.twoStepRequired) {
+      return res.json({ success: true, twoStepRequired: true, ticket: result.ticket, resetAvailableAt: result.resetAvailableAt });
+    }
     res.json({
       success: true,
       userId: result.userId,

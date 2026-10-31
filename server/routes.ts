@@ -40,6 +40,8 @@ import voiceMemosRoutes from "./voice-memos";
 import groupChatsRoutes from "./group-chats";
 import personalChatRoutes from "./personal-chat-routes";
 import chatExtrasRoutes from "./chat-extras";
+import twoStepRoutes from "./two-step";
+import stickerRoutes from "./stickers";
 import { registerLinkPreviewRoutes } from "./link-preview";
 import { registerStatusRoutes } from "./status-routes";
 import { registerBroadcastRoutes } from "./modules/campaigns/broadcast";
@@ -296,6 +298,8 @@ export async function registerRoutes(
   // Multi-language Group Chats
   // Starred, search, polls, view once, privacy (before the chat routers).
   app.use(chatExtrasRoutes);
+  app.use(twoStepRoutes);
+  app.use(stickerRoutes);
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
   registerLinkPreviewRoutes(app);

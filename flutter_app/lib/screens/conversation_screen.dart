@@ -26,6 +26,7 @@ import 'call_screen.dart';
 import 'contact_info_screen.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/chat_extras.dart';
+import '../widgets/chat_lock.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -75,6 +76,12 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     _loadBlockStatus();
     _stars.addListener(_onStars);
     _stars.load();
+    // A locked chat opened from a notification still asks for the secret code.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ChatLock.instance.load();
+      if (!mounted || !ChatLock.instance.isLocked('p:$_threadId')) return;
+      if (!await ChatLock.instance.verify(context) && mounted) Navigator.pop(context);
+    });
     // Best-effort -- if contacts permission isn't already granted this is a
     // no-op (ContactResolver never itself prompts); if it is, this makes
     // the real saved name available for the header below instead of a raw
@@ -243,6 +250,13 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     final contact = await pickContactToShare(context);
     if (contact == null || !mounted) return;
     await context.read<PersonalChatProvider>().sendMessage(_threadId, contact['name'] as String, messageType: 'contact', extra: {'contact': contact});
+    _scrollToBottom();
+  }
+
+  Future<void> _sendSticker() async {
+    final path = await showStickerPicker(context);
+    if (path == null || !mounted) return;
+    await context.read<PersonalChatProvider>().sendMessage(_threadId, 'Sticker', messageType: 'sticker', attachmentUrl: path, attachmentTitle: 'sticker');
     _scrollToBottom();
   }
 
@@ -497,7 +511,16 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                   _toggleStar(message);
                 },
               ),
-            if (message['viewOnce'] != true)
+            if (!isOwn && message['messageType'] == 'sticker' && message['id'] is int)
+              ListTile(
+                leading: Icon(Icons.bookmark_add_outlined, color: AppColors.cyan),
+                title: Text('Save sticker', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  saveStickerFromChat(context, 'personal', _threadId, message['id'] as int);
+                },
+              ),
+            if (message['viewOnce'] != true && message['messageType'] != 'sticker')
               ListTile(
                 leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
                 title: Text('Copy', style: TextStyle(color: AppColors.ink)),
@@ -667,6 +690,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               item(Icons.insert_drive_file, 'Document', const Color(0xFF2563EB), _pickDocuments),
               item(Icons.location_on, 'Location', const Color(0xFF16A34A), _shareCurrentLocation),
               item(Icons.poll_outlined, 'Poll', const Color(0xFF0891B2), _sendPoll),
+              item(Icons.emoji_emotions_outlined, 'Sticker', const Color(0xFFCA8A04), _sendSticker),
               item(Icons.person_outline, 'Contact', const Color(0xFF0D9488), _sendContact),
               item(Icons.looks_one_outlined, 'View once', const Color(0xFFB45309), _sendViewOnce),
             ],
@@ -1060,6 +1084,18 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 case 'starred':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
                   break;
+                case 'export':
+                  shareChatExport(context, displayName, [
+                    for (final m in provider.messages)
+                      exportLine(m['createdAt'], m['isOwn'] == true ? 'You' : displayName,
+                          exportText(m, (m['displayContent'] ?? m['originalContent'] ?? '').toString())),
+                  ]);
+                  break;
+                case 'lock':
+                  ChatLock.instance.isLocked('p:$_threadId')
+                      ? ChatLock.instance.unlockChat(context, 'p:$_threadId').then((_) { if (mounted) setState(() {}); })
+                      : ChatLock.instance.lock(context, 'p:$_threadId').then((_) { if (mounted) setState(() {}); });
+                  break;
                 case 'clear':
                   _confirmClearChat();
                   break;
@@ -1078,6 +1114,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               PopupMenuItem(value: 'search', child: Text('Search', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'starred', child: Text('Starred messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'export', child: Text('Export chat', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'lock', child: Text(ChatLock.instance.isLocked('p:$_threadId') ? 'Unlock chat' : 'Lock chat', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(
                 value: 'block',
@@ -1548,16 +1586,19 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     final fg = AppColors.textPrimary;
     final isMedia = (messageType == 'attachment' || messageType == 'file' || messageType == 'location') && attachmentUrl != null;
     final isPhoto = messageType == 'attachment' && attachmentUrl != null && !isDeleted && !isViewOnce;
+    final isSticker = messageType == 'sticker' && attachmentUrl != null && !isDeleted;
     // 1-3 emojis on their own are shown big, without a bubble (like WhatsApp).
     final jumbo = messageType == 'text' && !isDeleted && widget.repliedMessage == null && isEmojiOnly(texts.primary);
 
-    if (jumbo || isPhoto) {
+    if (jumbo || isPhoto || isSticker) {
+      final plain = jumbo || isSticker;
       final time = Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(_clock(message['createdAt']), style: TextStyle(color: jumbo ? AppColors.textMuted : Colors.white, fontSize: 11.5)),
+        if (widget.starred) ...[Icon(Icons.star, size: 13, color: AppColors.orange), const SizedBox(width: 3)],
+        Text(_clock(message['createdAt']), style: TextStyle(color: plain ? AppColors.textMuted : Colors.white, fontSize: 11.5)),
         if (isOwn && status != null) ...[
           const SizedBox(width: 3),
           Icon(status == 'sending' ? Icons.schedule : status == 'sent' ? Icons.done : Icons.done_all,
-              size: 15, color: status == 'seen' ? (jumbo ? AppColors.cyan : const Color(0xFF8FD3FF)) : (jumbo ? AppColors.textMuted : Colors.white)),
+              size: 15, color: status == 'seen' ? (plain ? AppColors.cyan : const Color(0xFF8FD3FF)) : (plain ? AppColors.textMuted : Colors.white)),
         ],
       ]);
       return Align(
@@ -1566,9 +1607,9 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
           onLongPress: widget.onLongPress,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
-            child: jumbo
+            child: plain
                 ? Column(crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
-                    Text(texts.primary, style: const TextStyle(fontSize: 44, height: 1.15)),
+                    if (isSticker) StickerImage(objectPath: attachmentUrl) else Text(texts.primary, style: const TextStyle(fontSize: 44, height: 1.15)),
                     if (isOwn && status == 'failed') _footer(isOwn, status, null) else time,
                   ])
                 : Container(

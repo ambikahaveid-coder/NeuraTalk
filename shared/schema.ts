@@ -455,6 +455,16 @@ export const starredMessages = pgTable("starred_messages", {
   index("starred_messages_user_idx").on(table.userId, table.createdAt),
 ]);
 
+// "My stickers": up to 100 sticker pictures per person.
+export const userStickers = pgTable("user_stickers", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  objectPath: text("object_path").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("user_stickers_unique").on(table.userId, table.objectPath),
+]);
+
 // Privacy: who sees my last seen/online, and read receipts (both must have them on).
 export const userPrivacySettings = pgTable("user_privacy_settings", {
   userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),

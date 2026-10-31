@@ -178,6 +178,7 @@ export function extrasForViewer(metadata: unknown, viewerId: number, senderId: n
 
 export function extrasPreview(messageType: string, metadata: Meta, content: string): string | null {
   if (messageType === "poll") return `📊 Poll: ${String((metadata.poll as { question?: string } | undefined)?.question ?? content).slice(0, 150)}`;
+  if (messageType === "sticker") return "🎨 Sticker";
   if (messageType === "contact") return `👤 ${String((metadata.contact as { name?: string } | undefined)?.name ?? content).slice(0, 150)}`;
   if (metadata.viewOnce === true) return /video/.test(String(metadata.attachmentMime ?? "")) ? "🎥 View once video" : "📷 View once photo";
   return null;
@@ -199,7 +200,7 @@ async function isGroupMember(userId: number, groupId: number) {
 }
 
 /** The message, if the user may see it (member of its chat, not cleared/expired/deleted). */
-async function visibleMessage(userId: number, chatType: ChatType, chatId: number, messageId: number) {
+export async function visibleMessage(userId: number, chatType: ChatType, chatId: number, messageId: number) {
   if (chatType === "personal") {
     const thread = await personalThreadFor(userId, chatId);
     if (!thread) return null;

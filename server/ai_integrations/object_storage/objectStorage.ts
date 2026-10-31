@@ -154,6 +154,21 @@ export class ObjectFileHandle {
   async delete(): Promise<void> {
     await objectStorageClient().send(new DeleteObjectCommand({ Bucket: bucket(), Key: this.key }));
   }
+
+  /** Server-side copy to a fresh "uploads/<uuid>" key, without the old access rules (caller sets new ones). */
+  async copyToNewKey(): Promise<ObjectFileHandle> {
+    const [current] = await this.getMetadata();
+    const key = `uploads/${randomUUID()}`;
+    await objectStorageClient().send(new CopyObjectCommand({
+      Bucket: bucket(),
+      Key: key,
+      CopySource: `${bucket()}/${this.key}`,
+      MetadataDirective: "REPLACE",
+      Metadata: {},
+      ContentType: current.contentType,
+    }));
+    return new ObjectFileHandle(key);
+  }
 }
 
 export class ObjectStorageService {

@@ -18,6 +18,7 @@ import 'group_info_screen.dart';
 import 'call_screen.dart';
 import '../services/call_service.dart';
 import '../widgets/chat_extras.dart';
+import '../widgets/chat_lock.dart';
 import 'conversation_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
@@ -111,6 +112,17 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     }
   }
 
+  Future<void> _sendSticker() async {
+    final path = await showStickerPicker(context);
+    if (path == null || !mounted) return;
+    try {
+      await context.read<GroupChatProvider>().sendExtra(widget.groupId, 'sticker', 'Sticker', {'attachmentUrl': path, 'attachmentTitle': 'sticker'});
+      _scrollToBottom();
+    } catch (e) {
+      _toast(e is ApiException ? e.message : 'Could not send the sticker.');
+    }
+  }
+
   Future<void> _sendViewOnce() async {
     final picked = await pickViewOnceMedia(context);
     if (picked == null || !mounted) return;
@@ -139,6 +151,23 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => ConversationScreen(thread: thread)));
   }
 
+  /// The whole group history (up to 1,000 messages) as a text file.
+  Future<void> _export(String groupName) async {
+    try {
+      final res = await ApiService.get('/api/group-chats/${widget.groupId}/messages?limit=1000');
+      final list = (res is List ? res : const []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      final selfId = context.read<AuthProvider>().user?['id'];
+      if (!mounted) return;
+      await shareChatExport(context, groupName, [
+        for (final m in list)
+          exportLine(m['createdAt'], m['senderId'] == selfId ? 'You' : ((m['sender'] as Map?)?['username']?.toString() ?? 'Member'),
+              exportText(m, (m['displayContent'] ?? m['originalContent'] ?? '').toString())),
+      ]);
+    } catch (_) {
+      _toast('Could not export this chat.');
+    }
+  }
+
   /// Poll, contact and view once, before the usual photo/file picker.
   Future<void> _attachMenu() async {
     final choice = await showModalBottomSheet<String>(
@@ -148,6 +177,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(leading: const Icon(Icons.attach_file), title: const Text('Photo, video, file or location'), onTap: () => Navigator.pop(sheet, 'files')),
           ListTile(leading: const Icon(Icons.poll_outlined), title: const Text('Poll'), onTap: () => Navigator.pop(sheet, 'poll')),
+          ListTile(leading: const Icon(Icons.emoji_emotions_outlined), title: const Text('Sticker'), onTap: () => Navigator.pop(sheet, 'sticker')),
           ListTile(leading: const Icon(Icons.person_outline), title: const Text('Contact'), onTap: () => Navigator.pop(sheet, 'contact')),
           ListTile(leading: const Icon(Icons.looks_one_outlined), title: const Text('View once photo or video'), onTap: () => Navigator.pop(sheet, 'once')),
         ]),
@@ -159,6 +189,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
         await _attach();
       case 'poll':
         await _sendPoll();
+      case 'sticker':
+        await _sendSticker();
       case 'contact':
         await _sendContact();
       case 'once':
@@ -174,6 +206,11 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _msgCtrl.addListener(_watchForMention);
     _stars.addListener(_onStars);
     _stars.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ChatLock.instance.load();
+      if (!mounted || !ChatLock.instance.isLocked('g:${widget.groupId}')) return;
+      if (!await ChatLock.instance.verify(context) && mounted) Navigator.pop(context);
+    });
   }
 
   /// Other members as (user id, name), for "@" suggestions and highlighting.
@@ -437,7 +474,16 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                   _toggleStar(message);
                 },
               ),
-            if (message['viewOnce'] != true)
+            if (!isOwn && message['messageType'] == 'sticker' && message['id'] is int)
+              ListTile(
+                leading: Icon(Icons.bookmark_add_outlined, color: AppColors.cyan),
+                title: Text('Save sticker', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  saveStickerFromChat(context, 'group', widget.groupId, message['id'] as int);
+                },
+              ),
+            if (message['viewOnce'] != true && message['messageType'] != 'sticker')
               ListTile(
                 leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
                 title: Text('Copy', style: TextStyle(color: AppColors.ink)),
@@ -524,8 +570,16 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
               if (v == 'search') _openSearch(groupName);
               if (v == 'starred') Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
               if (v == 'info') openInfo();
+              if (v == 'export') _export(groupName);
+              if (v == 'lock') {
+                final key = 'g:${widget.groupId}';
+                (ChatLock.instance.isLocked(key) ? ChatLock.instance.unlockChat(context, key) : ChatLock.instance.lock(context, key))
+                    .then((_) { if (mounted) setState(() {}); });
+              }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(value: 'export', child: Text('Export chat', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'lock', child: Text(ChatLock.instance.isLocked('g:${widget.groupId}') ? 'Unlock chat' : 'Lock chat', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'info', child: Text('Group info', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'search', child: Text('Search', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'starred', child: Text('Starred messages', style: TextStyle(color: AppColors.ink))),
@@ -737,7 +791,8 @@ class _GroupMessageBubble extends StatelessWidget {
     final poll = message['poll'] is Map ? Map<String, dynamic>.from(message['poll'] as Map) : null;
     final contact = message['contact'] is Map ? Map<String, dynamic>.from(message['contact'] as Map) : null;
     final jumbo = !isMedia && messageType == 'text' && isEmojiOnly(shown);
-    if (jumbo) {
+    final isSticker = messageType == 'sticker' && attachmentUrl != null;
+    if (jumbo || isSticker) {
       return Align(
         alignment: isOwn ? Alignment.centerRight : Alignment.centerLeft,
         child: GestureDetector(
@@ -747,8 +802,11 @@ class _GroupMessageBubble extends StatelessWidget {
             child: Column(crossAxisAlignment: isOwn ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
               if (showSender)
                 Text(senderName, style: TextStyle(color: _senderColor(senderName), fontSize: 13, fontWeight: FontWeight.w700)),
-              Text(shown, style: const TextStyle(fontSize: 44, height: 1.15)),
-              Text(_clock(message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+              if (isSticker) StickerImage(objectPath: attachmentUrl) else Text(shown, style: const TextStyle(fontSize: 44, height: 1.15)),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (starred) ...[Icon(Icons.star, size: 13, color: AppColors.orange), const SizedBox(width: 3)],
+                Text(_clock(message['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+              ]),
             ]),
           ),
         ),

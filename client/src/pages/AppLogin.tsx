@@ -24,6 +24,7 @@ import {
   clearRecaptcha,
 } from "@/lib/firebase";
 import { LogoWithIcon } from "@/components/Logo";
+import { TwoStepDialog } from "@/components/TwoStepDialog";
 
 declare global {
   interface Window {
@@ -45,6 +46,7 @@ export default function AppLogin() {
   const [digits, setDigits] = useState(initialDigits);
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"phone" | "code" | "done">("phone");
+  const [pinTicket, setPinTicket] = useState<null | { ticket: string; resetAvailableAt: string | null }>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const confirmation = useRef<ConfirmationResult | null>(null);
@@ -110,6 +112,15 @@ export default function AppLogin() {
         body: JSON.stringify({ idToken }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.twoStepRequired && data?.ticket) {
+        // The app asks for the two-step PIN on its own screen; a browser gets the dialog.
+        if (bridge) {
+          postToApp({ type: "twoStep", ticket: data.ticket, resetAvailableAt: data.resetAvailableAt ?? null });
+          return;
+        }
+        setPinTicket({ ticket: data.ticket, resetAvailableAt: data.resetAvailableAt ?? null });
+        return;
+      }
       if (!res.ok || !data?.token) {
         throw new Error(data?.message || "Login failed. Please try again.");
       }
@@ -144,6 +155,14 @@ export default function AppLogin() {
 
   return (
     <div className="min-h-screen bg-slate-950 px-5 py-10 text-white">
+      {pinTicket && (
+        <TwoStepDialog
+          ticket={pinTicket.ticket}
+          resetAvailableAt={pinTicket.resetAvailableAt}
+          onDone={(r) => { setPinTicket(null); setStep("done"); postToApp({ type: "login", token: r.token, user: r.user ?? null }); }}
+          onCancel={(reason) => { setPinTicket(null); setError(reason); setStep("phone"); }}
+        />
+      )}
       <div className="mx-auto max-w-md">
         <h1 className="flex justify-center"><LogoWithIcon size="lg" /></h1>
         <p className="mt-2 text-center text-lg text-slate-400">Sign in with your mobile number</p>

@@ -6,7 +6,7 @@ import { ObjectStorageService } from "./ai_integrations/object_storage";
 import { ObjectNotFoundError } from "./ai_integrations/object_storage/objectStorage";
 import { getObjectAclPolicy, setObjectAclPolicy, ObjectAccessGroupType, ObjectPermission } from "./ai_integrations/object_storage/objectAcl";
 
-const GROUP_ATTACHMENT_TYPES = new Set(["attachment", "file", "voice_note"]);
+const GROUP_ATTACHMENT_TYPES = new Set(["attachment", "file", "voice_note", "sticker"]);
 
 /** Lets every current member of the group read a file the sender uploaded.
  * Returns an error message if the file can't be used. */
@@ -452,7 +452,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     const viewOnce = req.body?.viewOnce === true;
     if (viewOnce) {
       const mime = typeof attachmentMime === "string" ? attachmentMime : (messageType === "attachment" ? "image/" : "");
-      if (!isAttachment || messageType === "voice_note" || !/^(image|video)\//.test(mime)) {
+      if (!isAttachment || messageType === "voice_note" || messageType === "sticker" || !/^(image|video)\//.test(mime)) {
         return res.status(400).json({ error: "Only photos and videos can be sent as view once." });
       }
       extraMeta.viewOnce = true;
@@ -834,7 +834,7 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
   try {
     const userId = req.user!.id;
     const groupId = parseInt(req.params.groupId);
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 1000);
     const offset = parseInt(req.query.offset as string) || 0;
     
     const memberInfo = await db.select().from(groupChatMembers)
