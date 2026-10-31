@@ -266,7 +266,7 @@ const WEB_SESSION_MS = WEB_SESSION_DAYS * 24 * 60 * 60 * 1000;
  * keeps working. Step 2 (next deploy) turns it on: new logins are stored as
  * fingerprints, old rows are converted at startup and on first use.
  */
-export const STORE_HASHED_TOKENS = false;
+export const STORE_HASHED_TOKENS = true;
 
 export function sessionTokenKey(rawToken: string): string {
   return `h1:${createHash("sha256").update(rawToken).digest("hex")}`;
