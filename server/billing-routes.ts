@@ -193,7 +193,8 @@ export function registerBillingRoutes(app: Express) {
           id: p.id,
           name: p.name,
           type: p.planType,
-          description: p.description || "",
+          // Built from the plan's real numbers; the stored text promised things (team sizes, SLAs) that aren't enforced.
+          description: summary.summaryText,
           priceMonthly: (p.priceInPaise / 100).toFixed(0),
           priceYearly: (p.priceInPaise * 10 / 100).toFixed(0),
           currency: p.currency || "INR",
@@ -202,7 +203,8 @@ export function registerBillingRoutes(app: Express) {
           callMinutesIncluded: p.includedMinutes || 0,
           translationMinutesIncluded: p.includedMinutes || 0,
           voiceMinutesIncluded: p.includedMinutes || 0,
-          usersIncluded: p.planType === "b2b" ? 5 : 1,
+          // Team size isn't limited by plan today, so no number is promised.
+          usersIncluded: 0,
         };
       }));
     } catch (err) {

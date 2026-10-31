@@ -31,15 +31,13 @@ interface BillingPlan {
   translationMinutesIncluded: number;
   voiceMinutesIncluded: number;
   usersIncluded: number;
+  minutesLabel?: string;
+  periodSuffix?: string;
 }
 
 function PlanCard({ plan, business }: { plan: BillingPlan; business?: boolean }) {
   const featured = !business && plan.tierLabel === "premium";
-  const extras: string[] = [];
-  if (!business && plan.standards?.videoCalls) extras.push("Voice, video, and face-to-face ready");
-  if (!business && plan.callMinutesIncluded > 0) extras.push(`${plan.callMinutesIncluded} call minutes/month`);
-  if (!business && plan.translationMinutesIncluded > 0) extras.push(`${plan.translationMinutesIncluded} translation minutes/month`);
-  if (business && plan.usersIncluded > 0) extras.push(`Up to ${plan.usersIncluded} team members`);
+  const extras: string[] = plan.minutesLabel ? [plan.minutesLabel] : [];
   return (
     <motion.div
       {...reveal}
@@ -51,15 +49,15 @@ function PlanCard({ plan, business }: { plan: BillingPlan; business?: boolean })
       <p className="mt-2 min-h-[3rem] text-sm leading-relaxed text-muted-foreground">{plan.description}</p>
       <p className="mt-6">
         <span className="text-4xl font-semibold tracking-tight" data-testid={business ? undefined : `text-plan-price-${plan.id}`}>{plan.priceFormatted || `Rs ${plan.priceMonthly}`}</span>
-        <span className="text-muted-foreground"> /{business || plan.type !== "b2c" ? "month" : "plan"}</span>
+        {plan.periodSuffix ? <span className="text-muted-foreground"> {plan.periodSuffix}</span> : null}
       </p>
-      {plan.ratePerSecondFormatted && (
+      {plan.ratePerSecondFormatted && plan.ratePerSecondFormatted !== "Custom" && plan.ratePerSecondFormatted !== "Included" && (
         <p className="mt-2 text-xs text-muted-foreground">
           Effective usage: {plan.ratePerSecondFormatted}{!business && plan.ratePerMinuteFormatted ? ` and ${plan.ratePerMinuteFormatted}` : ""}
         </p>
       )}
       <ul className="mt-6 flex-1 space-y-2.5">
-        {[...(plan.features ?? []), ...extras].map((f, i) => (
+        {[...extras, ...(plan.features ?? [])].map((f, i) => (
           <li key={i} className="flex items-start gap-2.5 text-sm"><Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><span>{f}</span></li>
         ))}
       </ul>

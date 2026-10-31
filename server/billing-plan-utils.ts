@@ -30,6 +30,12 @@ export interface BillingPlanPresentation {
   ratePerMinuteFormatted: string;
   ratePerSecondFormatted: string;
   featureHighlights: string[];
+  /** e.g. "2,000 translated call minutes · 90 days". */
+  minutesLabel: string;
+  /** "/week", "/month", "/3 months", "/year", or "" for custom and free plans. */
+  periodSuffix: string;
+  /** Plain description built from the plan's real numbers (never a promise we don't enforce). */
+  summaryText: string;
   standards: {
     voiceCalls: boolean;
     videoCalls: boolean;
@@ -72,20 +78,36 @@ export function summarizeBillingPlan(plan: BillingPlanLike): BillingPlanPresenta
     apiAccess: Boolean(features.apiAccess || features.customIntegrations || features.contactSales || plan.planType === "b2b"),
   };
 
+  // Only what every plan really gets today. Support levels, SLAs and "emotion-aware" voice are
+  // not offered as separate, enforced features, so they are not listed (even if a plan row has the flag).
+  const isBusiness = plan.planType === "b2b";
+  const custom = Boolean(features.contactSales) || displayName === "Enterprise";
   const featureHighlights = dedupe([
-    "Voice calls",
-    "Video calls",
-    "Face-to-face interpreter",
-    features.translation !== false ? "Real-time translation" : null,
-    standards.emotionAware ? "Emotion-aware voice delivery" : null,
-    standards.apiAccess ? "API and integrations" : null,
+    "Translated voice and video calls",
+    "Translated chats included",
+    "In-person translation",
+    "Calls in your own voice once you record it",
+    isBusiness ? "NeuraTalk Business app and team inbox" : null,
+    isBusiness ? "Business API for order updates and login codes" : null,
     config.billingType === "hybrid" ? "Hybrid wallet + credit billing" : null,
     config.billingType === "postpaid" ? "Postpaid invoicing" : null,
-    config.billingType === "prepaid" ? "Prepaid wallet billing" : null,
-    features.prioritySupport ? "Priority support" : null,
-    features.dedicatedSupport ? "Dedicated support" : null,
-    features.sla ? "SLA-backed support" : null,
+    config.billingType === "prepaid" && !custom ? "Prepaid — never renews on its own" : null,
   ]);
+
+  const minutes = plan.includedMinutes || 0;
+  const period = PERIOD[plan.duration as keyof typeof PERIOD];
+  const minutesText = `${new Intl.NumberFormat("en-IN").format(minutes)} translated call minutes`;
+  const minutesLabel = custom || minutes >= 99999
+    ? "Minutes agreed with our team"
+    : period ? `${minutesText} · ${period.length}` : minutesText;
+  const periodSuffix = custom || plan.priceInPaise === 0 || !period ? "" : period.suffix;
+  const summaryText = custom
+    ? isBusiness ? "For larger teams. Minutes, team size and terms are agreed with our team." : "For heavy use. Minutes and terms are agreed with our team."
+    : plan.priceInPaise === 0
+      ? `${minutesText} to try NeuraTalk. No credit card needed.`
+      : isBusiness
+        ? `${minutesText} for your team to use within ${period ? period.length : "the plan period"}.`
+        : `${minutesText} to use within ${period ? period.length : "the plan period"}.`;
 
   return {
     displayName,
@@ -97,9 +119,20 @@ export function summarizeBillingPlan(plan: BillingPlanLike): BillingPlanPresenta
     ratePerMinuteFormatted: formatRate(ratePerMinutePaise, "min", features.contactSales),
     ratePerSecondFormatted: formatRate(ratePerSecondPaise, "sec", features.contactSales),
     featureHighlights,
+    minutesLabel,
+    periodSuffix,
+    summaryText,
     standards,
   };
 }
+
+const PERIOD = {
+  daily: { length: "1 day", suffix: "/day" },
+  weekly: { length: "7 days", suffix: "/week" },
+  monthly: { length: "30 days", suffix: "/month" },
+  quarterly: { length: "90 days", suffix: "/3 months" },
+  yearly: { length: "365 days", suffix: "/year" },
+} as const;
 
 function getPlanDisplayName(plan: BillingPlanLike, features: Record<string, any>): string {
   if (features.contactSales || plan.name.toLowerCase() === "enterprise") return "Enterprise";
