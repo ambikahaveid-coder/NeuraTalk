@@ -1,116 +1,106 @@
 import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { AudioLines, Bot, Building2, Check, Code2, MessageSquare, Mic, Phone, Users, Video } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowRight, AudioLines, Bot, Code2, Megaphone, Users } from "lucide-react";
 import { LANGUAGES } from "./site-facts";
+import {
+  CallScreen, ClosingBanner, DesktopWeb, DetailGrid, GroupChat, HeroChat, PAPER, PageHero, PrimaryAction,
+  SectionTitle, Story, VoiceSetup, reveal,
+} from "./site-ui";
 
-const PRODUCTS = [
-  {
-    icon: Phone,
-    title: "Translated voice calls",
-    desc: "Call anyone on NeuraTalk. Each person speaks their language and hears the other in theirs.",
-    points: ["Each speaker's language detected automatically", "Translated speech, or captions if you prefer", "Same language? Nothing is translated"],
-  },
-  {
-    icon: Video,
-    title: "Translated video calls",
-    desc: "Everything voice calls do, with the camera on — one-to-one or in a group.",
-    points: ["Group voice and video calls", "Background noise reduced", "Switch the camera on or off mid-call"],
-  },
-  {
-    icon: Mic,
-    title: "Your own voice",
-    desc: "Record three short passages, or let NeuraTalk learn your voice from a call. Your translated words are then spoken in your voice.",
-    points: ["About two minutes to set up", "Used only for your own words", "Switch off or delete any time"],
-  },
-  {
-    icon: MessageSquare,
-    title: "Translated chat",
-    desc: "Write in your language; they read it in theirs. Tap a message to see the original.",
-    points: ["Handles mixed Telugu–English, Hindi–English", "Photos, videos, documents and location", "Voice messages with transcripts"],
-  },
-  {
-    icon: Users,
-    title: "Group chats",
-    desc: "Everyone writes in their own language and reads every message in theirs.",
-    points: ["Photos and files for the whole group", "Group info and members", "Translated for each member"],
-  },
-  {
-    icon: AudioLines,
-    title: "In person",
-    desc: "Two people, one phone. Each speaks their language and hears the other in theirs.",
-    points: ["No second phone needed", "Works face to face", "Same languages as calls"],
-  },
-  {
-    icon: Bot,
-    title: "Assistant",
-    desc: "Ask questions or get help writing a message, in your own language.",
-    points: ["Built into the app", "Answers in your language", "Can make mistakes — check important facts"],
-  },
-  {
-    icon: Building2,
-    title: "NeuraTalk Business",
-    desc: "A separate app for businesses to chat with and call customers in their languages.",
-    points: ["Verified tick after NeuraTalk's check", "Catalog, automatic replies, quick replies, labels", "Updates, login codes and offers under clear rules"],
-    href: "/business",
-  },
-  {
-    icon: Code2,
-    title: "Business API",
-    desc: "Send order updates and login codes from your own systems.",
-    points: ["API keys per business", "Approved templates only", "Signed webhooks"],
-    href: "/sdk-docs",
-  },
-];
+function Chips({ items }: { items: string[] }) {
+  return (
+    <div className="mt-6 flex flex-wrap gap-2 text-sm">
+      {items.map((t) => <span key={t} className="rounded-full border bg-background px-3 py-1.5">{t}</span>)}
+    </div>
+  );
+}
 
 export default function ProductsPage() {
   return (
     <div className="min-h-screen bg-background">
-      <section className="py-16 px-4 bg-gradient-to-b from-primary/5 to-background">
-        <div className="max-w-4xl mx-auto text-center">
-          <Badge variant="outline" className="mb-4">Products</Badge>
-          <h1 className="text-4xl font-bold mb-4">Talk across languages with live translation</h1>
-          <p className="text-lg text-muted-foreground">Calls, video, chats and business messages in {LANGUAGES.length} languages — so the conversation stays human.</p>
+      <PageHero
+        eyebrow="Products"
+        title={<>One app for every conversation, <span className="text-primary">in every language.</span></>}
+        body={`Calls, video, chats, groups and business messages in ${LANGUAGES.length} languages. You talk and write the way you always do; NeuraTalk does the translating.`}
+        actions={<>
+          <PrimaryAction href="/login" testId="button-start-free">Start calling free</PrimaryAction>
+          <PrimaryAction href="/demo" variant="outline">See how a call works</PrimaryAction>
+        </>}
+      />
+
+      <Story
+        title="Calls that speak your language"
+        body="Call anyone on NeuraTalk. Each speaker's language is detected automatically, translated speech or captions follow, and when you both speak the same language nothing is translated at all."
+        visual={<CallScreen />}
+      >
+        <Chips items={["Translated voice calls", "Translated video calls", "Group voice and video calls", "Background noise reduced"]} />
+      </Story>
+
+      <Story
+        paper
+        flip
+        title="Heard in your own voice"
+        body="Record three short passages, or let NeuraTalk learn your voice from a call. Your translated words are then spoken in your voice. Until then, people hear your original voice with translated captions."
+        visual={<VoiceSetup />}
+      >
+        <Chips items={["About two minutes to set up", "Used only for your own words", "Switch off or delete any time"]} />
+      </Story>
+
+      <Story
+        title="Chat without a language barrier"
+        body="Write in your language; they read it in theirs. Mixed Telugu–English or Hindi–English usually works. Tap any message to see what was originally written."
+        visual={<HeroChat />}
+      >
+        <Chips items={["Photos, videos and documents", "Voice messages", "Location", "Polls and contact cards"]} />
+      </Story>
+
+      <Story
+        paper
+        flip
+        title="Groups, communities and channels"
+        body="Everyone writes in their own language and reads every message in theirs. Bring related groups together in a community, or follow channels for updates."
+        visual={<GroupChat />}
+      />
+
+      <Story
+        title="On your computer, too"
+        body="Open neuratalk.in/web and scan the QR code with your phone. Your chats appear on the big screen, and you can sign any computer out from your phone."
+        visual={<DesktopWeb />}
+        link={{ href: "/link-device", label: "Link a computer" }}
+      />
+
+      <section className={`px-4 py-20 md:py-28 ${PAPER}`}>
+        <div className="mx-auto max-w-6xl">
+          <SectionTitle title="And a few more things" />
+          <DetailGrid items={[
+            { icon: AudioLines, title: "In person", desc: "Two people, one phone. Each speaks their language and hears the other in theirs. No second phone needed." },
+            { icon: Bot, title: "Assistant", desc: "Ask questions or get help writing a message, in your own language. It can make mistakes, so check important facts." },
+            { icon: Megaphone, title: "Status updates", desc: "Share text and photos with the people you chat with. Each viewer reads your words in their language." },
+          ]} />
         </div>
       </section>
 
-      <section className="py-12 px-4">
-        <div className="max-w-6xl mx-auto grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {PRODUCTS.map((p) => (
-            <Card key={p.title} className="h-full flex flex-col">
-              <CardHeader>
-                <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center mb-2">
-                  <p.icon className="w-5 h-5 text-primary" />
-                </div>
-                <CardTitle className="text-lg">{p.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col">
-                <p className="text-muted-foreground mb-4 text-sm leading-relaxed">{p.desc}</p>
-                <ul className="space-y-2 text-sm">
-                  {p.points.map((pt) => (
-                    <li key={pt} className="flex items-start gap-2">
-                      <Check className="w-4 h-4 text-primary mt-0.5 shrink-0" />
-                      {pt}
-                    </li>
-                  ))}
-                </ul>
-                {p.href && <Link href={p.href} className="mt-4 text-sm text-primary underline">Learn more</Link>}
-              </CardContent>
-            </Card>
+      {/* For businesses */}
+      <section className="px-4 py-12">
+        <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-2">
+          {[
+            { icon: Users, title: "NeuraTalk Business", desc: "A separate app for shops, clinics and companies to chat with and call customers in their languages. Verified tick after NeuraTalk's check, catalog, orders, quick replies and labels.", href: "/business", label: "Explore NeuraTalk Business" },
+            { icon: Code2, title: "Business API", desc: "Send order updates and login codes from your own systems. API keys per business, approved templates only, signed webhooks.", href: "/sdk-docs", label: "Read the API docs" },
+          ].map((c) => (
+            <motion.div key={c.title} {...reveal} className="rounded-[2rem] bg-slate-900 p-8 text-white md:p-10 dark:ring-1 dark:ring-white/10">
+              <c.icon className="h-7 w-7 text-sky-300" />
+              <h3 className="mt-5 text-2xl font-semibold">{c.title}</h3>
+              <p className="mt-3 leading-relaxed text-white/70">{c.desc}</p>
+              <Link href={c.href} className="mt-6 inline-flex items-center gap-1.5 font-medium text-sky-300 hover:underline">{c.label} <ArrowRight className="h-4 w-4" /></Link>
+            </motion.div>
           ))}
         </div>
       </section>
 
-      <section className="py-16 px-4 bg-muted/30">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl font-bold mb-4">Try it on your next call</h2>
-          <p className="text-muted-foreground mb-8">New accounts get 15 free translated call minutes. No credit card needed.</p>
-          <Link href="/login">
-            <Button size="lg" data-testid="button-start-free">Start calling free</Button>
-          </Link>
-        </div>
-      </section>
+      <ClosingBanner title="Try it on your next call" body="New accounts get 15 free translated call minutes. No credit card needed.">
+        <PrimaryAction href="/login" variant="outline">Create free account</PrimaryAction>
+      </ClosingBanner>
     </div>
   );
 }
+
