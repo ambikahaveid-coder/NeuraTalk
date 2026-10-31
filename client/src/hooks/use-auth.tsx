@@ -62,10 +62,17 @@ export function requestSessionCheck() {
 }
 
 /** Where a signed-out browser goes: computers using NeuraTalk Web go back to the QR page, like WhatsApp Web. */
+let recentSignOutTarget: { to: string; at: number } | null = null;
 function signedOutDestination(reason: "logout" | "ended"): string {
   const onWeb = window.location.pathname.startsWith("/web");
-  if (!onWeb) return "/";
-  return reason === "ended" ? "/link-device?signedOut=1" : "/link-device";
+  const to = !onWeb ? "/" : reason === "ended" ? "/login?signedOut=1" : "/login";
+  // Protected pages redirect as soon as the login disappears; they read this so the
+  // "you were signed out" message isn't lost to their plain "/login" redirect.
+  recentSignOutTarget = { to, at: Date.now() };
+  return to;
+}
+export function recentSignOutDestination(): string | null {
+  return recentSignOutTarget && Date.now() - recentSignOutTarget.at < 5000 ? recentSignOutTarget.to : null;
 }
 
 export function getAuthToken(): string | null {

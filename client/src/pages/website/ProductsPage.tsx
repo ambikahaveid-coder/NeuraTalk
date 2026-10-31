@@ -64,9 +64,9 @@ export default function ProductsPage() {
 
       <Story
         title="On your computer, too"
-        body="Open neuratalk.in/web and scan the QR code with your phone. Your chats appear on the big screen, and you can sign any computer out from your phone."
+        body="On your computer, open neuratalk.in and tap Log in, then scan the QR code with your phone. Your chats appear on the big screen, and you can sign any computer out from your phone."
         visual={<DesktopWeb />}
-        link={{ href: "/link-device", label: "Link a computer" }}
+        link={{ href: "/login", label: "Open NeuraTalk on your computer — scan the QR code" }}
       />
 
       <section className={`px-4 py-20 md:py-28 ${PAPER}`}>

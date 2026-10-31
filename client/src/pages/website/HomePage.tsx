@@ -40,9 +40,9 @@ export default function HomePage() {
                   Get started free <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
-              <Link href="/link-device">
+              <Link href="/login">
                 <Button size="lg" variant="outline" className="h-12 w-full rounded-full bg-background px-7 text-base sm:w-auto" data-testid="button-how-it-works">
-                  <Monitor className="mr-2 h-5 w-5" /> Use on your computer
+                  <Monitor className="mr-2 h-5 w-5" /> Use on your computer (scan QR)
                 </Button>
               </Link>
             </div>
@@ -81,9 +81,9 @@ export default function HomePage() {
 
       <Story
         title="Your chats, on your computer"
-        body="Open neuratalk.in/web, scan the QR code with your phone, and your chats are on the big screen. You can sign any computer out from your phone."
+        body="On your computer, open neuratalk.in and tap Log in. Scan the QR code with your phone, and your chats are on the big screen. You can sign any computer out from your phone."
         visual={<DesktopWeb />}
-        link={{ href: "/link-device", label: "Link a computer" }}
+        link={{ href: "/login", label: "Open NeuraTalk on your computer — scan the QR code" }}
       />
 
       {/* Business */}

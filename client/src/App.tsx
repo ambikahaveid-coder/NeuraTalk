@@ -2,7 +2,7 @@ import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
-import { useAuth, AuthProvider } from "@/hooks/use-auth";
+import { useAuth, AuthProvider, recentSignOutDestination } from "@/hooks/use-auth";
 import { USER_ROLES } from "@shared/schema";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { useAppTheme } from "@/components/theme-toggle";
@@ -184,7 +184,7 @@ function ProtectedRoute({
     if (/^\/(b|business-chat)\//.test(window.location.pathname)) {
       try { sessionStorage.setItem(RETURN_TO_KEY, here); } catch { /* storage unavailable */ }
     }
-    return <Redirect to="/login" />;
+    return <Redirect to={recentSignOutDestination() ?? "/login"} />;
   }
   
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
