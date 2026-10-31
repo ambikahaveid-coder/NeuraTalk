@@ -455,6 +455,47 @@ export const starredMessages = pgTable("starred_messages", {
   index("starred_messages_user_idx").on(table.userId, table.createdAt),
 ]);
 
+// Channels: one-way updates to private followers, read in each follower's language.
+export const channels = pgTable("channels", {
+  id: serial("id").primaryKey(),
+  ownerUserId: integer("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  businessId: integer("business_id"),
+  name: text("name").notNull(),
+  description: text("description"),
+  avatarUrl: text("avatar_url"),
+  language: text("language").notNull().default("en"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const channelFollowers = pgTable("channel_followers", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  muted: boolean("muted").notNull().default(false),
+  lastReadAt: timestamp("last_read_at").defaultNow(),
+  followedAt: timestamp("followed_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("channel_followers_unique").on(table.channelId, table.userId),
+  index("channel_followers_user_idx").on(table.userId),
+]);
+
+export const channelUpdates = pgTable("channel_updates", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+  authorUserId: integer("author_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  textContent: text("text_content"),
+  mediaUrl: text("media_url"),
+  mediaMime: text("media_mime"),
+  originalLanguage: text("original_language").notNull().default("en"),
+  translations: jsonb("translations").default({}),
+  reactions: jsonb("reactions").default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+}, (table) => [
+  index("channel_updates_channel_idx").on(table.channelId, table.createdAt),
+]);
+
 // "My stickers": up to 100 sticker pictures per person.
 export const userStickers = pgTable("user_stickers", {
   id: serial("id").primaryKey(),

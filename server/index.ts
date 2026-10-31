@@ -474,6 +474,8 @@ app.use((req, res, next) => {
     await ensureStickersTable();
     const { ensureLinkedDevicesTable } = await import("./linked-devices");
     await ensureLinkedDevicesTable();
+    const { ensureChannelTables } = await import("./channels");
+    await ensureChannelTables();
   }, { optional: true });
   let redisOperational = false;
   try {

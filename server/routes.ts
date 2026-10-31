@@ -43,6 +43,7 @@ import chatExtrasRoutes from "./chat-extras";
 import twoStepRoutes from "./two-step";
 import stickerRoutes from "./stickers";
 import linkedDeviceRoutes from "./linked-devices";
+import channelRoutes from "./channels";
 import { registerLinkPreviewRoutes } from "./link-preview";
 import { registerStatusRoutes } from "./status-routes";
 import { registerBroadcastRoutes } from "./modules/campaigns/broadcast";
@@ -302,6 +303,7 @@ export async function registerRoutes(
   app.use(twoStepRoutes);
   app.use(stickerRoutes);
   app.use(linkedDeviceRoutes);
+  app.use(channelRoutes);
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
   registerLinkPreviewRoutes(app);

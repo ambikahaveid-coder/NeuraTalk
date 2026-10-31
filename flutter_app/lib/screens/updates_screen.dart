@@ -12,6 +12,7 @@ import '../services/media_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/languages.dart';
 import '../widgets/nt_ui.dart';
+import 'channels_screen.dart';
 
 /// Status updates: text or a photo that lasts 24 hours, seen by the people
 /// you chat with. Text appears in each viewer's own language.
@@ -29,6 +30,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   int _audience = 0;
   bool _loading = true;
   String? _error;
+  final _channelsKey = GlobalKey<ChannelsSectionState>();
 
   @override
   void initState() {
@@ -37,6 +39,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   }
 
   Future<void> _load() async {
+    unawaitedReload();
     try {
       final res = await ApiService.get('/api/status/feed');
       if (!mounted) return;
@@ -57,6 +60,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       }
     }
   }
+
+  void unawaitedReload() => _channelsKey.currentState?.reload();
 
   Widget _businessTile(Map<String, dynamic> entry) {
     final biz = (entry['business'] as Map?) ?? const {};
@@ -227,6 +232,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
               if (_businesses.isNotEmpty) const _Header('Businesses'),
               for (final b in _businesses) _businessTile(b),
             ],
+            ChannelsSection(key: _channelsKey),
           ],
         ),
       ),
