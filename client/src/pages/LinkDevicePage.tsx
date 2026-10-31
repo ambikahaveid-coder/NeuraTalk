@@ -63,10 +63,16 @@ export default function LinkDevicePage() {
   }, [start, setAuth, setLocation]);
 
   const pretty = start ? `${start.code.slice(0, 4)}-${start.code.slice(4)}` : "";
+  const signedOut = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("signedOut") === "1";
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center px-4 py-10">
       <Link href="/"><LogoWithIcon size="md" /></Link>
+      {signedOut && (
+        <p className="w-full max-w-3xl mt-6 rounded-xl border bg-muted/60 px-4 py-3 text-sm" role="status" data-testid="text-signed-out">
+          This computer was signed out of NeuraTalk. Your phone is still signed in. Scan the code again to use NeuraTalk here.
+        </p>
+      )}
       <Card className="w-full max-w-3xl mt-8">
         <CardContent className="p-6 sm:p-10 grid gap-8 md:grid-cols-[1fr_auto] items-center">
           <div>

@@ -5,7 +5,7 @@ import {
   ArrowLeft, Check, CheckCheck, CircleDashed, Clock, CreditCard, Download, FileText, Globe2, LayoutDashboard, Loader2, LogOut,
   MapPin, MessageCircle, Moon, Paperclip, Phone, Radio, Search, Send, Settings, Sun, Users, UsersRound, Video,
 } from "lucide-react";
-import { getAuthToken, useAuth } from "@/hooks/use-auth";
+import { getAuthToken, requestSessionCheck, useAuth } from "@/hooks/use-auth";
 import { useUpload } from "@/hooks/use-upload";
 import { useToast } from "@/hooks/use-toast";
 import { ChatExtrasWeb, isSpecialMessage, type WebContact, type WebPoll } from "@/components/ChatExtrasWeb";
@@ -24,6 +24,7 @@ async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${getAuthToken() ?? ""}`, ...(init?.headers ?? {}) },
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) requestSessionCheck();
   if (!res.ok) throw new Error(data?.error || data?.message || `Request failed (${res.status})`);
   return data as T;
 }

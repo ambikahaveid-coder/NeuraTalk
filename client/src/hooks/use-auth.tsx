@@ -55,6 +55,19 @@ function clearStoredAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
+/** Fired by pages when the server refuses this browser's login (401): check it now. */
+export const SESSION_CHECK_EVENT = "neuratalk-session-check";
+export function requestSessionCheck() {
+  window.dispatchEvent(new Event(SESSION_CHECK_EVENT));
+}
+
+/** Where a signed-out browser goes: computers using NeuraTalk Web go back to the QR page, like WhatsApp Web. */
+function signedOutDestination(reason: "logout" | "ended"): string {
+  const onWeb = window.location.pathname.startsWith("/web");
+  if (!onWeb) return "/";
+  return reason === "ended" ? "/link-device?signedOut=1" : "/link-device";
+}
+
 export function getAuthToken(): string | null {
   return getStoredAuth().token;
 }
@@ -102,6 +115,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     }
   }, []);
+
+  // Signed out on this browser only (the phone and other devices stay signed in).
+  const signOutLocally = useCallback((reason: "logout" | "ended") => {
+    clearStoredAuth();
+    setAuthState({ user: null, token: null });
+    queryClient.clear();
+    setLocation(signedOutDestination(reason));
+  }, [queryClient, setLocation]);
+
+  // Keep this browser in step with the account, like WhatsApp Web:
+  // - the phone signs this computer out, or the login expires → leave within seconds;
+  // - logging in or out in one tab applies to every tab of this browser.
+  const activeToken = authState.token;
+  useEffect(() => {
+    if (!activeToken) return;
+    let stopped = false;
+    let checking = false;
+    const check = async () => {
+      if (stopped || checking || getStoredAuth().token !== activeToken) return;
+      checking = true;
+      try {
+        const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${activeToken}` } });
+        // Only a definite "not signed in" ends the session; network blips and server errors don't.
+        if (res.status === 401 && !stopped && getStoredAuth().token === activeToken) signOutLocally("ended");
+      } catch { /* offline: try again later */ } finally {
+        checking = false;
+      }
+    };
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void check(); }, 30_000);
+    const onVisible = () => { if (document.visibilityState === "visible") void check(); };
+    const onCheck = () => { void check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener(SESSION_CHECK_EVENT, onCheck);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(SESSION_CHECK_EVENT, onCheck);
+    };
+  }, [activeToken, signOutLocally]);
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== AUTH_KEY && e.key !== null) return;
+      const next = getStoredAuth();
+      if (!next.token) {
+        if (authState.token) {
+          setAuthState({ user: null, token: null });
+          queryClient.clear();
+          setLocation(signedOutDestination("logout"));
+        }
+      } else if (next.token !== authState.token) {
+        setAuthState(next);
+        queryClient.clear();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [authState.token, queryClient, setLocation]);
 
   const requestOtpMutation = useMutation({
     mutationFn: async ({ identifier, channel }: { identifier: string; channel: "email" | "mobile" }) => {
@@ -202,11 +274,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       } catch {}
     }
-    clearStoredAuth();
-    setAuthState({ user: null, token: null });
-    queryClient.clear();
-    setLocation("/");
-  }, [authState.token, queryClient, setLocation]);
+    signOutLocally("logout");
+  }, [authState.token, signOutLocally]);
 
   const user = authState.user;
   const token = authState.token;
