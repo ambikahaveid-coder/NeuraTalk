@@ -25,6 +25,7 @@ import '../services/contact_resolver.dart';
 import 'call_screen.dart';
 import 'contact_info_screen.dart';
 import '../widgets/link_preview.dart';
+import '../widgets/chat_extras.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -51,6 +52,11 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   DateTime? _recordingStartedAt;
   Map<String, dynamic>? _replyingTo;
   bool _blockedByMe = false;
+  late final StarStore _stars = StarStore('personal', _threadId);
+  final Map<int, GlobalKey> _itemKeys = {};
+  int? _highlightId;
+
+  String get _apiBase => '/api/personal-chats/$_threadId';
 
   int get _threadId => widget.thread['id'] as int;
   Map<String, dynamic> get _peer => (widget.thread['peer'] as Map<String, dynamic>?) ?? const {};
@@ -67,6 +73,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     provider.setSelfId(context.read<AuthProvider>().user?['id']?.toString());
     provider.openThread(_threadId).then((_) => _scrollToBottom());
     _loadBlockStatus();
+    _stars.addListener(_onStars);
+    _stars.load();
     // Best-effort -- if contacts permission isn't already granted this is a
     // no-op (ContactResolver never itself prompts); if it is, this makes
     // the real saved name available for the header below instead of a raw
@@ -176,11 +184,80 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     WidgetsBinding.instance.removeObserver(this);
     // context is no longer safe to use here; use the reference saved in initState.
     _chats.closeThread();
+    _stars.removeListener(_onStars);
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
     _recorder.dispose();
     super.dispose();
+  }
+
+  void _onStars() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleStar(Map<String, dynamic> message) async {
+    final id = message['id'];
+    if (id is! int) return;
+    try {
+      final starred = await _stars.toggle(id);
+      _toast(starred ? 'Starred' : 'Unstarred');
+    } catch (_) {
+      _toast('Could not update the star. Check your connection.');
+    }
+  }
+
+  /// Search in this chat, then scroll to the picked message and flash it.
+  Future<void> _openSearch(String title) async {
+    final id = await Navigator.push<int>(context, MaterialPageRoute(builder: (_) => ChatSearchScreen(apiBase: _apiBase, title: title)));
+    if (id == null || !mounted) return;
+    final list = context.read<PersonalChatProvider>().messages;
+    final index = list.indexWhere((m) => m['id'] == id);
+    if (index == -1) {
+      _toast('That message is older than what is loaded here.');
+      return;
+    }
+    setState(() => _highlightId = id);
+    if (_itemKeys[id]?.currentContext == null && _scrollCtrl.hasClients) {
+      // Not built yet: jump near it first.
+      _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent * (index / (list.length == 0 ? 1 : list.length)));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
+    final ctx = _itemKeys[id]?.currentContext;
+    if (ctx != null && ctx.mounted) {
+      await Scrollable.ensureVisible(ctx, alignment: 0.4, duration: const Duration(milliseconds: 300));
+    }
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _highlightId == id) setState(() => _highlightId = null);
+    });
+  }
+
+  Future<void> _sendPoll() async {
+    final poll = await showCreatePollSheet(context);
+    if (poll == null || !mounted) return;
+    await context.read<PersonalChatProvider>().sendMessage(_threadId, poll['question'] as String, messageType: 'poll', extra: {'poll': poll});
+    _scrollToBottom();
+  }
+
+  Future<void> _sendContact() async {
+    final contact = await pickContactToShare(context);
+    if (contact == null || !mounted) return;
+    await context.read<PersonalChatProvider>().sendMessage(_threadId, contact['name'] as String, messageType: 'contact', extra: {'contact': contact});
+    _scrollToBottom();
+  }
+
+  Future<void> _sendViewOnce() async {
+    final picked = await pickViewOnceMedia(context);
+    if (picked == null || !mounted) return;
+    final (file, name) = picked;
+    await _uploadAndSend(file, name, await file.length(), viewOnce: true);
+  }
+
+  Future<void> _openChatWith(int userId) async {
+    if (userId == _peerId) return;
+    final thread = await startChatWithUser(context, userId);
+    if (thread == null || !mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ConversationScreen(thread: thread)));
   }
 
   void _scrollToBottom() {
@@ -362,6 +439,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
     if (isDeleted) return;
     final canReact = message['id'] is int;
     final mine = ((message['reactions'] as Map?) ?? const {})[_myUserId]?.toString();
+    final special = message['viewOnce'] == true || message['messageType'] == 'poll';
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -410,15 +488,25 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 _startReply(message);
               },
             ),
-            ListTile(
-              leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: Text('Copy', style: TextStyle(color: AppColors.ink)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _copyMessage(message);
-              },
-            ),
             if (message['id'] is int)
+              ListTile(
+                leading: Icon(_stars.has(message['id']) ? Icons.star : Icons.star_border, color: AppColors.orange),
+                title: Text(_stars.has(message['id']) ? 'Unstar' : 'Star', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _toggleStar(message);
+                },
+              ),
+            if (message['viewOnce'] != true)
+              ListTile(
+                leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+                title: Text('Copy', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _copyMessage(message);
+                },
+              ),
+            if (message['id'] is int && !special)
               ListTile(
                 leading: Icon(Icons.shortcut, color: AppColors.cyan),
                 title: Text('Forward', style: TextStyle(color: AppColors.ink)),
@@ -578,6 +666,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               item(Icons.videocam, 'Video', const Color(0xFFEA580C), () => _capture(video: true)),
               item(Icons.insert_drive_file, 'Document', const Color(0xFF2563EB), _pickDocuments),
               item(Icons.location_on, 'Location', const Color(0xFF16A34A), _shareCurrentLocation),
+              item(Icons.poll_outlined, 'Poll', const Color(0xFF0891B2), _sendPoll),
+              item(Icons.person_outline, 'Contact', const Color(0xFF0D9488), _sendContact),
+              item(Icons.looks_one_outlined, 'View once', const Color(0xFFB45309), _sendViewOnce),
             ],
           ),
         ),
@@ -683,7 +774,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
   }
 
   /// Uploads one file with real progress (cancellable) and sends it. Offers Retry on failure.
-  Future<bool> _uploadAndSend(File file, String name, int size, {String? position}) async {
+  Future<bool> _uploadAndSend(File file, String name, int size, {String? position, bool viewOnce = false}) async {
     final mime = MediaStore.contentTypeFor(name);
     final kind = MediaStore.kindOf(name);
     setState(() {
@@ -705,6 +796,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             attachmentTitle: name,
             attachmentSize: size,
             attachmentMime: mime,
+            extra: viewOnce ? {'viewOnce': true} : null,
           );
       _scrollToBottom();
       return true;
@@ -713,7 +805,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
       final wasCancelled = _uploadCancelToken?.cancelled == true;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(wasCancelled ? 'Upload cancelled.' : 'Could not send "$name". Check your internet and try again.'),
-        action: wasCancelled ? null : SnackBarAction(label: 'Retry', onPressed: () => _uploadAndSend(file, name, size)),
+        action: wasCancelled ? null : SnackBarAction(label: 'Retry', onPressed: () => _uploadAndSend(file, name, size, viewOnce: viewOnce)),
       ));
       return false;
     } finally {
@@ -962,6 +1054,12 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
             color: AppColors.surface,
             onSelected: (value) {
               switch (value) {
+                case 'search':
+                  _openSearch(displayName);
+                  break;
+                case 'starred':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
+                  break;
                 case 'clear':
                   _confirmClearChat();
                   break;
@@ -977,6 +1075,8 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(value: 'search', child: Text('Search', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'starred', child: Text('Starred messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(
@@ -1002,9 +1102,19 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                             controller: _scrollCtrl,
                             padding: const EdgeInsets.all(16),
                             itemCount: provider.messages.length,
-                            itemBuilder: (_, i) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                            itemBuilder: (_, i) => Column(
+                              key: provider.messages[i]['id'] is int ? (_itemKeys[provider.messages[i]['id'] as int] ??= GlobalKey()) : null,
+                              crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                               if (ntDayDivider(i == 0 ? null : provider.messages[i - 1]['createdAt'], provider.messages[i]['createdAt']) case final divider?) divider,
-                              _PersonalMessageBubble(
+                              AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              color: _highlightId != null && provider.messages[i]['id'] == _highlightId ? AppColors.cyan.withValues(alpha: 0.18) : Colors.transparent,
+                              child: _PersonalMessageBubble(
+                              apiBase: _apiBase,
+                              starred: _stars.has(provider.messages[i]['id']),
+                              myUserId: int.tryParse(_myUserId ?? ''),
+                              onOpenChat: _openChatWith,
+                              onChanged: () => context.read<PersonalChatProvider>().openThread(_threadId),
                               message: provider.messages[i],
                               onRetry: () => context.read<PersonalChatProvider>().retryMessage(_threadId, provider.messages[i]),
                               onLongPress: () => _showMessageActions(provider.messages[i]),
@@ -1012,6 +1122,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                               peerLanguage: _peerLanguage(provider),
                               myLanguage: _myLanguage(provider),
                               translationOn: provider.isTranslationOn(_threadId),
+                            ),
                             ),
                             ]),
                           ),
@@ -1332,7 +1443,17 @@ class _PersonalMessageBubble extends StatefulWidget {
     this.peerLanguage,
     this.myLanguage,
     this.translationOn = true,
+    this.apiBase = '',
+    this.starred = false,
+    this.myUserId,
+    this.onOpenChat,
+    this.onChanged,
   });
+  final String apiBase;
+  final bool starred;
+  final int? myUserId;
+  final void Function(int userId)? onOpenChat;
+  final VoidCallback? onChanged;
 
   @override
   State<_PersonalMessageBubble> createState() => _PersonalMessageBubbleState();
@@ -1419,11 +1540,14 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
     final attachmentMime = message['attachmentMime']?.toString();
     final isDeleted = message['isDeleted'] == true;
     final isVoice = messageType == 'voice_note' && attachmentUrl != null;
-    final hasText = !isDeleted && (messageType == 'text' || (isVoice && message['voiceTranscribed'] == true));
+    final isViewOnce = message['viewOnce'] == true && !isDeleted;
+    final poll = !isDeleted && message['poll'] is Map ? Map<String, dynamic>.from(message['poll'] as Map) : null;
+    final contact = !isDeleted && message['contact'] is Map ? Map<String, dynamic>.from(message['contact'] as Map) : null;
+    final hasText = !isDeleted && poll == null && contact == null && (messageType == 'text' || (isVoice && message['voiceTranscribed'] == true));
     final texts = _texts();
     final fg = AppColors.textPrimary;
     final isMedia = (messageType == 'attachment' || messageType == 'file' || messageType == 'location') && attachmentUrl != null;
-    final isPhoto = messageType == 'attachment' && attachmentUrl != null && !isDeleted;
+    final isPhoto = messageType == 'attachment' && attachmentUrl != null && !isDeleted && !isViewOnce;
     // 1-3 emojis on their own are shown big, without a bubble (like WhatsApp).
     final jumbo = messageType == 'text' && !isDeleted && widget.repliedMessage == null && isEmojiOnly(texts.primary);
 
@@ -1522,7 +1646,13 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              if (messageType == 'attachment' && attachmentUrl != null)
+              if (isViewOnce)
+                ViewOnceView(message: message, apiBase: widget.apiBase, isOwn: isOwn, onOpened: widget.onChanged)
+              else if (poll != null)
+                PollCard(poll: poll, question: texts.primary.isNotEmpty ? texts.primary : null, apiBase: widget.apiBase, messageId: message['id'] is int ? message['id'] as int : null, onVoted: widget.onChanged)
+              else if (contact != null)
+                ContactCardView(contact: contact, myUserId: widget.myUserId, onMessage: widget.onOpenChat)
+              else if (messageType == 'attachment' && attachmentUrl != null)
                 ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
               else if (messageType == 'file' && attachmentUrl != null && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)
                 ChatVideoAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'video.mp4', size: attachmentSize)
@@ -1613,6 +1743,10 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
       );
     }
     return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (widget.starred) ...[
+        Icon(Icons.star, size: 13, color: AppColors.orange, semanticLabel: 'Starred'),
+        const SizedBox(width: 4),
+      ],
       if (texts != null) NtListenButton(text: texts.listenText, language: texts.listenLang),
       if (texts != null) const SizedBox(width: 8),
       if (widget.message['editedAt'] != null && widget.message['isDeleted'] != true)

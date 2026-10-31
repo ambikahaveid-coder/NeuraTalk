@@ -10,7 +10,7 @@ const GROUP_ATTACHMENT_TYPES = new Set(["attachment", "file", "voice_note"]);
 
 /** Lets every current member of the group read a file the sender uploaded.
  * Returns an error message if the file can't be used. */
-async function finalizeGroupAttachment(senderId: number, groupId: number, objectPath: string): Promise<string | null> {
+async function finalizeGroupAttachment(senderId: number, groupId: number, objectPath: string, membersCanRead = true): Promise<string | null> {
   if (!objectPath.startsWith("/objects/")) return "Invalid attachment.";
   try {
     const file = await new ObjectStorageService().getObjectEntityFile(objectPath);
@@ -22,7 +22,8 @@ async function finalizeGroupAttachment(senderId: number, groupId: number, object
     const rules = (existing?.aclRules ?? []).filter(
       (r) => !(r.group.type === ObjectAccessGroupType.GROUP_CHAT_MEMBER && r.group.id === String(groupId)),
     );
-    rules.push({ group: { type: ObjectAccessGroupType.GROUP_CHAT_MEMBER, id: String(groupId) }, permission: ObjectPermission.READ });
+    // View once: members open it only through the one-time link, never directly.
+    if (membersCanRead) rules.push({ group: { type: ObjectAccessGroupType.GROUP_CHAT_MEMBER, id: String(groupId) }, permission: ObjectPermission.READ });
     await setObjectAclPolicy(file, { owner: String(senderId), visibility: "private", aclRules: rules });
     return null;
   } catch (err) {
@@ -48,6 +49,7 @@ import { Readable } from "stream";
 import { requireAuth } from "./role-middleware";
 import { sendPushNotification } from "./firebase-admin";
 import { groupChatSendLimiter } from "./rate-limit";
+import { contactInputSchema, contactMetadata, extrasForViewer, extrasPreview, pollInputSchema, pollMetadata } from "./chat-extras";
 
 /**
  * A member reads and hears the group in their own profile language. The
@@ -434,17 +436,38 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     const groupId = parseInt(req.params.groupId);
     const { messageType, originalLanguage, replyToId, attachmentUrl, attachmentTitle, attachmentSize, attachmentMime } = req.body;
     const isAttachment = GROUP_ATTACHMENT_TYPES.has(messageType) && typeof attachmentUrl === "string";
+    const extraMeta: Record<string, unknown> = {};
+    let extraContent: string | null = null;
+    if (messageType === "poll") {
+      const poll = pollInputSchema.safeParse(req.body?.poll);
+      if (!poll.success) return res.status(400).json({ error: poll.error.issues[0]?.message || "Add a question and at least two options." });
+      Object.assign(extraMeta, pollMetadata(poll.data));
+      extraContent = poll.data.question;
+    } else if (messageType === "contact") {
+      const contact = contactInputSchema.safeParse(req.body?.contact);
+      if (!contact.success) return res.status(400).json({ error: "Pick a contact to share." });
+      Object.assign(extraMeta, await contactMetadata(contact.data));
+      extraContent = contact.data.name;
+    }
+    const viewOnce = req.body?.viewOnce === true;
+    if (viewOnce) {
+      const mime = typeof attachmentMime === "string" ? attachmentMime : (messageType === "attachment" ? "image/" : "");
+      if (!isAttachment || messageType === "voice_note" || !/^(image|video)\//.test(mime)) {
+        return res.status(400).json({ error: "Only photos and videos can be sent as view once." });
+      }
+      extraMeta.viewOnce = true;
+    }
     // A shared location is just coordinates ("geo:lat,lng"), never a stored file.
     const isLocation = messageType === "location" && typeof attachmentUrl === "string"
       && /^geo:-?\d{1,2}(\.\d{1,10})?,-?\d{1,3}(\.\d{1,10})?$/.test(attachmentUrl);
-    const content: string = typeof req.body.content === "string" && req.body.content.trim()
+    const content: string = extraContent ?? (typeof req.body.content === "string" && req.body.content.trim()
       ? req.body.content
-      : (isAttachment || isLocation ? (typeof attachmentTitle === "string" && attachmentTitle.trim() ? attachmentTitle : "Location") : "");
+      : (isAttachment || isLocation ? (typeof attachmentTitle === "string" && attachmentTitle.trim() ? attachmentTitle : "Location") : ""));
     
     if (!content) {
       return res.status(400).json({ error: "Content required" });
     }
-    if (messageType && messageType !== "text" && !isAttachment && !isLocation) {
+    if (messageType && messageType !== "text" && messageType !== "poll" && messageType !== "contact" && !isAttachment && !isLocation) {
       return res.status(400).json({ error: "Unsupported message type" });
     }
     
@@ -463,7 +486,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
     }
 
     if (isAttachment) {
-      const problem = await finalizeGroupAttachment(senderId, groupId, attachmentUrl);
+      const problem = await finalizeGroupAttachment(senderId, groupId, attachmentUrl, !viewOnce);
       if (problem) return res.status(problem.startsWith("This attachment") ? 403 : 400).json({ error: problem });
     }
 
@@ -485,7 +508,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
 
     const translations: Record<string, string> = {};
     // File names and captions of photos/videos/files are not translated.
-    if (!groupTranslationConsentDenied && !isAttachment && !isLocation) {
+    if (!groupTranslationConsentDenied && !isAttachment && !isLocation && messageType !== "contact") {
       for (const targetLang of targetLanguages) {
         if (targetLang !== detectedLang) {
           translations[targetLang] = await translateText(content, detectedLang, targetLang);
@@ -521,6 +544,7 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
             }
           : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
+        ...extraMeta,
       },
     }).returning();
     
@@ -540,14 +564,19 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
         title: mentioned
           ? `${senderRow?.username || "Someone"} mentioned you${groupRow?.name ? ` in ${groupRow.name}` : ""}`
           : senderRow?.username || "New group message",
-        body: groupMessagePreview(messageType || "text", content, attachmentTitle),
+        body: extrasPreview(messageType || "text", extraMeta, content) ?? groupMessagePreview(messageType || "text", content, attachmentTitle),
         data: { type: "group_chat_message", groupId: String(groupId), ...(mentioned ? { mentioned: "1" } : {}) },
       }).catch(() => {});
     }
 
     const saved = message[0];
-    const meta = (saved.metadata as Record<string, unknown> | null) || {};
-    res.status(201).json({ ...saved, ...meta, mentions, reactions: {}, editedAt: null, displayContent: saved.originalContent });
+    const extras = extrasForViewer(saved.metadata, senderId, senderId);
+    const meta = extras.metadata;
+    res.status(201).json({
+      ...saved, ...meta, metadata: meta, mentions, reactions: {}, editedAt: null, displayContent: saved.originalContent,
+      viewOnce: extras.viewOnce, viewOnceOpened: false, poll: extras.poll, contact: extras.contact,
+      ...(extras.viewOnce ? { attachmentUrl: null } : {}),
+    });
   } catch (error) {
     console.error("Error sending message:", error);
     res.status(500).json({ error: "Failed to send message" });
@@ -850,9 +879,15 @@ router.get("/api/group-chats/:groupId/messages", requireAuth, async (req: Reques
         hasVoiceTranslation = !!voiceTranslations[userLanguage];
       }
       
-      const meta = (msg.metadata as Record<string, unknown> | null) || {};
+      const extras = extrasForViewer(msg.metadata, userId, msg.senderId);
+      const meta = extras.metadata;
       return {
         ...msg,
+        metadata: meta,
+        viewOnce: extras.viewOnce,
+        viewOnceOpened: extras.viewOnceOpened,
+        poll: extras.poll,
+        contact: extras.contact,
         reactions: reactionsOf(meta),
         editedAt: typeof meta.editedAt === "string" ? meta.editedAt : null,
         mentions: Array.isArray(meta.mentions) ? meta.mentions : [],

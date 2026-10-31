@@ -465,6 +465,9 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "messaging_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
     // Catalog sections ("Sarees", "Kurtas").
     await _db.execute(_sql`ALTER TABLE "business_catalog_items" ADD COLUMN IF NOT EXISTS "collection" text`);
+    // Starred messages + privacy settings (last seen, read receipts).
+    const { ensureChatExtrasTables } = await import("./chat-extras");
+    await ensureChatExtrasTables();
   }, { optional: true });
   let redisOperational = false;
   try {

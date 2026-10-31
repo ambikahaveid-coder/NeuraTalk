@@ -12,6 +12,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
 import 'blocked_contacts_screen.dart';
+import '../widgets/chat_extras.dart';
 
 /// Privacy hub. Only shows controls the backend actually enforces
 /// (blocking, data export, account deletion); no switches that don't persist.
@@ -119,6 +120,9 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
       body: ListView(
         padding: const EdgeInsets.all(NtSpace.l),
         children: [
+          const NtSectionHeader('Who can see', inset: true),
+          const NtCard(child: PrivacyToggles()),
+          const SizedBox(height: NtSpace.m),
           _tile(
             icon: Icons.block_outlined,
             color: AppColors.red,

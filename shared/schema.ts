@@ -442,6 +442,27 @@ export const blockedUsers = pgTable("blocked_users", {
 ]);
 
 // === PERSONAL 1:1 MULTILINGUAL CHAT ===
+// Messages a person starred (1:1 or group). chat_type: "personal" | "group".
+export const starredMessages = pgTable("starred_messages", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  chatType: text("chat_type").notNull(),
+  chatId: integer("chat_id").notNull(),
+  messageId: integer("message_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("starred_messages_unique").on(table.userId, table.chatType, table.messageId),
+  index("starred_messages_user_idx").on(table.userId, table.createdAt),
+]);
+
+// Privacy: who sees my last seen/online, and read receipts (both must have them on).
+export const userPrivacySettings = pgTable("user_privacy_settings", {
+  userId: integer("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  lastSeen: text("last_seen").notNull().default("everyone"),
+  readReceipts: boolean("read_receipts").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const personalChatThreads = pgTable("personal_chat_threads", {
   id: serial("id").primaryKey(),
   participantAUserId: integer("participant_a_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

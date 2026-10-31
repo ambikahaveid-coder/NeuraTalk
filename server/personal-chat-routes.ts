@@ -17,6 +17,7 @@ import { transcribeVoiceNote } from "./voice-note-transcript";
 import { translateChatText } from "./translation/chat-translate";
 import { publishPersonalChatEvent, subscribeToPersonalChatEvents } from "./modules/messaging/realtime";
 import { getRedisClient, isRedisReady } from "./redis";
+import { contactInputSchema, contactMetadata, extrasForViewer, extrasPreview, lastSeenShared, pollInputSchema, pollMetadata, readReceiptsShared } from "./chat-extras";
 
 const router = Router();
 
@@ -39,13 +40,17 @@ const sendMessageSchema = z.object({
   // non-image file upload succeeded (the object storage PUT genuinely
   // completed) and then failed at the message-send step with a 400,
   // silently losing the message the recipient was supposed to see.
-  messageType: z.enum(["text", "voice_note", "attachment", "file", "location"]).optional(),
+  messageType: z.enum(["text", "voice_note", "attachment", "file", "location", "poll", "contact"]).optional(),
   attachmentUrl: z.string().trim().min(1).max(2000).optional(),
   attachmentTitle: z.string().trim().min(1).max(240).optional(),
   // Shown in the bubble ("PDF · 2.4 MB") and used to pick the right preview.
   attachmentSize: z.number().int().positive().max(1024 * 1024 * 1024).optional(),
   attachmentMime: z.string().trim().min(3).max(120).optional(),
   replyToId: z.number().int().positive().optional(),
+  // A photo/video the other person can open once.
+  viewOnce: z.boolean().optional(),
+  poll: pollInputSchema.optional(),
+  contact: contactInputSchema.optional(),
 });
 
 const typingSchema = z.object({
@@ -378,14 +383,21 @@ function formatMessage(
     ? translations[viewerLanguage] || null
     : null;
   const isOwn = message.senderUserId === viewerId;
+  const extras = extrasForViewer(message.metadata, viewerId, message.senderUserId);
   const displayContent = message.isDeleted
     ? "This message was deleted"
     : (!isOwn && translatedContent ? translatedContent : message.originalContent);
 
   return {
     ...message,
+    // View-once file paths are never sent to phones (opened via the one-time link).
+    metadata: extras.metadata,
+    viewOnce: !message.isDeleted && extras.viewOnce,
+    viewOnceOpened: extras.viewOnceOpened,
+    poll: message.isDeleted ? null : extras.poll,
+    contact: message.isDeleted ? null : extras.contact,
     translations,
-    attachmentUrl: message.isDeleted ? null : (typeof (message.metadata as any)?.attachmentUrl === "string" ? (message.metadata as any).attachmentUrl : null),
+    attachmentUrl: message.isDeleted || extras.viewOnce ? null : (typeof (message.metadata as any)?.attachmentUrl === "string" ? (message.metadata as any).attachmentUrl : null),
     attachmentTitle: typeof (message.metadata as any)?.attachmentTitle === "string" ? (message.metadata as any).attachmentTitle : null,
     attachmentSize: typeof (message.metadata as any)?.attachmentSize === "number" ? (message.metadata as any).attachmentSize : null,
     attachmentMime: typeof (message.metadata as any)?.attachmentMime === "string" ? (message.metadata as any).attachmentMime : null,
@@ -722,10 +734,12 @@ router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedReque
       });
     }
 
+    // Read receipts show only when both people have them on.
+    const receiptsOn = await readReceiptsShared(viewerId, context.peerUserId);
     const formattedMessages = messages.map((message) => formatMessage({
       ...message,
       deliveredAt: deliverableIds.includes(message.id) ? new Date() : message.deliveredAt,
-      deliveryStatus: deliverableIds.includes(message.id) ? "delivered" : message.deliveryStatus,
+      deliveryStatus: deliverableIds.includes(message.id) ? "delivered" : (!receiptsOn && message.deliveryStatus === "seen" ? "delivered" : message.deliveryStatus),
     }, viewerId, context.viewerLanguage));
 
     res.json({
@@ -856,9 +870,28 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
       }
     }
 
+    const extraMeta: Record<string, unknown> = {};
+    if (input.messageType === "poll") {
+      if (!input.poll) return res.status(400).json({ error: "Add a question and at least two options." });
+      Object.assign(extraMeta, pollMetadata(input.poll));
+      input.content = input.poll.question;
+    } else if (input.messageType === "contact") {
+      if (!input.contact) return res.status(400).json({ error: "Pick a contact to share." });
+      Object.assign(extraMeta, await contactMetadata(input.contact));
+      input.content = input.contact.name;
+    }
+    const viewOnce = input.viewOnce === true;
+    if (viewOnce) {
+      const mime = input.attachmentMime ?? (input.messageType === "attachment" ? "image/" : "");
+      const isPhotoOrVideo = (input.messageType === "attachment" || input.messageType === "file") && !!input.attachmentUrl && /^(image|video)\//.test(mime);
+      if (!isPhotoOrVideo) return res.status(400).json({ error: "Only photos and videos can be sent as view once." });
+      extraMeta.viewOnce = true;
+    }
+
     if (input.attachmentUrl) {
       try {
-        await finalizeChatAttachment(viewerId, context.peerUserId, input.attachmentUrl);
+        // View once: only the sender owns it; the reader gets it through the one-time link.
+        await finalizeChatAttachment(viewerId, viewOnce ? viewerId : context.peerUserId, input.attachmentUrl);
       } catch (err) {
         if (err instanceof AttachmentNotOwnedError) return res.status(403).json({ message: err.message });
         if (err instanceof ObjectNotFoundError) return res.status(400).json({ message: "The attachment was not uploaded. Please try again." });
@@ -867,7 +900,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     }
     // Photos, videos, files and locations carry a caption/file name, not
     // something to translate.
-    let isTextMessage = !input.messageType || input.messageType === "text";
+    let isTextMessage = !input.messageType || input.messageType === "text" || input.messageType === "poll";
 
     // Speed: the message is stored and delivered first; voice-note
     // transcription, language detection and translation (1-4 s of AI calls)
@@ -913,11 +946,12 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
         // Lets the client show "not translated -- no consent" instead of
         // silently looking like a same-language message.
         translationSkippedReason: translationConsentDenied ? "consent" : null,
+        ...extraMeta,
       },
     }).returning();
 
-    const lastMessagePreview = buildMessagePreview(
-      input.messageType || "text",
+    const lastMessagePreview = extrasPreview(input.messageType || "text", extraMeta, input.content) ?? buildMessagePreview(
+      (input.messageType === "poll" || input.messageType === "contact" ? "text" : input.messageType || "text"),
       input.content,
       input.attachmentTitle,
     );
@@ -1068,6 +1102,8 @@ router.post("/api/personal-chats/:threadId/messages/:messageId/forward", require
     const [message] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, messageId));
     if (!message || message.threadId !== threadId || message.isDeleted) return res.status(404).json({ error: "Message not found." });
     const meta = (message.metadata as Record<string, unknown> | null) || {};
+    if (meta.viewOnce === true) return res.status(400).json({ error: "View once photos and videos can't be forwarded." });
+    if (message.messageType === "poll") return res.status(400).json({ error: "Polls can't be forwarded." });
     const messageType = (message.messageType || "text") as "text" | "voice_note" | "attachment" | "file" | "location";
     const attachmentUrl = typeof meta.attachmentUrl === "string" ? meta.attachmentUrl : null;
     // What the forwarder actually saw: their own words, or the version in their language.
@@ -1127,6 +1163,7 @@ router.post("/api/personal-chats/:threadId/messages/:messageId/forward", require
           attachmentMime: typeof meta.attachmentMime === "string" ? meta.attachmentMime : null,
           voiceTranscribed: false,
           forwarded: true,
+          ...(meta.contact ? { contact: meta.contact } : {}),
           translationPending: isText && translationAllowed,
         },
       }).returning();
@@ -1477,7 +1514,8 @@ router.post("/api/personal-chats/:threadId/seen", requireAuth, async (req: Authe
         })
         .where(inArray(personalChatMessages.id, unseenIds));
 
-      emitPersonalChatEvent([viewerId, getViewerContext(thread, viewerId).peerUserId], {
+      const seenPeer = getViewerContext(thread, viewerId).peerUserId;
+      emitPersonalChatEvent((await readReceiptsShared(viewerId, seenPeer)) ? [viewerId, seenPeer] : [viewerId], {
         type: "messages_seen",
         threadId,
         seenCount: unseenIds.length,
@@ -1538,7 +1576,8 @@ router.get("/api/personal-chats/:threadId/presence", requireAuth, async (req: Au
     }
 
     const { peerUserId } = getViewerContext(thread, viewerId);
-    const lastActiveAt = await getLastActiveAt(peerUserId);
+    // Hidden when either person turned off "last seen and online".
+    const lastActiveAt = (await lastSeenShared(viewerId, peerUserId)) ? await getLastActiveAt(peerUserId) : null;
 
     res.json({
       peerUserId,

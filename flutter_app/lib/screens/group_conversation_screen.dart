@@ -17,6 +17,8 @@ import '../utils/languages.dart';
 import 'group_info_screen.dart';
 import 'call_screen.dart';
 import '../services/call_service.dart';
+import '../widgets/chat_extras.dart';
+import 'conversation_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
 /// (that backend has no SSE stream, unlike 1:1 chat).
@@ -43,6 +45,126 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   // people picked so far (name -> user id).
   String? _mentionQuery;
   final Map<String, int> _mentioned = {};
+  late final StarStore _stars = StarStore('group', widget.groupId);
+  final Map<int, GlobalKey> _itemKeys = {};
+  int? _highlightId;
+  String get _apiBase => '/api/group-chats/${widget.groupId}';
+
+  void _onStars() {
+    if (mounted) setState(() {});
+  }
+
+  void _toast(String text) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<void> _toggleStar(Map<String, dynamic> message) async {
+    final id = message['id'];
+    if (id is! int || message['_pending'] == true) return;
+    try {
+      _toast(await _stars.toggle(id) ? 'Starred' : 'Unstarred');
+    } catch (_) {
+      _toast('Could not update the star. Check your connection.');
+    }
+  }
+
+  Future<void> _openSearch(String title) async {
+    final id = await Navigator.push<int>(context, MaterialPageRoute(builder: (_) => ChatSearchScreen(apiBase: _apiBase, title: title)));
+    if (id == null || !mounted) return;
+    final list = context.read<GroupChatProvider>().messages;
+    final index = list.indexWhere((m) => m['id'] == id);
+    if (index == -1) {
+      _toast('That message is older than what is loaded here.');
+      return;
+    }
+    setState(() => _highlightId = id);
+    if (_itemKeys[id]?.currentContext == null && _scrollCtrl.hasClients) {
+      _scrollCtrl.jumpTo(_scrollCtrl.position.maxScrollExtent * (index / (list.isEmpty ? 1 : list.length)));
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
+    final ctx = _itemKeys[id]?.currentContext;
+    if (ctx != null && ctx.mounted) await Scrollable.ensureVisible(ctx, alignment: 0.4, duration: const Duration(milliseconds: 300));
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _highlightId == id) setState(() => _highlightId = null);
+    });
+  }
+
+  Future<void> _sendPoll() async {
+    final poll = await showCreatePollSheet(context);
+    if (poll == null || !mounted) return;
+    try {
+      await context.read<GroupChatProvider>().sendExtra(widget.groupId, 'poll', poll['question'] as String, {'poll': poll});
+      _scrollToBottom();
+    } catch (e) {
+      _toast(e is ApiException ? e.message : 'Could not send the poll.');
+    }
+  }
+
+  Future<void> _sendContact() async {
+    final contact = await pickContactToShare(context);
+    if (contact == null || !mounted) return;
+    try {
+      await context.read<GroupChatProvider>().sendExtra(widget.groupId, 'contact', contact['name'] as String, {'contact': contact});
+      _scrollToBottom();
+    } catch (e) {
+      _toast(e is ApiException ? e.message : 'Could not share the contact.');
+    }
+  }
+
+  Future<void> _sendViewOnce() async {
+    final picked = await pickViewOnceMedia(context);
+    if (picked == null || !mounted) return;
+    final (file, name) = picked;
+    setState(() {
+      _uploadLabel = 'View once · $name';
+      _uploadProgress = 0;
+      _uploadCancel = UploadCancelToken();
+    });
+    try {
+      await context.read<GroupChatProvider>().sendAttachment(widget.groupId, file, name, cancelToken: _uploadCancel, viewOnce: true,
+          onProgress: (p) {
+        if (mounted) setState(() => _uploadProgress = p);
+      });
+      _scrollToBottom();
+    } catch (e) {
+      _toast(e is ApiException ? e.message : 'Could not send "$name".');
+    } finally {
+      if (mounted) setState(() => _uploadLabel = null);
+    }
+  }
+
+  Future<void> _openChatWith(int userId) async {
+    final thread = await startChatWithUser(context, userId);
+    if (thread == null || !mounted) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ConversationScreen(thread: thread)));
+  }
+
+  /// Poll, contact and view once, before the usual photo/file picker.
+  Future<void> _attachMenu() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(leading: const Icon(Icons.attach_file), title: const Text('Photo, video, file or location'), onTap: () => Navigator.pop(sheet, 'files')),
+          ListTile(leading: const Icon(Icons.poll_outlined), title: const Text('Poll'), onTap: () => Navigator.pop(sheet, 'poll')),
+          ListTile(leading: const Icon(Icons.person_outline), title: const Text('Contact'), onTap: () => Navigator.pop(sheet, 'contact')),
+          ListTile(leading: const Icon(Icons.looks_one_outlined), title: const Text('View once photo or video'), onTap: () => Navigator.pop(sheet, 'once')),
+        ]),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'files':
+        await _attach();
+      case 'poll':
+        await _sendPoll();
+      case 'contact':
+        await _sendContact();
+      case 'once':
+        await _sendViewOnce();
+    }
+  }
 
   @override
   void initState() {
@@ -50,6 +172,8 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
     _groups = context.read<GroupChatProvider>();
     _groups.openGroup(widget.groupId).then((_) => _scrollToBottom());
     _msgCtrl.addListener(_watchForMention);
+    _stars.addListener(_onStars);
+    _stars.load();
   }
 
   /// Other members as (user id, name), for "@" suggestions and highlighting.
@@ -121,6 +245,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
   void dispose() {
     // context is no longer safe to use here; use the reference saved in initState.
     _groups.closeGroup();
+    _stars.removeListener(_onStars);
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
@@ -303,14 +428,24 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
               }),
               Divider(height: 1, color: AppColors.border),
             ],
-            ListTile(
-              leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
-              title: Text('Copy', style: TextStyle(color: AppColors.ink)),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                _copyMessage(message);
-              },
-            ),
+            if (message['id'] is int && message['_pending'] != true)
+              ListTile(
+                leading: Icon(_stars.has(message['id']) ? Icons.star : Icons.star_border, color: AppColors.orange),
+                title: Text(_stars.has(message['id']) ? 'Unstar' : 'Star', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _toggleStar(message);
+                },
+              ),
+            if (message['viewOnce'] != true)
+              ListTile(
+                leading: Icon(Icons.copy_outlined, color: AppColors.cyan),
+                title: Text('Copy', style: TextStyle(color: AppColors.ink)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _copyMessage(message);
+                },
+              ),
             if (_canEdit(message, isOwn))
               ListTile(
                 leading: Icon(Icons.edit_outlined, color: AppColors.cyan),
@@ -382,7 +517,20 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             onPressed: _calling ? null : () => _startGroupCall(video: true),
             icon: Icon(Icons.videocam_outlined, color: AppColors.cyan),
           ),
-          IconButton(icon: const Icon(Icons.info_outline), tooltip: 'Group info', onPressed: openInfo),
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert, color: AppColors.textSecondary),
+            color: AppColors.surface,
+            onSelected: (v) {
+              if (v == 'search') _openSearch(groupName);
+              if (v == 'starred') Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredMessagesScreen()));
+              if (v == 'info') openInfo();
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'info', child: Text('Group info', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'search', child: Text('Search', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'starred', child: Text('Starred messages', style: TextStyle(color: AppColors.ink))),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -421,6 +569,11 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                               final prev = i > 0 ? provider.messages[i - 1] : null;
                               final divider = ntDayDivider(prev?['createdAt'], msg['createdAt']);
                               final bubble = _GroupMessageBubble(
+                                apiBase: _apiBase,
+                                starred: _stars.has(msg['id']),
+                                myUserId: selfId is int ? selfId : null,
+                                onOpenChat: _openChatWith,
+                                onChanged: () => context.read<GroupChatProvider>().refresh(widget.groupId),
                                 message: msg,
                                 isOwn: isOwn,
                                 myLanguage: myLanguage,
@@ -431,7 +584,16 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                                 ],
                                 onLongPress: msg['_pending'] == true ? null : () => _showMessageActions(msg, isOwn),
                               );
-                              return divider == null ? bubble : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [divider, bubble]);
+                              final shown = AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                color: _highlightId != null && msg['id'] == _highlightId ? AppColors.cyan.withValues(alpha: 0.18) : Colors.transparent,
+                                child: bubble,
+                              );
+                              return Column(
+                                key: msg['id'] is int && msg['_pending'] != true ? (_itemKeys[msg['id'] as int] ??= GlobalKey()) : null,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [if (divider != null) divider, shown],
+                              );
                             },
                           ),
           ),
@@ -515,7 +677,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                 IconButton(
                   tooltip: 'Attach photo, video or file',
                   icon: Icon(Icons.attach_file, color: AppColors.textMuted),
-                  onPressed: _uploadLabel != null ? null : _attach,
+                  onPressed: _uploadLabel != null ? null : _attachMenu,
                 ),
               ]),
             ),
@@ -543,7 +705,13 @@ class _GroupMessageBubble extends StatelessWidget {
   final String myLanguage;
   final VoidCallback? onLongPress;
   final List<String> memberNames;
-  const _GroupMessageBubble({required this.message, required this.isOwn, required this.myLanguage, this.showSender = false, this.onLongPress, this.memberNames = const []});
+  final String apiBase;
+  final bool starred;
+  final int? myUserId;
+  final void Function(int userId)? onOpenChat;
+  final VoidCallback? onChanged;
+  const _GroupMessageBubble({required this.message, required this.isOwn, required this.myLanguage, this.showSender = false, this.onLongPress, this.memberNames = const [],
+      this.apiBase = '', this.starred = false, this.myUserId, this.onOpenChat, this.onChanged});
 
   static String _clock(dynamic raw) {
     final dt = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
@@ -565,6 +733,9 @@ class _GroupMessageBubble extends StatelessWidget {
     final attachmentSize = (message['attachmentSize'] as num?)?.toInt();
     final attachmentMime = message['attachmentMime']?.toString();
     final isMedia = attachmentUrl != null && (messageType == 'attachment' || messageType == 'file' || messageType == 'location');
+    final isViewOnce = message['viewOnce'] == true;
+    final poll = message['poll'] is Map ? Map<String, dynamic>.from(message['poll'] as Map) : null;
+    final contact = message['contact'] is Map ? Map<String, dynamic>.from(message['contact'] as Map) : null;
     final jumbo = !isMedia && messageType == 'text' && isEmojiOnly(shown);
     if (jumbo) {
       return Align(
@@ -605,7 +776,13 @@ class _GroupMessageBubble extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(isMedia ? 8 : 0, isMedia ? 4 : 0, 0, 3),
             child: Text(senderName, style: TextStyle(color: _senderColor(senderName), fontSize: 13, fontWeight: FontWeight.w700)),
           ),
-        if (attachmentUrl != null && messageType == 'location')
+        if (isViewOnce)
+          ViewOnceView(message: message, apiBase: apiBase, isOwn: isOwn, onOpened: onChanged)
+        else if (poll != null)
+          PollCard(poll: poll, question: shown.isNotEmpty ? shown : null, apiBase: apiBase, messageId: message['id'] is int && message['_pending'] != true ? message['id'] as int : null, onVoted: onChanged)
+        else if (contact != null)
+          ContactCardView(contact: contact, myUserId: myUserId, onMessage: onOpenChat)
+        else if (attachmentUrl != null && messageType == 'location')
           ChatLocationAttachment(geo: attachmentUrl, title: message['attachmentTitle']?.toString())
         else if (attachmentUrl != null && messageType == 'attachment')
           ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
@@ -628,7 +805,11 @@ class _GroupMessageBubble extends StatelessWidget {
         Padding(
           padding: isMedia ? const EdgeInsets.fromLTRB(8, 0, 8, 4) : EdgeInsets.zero,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (!isMedia && shown.isNotEmpty) ...[
+            if (starred) ...[
+              Icon(Icons.star, size: 13, color: AppColors.orange, semanticLabel: 'Starred'),
+              const SizedBox(width: 4),
+            ],
+            if (!isMedia && shown.isNotEmpty && poll == null && contact == null && !isViewOnce) ...[
               NtListenButton(text: shown, language: translated ? myLanguage : originalLang),
               const SizedBox(width: 8),
             ],

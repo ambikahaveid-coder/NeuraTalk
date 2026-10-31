@@ -244,8 +244,11 @@ class PersonalChatProvider extends ChangeNotifier {
     int? attachmentSize,
     String? attachmentMime,
     int? replyToId,
+    // viewOnce / poll / contact for the WhatsApp-style message kinds.
+    Map<String, dynamic>? extra,
   }) async {
     final clientMessageId = '${DateTime.now().microsecondsSinceEpoch}';
+    final isViewOnce = extra?['viewOnce'] == true;
     final optimistic = {
       'id': clientMessageId,
       'clientMessageId': clientMessageId,
@@ -254,7 +257,10 @@ class PersonalChatProvider extends ChangeNotifier {
       'displayContent': content,
       'originalContent': content,
       'messageType': messageType,
-      'attachmentUrl': attachmentUrl,
+      // A view-once photo is never shown to its sender, not even while sending.
+      'attachmentUrl': isViewOnce ? null : attachmentUrl,
+      'viewOnce': isViewOnce,
+      '_extra': extra,
       'attachmentTitle': attachmentTitle,
       'attachmentSize': attachmentSize,
       'attachmentMime': attachmentMime,
@@ -275,6 +281,7 @@ class PersonalChatProvider extends ChangeNotifier {
         if (attachmentSize != null) 'attachmentSize': attachmentSize,
         if (attachmentMime != null) 'attachmentMime': attachmentMime,
         if (replyToId != null) 'replyToId': replyToId,
+        ...?extra,
       });
       final saved = res['message'] as Map<String, dynamic>;
       final idx = messages.indexWhere((m) => m['clientMessageId'] == clientMessageId);
@@ -308,6 +315,7 @@ class PersonalChatProvider extends ChangeNotifier {
         if (failedMessage['attachmentTitle'] != null) 'attachmentTitle': failedMessage['attachmentTitle'],
         if (failedMessage['attachmentSize'] != null) 'attachmentSize': failedMessage['attachmentSize'],
         if (failedMessage['attachmentMime'] != null) 'attachmentMime': failedMessage['attachmentMime'],
+        ...?((failedMessage['_extra'] as Map?)?.cast<String, dynamic>()),
       });
       final saved = res['message'] as Map<String, dynamic>;
       final i2 = messages.indexWhere((m) => m['clientMessageId'] == failedMessage['clientMessageId']);

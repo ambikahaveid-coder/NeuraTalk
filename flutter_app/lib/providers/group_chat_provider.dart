@@ -181,6 +181,18 @@ class GroupChatProvider extends ChangeNotifier {
     }
   }
 
+  /// Poll or contact card (body has 'poll' or 'contact').
+  Future<void> sendExtra(int groupId, String messageType, String content, Map<String, dynamic> extra) async {
+    try {
+      await ApiService.post('/api/group-chats/$groupId/messages', {'content': content, 'messageType': messageType, ...extra});
+    } finally {
+      await _fetchMessages(groupId);
+    }
+  }
+
+  /// Re-reads the open group's messages (after a vote or opening a view-once photo).
+  Future<void> refresh(int groupId) => _fetchMessages(groupId);
+
   /// Uploads a photo/video/file and posts it to the group (see MediaStore).
   Future<void> sendAttachment(
     int groupId,
@@ -188,6 +200,7 @@ class GroupChatProvider extends ChangeNotifier {
     String name, {
     void Function(double progress)? onProgress,
     UploadCancelToken? cancelToken,
+    bool viewOnce = false,
   }) async {
     final size = await file.length();
     final mime = MediaStore.contentTypeFor(name);
@@ -201,6 +214,7 @@ class GroupChatProvider extends ChangeNotifier {
         'attachmentTitle': name,
         'attachmentSize': size,
         'attachmentMime': mime,
+        if (viewOnce) 'viewOnce': true,
       });
     } finally {
       await _fetchMessages(groupId);
