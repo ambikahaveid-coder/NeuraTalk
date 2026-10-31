@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED, PROCESSORS, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED, PROCESSORS, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
 
 export default function PrivacyPage() {
   return (
@@ -7,7 +7,7 @@ export default function PrivacyPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Privacy Policy</h1>
-          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-muted-foreground">Last updated: {POLICIES_UPDATED}</p>
           <p className="text-sm text-muted-foreground mt-2">Written to meet India's Digital Personal Data Protection Act, 2023 and the IT Act, 2000</p>
         </div>
       </section>
@@ -37,10 +37,11 @@ export default function PrivacyPage() {
             <tbody>
               <tr><td className="border p-2">Account</td><td className="border p-2">Mobile number, name, profile photo, preferred language, app settings.</td></tr>
               <tr><td className="border p-2">Calls</td><td className="border p-2">Who called whom, when and for how long; the text of what was said and its translation (call audio is not stored).</td></tr>
-              <tr><td className="border p-2">Chats</td><td className="border p-2">Messages, their translations, and photos, videos, documents, voice messages and locations you choose to send.</td></tr>
+              <tr><td className="border p-2">Chats</td><td className="border p-2">Messages, their translations, and photos, videos, documents, voice messages, locations, polls and votes, contact cards and stickers you choose to send; reactions; which messages you starred.</td></tr>
               <tr><td className="border p-2">Your voice</td><td className="border p-2">Voice samples you record, or speech from your calls if you allow NeuraTalk to learn your voice, and the cloned voice made from them.</td></tr>
               <tr><td className="border p-2">Contacts</td><td className="border p-2">If you allow it, numbers from your address book are checked against NeuraTalk to show who uses it. They are not stored on our servers; names are read on your phone only.</td></tr>
-              <tr><td className="border p-2">Businesses you talk to</td><td className="border p-2">Your chats with businesses, which updates and offers you agreed to, and whether you blocked a business.</td></tr>
+              <tr><td className="border p-2">Businesses you talk to</td><td className="border p-2">Your chats with businesses, which updates and offers you agreed to, and whether you blocked a business. A business may also add your number to its customer list (for example from its own records); it must have your permission to send you offers, and you can stop them with STOP or by blocking it.</td></tr>
+              <tr><td className="border p-2">Privacy and security settings</td><td className="border p-2">Your last-seen and read-receipt choices, and — if you turn on two-step verification — your PIN, stored only as a salted hash we cannot read back.</td></tr>
               <tr><td className="border p-2">Payments and usage</td><td className="border p-2">Your plan, wallet balance, minutes used and invoices. Card details are handled by our payment partner, not by us.</td></tr>
               <tr><td className="border p-2">Device and security</td><td className="border p-2">Device type, app version, notification token, IP address, sign-in sessions and error logs.</td></tr>
             </tbody>
@@ -86,7 +87,9 @@ export default function PrivacyPage() {
             <tbody>
               <tr><td className="border p-2">Call audio</td><td className="border p-2">Not stored</td></tr>
               <tr><td className="border p-2">Call history and translated call text</td><td className="border p-2">{CALL_TEXT_RETENTION_DAYS} days</td></tr>
-              <tr><td className="border p-2">Chats and files</td><td className="border p-2">Until you delete them or your account</td></tr>
+              <tr><td className="border p-2">Chats and files</td><td className="border p-2">Until you delete them or your account (disappearing messages: until their timer ends)</td></tr>
+              <tr><td className="border p-2">View-once photos and videos</td><td className="border p-2">In a 1:1 chat, deleted from our storage as soon as they are opened; in a group, kept until the sender deletes the message, and each member can open it once</td></tr>
+              <tr><td className="border p-2">Starred messages, stickers, privacy settings</td><td className="border p-2">Until you remove them or delete your account</td></tr>
               <tr><td className="border p-2">Voice samples and cloned voice</td><td className="border p-2">Until you delete your voice or your account</td></tr>
               <tr><td className="border p-2">Login codes from businesses</td><td className="border p-2">The readable code is erased as soon as it is used, expires or is replaced</td></tr>
               <tr><td className="border p-2">Billing records</td><td className="border p-2">As long as tax and accounting law requires (typically 8 years)</td></tr>
@@ -112,8 +115,15 @@ export default function PrivacyPage() {
             the Data Protection Board as the law requires.
           </p>
 
+          <h2>7a. Things that stay on your phone</h2>
+          <ul>
+            <li>The secret code for <strong>locked chats</strong> and the list of chats you locked are kept only in your phone's encrypted storage. We never receive them.</li>
+            <li>Names from your address book are read on your phone only.</li>
+            <li>When you export a chat, the file is created on your phone and goes only where you choose to share it.</li>
+          </ul>
+
           <h2>8. Children</h2>
-          <p>NeuraTalk is for people aged 18 and over. We do not knowingly collect data from children; if you think a child is using NeuraTalk, contact us and we will remove the account.</p>
+          <p>NeuraTalk is for people aged 18 and over. We do not knowingly collect data from children; if you think a child is using NeuraTalk, contact us and we will remove the account. See our <Link href="/age-policy">Age Policy</Link>.</p>
 
           <h2>9. Changes</h2>
           <p>If we change this policy in a way that matters, we will tell you in the app or by email before the change applies.</p>

@@ -44,3 +44,18 @@ export const CALL_TEXT_RETENTION_DAYS = 30;
 
 /** Date shown on the legal pages rewritten in this pass. */
 export const LEGAL_UPDATED = "24 October 2026";
+
+/** Policies added or updated on 31 October 2026 (community, commerce, age, voice, business terms…). */
+export const POLICIES_UPDATED = "31 October 2026";
+
+/** Minimum age to use NeuraTalk (Terms, Privacy, Age policy). */
+export const MINIMUM_AGE = 18;
+
+/** server/modules/campaigns/frequency.ts DEFAULT_CUSTOMER_MARKETING_CAP_PER_DAY */
+export const MARKETING_CAP_PER_DAY = 3;
+
+/** Grievance timelines we commit to (IT Rules 2021 and DPDP Act). */
+export const GRIEVANCE_ACK_HOURS = 24;
+export const GRIEVANCE_RESOLVE_DAYS = 15;
+/** IT Rules 2021 r.3(2)(b): content showing a person's private area or impersonating them, removed within 24 hours of a complaint. */
+export const URGENT_REMOVAL_HOURS = 24;

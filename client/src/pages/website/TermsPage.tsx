@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED } from "./site-facts";
 
 export default function TermsPage() {
   return (
@@ -7,7 +7,7 @@ export default function TermsPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Terms of Service</h1>
-          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-muted-foreground">Last updated: {POLICIES_UPDATED}</p>
         </div>
       </section>
 
@@ -78,13 +78,18 @@ export default function TermsPage() {
             <li>interfere with the Services, get around limits, scrape data, or reverse-engineer the apps except where the law allows;</li>
             <li>resell the Services without our written agreement.</li>
           </ul>
-          <p>Anyone can report misuse at <Link href="/report-abuse">Report Abuse</Link>.</p>
+          <p>
+            The full rules are in our <Link href="/community-guidelines">Community Guidelines</Link>, which are part of these terms. Anyone can report
+            misuse at <Link href="/report-abuse">Report Abuse</Link>. You must be 18 or older — see the <Link href="/age-policy">Age Policy</Link>. The own-voice
+            feature follows the <Link href="/voice-policy">Voice and Consent Policy</Link>.
+          </p>
 
           <h2>7. Business accounts</h2>
           <ul>
-            <li>Businesses must follow the <Link href="/business-messaging-policy">Business Messaging Policy</Link>, including template review,
-              consent and marketing limits.</li>
-            <li>The verified tick is given only after our review, can be removed at any time, and is not an endorsement.</li>
+            <li>Businesses must follow the <Link href="/business-terms">NeuraTalk Business Terms</Link>, the <Link href="/business-messaging-policy">Business Messaging Policy</Link>
+              (template review, consent and marketing limits) and the <Link href="/commerce-policy">Commerce Policy</Link> (what may be sold).</li>
+            <li>The verified tick is given only after our review, can be removed at any time, and is not an endorsement — see
+              the <Link href="/verified-badge-policy">Verified Business Badge</Link> policy.</li>
             <li>Customers can block a business or switch off its offers; businesses must respect that.</li>
             <li>For its customers' data, the business decides how it is used and is responsible for complying with data protection law. We
               process that data on the business's behalf.</li>
@@ -144,7 +149,7 @@ export default function TermsPage() {
             <li>Please contact us first — most problems are solved quickly. If a dispute cannot be resolved within 30 days, it will be referred to
               arbitration in Guntur, Andhra Pradesh under the Arbitration and Conciliation Act, 1996, in English, unless the law gives you the
               right to go to a consumer forum.</li>
-            <li>Grievance Officer: write to {COMPANY.email} with "Grievance" in the subject. We acknowledge complaints within 24 hours and aim to
+            <li>Grievance Officer (details and timelines on our <Link href="/grievance">Grievance</Link> page): write to {COMPANY.email} with "Grievance" in the subject. We acknowledge complaints within 24 hours and aim to
               resolve them within 15 days, as required by the Information Technology Rules, 2021.</li>
           </ul>
 

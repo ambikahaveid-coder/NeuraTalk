@@ -92,6 +92,15 @@ const HelpCenterPage = lazy(() => import("@/pages/website/HelpCenterPage"));
 const ReportAbusePage = lazy(() => import("@/pages/website/ReportAbusePage"));
 const BusinessPage = lazy(() => import("@/pages/website/BusinessPage"));
 const BusinessMessagingPolicyPage = lazy(() => import("@/pages/website/BusinessMessagingPolicyPage"));
+const CommunityGuidelinesPage = lazy(() => import("@/pages/website/CommunityGuidelinesPage"));
+const CommercePolicyPage = lazy(() => import("@/pages/website/CommercePolicyPage"));
+const AgePolicyPage = lazy(() => import("@/pages/website/AgePolicyPage"));
+const VoicePolicyPage = lazy(() => import("@/pages/website/VoicePolicyPage"));
+const VerifiedBadgePolicyPage = lazy(() => import("@/pages/website/VerifiedBadgePolicyPage"));
+const BusinessTermsPage = lazy(() => import("@/pages/website/BusinessTermsPage"));
+const LawEnforcementPage = lazy(() => import("@/pages/website/LawEnforcementPage"));
+const SecurityPolicyPage = lazy(() => import("@/pages/website/SecurityPolicyPage"));
+const GrievancePage = lazy(() => import("@/pages/website/GrievancePage"));
 
 import { CookieConsent } from "@/components/CookieConsent";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
@@ -552,6 +561,33 @@ function Router() {
       </Route>
       <Route path="/business-messaging-policy">
         <WebsitePage><BusinessMessagingPolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/community-guidelines">
+        <WebsitePage><CommunityGuidelinesPage /></WebsitePage>
+      </Route>
+      <Route path="/commerce-policy">
+        <WebsitePage><CommercePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/age-policy">
+        <WebsitePage><AgePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/voice-policy">
+        <WebsitePage><VoicePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/verified-badge-policy">
+        <WebsitePage><VerifiedBadgePolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/business-terms">
+        <WebsitePage><BusinessTermsPage /></WebsitePage>
+      </Route>
+      <Route path="/law-enforcement">
+        <WebsitePage><LawEnforcementPage /></WebsitePage>
+      </Route>
+      <Route path="/security">
+        <WebsitePage><SecurityPolicyPage /></WebsitePage>
+      </Route>
+      <Route path="/grievance">
+        <WebsitePage><GrievancePage /></WebsitePage>
       </Route>
 
       <Route>

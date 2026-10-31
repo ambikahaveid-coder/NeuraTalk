@@ -25,6 +25,15 @@ import CopyrightPage from "./CopyrightPage";
 import TranslationDisclaimerPage from "./TranslationDisclaimerPage";
 import DataExportPage from "./DataExportPage";
 import DPAPage from "./DPAPage";
+import CommunityGuidelinesPage from "./CommunityGuidelinesPage";
+import CommercePolicyPage from "./CommercePolicyPage";
+import AgePolicyPage from "./AgePolicyPage";
+import VoicePolicyPage from "./VoicePolicyPage";
+import VerifiedBadgePolicyPage from "./VerifiedBadgePolicyPage";
+import BusinessTermsPage from "./BusinessTermsPage";
+import LawEnforcementPage from "./LawEnforcementPage";
+import SecurityPolicyPage from "./SecurityPolicyPage";
+import GrievancePage from "./GrievancePage";
 import { LANGUAGES, LANGUAGE_SUMMARY, COMPANY } from "./site-facts";
 import { delayTone, ownVoiceShare, voiceCloneState } from "../AdminSections";
 
@@ -163,6 +172,15 @@ describe("public website content audit (Oct 2026)", () => {
     ["Translation Disclaimer", () => <TranslationDisclaimerPage />],
     ["Data Export", () => <DataExportPage />],
     ["DPA", () => <DPAPage />],
+    ["Community Guidelines", () => <CommunityGuidelinesPage />],
+    ["Commerce Policy", () => <CommercePolicyPage />],
+    ["Age Policy", () => <AgePolicyPage />],
+    ["Voice and Consent Policy", () => <VoicePolicyPage />],
+    ["Verified Business Badge", () => <VerifiedBadgePolicyPage />],
+    ["NeuraTalk Business Terms", () => <BusinessTermsPage />],
+    ["Law Enforcement Guidelines", () => <LawEnforcementPage />],
+    ["Security", () => <SecurityPolicyPage />],
+    ["Grievance Redressal", () => <GrievancePage />],
   ];
   for (const [name, Page] of pages) {
     it(`${name} page makes no banned claims`, () => {

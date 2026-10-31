@@ -36,7 +36,13 @@ const footerLinks = {
   legal: [
     { href: "/privacy", label: "Privacy Policy" },
     { href: "/terms", label: "Terms of Service" },
+    { href: "/community-guidelines", label: "Community Guidelines" },
+    { href: "/age-policy", label: "Age Policy" },
+    { href: "/voice-policy", label: "Voice and Consent Policy" },
+    { href: "/business-terms", label: "Business Terms" },
     { href: "/business-messaging-policy", label: "Business Messaging Policy" },
+    { href: "/commerce-policy", label: "Commerce Policy" },
+    { href: "/verified-badge-policy", label: "Verified Business Badge" },
     { href: "/dpa", label: "Data Processing Agreement" },
     { href: "/cookie-policy", label: "Cookie Policy" },
     { href: "/ai-usage-policy", label: "AI Usage Policy" },
@@ -48,6 +54,9 @@ const footerLinks = {
     { href: "/data-export", label: "Download Your Data" },
     { href: "/account-deletion", label: "Account Deletion" },
     { href: "/legal-notice", label: "Legal Notice" },
+    { href: "/law-enforcement", label: "Law Enforcement Guidelines" },
+    { href: "/security", label: "Security" },
+    { href: "/grievance", label: "Grievance Redressal" },
   ],
   resources: [
     { href: "/help", label: "Help Center" },
