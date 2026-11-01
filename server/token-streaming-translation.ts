@@ -19,12 +19,30 @@ const azureOpenAI = process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENA
   ? new AzureOpenAI({
       endpoint: process.env.AZURE_OPENAI_ENDPOINT,
       apiKey: process.env.AZURE_OPENAI_API_KEY,
-      deployment: process.env.AZURE_OPENAI_DEPLOYMENT,
+      // No fixed `deployment`: the SDK would then ignore `model`, and the per-language choice below.
       apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2024-10-21",
     })
   : null;
 let azureSkipUntil = 0;
 const translationOpenAI = directOpenAI;
+
+/**
+ * Some languages need a stronger model (measured: the mini model changed meanings in
+ * Tamil/Kannada/Bengali). AZURE_OPENAI_DEPLOYMENT_BY_LANGUAGE="ta:gpt-4o,kn:gpt-4o" uses
+ * that deployment whenever either side of the call speaks that language.
+ */
+const AZURE_DEPLOYMENT_BY_LANGUAGE = new Map(
+  String(process.env.AZURE_OPENAI_DEPLOYMENT_BY_LANGUAGE || "")
+    .split(",")
+    .map((pair) => pair.split(":").map((part) => part.trim()))
+    .filter((pair) => pair.length === 2 && pair[0] && pair[1]) as Array<[string, string]>,
+);
+export function azureDeploymentFor(sourceLanguage: string, targetLanguage: string): string | undefined {
+  const base = (language: string) => String(language || "").toLowerCase().split(/[-_]/)[0];
+  return AZURE_DEPLOYMENT_BY_LANGUAGE.get(base(sourceLanguage))
+    || AZURE_DEPLOYMENT_BY_LANGUAGE.get(base(targetLanguage))
+    || process.env.AZURE_OPENAI_DEPLOYMENT;
+}
 
 const OPENAI_TRANSLATION_MODEL =
   process.env.OPENAI_REALTIME_TRANSLATION_MODEL ||
@@ -158,7 +176,7 @@ export async function streamTranslationTokens(
         if (azureOpenAI && Date.now() >= azureSkipUntil) {
           try {
             return await (azureOpenAI.chat.completions.create as any)({
-              model: process.env.AZURE_OPENAI_DEPLOYMENT,
+              model: azureDeploymentFor(sourceLanguage, targetLanguage),
               stream: true,
               temperature: 0,
               max_tokens: maxTokens,
