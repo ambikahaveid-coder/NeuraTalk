@@ -153,7 +153,7 @@ export function registerTelephonyAdminRoutes(app: Express): void {
       numbers: z.array(E164).min(1).max(50),
       username: z.string().max(120).optional(),
       password: z.string().max(200).optional(),
-      transport: z.enum(["auto", "udp", "tcp", "tls"]).default("auto"),
+      transport: z.enum(["auto", "udp", "tcp", "tls"]).default("tcp"),
     }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ success: false, message: parsed.error.issues[0]?.message ?? "Check the details." });
     const b = parsed.data;
@@ -161,6 +161,8 @@ export function registerTelephonyAdminRoutes(app: Express): void {
       const transport = { auto: SIPTransport.SIP_TRANSPORT_AUTO, udp: SIPTransport.SIP_TRANSPORT_UDP, tcp: SIPTransport.SIP_TRANSPORT_TCP, tls: SIPTransport.SIP_TRANSPORT_TLS }[b.transport];
       const trunk = await sipClient().createSipOutboundTrunk(b.name, b.address, b.numbers, {
         transport,
+        // Calls originate from LiveKit's India region (Indian rules: telecom traffic should stay in India).
+        destinationCountry: "in",
         ...(b.username ? { authUsername: b.username, authPassword: b.password ?? "" } : {}),
       });
       const previous = getLiveKitOutboundTrunkId();

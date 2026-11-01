@@ -38,7 +38,7 @@ export function PhoneLinesSection() {
   const companies = useQuery<{ companies: Array<{ id: number; name: string }> }>({ queryKey: ["/api/admin/companies"], queryFn: () => call("GET", "/api/admin/companies") });
   const refresh = () => qc.invalidateQueries({ queryKey: ["/api/admin/telephony"] });
 
-  const [out, setOut] = useState({ address: "", numbers: "", username: "", password: "", transport: "auto" });
+  const [out, setOut] = useState({ address: "", numbers: "", username: "", password: "", transport: "tcp" });
   const [secure, setSecure] = useState({ ips: "", username: "", password: "" });
   const [num, setNum] = useState({ orgId: "", phoneNumber: "", label: "" });
 
@@ -130,6 +130,12 @@ export function PhoneLinesSection() {
               {connect.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{s.outboundTrunkId ? "Replace line" : "Connect line"}
             </Button>
             {!s.usesLiveKit && <p className="text-xs text-muted-foreground">After connecting, set PSTN_PROVIDER=exotel on the server so calls dial through this line.</p>}
+            <div className="rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground" data-testid="exotel-setup-notes">
+              <p className="font-medium text-foreground">Give Exotel these details</p>
+              <p className="mt-1">Calls leave from LiveKit's India region. Ask Exotel to whitelist LiveKit's fixed IP ranges: <span className="font-mono">143.223.88.0/21, 161.115.160.0/19, 153.57.128.0/18</span> (check docs.livekit.io → Regions &amp; static IPs before sending).</p>
+              <p className="mt-1">For incoming calls, Exotel's Connect applet should dial <span className="font-mono">&lt;your LiveKit SIP subdomain&gt;.india.sip.livekit.cloud</span> (LiveKit project settings → SIP URI), so calls stay in India.</p>
+              <p className="mt-1">Exotel uses SIP over TCP or TLS with G.711 audio.</p>
+            </div>
           </CardContent>
         </Card>
 
