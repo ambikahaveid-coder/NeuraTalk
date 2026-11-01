@@ -1,14 +1,30 @@
-import OpenAI from "openai";
+import OpenAI, { AzureOpenAI } from "openai";
 import { logger } from "./observability";
 import { normalizeLanguage, normalizeSpaces } from "./realtime-translation-core";
 import { getCachedTranslation, setCachedTranslation, ultraTranslate } from "./ultra-pipeline";
 import { createLinkedAbortController, runWithResilience } from "./voice-resilience";
 import { azureTranslate } from "./azure-service";
 
-const translationOpenAI = new OpenAI({
+const directOpenAI = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "",
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
+
+/**
+ * Optional: the same model hosted by Azure in India (e.g. South India), closer to our Mumbai servers and
+ * keeping call text in India. Set AZURE_OPENAI_ENDPOINT + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT.
+ * Any failure falls back to OpenAI directly, so a call never goes silent because of it.
+ */
+const azureOpenAI = process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_DEPLOYMENT
+  ? new AzureOpenAI({
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+      apiKey: process.env.AZURE_OPENAI_API_KEY,
+      deployment: process.env.AZURE_OPENAI_DEPLOYMENT,
+      apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2024-10-21",
+    })
+  : null;
+let azureSkipUntil = 0;
+const translationOpenAI = directOpenAI;
 
 const OPENAI_TRANSLATION_MODEL =
   process.env.OPENAI_REALTIME_TRANSLATION_MODEL ||
@@ -139,6 +155,24 @@ export async function streamTranslationTokens(
           } as any,
           { signal } as any,
         );
+        if (azureOpenAI && Date.now() >= azureSkipUntil) {
+          try {
+            return await (azureOpenAI.chat.completions.create as any)({
+              model: process.env.AZURE_OPENAI_DEPLOYMENT,
+              stream: true,
+              temperature: 0,
+              max_tokens: maxTokens,
+              messages: [
+                { role: "system", content: spokenInterpreterPrompt(sourceLanguage, targetLanguage) },
+                { role: "user", content: inputText },
+              ],
+            }, { signal });
+          } catch (error) {
+            if ((signal as AbortSignal | undefined)?.aborted) throw error;
+            azureSkipUntil = Date.now() + 60_000; // don't make every sentence wait on a failing Azure
+            logger.warn("TokenStreamingTranslation", `Azure OpenAI (India) failed, using OpenAI: ${String(error).slice(0, 160)}`);
+          }
+        }
         try {
           return await request(activeTranslationModel);
         } catch (error) {
