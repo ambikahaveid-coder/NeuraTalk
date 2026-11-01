@@ -76,15 +76,20 @@ class _BusinessShellState extends State<BusinessShell> {
           const BusinessToolsScreen(),
           const _BusinessSettings(),
         ]),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _tab,
-          onDestinationSelected: (i) => setState(() => _tab = i),
-          backgroundColor: AppColors.background,
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Chats'),
-            NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: 'Tools'),
-            NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
-          ],
+        bottomNavigationBar: NavigationBarTheme(
+          data: ntNavigationBarTheme(),
+          child: DecoratedBox(
+            decoration: BoxDecoration(border: Border(top: BorderSide(color: AppColors.border))),
+            child: NavigationBar(
+              selectedIndex: _tab,
+              onDestinationSelected: (i) => setState(() => _tab = i),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Chats'),
+                NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: 'Tools'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -874,7 +879,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     final ours = _messages.where((m) => m['deliveryToCustomer'] != null);
     final lastFailed = ours.isNotEmpty && ours.last['deliveryToCustomer'] == 'failed';
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.backgroundMid,
       appBar: AppBar(
         titleSpacing: 0,
         title: InkWell(

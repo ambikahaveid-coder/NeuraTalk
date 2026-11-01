@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../theme/app_theme.dart';
@@ -246,6 +248,12 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  TextSpan _legalLink(String label, String url) => TextSpan(
+        text: label,
+        style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w600),
+        recognizer: TapGestureRecognizer()..onTap = () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+      );
+
   @override
   Widget build(BuildContext context) {
     final screen = MediaQuery.of(context).size;
@@ -266,10 +274,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 LoginStep.otp => _otpStep(),
               },
               const SizedBox(height: 32),
-              Text(
-                'By continuing you agree to the NeuraTalk Terms of Service and Privacy Policy.',
+              Text.rich(
+                TextSpan(
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 13, height: 1.4),
+                  children: [
+                    const TextSpan(text: 'By continuing you agree to the NeuraTalk '),
+                    _legalLink('Terms of Service', 'https://neuratalk.in/terms'),
+                    const TextSpan(text: ' and '),
+                    _legalLink('Privacy Policy', 'https://neuratalk.in/privacy'),
+                    const TextSpan(text: '.'),
+                  ],
+                ),
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13, height: 1.4),
               ),
             ],
           ),

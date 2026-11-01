@@ -760,7 +760,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     final p = _profile;
     final subtitle = p == null ? null : [_cap(p['category']), p['city'], p['openNow'] == true ? 'Open now' : 'Closed now'].where((v) => v != null && '$v'.isNotEmpty).join(' · ');
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.backgroundMid,
       appBar: AppBar(
         titleSpacing: 0,
         title: InkWell(

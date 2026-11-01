@@ -1028,7 +1028,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         if (!didPop && _showEmoji) setState(() => _showEmoji = false);
       },
       child: Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.backgroundMid,
       appBar: AppBar(
         titleSpacing: 0,
         // Tapping the name opens the contact page, like every messenger.

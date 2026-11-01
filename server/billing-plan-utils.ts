@@ -83,28 +83,31 @@ export function summarizeBillingPlan(plan: BillingPlanLike): BillingPlanPresenta
   const isBusiness = plan.planType === "b2b";
   const custom = Boolean(features.contactSales) || displayName === "Enterprise";
   const featureHighlights = dedupe([
-    "Translated voice and video calls",
-    "Translated chats included",
+    "AI translation in voice and video calls",
+    isBusiness ? "AI translation of customer chats" : "AI translation of chats (10 messages use 1 minute)",
+    isBusiness ? null : "Your own voice, learned in your first call",
     "In-person translation",
-    "Calls in your own voice once you record it",
+    isBusiness ? null : "Calls and chats without translation are always free",
     isBusiness ? "NeuraTalk Business app and team inbox" : null,
     isBusiness ? "Business API for order updates and login codes" : null,
     config.billingType === "hybrid" ? "Hybrid wallet + credit billing" : null,
     config.billingType === "postpaid" ? "Postpaid invoicing" : null,
-    config.billingType === "prepaid" && !custom ? "Prepaid — never renews on its own" : null,
+    config.billingType === "prepaid" && !custom && plan.priceInPaise > 0 ? "Prepaid — never renews on its own" : null,
   ]);
 
   const minutes = plan.includedMinutes || 0;
   const period = PERIOD[plan.duration as keyof typeof PERIOD];
-  const minutesText = `${new Intl.NumberFormat("en-IN").format(minutes)} translated call minutes`;
+  const minutesText = `${new Intl.NumberFormat("en-IN").format(minutes)} AI translation minutes`;
   const minutesLabel = custom || minutes >= 99999
     ? "Minutes agreed with our team"
-    : period ? `${minutesText} · ${period.length}` : minutesText;
+    : plan.priceInPaise === 0
+      ? `${minutesText} · once, for every new account`
+      : period ? `${minutesText} · ${period.length}` : minutesText;
   const periodSuffix = custom || plan.priceInPaise === 0 || !period ? "" : period.suffix;
   const summaryText = custom
     ? isBusiness ? "For larger teams. Minutes, team size and terms are agreed with our team." : "For heavy use. Minutes and terms are agreed with our team."
     : plan.priceInPaise === 0
-      ? `${minutesText} to try NeuraTalk. No credit card needed.`
+      ? `${minutesText} to try AI translation, once. Calls and chats without translation are free.`
       : isBusiness
         ? `${minutesText} for your team to use within ${period ? period.length : "the plan period"}.`
         : `${minutesText} to use within ${period ? period.length : "the plan period"}.`;

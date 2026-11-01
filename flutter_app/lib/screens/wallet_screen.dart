@@ -190,9 +190,14 @@ class _WalletScreenState extends State<WalletScreen> {
         children: [
           Text(planName ?? 'No active plan', style: const TextStyle(color: AppColors.onAccent, fontSize: 15, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('$minutes minutes left', style: const TextStyle(color: AppColors.onAccent, fontSize: 34, fontWeight: FontWeight.w800)),
+          Text('$minutes AI minutes left', style: const TextStyle(color: AppColors.onAccent, fontSize: 34, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          Text('Wallet balance ₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.onAccent, fontSize: 14)),
+          const Text('For translated calls and chats. Calls and chats without translation are free.',
+              style: TextStyle(color: AppColors.onAccent, fontSize: 13, height: 1.35)),
+          if (balance > 0) ...[
+            const SizedBox(height: 4),
+            Text('Wallet balance ₹${balance.toStringAsFixed(2)}', style: const TextStyle(color: AppColors.onAccent, fontSize: 14)),
+          ],
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: () => _openCheckout(context),
@@ -238,6 +243,8 @@ class _PlanCard extends StatelessWidget {
     final minutes = plan['callMinutesIncluded'] ?? 0;
     final minutesLabel = (plan['minutesLabel'] as String?) ?? (minutes is num && minutes >= 99999 ? 'Minutes agreed with our team' : '$minutes minutes included');
     final features = (plan['featureHighlights'] as List?)?.cast<String>() ?? [];
+    // The free plan is given once at sign-up; it can't be bought.
+    final isFree = plan['priceFormatted'] == 'Free' || plan['tierLabel'] == 'trial';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -261,7 +268,7 @@ class _PlanCard extends StatelessWidget {
           Text(minutesLabel, style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
           if (features.isNotEmpty) ...[
             const SizedBox(height: 12),
-            ...features.take(3).map((f) => Padding(
+            ...features.take(5).map((f) => Padding(
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(children: [
                 Icon(Icons.check_circle_outline, color: AppColors.cyan, size: 14),
@@ -271,6 +278,9 @@ class _PlanCard extends StatelessWidget {
             )),
           ],
           const SizedBox(height: 16),
+          if (isFree)
+            Text('Given once to every new account', style: TextStyle(color: AppColors.textMuted, fontSize: 12, fontWeight: FontWeight.w600))
+          else
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(

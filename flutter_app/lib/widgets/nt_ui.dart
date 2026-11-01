@@ -382,3 +382,27 @@ Widget? ntDayDivider(dynamic previous, dynamic current) {
     ),
   );
 }
+/// The bottom tab bar style shared by the customer and business apps, so the
+/// two always look the same: brand-blue selected tab on a soft blue pill.
+NavigationBarThemeData ntNavigationBarTheme() {
+  final selected = AppColors.cyan;
+  final unselected = AppColors.textSecondary;
+  return NavigationBarThemeData(
+    backgroundColor: AppColors.background,
+    indicatorColor: AppColors.blueTint,
+    surfaceTintColor: Colors.transparent,
+    elevation: 0,
+    height: 70,
+    labelTextStyle: WidgetStateProperty.resolveWith(
+      (states) => TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 12.5,
+        fontWeight: states.contains(WidgetState.selected) ? FontWeight.w700 : FontWeight.w500,
+        color: states.contains(WidgetState.selected) ? selected : unselected,
+      ),
+    ),
+    iconTheme: WidgetStateProperty.resolveWith(
+      (states) => IconThemeData(size: 24, color: states.contains(WidgetState.selected) ? selected : unselected),
+    ),
+  );
+}
