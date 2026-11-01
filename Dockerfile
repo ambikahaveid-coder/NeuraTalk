@@ -62,6 +62,11 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 
+# Amazon RDS certificate authorities: the database (RDS, Mumbai) is reached
+# over TLS with full certificate checks; Node doesn't carry these by default.
+COPY certs/rds-global-bundle.pem ./certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/app/certs/rds-global-bundle.pem
+
 EXPOSE 5000
 ENV NODE_ENV=production
 ENV PORT=5000
