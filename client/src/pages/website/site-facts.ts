@@ -28,25 +28,38 @@ export const INTERNATIONAL_LANGUAGES = [
 export const LANGUAGES = ["English", ...INDIAN_LANGUAGES, ...INTERNATIONAL_LANGUAGES];
 export const LANGUAGE_SUMMARY = `${LANGUAGES.length} languages — English, ${INDIAN_LANGUAGES.length} Indian languages and ${INTERNATIONAL_LANGUAGES.length} international languages`;
 
-/** Who processes what, and where (see server code and infrastructure). */
+/** Who processes what, and where (checked against the code and production settings, 1 November 2026). */
 export const PROCESSORS = [
-  { name: "Amazon Web Services", purpose: "Application servers and file storage", location: "India (Mumbai)" },
-  { name: "Neon", purpose: "Database (accounts, chats, business messages, call history)", location: "Singapore" },
-  { name: "LiveKit", purpose: "Real-time audio and video for calls", location: "Global network (nearest region)" },
-  { name: "Microsoft Azure", purpose: "Speech recognition", location: "Cloud region chosen by the provider" },
-  { name: "OpenAI", purpose: "Translation of speech and messages; the in-app assistant", location: "United States" },
-  { name: "ElevenLabs", purpose: "Speaking translated words in your own cloned voice", location: "United States / European Union" },
+  { name: "Amazon Web Services", purpose: "Application servers, the database (accounts, chats, business messages, call history), files and backups", location: "India (Mumbai)" },
+  { name: "Microsoft Azure", purpose: "Speech recognition, and AI translation of calls", location: "India (Central India, South India)" },
+  { name: "LiveKit", purpose: "Real-time audio and video for calls", location: "Nearest region on its global network (India for callers in India)" },
+  { name: "ElevenLabs", purpose: "Learning your voice (only if you allow it) and speaking translated words in it", location: "United States / European Union" },
+  { name: "OpenAI", purpose: "Translation of chat messages; backup translation for calls when Azure is unavailable; the in-app assistant", location: "United States" },
+  { name: "Deepgram", purpose: "Backup speech recognition, only when Azure is unavailable", location: "United States" },
+  { name: "Sarvam AI", purpose: "Backup translation of chat messages", location: "India" },
   { name: "Google Firebase", purpose: "Phone-number sign-in (OTP) and app notifications", location: "Global" },
 ];
+
+/** Free AI and pay-first rules (server/free-trial.ts, server/ai-chat-usage.ts, server/billing-engine.ts). */
+export const FREE_AI_MINUTES = 5;
+export const CHAT_MESSAGES_PER_AI_MINUTE = 10;
+
+/** Backups (RDS automatic backups + .github/workflows/db-backup.yml). */
+export const BACKUP_POINT_IN_TIME_DAYS = 14;
+export const BACKUP_DAILY_DAYS = 35;
+export const BACKUP_MONTHLY_DAYS = 90;
+/** The database moved from Neon (Singapore) to AWS Mumbai on this date; the Singapore copy is deleted by DATABASE_MOVE_CLEANUP. */
+export const DATABASE_MOVED = "1 November 2026";
+export const DATABASE_MOVE_CLEANUP = "15 November 2026";
 
 /** server/modules/transcripts/service.ts RETENTION_DAYS (default tier "none" = 30). */
 export const CALL_TEXT_RETENTION_DAYS = 30;
 
 /** Date shown on the legal pages rewritten in this pass. */
-export const LEGAL_UPDATED = "24 October 2026";
+export const LEGAL_UPDATED = "1 November 2026";
 
-/** Policies added or updated on 31 October 2026 (community, commerce, age, voice, business terms…). */
-export const POLICIES_UPDATED = "31 October 2026";
+/** Last full review of the policies (database moved to India, free AI minutes, pay-first billing). */
+export const POLICIES_UPDATED = "1 November 2026";
 
 /** Minimum age to use NeuraTalk (Terms, Privacy, Age policy). */
 export const MINIMUM_AGE = 18;

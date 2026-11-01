@@ -65,8 +65,9 @@ export default function AboutPage() {
               languages and the connection.
             </p>
             <p>
-              Calls run on LiveKit. Speech recognition uses Microsoft Azure, translation uses OpenAI, and voices are created and spoken with
-              ElevenLabs. Our servers run in India (AWS Mumbai). Details are in the <Link href="/trust" className="underline">Trust Center</Link>.
+              Calls run on LiveKit. Speech recognition and call translation use Microsoft Azure in India, chat translation uses OpenAI, and
+              voices are created and spoken with ElevenLabs. Our servers, database, files and backups are in India (AWS Mumbai). Details are in
+              the <Link href="/trust" className="underline">Trust Center</Link>.
             </p>
           </div>
         </div>

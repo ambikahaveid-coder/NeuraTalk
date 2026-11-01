@@ -1,5 +1,8 @@
 import { Link } from "wouter";
-import { COMPANY, POLICIES_UPDATED, PROCESSORS, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+import {
+  COMPANY, POLICIES_UPDATED, PROCESSORS, CALL_TEXT_RETENTION_DAYS,
+  BACKUP_POINT_IN_TIME_DAYS, BACKUP_DAILY_DAYS, BACKUP_MONTHLY_DAYS, DATABASE_MOVED, DATABASE_MOVE_CLEANUP,
+} from "./site-facts";
 
 export default function PrivacyPage() {
   return (
@@ -21,6 +24,7 @@ export default function PrivacyPage() {
 
           <h2>1. The short version</h2>
           <ul>
+            <li>Your account, chats, call history and files are stored in India (AWS, Mumbai).</li>
             <li>We never record the audio of your calls.</li>
             <li>The translated text of a call is kept in your call history for {CALL_TEXT_RETENTION_DAYS} days, then deleted.</li>
             <li>Chats are kept so you can read them on your devices, until you delete them or your account.</li>
@@ -74,9 +78,24 @@ export default function PrivacyPage() {
             </tbody>
           </table>
           <p>
-            Some of these providers are outside India. We transfer data only to countries not restricted by the Government of India under the
-            DPDP Act, and only what each provider needs. Businesses you chat with see your name, profile photo and number, and the messages
-            you send them — never your other chats.
+            <strong>What leaves India, and when.</strong> Your stored data stays in India. Some processing happens abroad, only for the moment
+            it is needed and only with what that task needs:
+          </p>
+          <ul>
+            <li>the text of chat messages that need translating (OpenAI, United States);</li>
+            <li>your voice samples and the translated words spoken in your voice, if you switched on your own voice (ElevenLabs, United States / European Union);</li>
+            <li>call speech or its text only as a backup, when the Azure service in India is unavailable (Deepgram and OpenAI, United States);</li>
+            <li>sign-in codes and notifications (Google Firebase).</li>
+          </ul>
+          <p>
+            These transfers are allowed under section 16 of the DPDP Act, 2023: the Government of India has not restricted transfers to these
+            countries. Our providers process the data only to provide their service to us; under their business terms they do not use it to
+            train their models. Businesses you chat with see your name, profile photo and number, and the messages you send them — never your
+            other chats.
+          </p>
+          <p className="text-sm">
+            Until {DATABASE_MOVED} our database was hosted by Neon in Singapore. It now runs in Mumbai, and the Singapore copy is deleted by
+            {" "}{DATABASE_MOVE_CLEANUP}.
           </p>
 
           <h2>5. How long we keep it</h2>
@@ -94,6 +113,7 @@ export default function PrivacyPage() {
               <tr><td className="border p-2">Login codes from businesses</td><td className="border p-2">The readable code is erased as soon as it is used, expires or is replaced</td></tr>
               <tr><td className="border p-2">Billing records</td><td className="border p-2">As long as tax and accounting law requires (typically 8 years)</td></tr>
               <tr><td className="border p-2">Security logs</td><td className="border p-2">Only as long as needed to keep accounts safe and investigate abuse</td></tr>
+              <tr><td className="border p-2">Backups</td><td className="border p-2">Encrypted backups in India let us recover from a failure: point-in-time backups for {BACKUP_POINT_IN_TIME_DAYS} days, daily copies for {BACKUP_DAILY_DAYS} days and monthly copies for {BACKUP_MONTHLY_DAYS} days. Something you delete disappears from NeuraTalk at once, and from these backups when they expire. Backups are never used to bring back data you deleted.</td></tr>
             </tbody>
           </table>
 
@@ -111,8 +131,9 @@ export default function PrivacyPage() {
           <p>
             Calls, messages and files travel over encrypted connections. Translation needs our servers to process speech and text, so calls
             are not end-to-end encrypted. Files you send can only be opened by the people in that conversation. Login codes from businesses are
-            stored encrypted. Access to production data is limited to staff who need it. If a breach affects your data, we will inform you and
-            the Data Protection Board as the law requires.
+            stored encrypted. The database, files and backups are encrypted at rest, and the database accepts connections only from our own
+            servers. Access to production data is limited to staff who need it. If a breach affects your data, we will inform you and the Data
+            Protection Board without delay, as the DPDP Rules, 2025 require.
           </p>
 
           <h2>7a. Things that stay on your phone</h2>

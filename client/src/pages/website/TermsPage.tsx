@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, POLICIES_UPDATED } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED, FREE_AI_MINUTES, CHAT_MESSAGES_PER_AI_MINUTE } from "./site-facts";
 
 export default function TermsPage() {
   return (
@@ -98,10 +98,15 @@ export default function TermsPage() {
 
           <h2>8. Plans, wallet and payment</h2>
           <ul>
-            <li>New personal accounts get free translated minutes to try NeuraTalk. Current plans and prices are on our
-              <Link href="/pricing"> pricing page</Link> and in the app, in Indian Rupees (₹).</li>
-            <li>Translated call time is deducted from your plan or prepaid wallet as you use it. Business messages (updates, codes, campaigns)
-              are deducted from the business wallet. Messages that are not sent are not charged.</li>
+            <li><strong>Free for personal use:</strong> chats, and voice, video and group calls between people, when no AI translation is used.</li>
+            <li><strong>AI translation is paid.</strong> Each new personal account gets {FREE_AI_MINUTES} free AI translation minutes, once, to try it.
+              After that, translated calls and chat translation need a plan. Translated call time is counted per second while translation runs,
+              and every {CHAT_MESSAGES_PER_AI_MINUTE} translated chat messages use one minute. When your minutes run out, calls still connect and
+              messages are still delivered, without translation, and a translated call in progress ends.</li>
+            <li>Current plans and prices are on our <Link href="/pricing">pricing page</Link> and in the app, in Indian Rupees (₹).</li>
+            <li><strong>Businesses pay first.</strong> A business account gets no free minutes or credit. Updates, login codes, campaigns,
+              business calls and AI translation are paid from the business's prepaid wallet, which is credited only after we receive the
+              payment. Messages that are not sent are not charged.</li>
             <li>Prices include or will show applicable taxes such as GST. Online payments, when offered, are processed by our payment
               partner; we never see your full card details.</li>
             <li>We will give notice in the app or by email before a price change applies to you. Refunds are covered by our

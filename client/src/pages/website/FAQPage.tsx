@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Mail } from "lucide-react";
-import { COMPANY, LANGUAGE_SUMMARY, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+import { COMPANY, LANGUAGE_SUMMARY, CALL_TEXT_RETENTION_DAYS, FREE_AI_MINUTES } from "./site-facts";
 import { PageHero } from "./site-ui";
 
 type Faq = { id: string; q: string; a: React.ReactNode };
@@ -34,7 +34,7 @@ const GROUPS: { title: string; items: Faq[] }[] = [
   {
     title: "Account and billing",
     items: [
-      { id: "start", q: "How do I get started?", a: "Sign up with your phone number, verify the code we send, and you can start calling. New accounts get free translated minutes to try it. No credit card needed." },
+      { id: "start", q: "How do I get started?", a: `Sign up with your phone number, verify the code we send, and you can start chatting and calling. Chats and calls without translation are free. New accounts get ${FREE_AI_MINUTES} free AI translation minutes to try translation. No credit card needed.` },
       { id: "pricing", q: "How much does it cost?", a: <>Translated call time is taken from your balance, which you can see in the app. See the <Link href="/pricing" className="underline underline-offset-2">pricing page</Link> for current rates.</> },
       { id: "refunds", q: "Can I get a refund?", a: <>Yes, in the cases described in our <Link href="/refund-policy" className="underline underline-offset-2">refund policy</Link>.</> },
     ],

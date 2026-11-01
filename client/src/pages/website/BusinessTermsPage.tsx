@@ -45,6 +45,9 @@ export default function BusinessTermsPage() {
 
       <h2>4. Wallet and charges</h2>
       <ul>
+        <li><strong>Pay first.</strong> There are no free minutes or free credit for businesses. Your wallet is credited only after we
+          receive your payment (online, or by bank transfer against our invoice — we record the payment reference). Until then, sending,
+          business calls and AI translation stay off.</li>
         <li>Business messages are charged from your prepaid wallet at the rates shown in the dashboard when you send. Messages we skip because the
           customer blocked you, switched offers off, or reached the daily limit are not charged.</li>
         <li>Prices may change; we will show new prices in the dashboard at least 7 days before they apply. Messages already sent keep their price.</li>

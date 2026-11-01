@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+import { COMPANY, LEGAL_UPDATED, CALL_TEXT_RETENTION_DAYS, BACKUP_POINT_IN_TIME_DAYS, BACKUP_DAILY_DAYS, BACKUP_MONTHLY_DAYS } from "./site-facts";
 
 /** Retention periods as the product enforces them today. */
 const ROWS: [string, string, string][] = [
@@ -12,6 +12,7 @@ const ROWS: [string, string, string][] = [
   ["Account profile", "Until you delete your account", "Then your number, name, photo and email are erased."],
   ["Billing and invoices", "As long as tax and company law require", "Typically several years after the transaction."],
   ["Security and audit logs", "As long as needed to protect accounts and investigate abuse", "Access is limited to authorised staff."],
+  ["Backups of the database", `Point-in-time: ${BACKUP_POINT_IN_TIME_DAYS} days; daily copies: ${BACKUP_DAILY_DAYS} days; monthly copies: ${BACKUP_MONTHLY_DAYS} days`, "Encrypted, kept in India (AWS Mumbai), used only to recover from a failure. Deleted data leaves the backups when they expire."],
 ];
 
 export default function DataRetentionPage() {
@@ -29,7 +30,7 @@ export default function DataRetentionPage() {
         <div className="max-w-4xl mx-auto prose prose-neutral dark:prose-invert">
           <p>
             We keep personal data only as long as it is needed to provide NeuraTalk, or as long as the law requires, as the Digital Personal
-            Data Protection Act, 2023 asks of us.
+            Data Protection Act, 2023 and the DPDP Rules, 2025 ask of us. All of it is stored in India (AWS, Mumbai).
           </p>
           <table className="w-full border-collapse text-sm">
             <thead><tr><th className="border p-2 text-left">Data</th><th className="border p-2 text-left">Kept for</th><th className="border p-2 text-left">Notes</th></tr></thead>

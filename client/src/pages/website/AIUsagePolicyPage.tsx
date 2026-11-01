@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED, LANGUAGE_SUMMARY } from "./site-facts";
+import { COMPANY, LEGAL_UPDATED, LANGUAGE_SUMMARY, FREE_AI_MINUTES } from "./site-facts";
 
 export default function AIUsagePolicyPage() {
   return (
@@ -18,13 +18,16 @@ export default function AIUsagePolicyPage() {
           <table className="w-full border-collapse text-sm">
             <thead><tr><th className="border p-2 text-left">Feature</th><th className="border p-2 text-left">What the AI does</th><th className="border p-2 text-left">Provider</th></tr></thead>
             <tbody>
-              <tr><td className="border p-2">Calls</td><td className="border p-2">Recognises speech and its language, translates it, and speaks it in the speaker's cloned voice or shows captions</td><td className="border p-2">Microsoft Azure, OpenAI, ElevenLabs</td></tr>
-              <tr><td className="border p-2">Chats</td><td className="border p-2">Translates messages, and transcribes voice messages</td><td className="border p-2">OpenAI, Microsoft Azure</td></tr>
+              <tr><td className="border p-2">Calls</td><td className="border p-2">Recognises speech and its language, translates it, and speaks it in the speaker's cloned voice or shows captions</td><td className="border p-2">Microsoft Azure in India (speech and translation), ElevenLabs (your voice); OpenAI and Deepgram only as a backup when Azure is unavailable</td></tr>
+              <tr><td className="border p-2">Chats</td><td className="border p-2">Translates messages, and transcribes voice messages</td><td className="border p-2">OpenAI; Sarvam AI and Microsoft Azure as backups</td></tr>
               <tr><td className="border p-2">Your voice</td><td className="border p-2">Creates a cloned voice from your own recordings or, with your permission, your speech in calls</td><td className="border p-2">ElevenLabs</td></tr>
               <tr><td className="border p-2">Assistant</td><td className="border p-2">Answers questions and helps write messages</td><td className="border p-2">OpenAI</td></tr>
             </tbody>
           </table>
-          <p>Languages: {LANGUAGE_SUMMARY}.</p>
+          <p>Languages: {LANGUAGE_SUMMARY}. Quality is not the same in every language: we test Indian languages and English most, and
+            some languages still make more mistakes than others.</p>
+          <p>AI translation is a paid feature: every new personal account gets {FREE_AI_MINUTES} free AI minutes to try it. Calls and chats
+            without translation are free.</p>
 
           <h2>2. Limits you should know</h2>
           <ul>

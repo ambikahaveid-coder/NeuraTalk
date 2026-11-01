@@ -25,7 +25,7 @@ export default function LawEnforcementPage() {
           <tr><td className="border p-2">Call audio</td><td className="border p-2">No — calls are never recorded</td></tr>
           <tr><td className="border p-2">Text of a call and its translation</td><td className="border p-2">{CALL_TEXT_RETENTION_DAYS} days</td></tr>
           <tr><td className="border p-2">Chat messages and files</td><td className="border p-2">Until the user deletes them or the account; disappearing messages and opened view-once photos are deleted</td></tr>
-          <tr><td className="border p-2">Deleted messages and accounts</td><td className="border p-2">Not recoverable after deletion, except backups kept for a short time for disaster recovery</td></tr>
+          <tr><td className="border p-2">Deleted messages and accounts</td><td className="border p-2">Not recoverable by users after deletion. Encrypted disaster-recovery backups in India expire within 90 days; we do not restore deleted data from them except under a valid legal order</td></tr>
           <tr><td className="border p-2">Payment card numbers</td><td className="border p-2">No — handled by our payment partner</td></tr>
         </tbody>
       </table>

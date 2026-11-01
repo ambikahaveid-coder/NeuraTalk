@@ -4,7 +4,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
-import { COMPANY, LANGUAGE_SUMMARY, CALL_TEXT_RETENTION_DAYS } from "./site-facts";
+import { COMPANY, LANGUAGE_SUMMARY, CALL_TEXT_RETENTION_DAYS, CHAT_MESSAGES_PER_AI_MINUTE } from "./site-facts";
 
 type Article = { id: string; q: string; a: string };
 
@@ -48,7 +48,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
   {
     title: "Account, billing and privacy",
     articles: [
-      { id: "minutes", q: "How are minutes charged?", a: "Translated call time is taken from your plan or wallet as you use it. You can see your balance in More → Account. Same-language calls are not translated." },
+      { id: "minutes", q: "How are minutes charged?", a: `Only AI translation uses minutes. Translated call time is counted while translation runs, and every ${CHAT_MESSAGES_PER_AI_MINUTE} translated chat messages use one minute. Calls and chats without translation are free. You can see your balance in More → Account.` },
       { id: "refund", q: "Can I get a refund?", a: "In the cases listed in our Refund Policy. Write to us with your number and the reason." },
       { id: "stored", q: "Are my calls recorded?", a: `No. Call audio is never stored. The translated text of a call is kept in your call history for ${CALL_TEXT_RETENTION_DAYS} days, then deleted.` },
       { id: "export", q: "How do I download my data?", a: "More → Privacy → Download my data." },

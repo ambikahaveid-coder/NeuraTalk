@@ -3,6 +3,17 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "Free calls, data in India",
+    date: "1 November 2026",
+    highlights: [
+      "Chats and voice, video and group calls without translation are now free",
+      "AI translation: 5 free minutes for every new account, then a plan; calls still connect when minutes run out",
+      "All your data is now stored in India (AWS Mumbai), with encrypted backups",
+      "Faster call translation, served from Microsoft Azure in India",
+      "Business accounts: balance is added only after payment is received",
+    ],
+  },
+  {
     title: "NeuraTalk Business",
     date: "24 October 2026",
     highlights: [
