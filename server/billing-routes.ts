@@ -168,7 +168,14 @@ export function registerBillingRoutes(app: Express) {
   /**
    * Get all available plans (public) - combined B2C and B2B
    */
+  // Plans change rarely and every visitor of the pricing page / app wallet asks for them:
+  // answer from memory for 60 s instead of hitting the database each time.
+  let plansCache: { at: number; body: unknown } | null = null;
   app.get("/api/billing/plans", async (req: Request, res: Response) => {
+    if (plansCache && Date.now() - plansCache.at < 60_000) {
+      res.set("Cache-Control", "public, max-age=60");
+      return res.json(plansCache.body);
+    }
     try {
       const now = new Date();
       const plans = await db.select()
@@ -186,7 +193,7 @@ export function registerBillingRoutes(app: Express) {
         ))
         .orderBy(billingPlans.displayOrder, billingPlans.priceInPaise);
 
-      res.json(plans.map((p) => {
+      const body = plans.map((p) => {
         const summary = summarizeBillingPlan(p);
         return {
           ...summary,
@@ -206,7 +213,10 @@ export function registerBillingRoutes(app: Express) {
           // Team size isn't limited by plan today, so no number is promised.
           usersIncluded: 0,
         };
-      }));
+      });
+      plansCache = { at: Date.now(), body };
+      res.set("Cache-Control", "public, max-age=60");
+      res.json(body);
     } catch (err) {
       logger.error("Failed to fetch billing plans", String(err));
       res.status(500).json({ success: false, message: "Failed to fetch plans" });
