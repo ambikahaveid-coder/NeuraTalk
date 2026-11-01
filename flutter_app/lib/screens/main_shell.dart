@@ -9,6 +9,7 @@ import 'updates_screen.dart';
 import 'settings_screen.dart';
 import 'language_preferences_screen.dart';
 import '../services/call_readiness.dart';
+import '../services/voice_consent.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -46,6 +47,9 @@ class _MainShellState extends State<MainShell> {
           builder: (_) => const LanguagePreferencesScreen(firstRun: true),
         ));
       }
+      // One tap, once: translated words in your own voice. Asked here, before the first call,
+      // because a question that pops up in the middle of a call gets "Not now".
+      if (mounted) await VoiceConsent.askIfNeeded(context);
       // Then make sure calls can ring while the app is closed.
       if (mounted) await CallReadiness.ensure(context);
     });

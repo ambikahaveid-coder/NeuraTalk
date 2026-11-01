@@ -14,6 +14,13 @@ const OPENAI_TRANSLATION_MODEL =
   process.env.OPENAI_REALTIME_TRANSLATION_MODEL ||
   process.env.OPENAI_VOICE_ASSISTANT_MODEL ||
   "gpt-4.1-mini";
+// Measured 2026-11-01 for live calls: gpt-4.1-mini natural 9.1/10, first words ~0.57 s; gpt-5.4-nano 8.8, ~0.56 s.
+const FALLBACK_TRANSLATION_MODEL = process.env.OPENAI_REALTIME_TRANSLATION_FALLBACK_MODEL || "gpt-5.4-nano";
+let activeTranslationModel = OPENAI_TRANSLATION_MODEL;
+function isModelGone(error: unknown): boolean {
+  const e = error as { status?: number; code?: string; message?: string } | null;
+  return e?.code === "model_not_found" || (e?.status === 404 && /model/i.test(String(e?.message ?? "")));
+}
 const OPENAI_TRANSLATION_MAX_TOKENS = parsePositiveInt(
   process.env.OPENAI_REALTIME_TRANSLATION_MAX_TOKENS,
   192,
@@ -114,31 +121,36 @@ export async function streamTranslationTokens(
       timeoutMs: OPENAI_TRANSLATION_TIMEOUT_MS,
       label: `openai-stream ${sourceLanguage}->${targetLanguage}`,
     });
+    const maxTokens = Math.max(OPENAI_TRANSLATION_MAX_TOKENS, Math.min(512, inputText.split(/\s+/).length * 4 + 24));
     const stream = await runWithResilience(
-      async (signal) => translationOpenAI.chat.completions.create(
-        {
-          model: OPENAI_TRANSLATION_MODEL,
-          stream: true,
-          temperature: 0,
-          max_tokens: Math.max(
-            OPENAI_TRANSLATION_MAX_TOKENS,
-            Math.min(512, inputText.split(/\s+/).length * 4 + 24),
-          ),
-          messages: [
-            {
-              role: "system",
-              content: spokenInterpreterPrompt(sourceLanguage, targetLanguage),
-            },
-            {
-              role: "user",
-              content: inputText,
-            },
-          ],
-        },
-        {
-          signal,
-        } as any,
-      ),
+      async (signal) => {
+        const request = (model: string): Promise<AsyncIterable<any>> => (translationOpenAI.chat.completions.create as any)(
+          {
+            model,
+            stream: true,
+            // gpt-5 models think first unless told not to; a live call can't wait for that.
+            ...(model.startsWith("gpt-5")
+              ? { reasoning_effort: "none", max_completion_tokens: maxTokens }
+              : { temperature: 0, max_tokens: maxTokens }),
+            messages: [
+              { role: "system", content: spokenInterpreterPrompt(sourceLanguage, targetLanguage) },
+              { role: "user", content: inputText },
+            ],
+          } as any,
+          { signal } as any,
+        );
+        try {
+          return await request(activeTranslationModel);
+        } catch (error) {
+          // OpenAI retires models (gpt-4.1-nano was): never let that silence calls.
+          if (activeTranslationModel !== FALLBACK_TRANSLATION_MODEL && isModelGone(error)) {
+            logger.error("TokenStreamingTranslation", `call translation model ${activeTranslationModel} unavailable; switching to ${FALLBACK_TRANSLATION_MODEL}`);
+            activeTranslationModel = FALLBACK_TRANSLATION_MODEL;
+            return await request(activeTranslationModel);
+          }
+          throw error;
+        }
+      },
       {
         provider: "openai-stream",
         operation: "translate",

@@ -12,7 +12,7 @@ import { LANGUAGES, INDIAN_LANGUAGES, CALL_TEXT_RETENTION_DAYS } from "./site-fa
 export const CALL_LANGUAGES = LANGUAGES;
 
 const DETAILS = [
-  { icon: UserRound, title: "Your own voice", desc: "Record yourself once, or let NeuraTalk learn from the first half-minute of your first call. Until then, people hear your original voice with translated captions." },
+  { icon: UserRound, title: "Your own voice", desc: "One tap, nothing to record: NeuraTalk learns your voice from the first 15 seconds of your first call. Until then, people hear your original voice with translated captions." },
   { icon: Languages, title: "Language-aware calls", desc: "Supported spoken languages are detected automatically. You can also pick yours before you call." },
   { icon: EyeOff, title: "Captions when needed", desc: "Prefer reading? Switch to captions any time. If your voice isn't recorded yet, they appear on their own." },
   { icon: Timer, title: "Translated as you talk", desc: "Recognition, translation and speech run during the call. The delay depends on the languages, connection and provider." },

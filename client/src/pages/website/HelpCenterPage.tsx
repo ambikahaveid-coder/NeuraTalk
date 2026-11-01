@@ -21,7 +21,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
   {
     title: "Calls and your voice",
     articles: [
-      { id: "voice", q: "How do I set up my own voice?", a: "More → Your voice, then read three short passages aloud (about two minutes). Or allow NeuraTalk to learn your voice from the first half-minute you speak in a call. Until then, people hear your original voice with translated captions." },
+      { id: "voice", q: "How do I set up my own voice?", a: "More → Your voice, then read three short passages aloud (about two minutes). Or allow NeuraTalk to learn your voice (one tap) from the first 15 seconds you speak in a call. Until then, people hear your original voice with translated captions." },
       { id: "delete-voice", q: "How do I delete my voice?", a: "More → Your voice → Delete. It is removed from our voice provider too." },
       { id: "closed", q: "Calls don't ring when the app is closed", a: "More → Calls when the app is closed, then allow notifications, full-screen calls and no battery restriction. Some phones also need NeuraTalk added to their 'auto-start' list." },
       { id: "quality", q: "The translation is slow or wrong", a: "Use a quiet place, speak in full sentences and wait a moment for the translation. A stable connection helps. Check that each person's language is set correctly in the call." },

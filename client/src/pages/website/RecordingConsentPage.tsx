@@ -27,7 +27,7 @@ export default function RecordingConsentPage() {
 
           <h2>Your voice</h2>
           <p>
-            If you allow NeuraTalk to learn your voice from a call, about half a minute of your own speech is used to create your cloned voice.
+            If you allow NeuraTalk to learn your voice from a call, about 15 seconds of your own speech are used to create your cloned voice.
             The other person's speech is never used, and the audio used for learning is not kept once your voice is created.
           </p>
 

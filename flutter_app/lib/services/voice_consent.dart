@@ -9,7 +9,8 @@ import 'api_service.dart';
 /// (server/voice-learning.ts). Asked once, on the first call; can be changed
 /// any time on the "Your voice" screen.
 class VoiceConsent {
-  static const _askedKey = 'voice_learning_asked_v1';
+  // v2: asked again once, at app open, for people first asked mid-call (all said "Not now").
+  static const _askedKey = 'voice_learning_asked_v2';
   static const _path = '/api/voice-training/learning-consent';
 
   static Future<Map<String, dynamic>?> status() async {
@@ -46,11 +47,11 @@ class VoiceConsent {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.surface,
-        title: Text('Speak in your own voice?', style: TextStyle(color: AppColors.ink)),
+        title: Text('Talk in your own voice, in every language', style: TextStyle(color: AppColors.ink)),
         content: Text(
-          'When you talk with someone in another language, they hear your translated words in your own voice — not a robot.\n\n'
-          'NeuraTalk learns your voice from the first half-minute you speak in a call. The recording itself is not kept. '
-          'You can turn this off any time in Settings → Your voice.',
+          'When you call someone who speaks another language, they hear your words in their language — in your own voice, never a robot.\n\n'
+          'Nothing to record: NeuraTalk learns your voice from the first few seconds you talk in a call. The audio itself is not kept. '
+          'Change this any time in Settings → Your voice.',
           style: TextStyle(color: AppColors.textSecondary, height: 1.4),
         ),
         actions: [

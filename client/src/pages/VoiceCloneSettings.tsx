@@ -186,7 +186,7 @@ export default function VoiceCloneSettings() {
               <div>
                 <p className="font-medium">Learn my voice from my calls</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Skip the recordings: NeuraTalk learns your voice from the first half-minute you speak in a call, then the other
+                  Skip the recordings: NeuraTalk learns your voice from the first 15 seconds you speak in a call, then the other
                   person hears your translated words in your own voice. The recording itself is not kept.
                 </p>
               </div>

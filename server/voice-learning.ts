@@ -20,9 +20,10 @@ import { rememberClonedVoice } from "./cloned-voice";
 
 const SAMPLE_RATE = 16_000;
 /** Clear speech needed before creating the voice (provider minimum is ~10 s; more is closer to the real voice). */
-export const VOICE_LEARNING_TARGET_MS = Number(process.env.VOICE_LEARNING_TARGET_MS) || 25_000;
+// 15 s (was 25 s): the caller switches to their own voice sooner in their first call.
+export const VOICE_LEARNING_TARGET_MS = Number(process.env.VOICE_LEARNING_TARGET_MS) || 15_000;
 /** Enough to still create a voice if the call ends early. */
-const VOICE_LEARNING_MIN_MS = 12_000;
+const VOICE_LEARNING_MIN_MS = 10_000;
 const FAILURE_COOLDOWN_MS = 60 * 60_000;
 
 const inProgress = new Set<number>();
