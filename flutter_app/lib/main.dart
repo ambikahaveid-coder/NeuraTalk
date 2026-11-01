@@ -161,7 +161,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
           calls.startPolling();
           final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
           if (userId != null) unawaited(PushService.init(userId: userId));
-          if (!isBusinessApp) unawaited(ContactResolver.instance.ensureLoaded());
+          unawaited(ContactResolver.instance.ensureLoaded());
           WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(CallKitService.resumePendingAccept()));
         } else {
           calls.stopPolling();
@@ -173,7 +173,7 @@ class _AppRouterState extends State<_AppRouter> with WidgetsBindingObserver {
         calls.startPolling();
         final userId = int.tryParse(auth.user?['id']?.toString() ?? '');
         if (userId != null) unawaited(PushService.init(userId: userId));
-        if (!isBusinessApp) unawaited(ContactResolver.instance.ensureLoaded());
+        unawaited(ContactResolver.instance.ensureLoaded());
         // A call accepted from the lock screen while the app was closed.
         WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(CallKitService.resumePendingAccept()));
       }

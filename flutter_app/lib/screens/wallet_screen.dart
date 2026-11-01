@@ -190,7 +190,11 @@ class _WalletScreenState extends State<WalletScreen> {
         children: [
           Text(planName ?? 'No active plan', style: const TextStyle(color: AppColors.onAccent, fontSize: 15, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('$minutes AI minutes left', style: const TextStyle(color: AppColors.onAccent, fontSize: 34, fontWeight: FontWeight.w800)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text('$minutes AI minutes left', maxLines: 1, style: const TextStyle(color: AppColors.onAccent, fontSize: 34, fontWeight: FontWeight.w800)),
+          ),
           const SizedBox(height: 4),
           const Text('For translated calls and chats. Calls and chats without translation are free.',
               style: TextStyle(color: AppColors.onAccent, fontSize: 13, height: 1.35)),

@@ -9,7 +9,7 @@ import { desc, eq, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { logger } from "../../observability";
 import { db } from "../../db";
-import { groupChats, groupChatMembers } from "@shared/schema";
+import { groupChats, groupChatMembers, organizations } from "@shared/schema";
 import { getRedisClient } from "../../redis";
 import type { AuthenticatedUser } from "../../role-middleware";
 import {
@@ -86,6 +86,8 @@ const initiateSchema = z.object({
   translationMode: z.enum(["off", "subtitles", "voice"]).optional().default("voice"),
   enableLipsync: z.boolean().optional(),
   enableRecording: z.boolean().optional(),
+  // From the business app, calling a customer: the customer sees the business name.
+  asBusiness: z.boolean().optional(),
 });
 
 function mapMsg91StatusToSmartState(providerStatus: string): typeof SMART_CALL_STATE[keyof typeof SMART_CALL_STATE] | null {
@@ -432,9 +434,14 @@ export async function initiate(req: Request, res: Response) {
       return res.status(403).json({ message: "This call can't be completed.", code: "BLOCKED" });
     }
 
+    let callerName = user.displayName?.trim() || user.username;
+    if (parsed.data.asBusiness && user.organizationId) {
+      const [org] = await db.select({ name: organizations.name }).from(organizations).where(eq(organizations.id, user.organizationId));
+      if (org?.name) callerName = org.name;
+    }
     const result = await svc.initiateCall({
       callerId: String(user.id),
-      callerUsername: user.displayName?.trim() || user.username,
+      callerUsername: callerName,
       callerNumber: (user as any).phone || "",
       calleeIdentifier: parsed.data.calleeIdentifier,
       callerLanguage: parsed.data.myLanguage,

@@ -19,7 +19,10 @@ import '../widgets/chat_lock.dart';
 /// unchanged, `/api/ai/chat`) is reachable from the app-bar action here —
 /// the two conversation types are never mixed.
 class HumanChatListScreen extends StatefulWidget {
-  const HumanChatListScreen({super.key});
+  const HumanChatListScreen({super.key, this.title = 'Chats'});
+
+  /// "Chats" in NeuraTalk; "Personal chats" in the business app.
+  final String title;
 
   @override
   State<HumanChatListScreen> createState() => _HumanChatListScreenState();
@@ -186,7 +189,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(_showLocked ? 'Locked chats' : _showArchived ? 'Archived' : 'Chats'),
+        title: Text(_showLocked ? 'Locked chats' : _showArchived ? 'Archived' : widget.title),
         leading: _showArchived || _showLocked
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() { _showArchived = false; _showLocked = false; }))
             : null,

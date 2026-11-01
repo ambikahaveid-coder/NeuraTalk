@@ -19,6 +19,10 @@ import '../widgets/reactions.dart';
 import '../widgets/link_preview.dart';
 import 'business_account.dart';
 import '../screens/linked_devices_screen.dart';
+import '../screens/human_chat_list_screen.dart';
+import '../screens/calls_screen.dart';
+import '../screens/call_screen.dart';
+import '../services/call_service.dart';
 import '../screens/two_step_screens.dart';
 import '../utils/external_link.dart';
 import 'business_categories.dart';
@@ -73,6 +77,9 @@ class _BusinessShellState extends State<BusinessShell> {
       child: Scaffold(
         body: IndexedStack(index: _tab, children: [
           BusinessInboxScreen(businessId: businessId),
+          // Like WhatsApp Business: the owner also chats and calls their own contacts here.
+          const HumanChatListScreen(title: 'Personal chats'),
+          const CallsScreen(),
           const BusinessToolsScreen(),
           const _BusinessSettings(),
         ]),
@@ -84,7 +91,9 @@ class _BusinessShellState extends State<BusinessShell> {
               selectedIndex: _tab,
               onDestinationSelected: (i) => setState(() => _tab = i),
               destinations: const [
-                NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Chats'),
+                NavigationDestination(icon: Icon(Icons.forum_outlined), selectedIcon: Icon(Icons.forum), label: 'Customers'),
+                NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Personal'),
+                NavigationDestination(icon: Icon(Icons.call_outlined), selectedIcon: Icon(Icons.call), label: 'Calls'),
                 NavigationDestination(icon: Icon(Icons.storefront_outlined), selectedIcon: Icon(Icons.storefront), label: 'Tools'),
                 NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Settings'),
               ],
@@ -870,6 +879,22 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     );
   }
 
+  /// Calls the customer as the business (they see the business name). Paid from the
+  /// business wallet; the server refuses if the business hasn't paid.
+  Future<void> _callCustomer({required bool video}) async {
+    final phone = _phone;
+    if (phone == null) return;
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final callService = context.read<CallService>();
+    try {
+      final session = await callService.startCall(calleeIdentifier: phone, callType: video ? 'video' : 'voice', asBusiness: true);
+      await navigator.push(MaterialPageRoute(builder: (_) => CallScreen(session: session, callService: callService)));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(friendlyCallError(e))));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final typed = _input.text;
@@ -899,6 +924,10 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
           ]),
         ),
         actions: [
+          if (_phone != null) ...[
+            IconButton(tooltip: 'Voice call', icon: const Icon(Icons.call_outlined), onPressed: () => _callCustomer(video: false)),
+            IconButton(tooltip: 'Video call', icon: const Icon(Icons.videocam_outlined), onPressed: () => _callCustomer(video: true)),
+          ],
           IconButton(tooltip: 'Labels', icon: const Icon(Icons.label_outline), onPressed: _editLabels),
           IconButton(tooltip: 'Take this chat', icon: const Icon(Icons.assignment_ind_outlined), onPressed: _claim),
         ],

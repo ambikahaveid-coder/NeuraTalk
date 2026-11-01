@@ -149,6 +149,7 @@ class CallService extends ChangeNotifier {
     required String callType,
     String myLanguage = 'auto',
     String theirLanguage = 'auto',
+    bool asBusiness = false,
   }) async {
     final connectivity = await Connectivity().checkConnectivity();
     if (connectivity.every((r) => r == ConnectivityResult.none)) {
@@ -159,6 +160,7 @@ class CallService extends ChangeNotifier {
       'callType': callType,
       'myLanguage': myLanguage,
       'theirLanguage': theirLanguage,
+      if (asBusiness) 'asBusiness': true,
     });
     return CallSession.fromCreateResponse(res, callType: callType, remoteName: calleeIdentifier);
   }
