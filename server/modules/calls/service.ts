@@ -368,7 +368,8 @@ export async function initiateCall(params: InitiateCallParams): Promise<CallInit
           : (callee as any).preferredLanguage) || "auto",
         // Voice by default: the callee may be on the mobile app, which has
         // no subtitle UI; web callees switch mode via participant metadata.
-        translationMode: params.calleeTranslationMode || (params.translationEnabled === false ? "off" : "voice"),
+        translationMode: params.calleeTranslationMode
+          || (params.translationEnabled === false || result.translationActive === false ? "off" : "voice"),
         role: "callee",
       });
       await queueIncomingCall(String(callee.id), {

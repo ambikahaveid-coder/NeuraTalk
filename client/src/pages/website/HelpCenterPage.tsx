@@ -13,7 +13,7 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
   {
     title: "Getting started",
     articles: [
-      { id: "signup", q: "How do I create an account?", a: "Install the NeuraTalk app, enter your mobile number and the 6-digit code we send. Choose your language, and you're ready. New accounts get 15 free translated call minutes." },
+      { id: "signup", q: "How do I create an account?", a: "Install the NeuraTalk app, enter your mobile number and the 6-digit code we send. Choose your language, and you're ready. Chats and calls without translation are free. New accounts get 5 free AI translation minutes to try it." },
       { id: "first-call", q: "How do I make my first translated call?", a: "Open Contacts or search a number, tap the call button and talk. NeuraTalk detects each person's language and translates automatically. The other person needs NeuraTalk too." },
       { id: "languages", q: "Which languages can I use?", a: `${LANGUAGE_SUMMARY}. Any pair works in either direction. Names, numbers and mixed-language sentences are where mistakes are most likely.` },
     ],

@@ -12,6 +12,7 @@ import {
 } from "../../universal-language-runtime";
 import { createCallRoom, endCallRoom, isRoomMissingError, issueAccessToken, issueBotToken, listParticipants, setParticipantHold } from "../../livekit-service";
 import { getPSTNProvider, isPSTNAvailable } from "../../pstn/registry";
+import { checkUserBillingStatus } from "../../usage-enforcement";
 import { recordCallOutcome } from "../../pstn/monitor";
 import { checkOutboundCallFraud } from "../../fraud-detection-service";
 import { db } from "../../db";
@@ -158,6 +159,10 @@ export interface CallInitiateResponse {
   estimatedRateInrPerMin: number;
   languageDetectionActive: boolean;
   operationalWarnings?: string[];
+  /** False when this call runs without AI translation (same language, turned off, or no AI minutes). */
+  translationActive?: boolean;
+  /** Why translation is off although the languages differ, e.g. "NO_AI_MINUTES". */
+  translationUnavailableReason?: string | null;
 }
 
 export interface SmartCallRecord {
@@ -1269,7 +1274,7 @@ async function initiateCallLocked(
   // call translation off. An explicit per-call request (req.translationEnabled)
   // still wins; otherwise, respect the caller's own saved preference when
   // they've turned it off.
-  const translationEnabled = resolveTranslationEnabled({
+  let translationEnabled = resolveTranslationEnabled({
     callerLanguage: effectiveCallerLanguage,
     calleeLanguage: effectiveCalleeLanguage,
     requestedTranslationEnabled: req.translationEnabled ?? (
@@ -1277,6 +1282,22 @@ async function initiateCallLocked(
     ),
   });
   const operationalWarnings: string[] = [];
+  // Personal app-to-app calls: a plain call is free, like WhatsApp; AI
+  // translation runs only on the caller's AI minutes and stops when they run
+  // out. Business calls and phone (PSTN) calls keep their paid billing.
+  const callerOrgIdForBilling = req.callerOrganizationIdOverride ?? callerUser?.organizationId ?? null;
+  const personalAppCall = !callerOrgIdForBilling && requestedJoinMethod === "app_to_app";
+  let translationActive = !callerTurnedTranslationOff(req, callerUser);
+  let translationUnavailableReason: string | null = null;
+  if (personalAppCall) {
+    translationActive = translationActive && translationEnabled;
+    if (translationActive && callerUserId && !(await checkUserBillingStatus(callerUserId)).allowed) {
+      translationActive = false;
+      translationUnavailableReason = "NO_AI_MINUTES";
+      operationalWarnings.push("Your AI translation minutes are used up, so this call connects without translation.");
+    }
+    translationEnabled = translationActive;
+  }
   if (requestedJoinMethod === "app_to_pstn" && req.callType === "video") {
     operationalWarnings.push("PSTN routes are audio-only. Video is downgraded to voice.");
   }
@@ -1312,6 +1333,8 @@ async function initiateCallLocked(
     joinMethod: requestedJoinMethod,
     activateOnAnswer: true,
     pricingOverride: billingOverride,
+    freeCall: personalAppCall && !translationActive,
+    aiMinutesOnly: personalAppCall && translationActive,
   });
   logSetupLatency(callId, requestedJoinMethod, "billing_authorization", elapsedMs(billingAuthStartNs), { success: auth.allowed });
   if (!auth.allowed) {
@@ -1351,17 +1374,20 @@ async function initiateCallLocked(
     // listens and translates only sentences actually spoken in different
     // languages. Only a caller who turned translation off gets "off". Billing
     // still follows `translationEnabled` above (profile languages).
-    translationMode: callerTurnedTranslationOff(req, callerUser) ? "off" : (req.callerTranslationMode || "voice"),
+    translationMode: !translationActive ? "off" : (req.callerTranslationMode || "voice"),
     role: "caller",
   });
   logSetupLatency(callId, requestedJoinMethod, "issue_caller_token", elapsedMs(stageStartNs));
 
   stageStartNs = process.hrtime.bigint();
-  const botToken = await issueBotToken(callId);
-  logSetupLatency(callId, requestedJoinMethod, "issue_bot_token", elapsedMs(stageStartNs));
-  spawnTranslatorBot(callId, botToken).catch((error) =>
-    logger.error("SmartCallRouter", `bot spawn failed: ${String(error)}`),
-  );
+  // No translator for a personal call without translation: nothing to bill, nothing to run.
+  if (!personalAppCall || translationActive) {
+    const botToken = await issueBotToken(callId);
+    logSetupLatency(callId, requestedJoinMethod, "issue_bot_token", elapsedMs(stageStartNs));
+    spawnTranslatorBot(callId, botToken).catch((error) =>
+      logger.error("SmartCallRouter", `bot spawn failed: ${String(error)}`),
+    );
+  }
 
   await redisClient().set(`call_metadata:${callId}:caller`, req.callerId, "EX", 7200);
 
@@ -1456,6 +1482,8 @@ async function initiateCallLocked(
         estimatedRateInrPerMin: planRateInrPerMin,
         languageDetectionActive: translationEnabled,
         operationalWarnings,
+        translationActive,
+        translationUnavailableReason,
       };
     }
 
@@ -1626,15 +1654,38 @@ async function initiateConferenceLocked(
   const callType = params.callType === "video" ? "video" : "voice";
   const hostUserId = Number.isFinite(Number(params.hostId)) ? Number(params.hostId) : null;
   const hostUser = hostUserId ? await storage.getUser(hostUserId) : undefined;
+  const participantUsers = new Map<string, Awaited<ReturnType<typeof storage.getUser>>>();
+  for (const participantId of params.participantIds) {
+    const numericId = Number(participantId);
+    participantUsers.set(participantId, Number.isFinite(numericId) ? await storage.getUser(numericId) : undefined);
+  }
+  const hostLanguageForBilling = (params.hostLanguage || "auto").trim().toLowerCase() || "auto";
+  const callLanguages = new Set([
+    hostLanguageForBilling,
+    ...Array.from(participantUsers.values()).map((user) => String((user as any)?.preferredLanguage || "auto").toLowerCase()),
+  ]);
+  // Translation is needed when people speak different (or unknown) languages.
+  const languagesDiffer = callLanguages.size > 1 || callLanguages.has("auto");
+  // Personal group calls follow the same rule as one-to-one calls: free
+  // without translation; translation only on the host's AI minutes.
+  const personalConference = !hostUser?.organizationId;
+  let conferenceTranslationActive = true;
+  if (personalConference) {
+    conferenceTranslationActive = languagesDiffer
+      && Boolean(hostUserId)
+      && (await checkUserBillingStatus(hostUserId!)).allowed;
+  }
   const auth = await BillingEngine.startCallSession({
     sessionId: callId,
     userId: hostUserId,
     organizationId: hostUser?.organizationId ?? null,
     callType,
-    translationEnabled: false,
+    translationEnabled: personalConference ? conferenceTranslationActive : false,
     recordingEnabled: false,
     joinMethod: "conference",
     activateOnAnswer: true,
+    freeCall: personalConference && !conferenceTranslationActive,
+    aiMinutesOnly: personalConference && conferenceTranslationActive,
   });
   if (!auth.allowed) {
     throw new Error(auth.reason || "PAYMENT_REQUIRED");
@@ -1657,21 +1708,20 @@ async function initiateConferenceLocked(
     userId: params.hostId,
     displayName: (hostUser as any)?.displayName?.trim() || (hostUser as any)?.username || params.hostId,
     language: hostLanguage,
-    translationMode: "voice",
+    translationMode: conferenceTranslationActive ? "voice" : "off",
     role: "caller",
   });
 
   const participantTokens: Record<string, string> = {};
   for (const participantId of params.participantIds) {
-    const numericId = Number(participantId);
-    const user = Number.isFinite(numericId) ? await storage.getUser(numericId) : undefined;
+    const user = participantUsers.get(participantId);
     const language = ((user as any)?.preferredLanguage || "auto").toLowerCase();
     await setParticipantLanguagePreference(callId, participantId, language);
     participantTokens[participantId] = await issueAccessToken(callId, {
       userId: participantId,
       displayName: (user as any)?.displayName?.trim() || (user as any)?.username || participantId,
       language,
-      translationMode: "voice",
+      translationMode: conferenceTranslationActive ? "voice" : "off",
       role: "caller",
     });
     await sendIncomingCallPush(participantId, {
@@ -1682,10 +1732,12 @@ async function initiateConferenceLocked(
     });
   }
 
-  const botToken = await issueBotToken(callId);
-  spawnTranslatorBot(callId, botToken).catch((err) => {
-    logger.error("SmartCallRouter", `Failed to spawn translator bot for call ${callId}: ${String(err)}`);
-  });
+  if (conferenceTranslationActive) {
+    const botToken = await issueBotToken(callId);
+    spawnTranslatorBot(callId, botToken).catch((err) => {
+      logger.error("SmartCallRouter", `Failed to spawn translator bot for call ${callId}: ${String(err)}`);
+    });
+  }
   const participantOrganizations = await Promise.all(
     params.participantIds.map(async (participantId) => {
       const numericId = Number(participantId);

@@ -97,7 +97,7 @@ export default function ProductsPage() {
         </div>
       </section>
 
-      <ClosingBanner title="Try it on your next call" body="New accounts get 15 free translated call minutes. No credit card needed.">
+      <ClosingBanner title="Try it on your next call" body="New accounts get 5 free AI translation minutes. No credit card needed.">
         <PrimaryAction href="/login" variant="outline">Create free account</PrimaryAction>
       </ClosingBanner>
     </div>

@@ -15,6 +15,7 @@ import { personalChatSendLimiter } from "./rate-limit";
 import { isTranslationConsentDenied } from "./translation-consent";
 import { transcribeVoiceNote } from "./voice-note-transcript";
 import { translateChatText } from "./translation/chat-translate";
+import { mayTranslateChatFor, recordChatTranslations } from "./ai-chat-usage";
 import { publishPersonalChatEvent, subscribeToPersonalChatEvents } from "./modules/messaging/realtime";
 import { getRedisClient, isRedisReady } from "./redis";
 import { contactInputSchema, contactMetadata, extrasForViewer, extrasPreview, lastSeenShared, pollInputSchema, pollMetadata, readReceiptsShared } from "./chat-extras";
@@ -804,12 +805,15 @@ async function finishMessageInBackground(job: {
       await detectLanguage(content, [job.viewerLanguage, job.languageHint ?? "", job.peerLanguage].filter(Boolean)),
     );
     const translations: Record<string, string> = {};
-    if (isText && job.translationAllowed) {
-      const targets = [job.peerLanguage, job.viewerLanguage].filter(
-        (lang, i, all) => lang !== originalLanguage && all.indexOf(lang) === i,
-      );
+    const targets = isText && job.translationAllowed
+      ? [job.peerLanguage, job.viewerLanguage].filter((lang, i, all) => lang !== originalLanguage && all.indexOf(lang) === i)
+      : [];
+    // AI translation is a paid feature: the message is always delivered, and
+    // translated only while the sender has AI minutes (or a paid company plan).
+    if (targets.length > 0 && await mayTranslateChatFor(job.viewerId)) {
       const results = await Promise.all(targets.map((lang) => translatePersonalText(content, originalLanguage, lang)));
       targets.forEach((lang, i) => { translations[lang] = results[i]; });
+      void recordChatTranslations(job.viewerId, 1);
     }
     const [current] = await db.select().from(personalChatMessages).where(eq(personalChatMessages.id, job.messageId));
     if (!current || current.isDeleted) return;

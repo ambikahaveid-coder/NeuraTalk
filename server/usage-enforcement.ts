@@ -201,6 +201,24 @@ export function requireActiveSubscription(
   })();
 }
 
+/**
+ * For starting/answering calls. Business users must have paid (same check as
+ * requireActiveSubscription). Personal users always pass: a plain call is
+ * free like WhatsApp, and the call router itself decides whether AI
+ * translation runs (only while they have AI minutes).
+ */
+export function requireBusinessBillingForCalls(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (req.user?.id && !req.user.organizationId && req.user.role !== "super_admin") {
+    next();
+    return;
+  }
+  requireActiveSubscription(req, res, next);
+}
+
 export function warnLowBalance(
   req: Request,
   res: Response,

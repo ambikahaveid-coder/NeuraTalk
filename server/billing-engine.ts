@@ -61,6 +61,16 @@ export interface CallBillingStartInput {
   joinMethod?: "app_to_app" | "app_to_pstn" | "conference";
   activateOnAnswer?: boolean;
   pricingOverride?: Partial<StrictBillingPlanConfig> | null;
+  /**
+   * A personal (non-business) app-to-app call without AI translation: free,
+   * like WhatsApp. No plan or minutes needed and nothing is deducted.
+   */
+  freeCall?: boolean;
+  /**
+   * A personal call WITH AI translation: it runs only while the caller has
+   * AI minutes left, and those minutes are the whole budget.
+   */
+  aiMinutesOnly?: boolean;
 }
 
 export interface CallBillingAuthorization {
@@ -121,7 +131,7 @@ interface FeatureCounter {
   remainder: number;
 }
 
-interface CallRuntimeState {
+export interface CallRuntimeState {
   sessionId: string;
   userId: number | null;
   organizationId: number | null;
@@ -173,6 +183,8 @@ interface CallRuntimeState {
   // Set when the translator never started: the call keeps running but costs
   // the caller nothing (see waiveCallSessionCharges).
   chargesWaived?: boolean;
+  /** Personal translated call: the remaining AI minutes are the only budget. */
+  aiMinutesOnly?: boolean;
   features: {
     voice: FeatureCounter;
     video: FeatureCounter;
@@ -324,8 +336,16 @@ function getRemainingPostpaidCapacity(runtime: CallRuntimeState): number {
   return Math.max(0, runtime.creditLimitPaise - runtime.outstandingPostpaidPaise);
 }
 
-function getMaxDurationSeconds(runtime: CallRuntimeState): number {
-  if (runtime.estimatedRatePerMinutePaise <= 0 || runtime.chargesWaived) {
+export function getMaxDurationSeconds(runtime: CallRuntimeState): number {
+  if (runtime.chargesWaived) {
+    return MAX_OPEN_CALL_SECONDS;
+  }
+  // A free-trial plan is priced ₹0, so the rate below is 0 and used to mean
+  // "open-ended": a translated call kept running after the free minutes ran out.
+  if (runtime.aiMinutesOnly) {
+    return Math.max(0, runtime.freeSecondsRemaining);
+  }
+  if (runtime.estimatedRatePerMinutePaise <= 0) {
     return MAX_OPEN_CALL_SECONDS;
   }
 
@@ -900,7 +920,7 @@ export class BillingEngine {
         return this.denied("COMPANY_BLOCKED");
       }
 
-      if (!context.plan && !context.account && !context.subscription) {
+      if (!input.freeCall && !context.plan && !context.account && !context.subscription) {
         return this.denied("NO_ACTIVE_PLAN");
       }
 
@@ -1019,6 +1039,11 @@ export class BillingEngine {
         },
       };
 
+      if (input.freeCall) {
+        runtime.chargesWaived = true;
+      } else if (input.aiMinutesOnly) {
+        runtime.aiMinutesOnly = true;
+      }
       runtime.maxDurationSeconds = getMaxDurationSeconds(runtime);
       if (runtime.maxDurationSeconds <= 0) {
         return this.denied("INSUFFICIENT_BALANCE");

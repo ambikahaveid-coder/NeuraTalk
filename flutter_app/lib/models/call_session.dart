@@ -13,6 +13,9 @@ class CallSession {
   /// Group call: everyone joins one room; the caller doesn't wait for a
   /// single "answer" and the screen shows everyone in a grid.
   final bool isGroup;
+  /// Why AI translation is off on this call although the languages differ
+  /// (e.g. the free AI minutes are used up). Null when nothing to say.
+  final String? translationNotice;
 
   const CallSession({
     required this.callId,
@@ -24,6 +27,7 @@ class CallSession {
     this.isIncoming = false,
     this.expiresAt,
     this.isGroup = false,
+    this.translationNotice,
   });
 
   factory CallSession.fromCreateResponse(
@@ -42,6 +46,9 @@ class CallSession {
       remoteName: remoteName,
       remoteId: remoteId,
       isGroup: isGroup || callId.startsWith('conf_'),
+      translationNotice: json['translationUnavailableReason'] == 'NO_AI_MINUTES'
+          ? 'Your AI translation minutes are used up, so this call is without translation. Get a plan to turn it back on.'
+          : null,
     );
   }
 

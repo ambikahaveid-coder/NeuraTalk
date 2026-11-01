@@ -94,6 +94,8 @@ const createCompanySchema = z.object({
   adminName: z.string().min(2, "Admin name required"),
   autoApprove: z.boolean().default(true),
   initialWalletRupees: z.number().min(0).default(0),
+  // Required for any opening balance: the UTR / invoice of the money received.
+  paymentReference: z.string().trim().max(80).optional(),
 }).refine(data => data.adminEmail || data.adminPhone, {
   message: "Admin email or phone required",
 });
@@ -110,9 +112,17 @@ const b2bOutboundCallSchema = z.object({
   enableLipsync: z.boolean().optional().default(false),
 });
 
-function toOpeningBalancePaise(input: { initialWalletRupees?: number }): number {
+/** Opening balance only for money actually received (pay first): needs a payment reference. */
+function toOpeningBalancePaise(input: { initialWalletRupees?: number; paymentReference?: string }): number {
   const rupees = input.initialWalletRupees ?? 0;
+  if (!paymentReferenceOf(input)) return 0;
   return Math.max(0, Math.round(rupees * 100));
+}
+
+/** UTR / invoice / receipt number of a real payment; 4-80 characters. */
+export function paymentReferenceOf(input: { paymentReference?: unknown } | null | undefined): string | null {
+  const reference = String(input?.paymentReference ?? "").trim();
+  return reference.length >= 4 && reference.length <= 80 ? reference : null;
 }
 
 async function getDefaultB2BPlan() {
@@ -132,6 +142,7 @@ export async function ensureOrganizationBillingReady(
   organizationId: number,
   actorUserId: number,
   openingBalancePaise = 0,
+  paymentNote: string | null = null,
 ) {
   const [existingSubscription] = await db.select()
     .from(subscriptions)
@@ -159,7 +170,8 @@ export async function ensureOrganizationBillingReady(
       billingModel: defaultPlan.billingModel || "prepaid",
       startDate: now,
       endDate,
-      minutesRemaining: defaultPlan.includedMinutes || 0,
+      // Nothing is free for companies: they use services from their paid wallet balance.
+      minutesRemaining: 0,
       autoRenew: false,
       currentUsage: 0,
     }).returning();
@@ -181,7 +193,7 @@ export async function ensureOrganizationBillingReady(
       amountPaise: openingBalancePaise,
       type: "wallet_credit",
       actorUserId,
-      description: "Organization onboarding balance",
+      description: paymentNote ? `Opening balance, paid: ${paymentNote}` : "Organization onboarding balance",
     });
   }
 
@@ -604,6 +616,12 @@ export function registerB2BRoutes(app: Express): void {
       }
 
       const data = validation.data;
+      if (data.initialWalletRupees > 0 && !paymentReferenceOf(data)) {
+        return res.status(400).json({
+          success: false,
+          message: "An opening balance needs the payment reference (UTR, invoice or receipt number) of the money received. Leave it at 0 otherwise.",
+        });
+      }
       // Same formats login uses: +91XXXXXXXXXX and lower-case email. Without
       // this, "9876543210" never matches the number the admin signs in with.
       if (data.adminPhone) {
@@ -699,7 +717,7 @@ export function registerB2BRoutes(app: Express): void {
       });
 
       const billing = data.autoApprove
-        ? await ensureOrganizationBillingReady(newOrg.id, req.user!.id, toOpeningBalancePaise(data))
+        ? await ensureOrganizationBillingReady(newOrg.id, req.user!.id, toOpeningBalancePaise(data), paymentReferenceOf(data))
         : null;
 
       // Audit log
@@ -956,7 +974,9 @@ export function registerB2BRoutes(app: Express): void {
   app.post("/api/admin/companies/:id/credits", requireAuth, requireSuperAdmin, async (req, res) => {
     try {
       const companyId = parseInt(req.params.id);
-      const { amount, description } = req.body;
+      const { amount } = req.body;
+      const note = String(req.body?.reason ?? req.body?.description ?? "").trim().slice(0, 200);
+      const paymentReference = paymentReferenceOf(req.body);
 
       const amountRupees = Number(amount);
       if (!Number.isFinite(companyId) || companyId <= 0) {
@@ -965,13 +985,19 @@ export function registerB2BRoutes(app: Express): void {
       if (!Number.isFinite(amountRupees) || amountRupees === 0) {
         return res.status(400).json({ success: false, message: "A non-zero amount is required" });
       }
+      // Pay first: balance is added only against money actually received.
+      if (amountRupees > 0 && !paymentReference) {
+        return res.status(400).json({ success: false, message: "Enter the payment reference (UTR, invoice or receipt number) of the money received." });
+      }
 
       const updatedAccount = await BillingEngine.adjustOrganizationBalance({
         organizationId: companyId,
         amountPaise: Math.round(amountRupees * 100),
         type: "manual_adjustment",
         actorUserId: req.user!.id,
-        description: description || "Super admin wallet adjustment",
+        description: amountRupees > 0
+          ? `Payment received: ${paymentReference}${note ? ` - ${note}` : ""}`
+          : `Deducted by super admin${note ? `: ${note}` : ""}`,
       });
 
       res.json({

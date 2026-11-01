@@ -91,7 +91,7 @@ export default function PricingPage() {
         eyebrow="Pricing"
         testId="text-pricing-title"
         title="Pay only for translated minutes"
-        body="Every new account gets 15 free translated call minutes. Chats are included. Prices in Indian Rupees."
+        body="Chats and calls without translation are free. Every new account gets 5 free AI translation minutes to try it. Prices in Indian Rupees."
       >
         <span className="sr-only" data-testid="badge-pricing">Pricing</span>
       </PageHero>

@@ -394,7 +394,7 @@ export async function registerRoutes(
 
     // Pricing
     if (/price|cost|plan|subscription|pay|rupee|₹|\$|monthly|yearly|annual|weekly|quarter|refund/.test(msg)) {
-      return "Every new account gets 15 free translated call minutes, no card needed. Plans are prepaid in rupees and never renew on their own — current plans are on /pricing. Refunds are explained at /refund-policy.";
+      return "Chats and calls without translation are free. Every new account gets 5 free AI translation minutes to try it, no card needed. Plans are prepaid in rupees and never renew on their own — current plans are on /pricing. Refunds are explained at /refund-policy.";
     }
 
     // Voice cloning (before languages: "my voice in telugu" is about the voice)
@@ -464,7 +464,7 @@ Facts about NeuraTalk (only these):
 - Both people need NeuraTalk; calls to ordinary phone numbers and SMS are not available.
 - NeuraTalk Business (/business): a separate app with business profile, verified tick only after NeuraTalk checks the business, team inbox, catalog, greeting/away messages, quick replies, labels, chat link and QR, translated calls, and utility updates, login codes and offers. NeuraTalk reviews every message template; offers need the customer's opt-in; customers can block a business. Rules: /business-messaging-policy.
 - Privacy: call audio is never recorded; translated call text is kept 30 days; chats until deleted; encrypted in transit (not end-to-end). Speech is processed by Microsoft Azure, OpenAI and ElevenLabs. Users can download their data and delete their account in the app (More → Privacy).
-- Pricing: 15 free translated minutes for new accounts; prepaid plans in rupees that never renew automatically; current plans on /pricing. Do not quote prices.
+- Pricing: chats and calls without translation are free; 5 free AI translation minutes for new accounts; prepaid plans in rupees that never renew automatically; current plans on /pricing. Do not quote prices.
 - Made by Mindwhile IT Solutions Pvt Ltd, Mangalagiri, Andhra Pradesh, India. Support: support@mindwhile.com.
 
 Keep answers to 2-4 sentences. If asked about something unrelated to NeuraTalk, say briefly that you can only help with NeuraTalk.`;

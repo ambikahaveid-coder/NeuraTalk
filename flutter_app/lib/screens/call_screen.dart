@@ -128,7 +128,13 @@ class _CallScreenState extends State<CallScreen> {
     // incoming call, so answering is never delayed by it)
     if (!widget.session.isIncoming) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(VoiceConsent.askIfNeeded(context));
+        if (!mounted) return;
+        final notice = widget.session.translationNotice;
+        if (notice != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice), duration: const Duration(seconds: 6)));
+        } else {
+          unawaited(VoiceConsent.askIfNeeded(context));
+        }
       });
     }
     if (widget.session.isIncoming || widget.session.isGroup) {

@@ -26,6 +26,8 @@ import { findFreeTrialPlan } from "./free-trial";
 const grantMinutesSchema = z.object({
   minutes: z.number().int().min(1).max(10_000),
   reason: z.string().trim().min(3).max(200),
+  // Pay first: minutes are added only against a real payment.
+  paymentReference: z.string().trim().min(4).max(80),
 });
 
 // Granted minutes stay usable for a year, like the free trial.
@@ -743,9 +745,10 @@ export function registerAdminUserRoutes(app: Express) {
       const userId = parseInt(req.params.id);
       const validation = grantMinutesSchema.safeParse(req.body);
       if (!Number.isFinite(userId) || !validation.success) {
-        return res.status(400).json({ success: false, message: "Give 1–10000 minutes and a reason" });
+        return res.status(400).json({ success: false, message: "Give 1–10000 minutes, a reason and the payment reference (UTR, invoice or receipt number)" });
       }
-      const { minutes, reason } = validation.data;
+      const { minutes, paymentReference } = validation.data;
+      const reason = `${validation.data.reason} (payment ${paymentReference})`;
 
       const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
       if (!user) {

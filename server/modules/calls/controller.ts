@@ -454,8 +454,8 @@ export async function initiate(req: Request, res: Response) {
         calleeIdentifier: parsed.data.calleeIdentifier,
         callerLanguage: parsed.data.myLanguage,
         calleeLanguage: parsed.data.theirLanguage,
-        translationMode: parsed.data.translationEnabled === false ? "off" : parsed.data.translationMode,
-        translationEnabled: parsed.data.translationEnabled ?? true,
+        translationMode: parsed.data.translationEnabled === false || result.translationActive === false ? "off" : parsed.data.translationMode,
+        translationEnabled: result.translationActive ?? parsed.data.translationEnabled ?? true,
       }),
     });
   } catch (e: any) {

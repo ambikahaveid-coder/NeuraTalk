@@ -60,8 +60,11 @@ describe("P0-4: consent gate is wired BEFORE any provider call at all three chat
     // The only translatePersonalText call for chat messages sits behind that decision.
     const providerCallIdx = source.indexOf("translatePersonalText(content");
     expect(providerCallIdx).toBeGreaterThan(-1);
-    const guardIdx = source.lastIndexOf("if (isText && job.translationAllowed)", providerCallIdx);
-    expect(guardIdx).toBeGreaterThan(-1);
+    // Targets are empty unless consent allows translation; the AI-minutes check comes after.
+    const targetsIdx = source.lastIndexOf("const targets = isText && job.translationAllowed", providerCallIdx);
+    expect(targetsIdx).toBeGreaterThan(-1);
+    const guardIdx = source.lastIndexOf("if (targets.length > 0 && await mayTranslateChatFor(job.viewerId))", providerCallIdx);
+    expect(guardIdx).toBeGreaterThan(targetsIdx);
     expect(source.slice(guardIdx, providerCallIdx)).not.toContain("\n  }\n");
   });
 

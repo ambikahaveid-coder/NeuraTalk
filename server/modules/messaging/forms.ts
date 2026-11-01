@@ -171,6 +171,8 @@ export function registerFormRoutes(app: Express): void {
   });
 
   app.get("/api/business/:businessId/forms/:formId/responses", ...team, async (req: Request, res: Response) => {
+    const [owned] = rows<{ id: number }>(await db.execute(sql`SELECT id FROM business_forms WHERE id = ${Number(req.params.formId)} AND business_id = ${Number(req.params.businessId)}`));
+    if (!owned) return res.status(404).json({ success: false, error: "Form not found." });
     const list = rows<{ id: number; answers: unknown; created_at: Date; customer_name: string | null; customer_id: number | null }>(await db.execute(sql`
       SELECT r.id, r.answers, r.created_at, c.name AS customer_name, c.id AS customer_id
       FROM business_form_responses r

@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { loadUser, requireAnyPermission, requireAuth, requireSuperAdmin } from "../../role-middleware";
-import { requireActiveSubscription, warnLowBalance } from "../../usage-enforcement";
+import { requireActiveSubscription, requireBusinessBillingForCalls, warnLowBalance } from "../../usage-enforcement";
 import { PERMISSIONS } from "@shared/schema";
 import * as ctrl from "./controller";
 import { runTelecomValidationSimulation } from "./validation";
@@ -25,7 +25,7 @@ export function registerCallsRoutes(app: Express): void {
     loadUser,
     requireAuth,
     requireCallAccess,
-    requireActiveSubscription,
+    requireBusinessBillingForCalls,
     warnLowBalance,
     ctrl.initiate,
   );
@@ -35,7 +35,7 @@ export function registerCallsRoutes(app: Express): void {
     loadUser,
     requireAuth,
     requireCallAccess,
-    requireActiveSubscription,
+    requireBusinessBillingForCalls,
     ctrl.conference,
   );
 
@@ -44,7 +44,7 @@ export function registerCallsRoutes(app: Express): void {
     loadUser,
     requireAuth,
     requireCallAccess,
-    requireActiveSubscription,
+    requireBusinessBillingForCalls,
     ctrl.groupCall,
   );
 
@@ -53,7 +53,7 @@ export function registerCallsRoutes(app: Express): void {
     loadUser,
     requireAuth,
     requireCallAccess,
-    requireActiveSubscription,
+    requireBusinessBillingForCalls,
     ctrl.connect,
   );
   app.patch("/api/calls/:callId/status", loadUser, requireAuth, requireCallAccess, ctrl.statusUpdate);

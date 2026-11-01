@@ -440,6 +440,7 @@ function CompaniesSection() {
   const [deactivatingId, setDeactivatingId] = useState<number | null>(null);
   const [adjustingId, setAdjustingId] = useState<number | null>(null);
   const [walletAmountRupees, setWalletAmountRupees] = useState("");
+  const [walletPaymentRef, setWalletPaymentRef] = useState("");
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected" | "suspended" | "deactivated" | "verification">("all");
   const [showCreateCompany, setShowCreateCompany] = useState(false);
   const [newCompany, setNewCompany] = useState({
@@ -453,7 +454,8 @@ function CompaniesSection() {
     adminEmail: "",
     adminPhone: "",
     autoApprove: true,
-    initialWalletRupees: 100,
+    initialWalletRupees: 0,
+    paymentReference: "",
   });
 
   const { data: companiesData, isLoading } = useQuery({
@@ -608,20 +610,22 @@ function CompaniesSection() {
   });
 
   const adjustWalletMutation = useMutation({
-    mutationFn: async ({ companyId, amount, reason }: { companyId: number; amount: number; reason: string }) => {
+    mutationFn: async ({ companyId, amount, reason, paymentReference }: { companyId: number; amount: number; reason: string; paymentReference: string }) => {
       const token = getAuthToken();
       const res = await fetch(`/api/admin/companies/${companyId}/credits`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount, reason }),
+        body: JSON.stringify({ amount, reason, paymentReference }),
       });
-      if (!res.ok) throw new Error("Failed to adjust wallet balance");
-      return res.json();
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to adjust wallet balance");
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/companies"] });
       setAdjustingId(null);
       setWalletAmountRupees("");
+      setWalletPaymentRef("");
       toast({ title: "Wallet Updated" });
     },
     onError: (err: any) => {
@@ -638,6 +642,7 @@ function CompaniesSection() {
         plan: newCompany.plan,
         autoApprove: newCompany.autoApprove,
         initialWalletRupees: newCompany.initialWalletRupees,
+        paymentReference: newCompany.paymentReference.trim() || undefined,
       };
       if (newCompany.industry) payload.industry = newCompany.industry;
       if (newCompany.website) payload.website = newCompany.website;
@@ -661,7 +666,7 @@ function CompaniesSection() {
       setShowCreateCompany(false);
       setNewCompany({
         companyName: "", industry: "", website: "", companyEmail: "", companyPhone: "",
-        plan: "free", adminName: "", adminEmail: "", adminPhone: "", autoApprove: true, initialWalletRupees: 100,
+        plan: "free", adminName: "", adminEmail: "", adminPhone: "", autoApprove: true, initialWalletRupees: 0, paymentReference: "",
       });
       toast({ 
         title: "Company Created", 
@@ -838,7 +843,7 @@ function CompaniesSection() {
                   </Select>
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Initial Wallet (INR)</label>
+                  <label className="text-sm font-medium">Opening balance (INR, only if already paid)</label>
                   <Input
                     type="number"
                     value={newCompany.initialWalletRupees}
@@ -846,6 +851,17 @@ function CompaniesSection() {
                     data-testid="input-initial-wallet"
                   />
                 </div>
+                {newCompany.initialWalletRupees > 0 && (
+                  <div>
+                    <label className="text-sm font-medium">Payment reference (UTR / invoice no.)</label>
+                    <Input
+                      value={newCompany.paymentReference}
+                      onChange={(e) => setNewCompany({ ...newCompany, paymentReference: e.target.value })}
+                      placeholder="e.g. UTR 4321 0987 6543"
+                      data-testid="input-initial-payment-ref"
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1068,14 +1084,26 @@ function CompaniesSection() {
                                 onChange={(e) => setWalletAmountRupees(e.target.value)}
                                 className="w-24"
                               />
+                              {parseFloat(walletAmountRupees) > 0 && (
+                                <Input
+                                  placeholder="Payment ref (UTR / invoice)"
+                                  value={walletPaymentRef}
+                                  onChange={(e) => setWalletPaymentRef(e.target.value)}
+                                  className="w-48"
+                                  data-testid="input-wallet-payment-ref"
+                                />
+                              )}
                               <Button
                                 size="sm"
                                 onClick={() => adjustWalletMutation.mutate({
                                   companyId: company.id,
                                   amount: parseFloat(walletAmountRupees),
-                                  reason: "Admin wallet adjustment"
+                                  reason: "Admin wallet adjustment",
+                                  paymentReference: walletPaymentRef.trim(),
                                 })}
-                                disabled={!walletAmountRupees || adjustWalletMutation.isPending}
+                                disabled={!walletAmountRupees
+                                  || (parseFloat(walletAmountRupees) > 0 && walletPaymentRef.trim().length < 4)
+                                  || adjustWalletMutation.isPending}
                               >
                                 Save
                               </Button>
@@ -1528,7 +1556,7 @@ function UsersSection() {
   const [deletingUser, setDeletingUser] = useState<any>(null);
   const [grantingUser, setGrantingUser] = useState<any>(null);
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
-  const [grant, setGrant] = useState({ minutes: "100", reason: "" });
+  const [grant, setGrant] = useState({ minutes: "100", reason: "", paymentReference: "" });
   const [newUser, setNewUser] = useState({ email: "", phone: "", role: "consumer", username: "" });
 
   const { data: usersData, isLoading } = useQuery({
@@ -1629,12 +1657,12 @@ function UsersSection() {
   });
 
   const grantMinutesMutation = useMutation({
-    mutationFn: async ({ id, minutes, reason }: { id: number; minutes: number; reason: string }) => {
+    mutationFn: async ({ id, minutes, reason, paymentReference }: { id: number; minutes: number; reason: string; paymentReference: string }) => {
       const token = getAuthToken();
       const res = await fetch(`/api/admin/users/${id}/minutes`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ minutes, reason }),
+        body: JSON.stringify({ minutes, reason, paymentReference }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || "Failed to grant minutes");
@@ -1642,7 +1670,7 @@ function UsersSection() {
     },
     onSuccess: (body: any) => {
       setGrantingUser(null);
-      setGrant({ minutes: "100", reason: "" });
+      setGrant({ minutes: "100", reason: "", paymentReference: "" });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Minutes added", description: `Now ${body.data?.minutesRemaining ?? "?"} minutes left` });
     },
@@ -1652,7 +1680,7 @@ function UsersSection() {
   });
 
   const grantMinutes = Number(grant.minutes);
-  const grantValid = Number.isInteger(grantMinutes) && grantMinutes >= 1 && grantMinutes <= 10000 && grant.reason.trim().length >= 3;
+  const grantValid = Number.isInteger(grantMinutes) && grantMinutes >= 1 && grantMinutes <= 10000 && grant.reason.trim().length >= 3 && grant.paymentReference.trim().length >= 4;
 
   const users = usersData?.data || [];
   const total = usersData?.pagination?.total || 0;
@@ -1963,11 +1991,20 @@ function UsersSection() {
                 data-testid="input-grant-reason"
               />
             </div>
+            <div className="space-y-2">
+              <Label>Payment or refund reference</Label>
+              <Input
+                value={grant.paymentReference}
+                onChange={(e) => setGrant({ ...grant, paymentReference: e.target.value })}
+                placeholder="UTR / invoice no., or the call ID for a refund"
+                data-testid="input-grant-payment-ref"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGrantingUser(null)}>Cancel</Button>
             <Button
-              onClick={() => grantMinutesMutation.mutate({ id: grantingUser.id, minutes: grantMinutes, reason: grant.reason.trim() })}
+              onClick={() => grantMinutesMutation.mutate({ id: grantingUser.id, minutes: grantMinutes, reason: grant.reason.trim(), paymentReference: grant.paymentReference.trim() })}
               disabled={!grantValid || grantMinutesMutation.isPending}
               data-testid="button-confirm-grant"
             >
@@ -2082,6 +2119,7 @@ function BillingSection() {
     amountPaise: 100000,
     type: "wallet_credit",
     description: "",
+    paymentReference: "",
   });
 
   const { data: plans, isLoading } = useQuery({
@@ -2252,8 +2290,9 @@ function BillingSection() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(adjustmentForm),
       });
-      if (!res.ok) throw new Error("Failed to adjust company balance");
-      return res.json();
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Failed to adjust company balance");
+      return body;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/billing/companies"] });
@@ -2462,7 +2501,7 @@ function BillingSection() {
         <div>
           <h2 className="text-lg font-semibold">Revenue Model</h2>
           <p className="text-sm text-muted-foreground">Strict per-second tenant billing with prepaid, postpaid, and hybrid controls</p>
-          <p className="text-sm text-muted-foreground">Manage B2B & B2C subscription plans — 15 min free trial on registration</p>
+          <p className="text-sm text-muted-foreground">Manage B2B & B2C plans — new users get 5 free AI translation minutes; plain calls and chats are free</p>
         </div>
         <div className="flex gap-2">
           <Dialog open={showGlobalDefaults} onOpenChange={setShowGlobalDefaults}>
@@ -2548,8 +2587,8 @@ function BillingSection() {
         <Card className="glass-card border-primary/20">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Free Trial</p>
-            <p className="text-2xl font-bold text-primary">15 min</p>
-            <p className="text-xs text-muted-foreground">Every new user</p>
+            <p className="text-2xl font-bold text-primary">5 min</p>
+            <p className="text-xs text-muted-foreground">AI translation, every new user</p>
           </CardContent>
         </Card>
         <Card className="glass-card border-secondary/20">
@@ -2632,7 +2671,7 @@ function BillingSection() {
                       }}>Configure</Button>
                       <Button variant="outline" size="sm" onClick={() => {
                         setAdjustingCompany(company);
-                        setAdjustmentForm({ amountPaise: 100000, type: "wallet_credit", description: `Manual wallet credit for ${company.name}` });
+                        setAdjustmentForm({ amountPaise: 100000, type: "wallet_credit", description: `Manual wallet credit for ${company.name}`, paymentReference: "" });
                       }}>Adjust</Button>
                       <Button size="sm" variant={company.account?.isBlocked ? "secondary" : "destructive"} onClick={() => blockMutation.mutate({ company, blocked: !company.account?.isBlocked })}>
                         {company.account?.isBlocked ? "Unblock" : "Block"}
@@ -2652,7 +2691,7 @@ function BillingSection() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4" />Consumer Plans (B2C)</CardTitle>
-          <CardDescription>Individual users — auto 15 min free trial on signup</CardDescription>
+          <CardDescription>Individual users — 5 free AI translation minutes on signup</CardDescription>
         </CardHeader>
         <CardContent>
           {b2cPlans.length > 0 ? (
@@ -2830,6 +2869,12 @@ function BillingSection() {
               <Label>Amount (paise)</Label>
               <Input type="number" value={adjustmentForm.amountPaise} onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, amountPaise: parseInt(e.target.value || "0") }))} />
             </div>
+            {adjustmentForm.type !== "wallet_debit" && adjustmentForm.amountPaise > 0 && (
+              <div className="space-y-2">
+                <Label>Payment reference (UTR / invoice no.)</Label>
+                <Input value={adjustmentForm.paymentReference} onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, paymentReference: e.target.value }))} placeholder="Required: the money must be received first" data-testid="input-adjust-payment-ref" />
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Description</Label>
               <Textarea value={adjustmentForm.description} onChange={(e) => setAdjustmentForm((prev) => ({ ...prev, description: e.target.value }))} rows={3} />
@@ -4209,8 +4254,8 @@ function SettingsSection() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="p-3 rounded-lg bg-muted/30">
               <Label className="text-xs text-muted-foreground">Free Trial</Label>
-              <p className="font-bold text-lg">15 min</p>
-              <p className="text-xs text-muted-foreground">Per new user</p>
+              <p className="font-bold text-lg">5 min</p>
+              <p className="text-xs text-muted-foreground">AI translation, per new user</p>
             </div>
             <div className="p-3 rounded-lg bg-muted/30">
               <Label className="text-xs text-muted-foreground">Max Call Duration</Label>

@@ -89,6 +89,7 @@ const billingAdjustmentSchema = z.object({
   amountPaise: z.number().int(),
   type: z.enum(["wallet_credit", "wallet_debit", "credit_limit_settlement", "manual_adjustment"]),
   description: z.string().max(300).optional(),
+  paymentReference: z.string().trim().max(80).optional(),
 });
 
 const companyBlockSchema = z.object({
@@ -958,19 +959,28 @@ export function registerBillingRoutes(app: Express) {
         return res.status(400).json({ success: false, message: "Invalid adjustment", errors: validation.error.errors });
       }
 
+      // Pay first: adding balance (or settling a postpaid bill) needs the reference of money received.
+      const addsMoney = validation.data.type !== "wallet_debit" && validation.data.amountPaise > 0;
+      const paymentReference = validation.data.paymentReference?.trim() || "";
+      if (addsMoney && paymentReference.length < 4) {
+        return res.status(400).json({ success: false, message: "Enter the payment reference (UTR, invoice or receipt number) of the money received." });
+      }
+
       const adjusted = await BillingEngine.adjustOrganizationBalance({
         organizationId,
         amountPaise: validation.data.amountPaise,
         type: validation.data.type,
         actorUserId: req.user!.id,
-        description: validation.data.description,
+        description: addsMoney
+          ? `Payment received: ${paymentReference}${validation.data.description ? ` - ${validation.data.description}` : ""}`
+          : validation.data.description,
       });
 
       await AuditHelpers.logSettingsChange(
         req.user!.id,
         "company_billing_adjustment",
         null,
-        { organizationId, amountPaise: validation.data.amountPaise, type: validation.data.type, description: validation.data.description },
+        { organizationId, amountPaise: validation.data.amountPaise, type: validation.data.type, description: validation.data.description, paymentReference: validation.data.paymentReference ?? null },
       );
 
       res.json({ success: true, data: adjusted });

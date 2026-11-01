@@ -74,6 +74,7 @@ async function profileLanguageOf(userId: number): Promise<string | null> {
 }
 import { isTranslationConsentDenied } from "./translation-consent";
 import { translateChatText } from "./translation/chat-translate";
+import { mayTranslateChatFor, recordChatTranslations } from "./ai-chat-usage";
 import { isSenderBlockedInGroup } from "./group-chat-blocking";
 export { isSenderBlockedInGroup } from "./group-chat-blocking";
 
@@ -523,12 +524,13 @@ router.post("/api/group-chats/:groupId/messages", requireAuth, groupChatSendLimi
 
     const translations: Record<string, string> = {};
     // File names and captions of photos/videos/files are not translated.
-    if (!groupTranslationConsentDenied && !isAttachment && !isLocation && messageType !== "contact") {
-      for (const targetLang of targetLanguages) {
-        if (targetLang !== detectedLang) {
-          translations[targetLang] = await translateText(content, detectedLang, targetLang);
-        }
+    const groupTargets = targetLanguages.filter((lang) => lang !== detectedLang);
+    if (!groupTranslationConsentDenied && !isAttachment && !isLocation && messageType !== "contact"
+      && groupTargets.length > 0 && await mayTranslateChatFor(senderId)) {
+      for (const targetLang of groupTargets) {
+        translations[targetLang] = await translateText(content, detectedLang, targetLang);
       }
+      void recordChatTranslations(senderId, 1);
     }
     
     // @mentions: only real members of this group (never the sender).
@@ -674,7 +676,7 @@ router.patch("/api/group-chats/:groupId/messages/:messageId", requireAuth, async
     const detectedLang = await detectLanguage(content, req.user!.preferredLanguage || message.originalLanguage || undefined);
     const [senderRow] = await db.select({ consentTranslation: users.consentTranslation, consentTimestamp: users.consentTimestamp }).from(users).where(eq(users.id, userId));
     const translations: Record<string, string> = {};
-    if (!isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp)) {
+    if (!isTranslationConsentDenied(senderRow?.consentTranslation, senderRow?.consentTimestamp) && await mayTranslateChatFor(userId)) {
       const targets = Array.from(new Set((await groupMemberLanguages(groupId)).map((m) => m.language)));
       for (const lang of targets) {
         if (lang !== detectedLang) translations[lang] = await translateText(content, detectedLang, lang);
@@ -809,7 +811,8 @@ async function processVoiceMessage(messageId: number) {
     const translations: Record<string, string> = {};
     const voiceTranslations: Record<string, { audioPath: string }> = {};
 
-    if (!voiceTranslationConsentDenied) {
+    if (!voiceTranslationConsentDenied && await mayTranslateChatFor(message[0].senderId)) {
+      if (targetLanguages.some((lang) => lang !== language)) void recordChatTranslations(message[0].senderId, 1);
       for (const targetLang of targetLanguages) {
         if (targetLang !== language) {
           const translatedText = await translateText(transcript, language, targetLang);

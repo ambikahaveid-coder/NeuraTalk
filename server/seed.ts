@@ -18,11 +18,11 @@ export async function seedBillingPlans(): Promise<void> {
   const b2cPlans = [
     {
       name: "Free Trial",
-      description: "15 minutes free - try voice, video, and face-to-face translation",
+      description: "5 free AI translation minutes to try it. Calls and chats without translation are always free.",
       planType: "b2c",
       duration: "weekly",
       durationDays: 7,
-      includedMinutes: 15,
+      includedMinutes: 5,
       priceInPaise: 0,
       features: { translation: true, emotionPreservation: true },
       displayOrder: 1,

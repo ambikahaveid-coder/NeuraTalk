@@ -4,10 +4,11 @@ import { billingPlans, subscriptions } from "@shared/schema";
 import { logger } from "./observability";
 
 /**
- * Every individual (non-organization) user gets exactly this many free call
- * minutes, once, shared across audio, video and translated calls.
+ * Every individual (non-organization) user gets exactly this many free AI
+ * translation minutes, once (a demo). Calls and chats without translation are
+ * free and never use them.
  */
-export const FREE_TRIAL_MINUTES = 15;
+export const FREE_TRIAL_MINUTES = 5;
 
 // The minutes are the real limit; validity is long so unused minutes don't
 // silently vanish after a week.
