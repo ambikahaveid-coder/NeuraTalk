@@ -34,7 +34,7 @@ jobs:
       - name: Dump, verify, upload
         run: |
           set -euo pipefail
-          DATABASE_URL="$(aws secretsmanager get-secret-value --secret-id neuratalk/aws-test/DATABASE_URL --query SecretString --output text)"
+          DATABASE_URL="$(aws secretsmanager get-secret-value --secret-id neuratalk/aws-test/DATABASE_URL --query SecretString --output text | tr -d '\r\n ')"
           echo "::add-mask::$DATABASE_URL"
           # The pooled host can't run pg_dump's session settings; use the direct host.
           DIRECT_URL="${DATABASE_URL/-pooler./.}"
