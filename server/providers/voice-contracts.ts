@@ -20,6 +20,8 @@ export interface StreamingSttProviderSession {
   connect(): Promise<void>;
   send(frame: AudioFrame | Int16Array | Buffer): void;
   close(): Promise<void>;
+  /** Names that joined after the session started (e.g. the other caller), so they're recognised too. */
+  addPhrases?(phrases: string[]): void;
 }
 
 export interface StreamingSttProvider {

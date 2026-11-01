@@ -145,6 +145,7 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
   private readonly endpointingMs: number;
   private readonly candidateLanguages?: string[];
   private readonly phrases: string[];
+  private phraseRefreshTimer: NodeJS.Timeout | null = null;
 
   private recognizer: SpeechSDK.SpeechRecognizer | null = null;
   private pushStream: SpeechSDK.PushAudioInputStream | null = null;
@@ -178,7 +179,8 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
   }) {
     this.language = normalizeLanguage(opts.language);
     this.candidateLanguages = opts.candidateLanguages;
-    this.phrases = Array.from(new Set((opts.phrases ?? []).map((p) => p.trim()).filter((p) => p.length >= 2 && p.length <= 60))).slice(0, 20);
+    this.phrases = [];
+    this.addPhrases(opts.phrases ?? []);
     this.onTranscript = opts.onTranscript;
     this.onError = opts.onError;
     this.onProviderSwitch = opts.onProviderSwitch;
@@ -244,6 +246,55 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
     }
   }
 
+  /**
+   * Adds names (e.g. the other caller, who joined later). Azure only reads the
+   * phrase list when recognition starts (measured: a name added to a running
+   * recogniser was ignored 6/6 times), so a running session restarts in the
+   * next pause between sentences. Audio sent meanwhile is buffered, not lost.
+   */
+  addPhrases(phrases: string[]): void {
+    let added = false;
+    for (const raw of phrases) {
+      const phrase = String(raw ?? "").trim();
+      if (phrase.length < 2 || phrase.length > 60 || this.phrases.includes(phrase) || this.phrases.length >= 20) continue;
+      this.phrases.push(phrase);
+      added = true;
+    }
+    if (added && this.recognizer) this.schedulePhraseRefresh();
+  }
+
+  private schedulePhraseRefresh(): void {
+    if (this.phraseRefreshTimer || this.closed) return;
+    const attempt = () => {
+      this.phraseRefreshTimer = null;
+      if (this.closed || !this.recognizer) return;
+      const midSentence = Date.now() - this.lastSpeechDetectedAt < 700 || this.lastPartialText !== this.lastFinalText;
+      if (this.starting || this.stopping || !this.connected || midSentence) {
+        this.phraseRefreshTimer = setTimeout(attempt, 250);
+        this.phraseRefreshTimer.unref?.();
+        return;
+      }
+      void this.restartWithPhrases();
+    };
+    this.phraseRefreshTimer = setTimeout(attempt, 0);
+    this.phraseRefreshTimer.unref?.();
+  }
+
+  private async restartWithPhrases(): Promise<void> {
+    this.stopping = true;
+    this.connected = false; // new audio is buffered for the restarted recogniser
+    try {
+      await this.stopRecognizer();
+      this.cleanupRecognizer();
+    } finally {
+      this.stopping = false;
+    }
+    if (this.closed) return;
+    await this.connect().catch((error) => {
+      void this.handleRecognizerFailure(error instanceof Error ? error : new Error(String(error)));
+    });
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -301,13 +352,13 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
     };
 
     recognizer.canceled = (_sender, event) => {
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping || this.recognizer !== recognizer) return;
       const details = event.errorDetails || event.reason?.toString() || "speech recognition canceled";
       void this.handleRecognizerFailure(new Error(`azure-stt canceled: ${details}`));
     };
 
     recognizer.sessionStopped = () => {
-      if (this.closed || this.stopping) return;
+      if (this.closed || this.stopping || this.recognizer !== recognizer) return;
       void this.handleRecognizerFailure(new Error("azure-stt session stopped"));
     };
 
@@ -464,6 +515,10 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
       clearInterval(this.inactivityTimer);
       this.inactivityTimer = null;
     }
+    if (this.phraseRefreshTimer) {
+      clearTimeout(this.phraseRefreshTimer);
+      this.phraseRefreshTimer = null;
+    }
   }
 }
 
@@ -570,6 +625,10 @@ class FailoverStreamingSttSession implements StreamingSttProviderSession {
 
   async close(): Promise<void> {
     await this.active.close();
+  }
+
+  addPhrases(phrases: string[]): void {
+    this.active.addPhrases?.(phrases);
   }
 
   private async handleProviderError(error: Error): Promise<void> {

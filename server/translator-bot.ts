@@ -501,6 +501,7 @@ class LiveKitRealtimeTranslatorBot {
         this.applyParticipantMetadata(participant.identity, metadata);
       })
       .on(RoomEvent.ParticipantConnected, (participant) => {
+        this.shareCallerNames();
         // Someone joining later must not hear other people's translations.
         // An unsubscribe before they've auto-subscribed is a no-op, so retry
         // as the subscriptions settle (same schedule as at publish time).
@@ -762,6 +763,7 @@ class LiveKitRealtimeTranslatorBot {
     };
 
     this.speakerPipelines.set(participant.identity, pipeline);
+    this.shareCallerNames();
     // Their own (approved) cloned voice, used when translating what they say.
     void import("./cloned-voice")
       .then(({ lookupClonedVoiceId }) => lookupClonedVoiceId(participant.identity))
@@ -799,6 +801,12 @@ class LiveKitRealtimeTranslatorBot {
       if (!isBotParticipant(participant)) add(participant.name);
     }
     return Array.from(names);
+  }
+
+  /** Recognition already running for one caller learns the names of people who joined after it started. */
+  private shareCallerNames(): void {
+    const names = this.callerNames();
+    for (const pipeline of Array.from(this.speakerPipelines.values())) pipeline.deepgram?.addPhrases?.(names);
   }
 
   private callLanguageCandidates(): string[] {
@@ -843,7 +851,7 @@ class LiveKitRealtimeTranslatorBot {
       },
     });
 
-    logger.info("TranslatorBot", `[${this.callId}] ${pipeline.identity}: speech-to-text started (${sttLanguage})`);
+    logger.info("TranslatorBot", `[${this.callId}] ${pipeline.identity}: speech-to-text started (${sttLanguage}, ${this.callerNames().length} caller names)`);
     await pipeline.deepgram.connect();
   }
 
