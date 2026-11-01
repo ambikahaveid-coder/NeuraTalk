@@ -53,3 +53,6 @@ tests/
 docs/
 *.md
 !README.md
+
+# Public Amazon RDS CA list (no private keys), needed to verify the database TLS certificate.
+!certs/rds-global-bundle.pem
