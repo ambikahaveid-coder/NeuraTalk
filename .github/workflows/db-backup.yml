@@ -1,0 +1,52 @@
+name: Database backup
+
+# Nightly full backup of the production database to a private, encrypted S3
+# bucket in Mumbai (neuratalk-db-backups-132597215158). Daily copies are kept
+# 35 days, the 1st-of-month copy ~13 months. Each dump is checked by listing
+# its contents before upload. Restore steps: docs/operations/DATABASE_BACKUP_AND_RESTORE.md
+on:
+  schedule:
+    - cron: "30 21 * * *" # 03:00 IST
+  workflow_dispatch:
+
+concurrency:
+  group: neuratalk-db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::132597215158:role/NeuraTalkGitHubProdDeploy
+          aws-region: ap-south-1
+      - name: Install PostgreSQL 18 client
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-18
+      - name: Dump, verify, upload
+        run: |
+          set -euo pipefail
+          DATABASE_URL="$(aws secretsmanager get-secret-value --secret-id neuratalk/aws-test/DATABASE_URL --query SecretString --output text)"
+          echo "::add-mask::$DATABASE_URL"
+          # The pooled host can't run pg_dump's session settings; use the direct host.
+          DIRECT_URL="${DATABASE_URL/-pooler./.}"
+          STAMP="$(date -u +%Y-%m-%dT%H%MZ)"
+          FILE="neuratalk-$STAMP.dump"
+          /usr/lib/postgresql/18/bin/pg_dump --format=custom --no-owner --no-privileges --dbname="$DIRECT_URL" --file="$FILE"
+          TABLES="$(/usr/lib/postgresql/18/bin/pg_restore --list "$FILE" | grep -c 'TABLE DATA' || true)"
+          SIZE="$(stat -c %s "$FILE")"
+          echo "Dump has $TABLES tables of data, $SIZE bytes"
+          if [ "$TABLES" -lt 50 ] || [ "$SIZE" -lt 100000 ]; then echo "Backup looks incomplete"; exit 1; fi
+          aws s3 cp "$FILE" "s3://neuratalk-db-backups-132597215158/daily/$FILE" --only-show-errors
+          if [ "$(date -u +%d)" = "01" ]; then
+            aws s3 cp "$FILE" "s3://neuratalk-db-backups-132597215158/monthly/$FILE" --only-show-errors
+          fi
+          echo "Uploaded daily/$FILE"
