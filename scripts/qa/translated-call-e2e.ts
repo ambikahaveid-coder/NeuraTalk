@@ -85,7 +85,7 @@ interface Party {
 }
 
 async function join(label: "A" | "B", id: string, profile: string, callId: string): Promise<Party> {
-  const token = await issueAccessToken(callId, { userId: id, displayName: `QA ${label}`, language: profile, translationMode: "voice", role: label === "A" ? "caller" : "callee" });
+  const token = await issueAccessToken(callId, { userId: id, displayName: label === "A" ? arg("name-a", "Kiran") : arg("name-b", "Sushma"), language: profile, translationMode: "voice", role: label === "A" ? "caller" : "callee" });
   const room = new Room();
   const party: Party = { label, id, room, source: new AudioSource(RATE, 1), heard: [], messages: [], onsets: [] };
   let lastLoudAt = 0;

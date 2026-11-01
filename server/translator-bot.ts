@@ -110,10 +110,11 @@ const AUTO_DETECT_ENABLED = (process.env.TRANSLATOR_BOT_ENABLE_LANGUAGE_DETECT |
 // garbled Telugu and two same-profile callers were never translated.
 const DETECT_SPOKEN_LANGUAGE = (process.env.TRANSLATOR_BOT_DETECT_SPOKEN_LANGUAGE || "true") === "true";
 
-// Translation is most of a call's delay: Azure Translator answered in
-// 0.30-0.38 s where OpenAI's first token took 0.63-1.46 s (2026-10-20,
-// Telugu<->English). "openai" restores the previous behaviour.
-const FAST_TRANSLATION_PROVIDER = (process.env.TRANSLATOR_BOT_TRANSLATION_PROVIDER || "azure") === "azure" ? "azure" as const : undefined;
+// Natural speech over raw speed (2026-11-01): Azure Translator is ~0.4 s faster but speaks textbook
+// Telugu ("works for me" -> "పనిచేస్తుంది"); the spoken-interpreter prompt on gpt-4.1-mini sounds like a
+// real person (9.6/10 vs 6.7 in a blind test). TRANSLATOR_BOT_TRANSLATION_PROVIDER=azure brings back the
+// faster literal path.
+const FAST_TRANSLATION_PROVIDER = (process.env.TRANSLATOR_BOT_TRANSLATION_PROVIDER || "openai") === "azure" ? "azure" as const : undefined;
 
 const MAX_LEADING_SILENCE_TRIM_MS = parsePositiveInt(process.env.TRANSLATOR_BOT_MAX_LEADING_SILENCE_TRIM_MS, 400);
 // Peak below this (16-bit PCM) counts as silence at the start of a voice clip.
@@ -783,6 +784,23 @@ class LiveKitRealtimeTranslatorBot {
    * languages on this call, plus English (widely mixed in). Falls back to
    * the full list in the recogniser when fewer than two are known.
    */
+  /** Everyone's first and full names, so speech recognition hears "Kiran", not "Kieran". */
+  private callerNames(): string[] {
+    const names = new Set<string>();
+    const add = (raw: unknown) => {
+      const name = String(raw ?? "").trim();
+      if (!name || /^\+?\d[\d\s-]*$/.test(name) || name.startsWith("pstn:") || name.startsWith("sip_")) return;
+      names.add(name);
+      const first = name.split(/\s+/)[0];
+      if (first && first !== name) names.add(first);
+    };
+    for (const pipeline of Array.from(this.speakerPipelines.values())) add(pipeline.name);
+    for (const participant of Array.from(this.room?.remoteParticipants.values() ?? [])) {
+      if (!isBotParticipant(participant)) add(participant.name);
+    }
+    return Array.from(names);
+  }
+
   private callLanguageCandidates(): string[] {
     const languages = new Set<string>(["en"]);
     for (const pipeline of Array.from(this.speakerPipelines.values())) {
@@ -812,6 +830,7 @@ class LiveKitRealtimeTranslatorBot {
     pipeline.deepgram = createManagedStreamingSttSession({
       language: sttLanguage,
       candidateLanguages: sttLanguage === "auto" ? this.callLanguageCandidates() : undefined,
+      phrases: this.callerNames(),
       onTranscript: (event) => void this.handleTranscript(pipeline.identity, event),
       onSocketOpen: (latencyMs) => {
         pipeline.lastDeepgramSocketLatencyMs = latencyMs;

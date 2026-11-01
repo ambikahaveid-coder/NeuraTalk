@@ -38,6 +38,8 @@ export interface StreamingSttProvider {
      * the people on the call). Fewer candidates is faster and more accurate.
      */
     candidateLanguages?: string[];
+    /** Words to recognise exactly, e.g. the callers' names ("Kiran" was heard as "Kieran"). */
+    phrases?: string[];
   }): StreamingSttProviderSession;
 }
 

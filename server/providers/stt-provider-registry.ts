@@ -144,6 +144,7 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
   private readonly onSocketOpen?: (latencyMs: number) => void;
   private readonly endpointingMs: number;
   private readonly candidateLanguages?: string[];
+  private readonly phrases: string[];
 
   private recognizer: SpeechSDK.SpeechRecognizer | null = null;
   private pushStream: SpeechSDK.PushAudioInputStream | null = null;
@@ -173,9 +174,11 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
     onSocketOpen?: (latencyMs: number) => void;
     endpointingMs?: number;
     candidateLanguages?: string[];
+    phrases?: string[];
   }) {
     this.language = normalizeLanguage(opts.language);
     this.candidateLanguages = opts.candidateLanguages;
+    this.phrases = Array.from(new Set((opts.phrases ?? []).map((p) => p.trim()).filter((p) => p.length >= 2 && p.length <= 60))).slice(0, 20);
     this.onTranscript = opts.onTranscript;
     this.onError = opts.onError;
     this.onProviderSwitch = opts.onProviderSwitch;
@@ -278,6 +281,10 @@ class AzureStreamingSttSession implements StreamingSttProviderSession {
           return SpeechSDK.SpeechRecognizer.FromConfig(speechConfig, autoConfig, audioConfig);
         })()
       : new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+    if (this.phrases.length) {
+      const phraseList = SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer);
+      for (const phrase of this.phrases) phraseList.addPhrase(phrase);
+    }
 
     recognizer.sessionStarted = () => {
       this.lastRecognitionAt = Date.now();
@@ -473,6 +480,7 @@ class AzureStreamingSttProvider implements StreamingSttProvider {
     endpointingMs?: number;
     utteranceEndMs?: number;
     candidateLanguages?: string[];
+    phrases?: string[];
   }): StreamingSttProviderSession {
     return new AzureStreamingSttSession({
       language: opts.language,
@@ -482,6 +490,7 @@ class AzureStreamingSttProvider implements StreamingSttProvider {
       onSocketOpen: opts.onSocketOpen,
       endpointingMs: opts.endpointingMs,
       candidateLanguages: opts.candidateLanguages,
+      phrases: opts.phrases,
     });
   }
 }
