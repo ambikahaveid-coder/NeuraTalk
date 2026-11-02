@@ -28,6 +28,9 @@ import 'package:neuratalk/screens/wallet_screen.dart';
 import 'package:neuratalk/screens/login_screen.dart';
 import 'package:neuratalk/screens/onboarding_screen.dart';
 import 'package:neuratalk/business/business_shell.dart';
+import 'package:neuratalk/business/business_account.dart';
+import 'package:neuratalk/business/business_catalog_screen.dart';
+import 'store_assets.dart';
 
 final _fixturesPath = Platform.environment['UI_FIXTURES'];
 final _out = Platform.environment['PREVIEW_OUT'] ?? 'build/ui_audit';
@@ -50,8 +53,27 @@ Future<void> _loadFonts() async {
     '$fonts/Inter-Regular.ttf', '$fonts/Inter-Medium.ttf', '$fonts/Inter-SemiBold.ttf', '$fonts/Inter-Bold.ttf', '$fonts/Inter-ExtraBold.ttf',
     ...indic, ...emoji,
   ]);
+  final emojiFont = '$fontDir/NotoEmoji.ttf';
+  if (File(emojiFont).existsSync()) await family('NotoEmoji', [emojiFont]);
+  for (final f in indic) {
+    await family(f.contains('Telugu') ? 'NotoTelugu' : 'NotoDeva', [f]);
+  }
   await family('MaterialIcons', ['C:/flutter/bin/cache/artifacts/material_fonts/materialicons-regular.otf']);
   await family('Roboto', ['C:/flutter/bin/cache/artifacts/material_fonts/roboto-regular.ttf', ...indic, ...emoji]);
+}
+
+/// Text styles inherit these fallbacks through DefaultTextStyle, so Telugu and
+/// Hindi render in screenshots the way the phone's system fonts render them.
+ThemeData withIndicFallback(ThemeData t) {
+  const fb = ['NotoTelugu', 'NotoDeva', 'NotoEmoji'];
+  TextStyle? f(TextStyle? x) => x?.copyWith(fontFamilyFallback: fb);
+  return t.copyWith(
+    textTheme: t.textTheme.apply(fontFamilyFallback: fb),
+    primaryTextTheme: t.primaryTextTheme.apply(fontFamilyFallback: fb),
+    listTileTheme: t.listTileTheme.copyWith(titleTextStyle: f(t.listTileTheme.titleTextStyle), subtitleTextStyle: f(t.listTileTheme.subtitleTextStyle)),
+    // The test engine draws FAB shadows as a black ring; phones draw a soft shadow.
+    floatingActionButtonTheme: t.floatingActionButtonTheme.copyWith(elevation: 0, focusElevation: 0, hoverElevation: 0, highlightElevation: 0),
+  );
 }
 
 http.Client _client(Map<String, dynamic> data) => MockClient((req) async {
@@ -64,10 +86,11 @@ http.Client _client(Map<String, dynamic> data) => MockClient((req) async {
     });
 
 Future<void> _shot(WidgetTester tester, String name, Widget screen, Map<String, dynamic> data, Map<String, dynamic> me,
-    {bool dark = false, int settleMs = 1500}) async {
+    {bool dark = false, int settleMs = 1500, String? caption}) async {
   if (_only.isNotEmpty && !_only.contains(name)) return;
   await http.runWithClient(() async {
-    tester.view.physicalSize = const Size(1080, 2340);
+    // Store screenshots: 1080x1920 (16:9), the phone screen under a heading.
+    tester.view.physicalSize = caption == null ? const Size(1080, 2340) : const Size(1080, 1920);
     tester.view.devicePixelRatio = 2.625;
     final auth = AuthProvider();
     await tester.runAsync(() async {
@@ -84,10 +107,10 @@ Future<void> _shot(WidgetTester tester, String name, Widget screen, Map<String, 
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
+        theme: withIndicFallback(AppTheme.light),
+        darkTheme: withIndicFallback(AppTheme.dark),
         themeMode: dark ? ThemeMode.dark : ThemeMode.light,
-        builder: (context, child) => ThemeSync(child: child!),
+        builder: (context, child) => ThemeSync(child: caption == null ? child! : StoreFrame(caption: caption, child: child!)),
         home: screen,
       ),
     ));
@@ -95,7 +118,7 @@ Future<void> _shot(WidgetTester tester, String name, Widget screen, Map<String, 
       await tester.runAsync(() => Future.delayed(Duration(milliseconds: settleMs ~/ 6)));
       await tester.pump(const Duration(milliseconds: 200));
     }
-    await expectLater(find.byType(MaterialApp), matchesGoldenFile('$_out/${name}_${dark ? 'dark' : 'light'}.png'));
+    await expectLater(find.byType(MaterialApp), matchesGoldenFile(caption == null ? '$_out/${name}_${dark ? 'dark' : 'light'}.png' : '$_out/store_$name.png'));
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 1));
   }, () => _client(data));
@@ -145,6 +168,29 @@ void main() {
     'onboarding': (const OnboardingScreen(), kiran, kiranMe),
     'business': (const BusinessShell(), biz, bizMe),
   };
+  if (Platform.environment['STORE'] == '1') {
+    final account = BusinessAccount(ids['orgId'] as int);
+    Widget withAccount(Widget w) => ChangeNotifierProvider<BusinessAccount>.value(value: account, child: w);
+    final conv = ((biz['/api/business/${ids['orgId']}/conversations'] as Map)['conversations'] as List).first as Map<String, dynamic>;
+    final store = <String, (Widget, Map<String, dynamic>, Map<String, dynamic>, String)>{
+      '1_chat': (ConversationScreen(thread: thread1), kiran, kiranMe, 'Write in Telugu.\nThey read it in English.'),
+      '2_chats': (const MainShell(), kiran, kiranMe, 'Every chat translated\nas it arrives'),
+      '3_group': (GroupConversationScreen(groupId: ids['groupId'] as int), kiran, kiranMe, 'Groups where everyone\nreads their own language'),
+      '4_calls': (const Scaffold(body: CallsScreen()), kiran, kiranMe, 'Voice and video calls,\nfree without translation'),
+      '5_plan': (const WalletScreen(), kiran, kiranMe, '5 free AI translation minutes.\nNo card needed.'),
+      'b1_inbox': (const BusinessShell(), biz, bizMe, 'Every customer chat\nin one inbox'),
+      'b2_chat': (withAccount(BusinessConversationScreen(businessId: ids['orgId'] as int, conversationId: conv['id'] as int, summary: conv)), biz, bizMe, 'Reply in English.\nCustomers read Telugu.'),
+      'b3_catalog': (withAccount(const BusinessCatalogScreen()), biz, bizMe, 'Share your catalog\nand take orders in chat'),
+    };
+    for (final e in store.entries) {
+      testWidgets('store ${e.key}', (tester) async {
+        final (w, data, me, caption) = e.value;
+        await _shot(tester, e.key, w, data, me, caption: caption);
+      });
+    }
+    registerStoreGraphics(_out);
+    return;
+  }
   for (final entry in screens.entries) {
     for (final dark in [false, true]) {
       testWidgets('${entry.key} ${dark ? 'dark' : 'light'}', (tester) async {

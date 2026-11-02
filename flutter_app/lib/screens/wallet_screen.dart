@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../app_variant.dart';
 import '../utils/external_link.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -33,7 +34,13 @@ class _WalletScreenState extends State<WalletScreen> {
     try {
       final plans = await ApiService.get('/api/billing/plans') as List;
       if (!mounted) return;
-      setState(() => _plans = plans.cast<Map<String, dynamic>>());
+      // Personal plans in NeuraTalk, business plans in NeuraTalk Business
+      // (the list has both; personal users were shown business plans).
+      final wanted = isBusinessApp ? 'b2b' : 'b2c';
+      setState(() => _plans = plans
+          .cast<Map<String, dynamic>>()
+          .where((p) => (p['type'] ?? p['planType'] ?? wanted) == wanted)
+          .toList());
     } catch (e) {
       if (!mounted) return;
       setState(() => _plansError = _friendlyError(e));
