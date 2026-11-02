@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 /// once, in plain words, before the system dialogs appear.
 class CallReadiness {
   static const _askedKey = 'call_readiness_asked_v1';
+  static const _oemAskedKey = 'call_readiness_oem_asked_v1';
 
   /// Each check on its own: a phone where one of them throws must still get
   /// the question (that was why the prompt never appeared on a OnePlus).
@@ -47,9 +48,14 @@ class CallReadiness {
     // week -- calls that never ring are worse than one more question.
     final askedAt = prefs.getInt('${_askedKey}_at') ?? 0;
     final recentlyAsked = DateTime.now().millisecondsSinceEpoch - askedAt < const Duration(days: 7).inMilliseconds;
-    if (!force && prefs.getBool(_askedKey) == true && recentlyAsked) return;
+    if (!force && prefs.getBool(_askedKey) == true && recentlyAsked) {
+      // People already asked still get the one-time phone-brand step.
+      if (context.mounted) await _askOemBackground(context, prefs);
+      return;
+    }
     if (await _ready()) {
       await prefs.setBool(_askedKey, true);
+      if (context.mounted) await _askOemBackground(context, prefs);
       return;
     }
     if (!context.mounted) return;
@@ -86,5 +92,35 @@ class CallReadiness {
         await Permission.ignoreBatteryOptimizations.request();
       }
     });
+    if (context.mounted) await _askOemBackground(context, prefs);
+  }
+
+  /// OnePlus, Oppo, Realme, Xiaomi and Vivo freeze apps in the background
+  /// even with the battery exemption (measured on a OnePlus: a call rang
+  /// ~15 s late). Their own "Allow background activity / Auto launch" switch
+  /// can only be turned on by the person, in the app's settings. Asked once.
+  static Future<void> _askOemBackground(BuildContext context, SharedPreferences prefs) async {
+    if (prefs.getBool(_oemAskedKey) == true) return;
+    await prefs.setBool(_oemAskedKey, true);
+    if (!context.mounted) return;
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('One more step on some phones', style: TextStyle(color: AppColors.ink)),
+        content: Text(
+          'On OnePlus, Oppo, Realme, Xiaomi and Vivo phones, also open the NeuraTalk settings and turn on:\n\n'
+          '• Battery → Allow background activity\n'
+          '• Auto launch (or Auto start)\n\n'
+          'Otherwise calls can ring late or not at all when NeuraTalk is closed.',
+          style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not needed')),
+          ElevatedButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Open settings')),
+        ],
+      ),
+    );
+    if (open == true) await _step(() async { await openAppSettings(); });
   }
 }

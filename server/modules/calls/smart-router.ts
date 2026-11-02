@@ -1344,7 +1344,10 @@ async function initiateCallLocked(
   const planRateInrPerMin = auth.estimatedRatePerMinutePaise / 100;
 
   let stageStartNs = process.hrtime.bigint();
-  await createCallRoom({
+  // LiveKit creates the room by itself when the first person joins, and this
+  // API call takes ~2 s (a cold connection to LiveKit). App calls don't wait
+  // for it; phone (SIP) calls do, because the dial-out needs the room.
+  const roomCreation = createCallRoom({
     callId,
     maxParticipants: effectiveCallType === "video" ? 10 : 4,
     emptyTimeoutSec: 120,
@@ -1357,6 +1360,14 @@ async function initiateCallLocked(
       translationEnabled,
     },
   });
+  if (requestedJoinMethod === "app_to_app") {
+    const roomStartNs = stageStartNs;
+    roomCreation
+      .then(() => logSetupLatency(callId, requestedJoinMethod, "create_room_background", elapsedMs(roomStartNs)))
+      .catch((error) => logger.warn("SmartCallRouter", `background room create failed for ${callId} (it is created on join): ${String(error)}`));
+  } else {
+    await roomCreation;
+  }
   logSetupLatency(callId, requestedJoinMethod, "create_room", elapsedMs(stageStartNs));
 
   await initCallLanguageTracking(callId, [
@@ -1694,12 +1705,13 @@ async function initiateConferenceLocked(
   const planRateInrPerMin = auth.estimatedRatePerMinutePaise / 100;
   const hostLanguage = (params.hostLanguage || "auto").trim().toLowerCase() || "auto";
 
-  await createCallRoom({
+  // Created on join by LiveKit anyway; don't make the group wait ~2 s for the API.
+  createCallRoom({
     callId,
     maxParticipants: params.participantIds.length + 5,
     emptyTimeoutSec: 300,
     metadata: { type: "conference", hostId: params.hostId, title: params.title, callType },
-  });
+  }).catch((error) => logger.warn("SmartCallRouter", `background room create failed for ${callId}: ${String(error)}`));
   await initCallLanguageTracking(callId, [
     { speakerId: params.hostId, preferredLanguage: hostLanguage },
   ]);
