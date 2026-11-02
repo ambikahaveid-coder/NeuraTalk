@@ -174,9 +174,10 @@ export function registerFormRoutes(app: Express): void {
     const [owned] = rows<{ id: number }>(await db.execute(sql`SELECT id FROM business_forms WHERE id = ${Number(req.params.formId)} AND business_id = ${Number(req.params.businessId)}`));
     if (!owned) return res.status(404).json({ success: false, error: "Form not found." });
     const list = rows<{ id: number; answers: unknown; created_at: Date; customer_name: string | null; customer_id: number | null }>(await db.execute(sql`
-      SELECT r.id, r.answers, r.created_at, c.name AS customer_name, c.id AS customer_id
+      SELECT r.id, r.answers, r.created_at, coalesce(nullif(c.name, ''), u.display_name, c.phone) AS customer_name, c.id AS customer_id
       FROM business_form_responses r
       LEFT JOIN customers c ON c.business_id = r.business_id AND c.linked_user_id = r.customer_user_id
+      LEFT JOIN users u ON u.id = r.customer_user_id
       WHERE r.form_id = ${Number(req.params.formId)} AND r.business_id = ${Number(req.params.businessId)}
       ORDER BY r.created_at DESC LIMIT 1000`));
     res.json({ success: true, responses: list.map((r) => ({ id: r.id, answers: r.answers, createdAt: r.created_at, customerName: r.customer_name, customerId: r.customer_id })) });
@@ -187,9 +188,10 @@ export function registerFormRoutes(app: Express): void {
     const [f] = rows<FormRow>(await db.execute(sql`SELECT * FROM business_forms WHERE id = ${Number(req.params.formId)} AND business_id = ${businessId}`));
     if (!f) return res.status(404).json({ success: false, error: "Form not found." });
     const list = rows<{ answers: Array<{ id: string; value: string | null }>; created_at: Date; customer_name: string | null }>(await db.execute(sql`
-      SELECT r.answers, r.created_at, c.name AS customer_name FROM business_form_responses r
+      SELECT r.answers, r.created_at, coalesce(nullif(c.name, ''), u.display_name, c.phone) AS customer_name FROM business_form_responses r
       LEFT JOIN customers c ON c.business_id = r.business_id AND c.linked_user_id = r.customer_user_id
-      WHERE r.form_id = ${f.id} ORDER BY r.created_at`));
+      LEFT JOIN users u ON u.id = r.customer_user_id
+      WHERE r.form_id = ${f.id} AND r.business_id = ${businessId} ORDER BY r.created_at`));
     const header = ["Submitted at", "Customer", ...f.fields.map((x) => x.label)].map(csvCell).join(",");
     const lines = list.map((r) => [
       new Date(r.created_at).toISOString(), r.customer_name ?? "",

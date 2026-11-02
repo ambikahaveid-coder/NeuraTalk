@@ -24,6 +24,7 @@ import { businessConversations, customers, PERMISSIONS, users } from "@shared/sc
 import { requireAuth, requireCompanyAccess, requirePermission, requireRole } from "../../role-middleware";
 import { logger } from "../../observability";
 import { messageButtonsSchema } from "./template-send";
+import { getAutomationControls } from "./automation-admin";
 
 const rows = <T>(r: unknown) => (r as { rows: T[] }).rows;
 
@@ -165,6 +166,7 @@ export async function runAutoResponders(input: {
     const active = rows<ResponderRow>(await db.execute(sql`
       SELECT * FROM business_auto_responders WHERE business_id = ${input.businessId} AND is_active`));
     if (!active.length) return false;
+    if ((await getAutomationControls(input.businessId)).botsPaused) return false;
     const pick = pickResponder(active, input.message);
     if (!pick) return false;
     const r = pick.responder;
@@ -249,7 +251,9 @@ export function registerAutoResponderRoutes(app: Express): void {
         (SELECT max(created_at) FROM business_auto_responder_runs x WHERE x.responder_id = r.id) AS last_hit_at
       FROM business_auto_responders r WHERE r.business_id = ${businessId}
       ORDER BY r.priority DESC, r.id ASC`));
-    res.json({ success: true, responders: list.map((r) => present(r, { hits: r.hits, lastHitAt: r.last_hit_at })), limits: { maxResponders: MAX_RESPONDERS_PER_BUSINESS, maxRepliesPerWindow: MAX_REPLIES_PER_WINDOW, windowMinutes: REPLY_WINDOW_MINUTES } });
+    const controls = await getAutomationControls(businessId);
+    res.json({ success: true, responders: list.map((r) => present(r, { hits: r.hits, lastHitAt: r.last_hit_at })),
+      pausedByNeuraTalk: controls.botsPaused ? { reason: controls.reason } : null, limits: { maxResponders: MAX_RESPONDERS_PER_BUSINESS, maxRepliesPerWindow: MAX_REPLIES_PER_WINDOW, windowMinutes: REPLY_WINDOW_MINUTES } });
   });
 
   app.post(base, ...manage, async (req: Request, res: Response) => {

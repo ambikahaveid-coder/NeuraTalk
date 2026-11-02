@@ -26,6 +26,7 @@ import * as utility from "../utility/service";
 import * as otp from "../otp/service";
 import { approvedTemplates, messageButtonsSchema, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError, templateButtons } from "./template-send";
 import { sendBusinessAgentMessage, findOrCreateCustomerConversation } from "./service";
+import { apiNotPaused, recordApiUse } from "./automation-admin";
 import { businessConversations, messagingDeliveries, messagingMessages } from "@shared/schema";
 
 const addressSchema = {
@@ -126,9 +127,10 @@ function sendError(res: Response, error: unknown, fallback: string) {
 }
 
 export function registerBusinessMessagingApiRoutes(app: Express): void {
-  const auth = createApiKeyMiddleware("messages:send");
+  // Key check, then usage record, then NeuraTalk's pause switch (super admin).
+  const auth = [createApiKeyMiddleware("messages:send"), recordApiUse, apiNotPaused];
 
-  app.post("/api/v1/messaging/utility-events", auth, async (req, res) => {
+  app.post("/api/v1/messaging/utility-events", ...auth, async (req, res) => {
     const parsed = utilitySchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.flatten() });
     try {
@@ -151,7 +153,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/v1/messaging/otp", auth, async (req, res) => {
+  app.post("/api/v1/messaging/otp", ...auth, async (req, res) => {
     const parsed = otpSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.flatten() });
     try {
@@ -172,7 +174,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
   });
 
   // Approved templates this business can send (marketing / utility).
-  app.get("/api/v1/messaging/templates", auth, async (req, res) => {
+  app.get("/api/v1/messaging/templates", ...auth, async (req, res) => {
     try {
       const list = await approvedTemplates(organizationIdOf(req));
       return res.json({
@@ -200,7 +202,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
   }).refine((v) => Boolean(v.templateVersionId) !== Boolean(v.text), { message: "Send either templateVersionId or text" })
     .refine((v) => !v.buttons || Boolean(v.text), { message: "Buttons go with text; template buttons come from the approved template" });
 
-  app.post("/api/v1/messaging/messages", auth, async (req, res) => {
+  app.post("/api/v1/messaging/messages", ...auth, async (req, res) => {
     const parsed = messageSchema.safeParse(req.body ?? {});
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Invalid request" });
     try {
@@ -229,7 +231,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
   });
 
   // Delivery status of a message this business sent.
-  app.get("/api/v1/messaging/messages/:messageId", auth, async (req, res) => {
+  app.get("/api/v1/messaging/messages/:messageId", ...auth, async (req, res) => {
     const messageId = Number(req.params.messageId);
     if (!Number.isInteger(messageId) || messageId <= 0) return res.status(400).json({ success: false, error: "Invalid message id" });
     const organizationId = organizationIdOf(req);
@@ -245,7 +247,7 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
     return res.json({ success: true, message: { id: row.id, createdAt: row.createdAt, status: best?.status ?? "queued", statusAt: best?.statusAt ?? null, failureReason: best?.failureReason ?? null } });
   });
 
-  app.post("/api/v1/messaging/otp/:challengeId/verify", auth, async (req, res) => {
+  app.post("/api/v1/messaging/otp/:challengeId/verify", ...auth, async (req, res) => {
     const challengeId = Number(req.params.challengeId);
     if (!Number.isInteger(challengeId) || challengeId <= 0) return res.status(400).json({ success: false, error: "Invalid challenge id" });
     const parsed = verifySchema.safeParse(req.body ?? {});

@@ -239,7 +239,7 @@ export default function AutoRespondersSection({ base }: { base: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const key = [base, "auto-responders"];
-  const list = useQuery<{ responders: Responder[]; limits: { maxResponders: number; maxRepliesPerWindow: number; windowMinutes: number } }>({
+  const list = useQuery<{ responders: Responder[]; pausedByNeuraTalk?: { reason: string | null } | null; limits: { maxResponders: number; maxRepliesPerWindow: number; windowMinutes: number } }>({
     queryKey: key, queryFn: () => call("GET", `${base}/auto-responders`), retry: false,
   });
   const runs = useQuery<{ runs: Run[] }>({ queryKey: [...key, "runs"], queryFn: () => call("GET", `${base}/auto-responders/runs?limit=20`), retry: false });
@@ -279,6 +279,13 @@ export default function AutoRespondersSection({ base }: { base: string }) {
 
   return (
     <div className="space-y-4" data-testid="auto-responders">
+      {list.data?.pausedByNeuraTalk && (
+        <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" data-testid="bots-paused-banner">
+          <strong>NeuraTalk paused your auto-replies.</strong> Customers get no automatic answers until this is lifted.
+          {list.data.pausedByNeuraTalk.reason ? ` Reason: ${list.data.pausedByNeuraTalk.reason}` : ""}
+          {/support@/i.test(list.data.pausedByNeuraTalk.reason ?? "") ? "" : " Contact support@neuratalk.in."}
+        </div>
+      )}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
           <div>

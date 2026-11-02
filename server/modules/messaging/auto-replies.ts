@@ -68,28 +68,26 @@ export async function sendAutoRepliesAfterCustomerMessage(
       .where(and(eq(businessConversations.id, businessConversationId), eq(businessConversations.businessId, businessId)));
     if (!conv) return;
 
-    // Keyword / button auto-responders answer first; the greeting still goes on a first message.
-    let answered = false;
+    const settings = await getMessagingSettings(businessId);
+    // Read the chat before anything is sent, so "first message" means the customer's first message.
+    const recent = await db.select({ id: messagingMessages.id, messageType: messagingMessages.messageType, createdAt: messagingMessages.createdAt, content: messagingMessages.content })
+      .from(messagingMessages).where(eq(messagingMessages.conversationId, conv.conversationId))
+      .orderBy(desc(messagingMessages.createdAt)).limit(50);
+
+    // Order, like WhatsApp Business: greeting (first message only) -> keyword/button bot answer -> away notice.
+    if (settings?.greeting.enabled && settings.greeting.text && recent.length === 1) {
+      await sendAsBusiness(businessId, conv.id, conv.conversationId, settings.greeting.text, "greeting");
+    }
     if (trigger) {
       const { runAutoResponders } = await import("./auto-responders");
-      answered = await runAutoResponders({
+      await runAutoResponders({
         businessId, businessConversationId: conv.id, conversationId: conv.conversationId,
         triggerMessageId: trigger.messageId,
         message: { text: trigger.text, buttonId: trigger.buttonId, buttonTitle: trigger.buttonTitle },
         send: (content, extra) => sendAsBusiness(businessId, conv.id, conv.conversationId, content, "auto_responder", extra),
       });
     }
-
-    const settings = await getMessagingSettings(businessId);
-    if (!settings || (!settings.greeting.enabled && !settings.away.enabled)) return;
-
-    const recent = await db.select({ id: messagingMessages.id, messageType: messagingMessages.messageType, createdAt: messagingMessages.createdAt, content: messagingMessages.content })
-      .from(messagingMessages).where(eq(messagingMessages.conversationId, conv.conversationId))
-      .orderBy(desc(messagingMessages.createdAt)).limit(50);
-
-    if (!answered && settings.greeting.enabled && settings.greeting.text && recent.length === 1) {
-      await sendAsBusiness(businessId, conv.id, conv.conversationId, settings.greeting.text, "greeting");
-    }
+    if (!settings) return;
     if (settings.away.enabled && settings.away.text && !isWithinOpeningHours(settings)) {
       const lastAway = recent.find((m) => m.messageType === MESSAGE_TYPE.SYSTEM && m.content === settings.away.text);
       if (!lastAway || Date.now() - (lastAway.createdAt?.getTime() ?? 0) > AWAY_REPEAT_MS) {

@@ -21,6 +21,7 @@ class BusinessAutoReplyScreen extends StatefulWidget {
 class _BusinessAutoReplyScreenState extends State<BusinessAutoReplyScreen> {
   List<Map<String, dynamic>>? _bots;
   String? _error;
+  String? _pausedReason; // set when NeuraTalk paused this business's bots
 
   String get _base => '${context.read<BusinessAccount>().base}/auto-responders';
 
@@ -34,7 +35,14 @@ class _BusinessAutoReplyScreenState extends State<BusinessAutoReplyScreen> {
     try {
       final res = await ApiService.get(_base);
       final list = ((res as Map)['responders'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
-      if (mounted) setState(() { _bots = list; _error = null; });
+      final paused = res['pausedByNeuraTalk'];
+      if (mounted) {
+        setState(() {
+          _bots = list;
+          _error = null;
+          _pausedReason = paused is Map ? (paused['reason']?.toString() ?? '') : null;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e is ApiException ? e.message : 'Check your connection and try again.');
     }
@@ -114,6 +122,18 @@ class _BusinessAutoReplyScreenState extends State<BusinessAutoReplyScreen> {
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(padding: const EdgeInsets.only(bottom: 96), children: [
+                    if (_pausedReason != null)
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
+                        child: Text(
+                          'NeuraTalk paused your auto-replies. Customers get no automatic answers until this is lifted.'
+                          '${_pausedReason!.isNotEmpty ? ' Reason: $_pausedReason' : ''}'
+                          '${_pausedReason!.contains('support@') ? '' : ' Contact support@neuratalk.in.'}',
+                          style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w600),
+                        ),
+                      ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                       child: Text(

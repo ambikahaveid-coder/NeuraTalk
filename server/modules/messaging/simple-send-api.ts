@@ -26,6 +26,7 @@ import { createCustomer, DuplicateCustomerError } from "../customers/service";
 import * as otp from "../otp/service";
 import { approvedTemplates, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError } from "./template-send";
 import { findOrCreateCustomerConversation, sendBusinessAgentMessage } from "./service";
+import { apiNotPaused, recordApiUse } from "./automation-admin";
 
 const pick = (req: Request, ...names: string[]): string | undefined => {
   const src = { ...(req.query as Record<string, unknown>), ...((req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {}) };
@@ -158,6 +159,6 @@ async function handle(req: Request, res: Response) {
 
 export function registerSimpleSendApi(app: Express): void {
   const auth = createApiKeyMiddleware("messages:send");
-  app.get("/api/v1/send", keyFromQuery, auth, handle);
-  app.post("/api/v1/send", keyFromQuery, auth, handle);
+  app.get("/api/v1/send", keyFromQuery, auth, recordApiUse, apiNotPaused, handle);
+  app.post("/api/v1/send", keyFromQuery, auth, recordApiUse, apiNotPaused, handle);
 }
