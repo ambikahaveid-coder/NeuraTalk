@@ -20,6 +20,7 @@ import 'business_import_screen.dart';
 import 'business_categories.dart';
 import 'business_messaging_settings.dart';
 import 'business_profile_screen.dart';
+import 'business_auto_reply_screen.dart';
 
 /// Business tools (WhatsApp Business → Tools): profile, catalog, automatic
 /// replies, quick replies, link & QR, statistics and the verified tick.
@@ -52,6 +53,7 @@ class BusinessToolsScreen extends StatelessWidget {
             const _Section('Messaging'),
             _tool(Icons.waving_hand_outlined, 'Greeting message', 'Welcome new customers automatically', () => open(const GreetingMessageScreen())),
             _tool(Icons.schedule_outlined, 'Away message & hours', 'Reply when you are closed', () => open(const AwayMessageScreen())),
+            _tool(Icons.smart_toy_outlined, 'Auto-reply bot', 'Answer "price", "timings" and button taps instantly', () => open(const BusinessAutoReplyScreen())),
             _tool(Icons.bolt_outlined, 'Quick replies', 'Type / in a chat to send saved answers', () => open(const QuickRepliesScreen())),
             _tool(Icons.insights_outlined, 'Statistics', 'Messages sent, delivered, read, received', () => open(const BusinessStatsScreen())),
             _tool(Icons.campaign_outlined, 'Broadcasts', 'Send offers and updates to your customers', () => open(const BusinessBroadcastsScreen())),

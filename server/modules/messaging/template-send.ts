@@ -18,7 +18,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../../db";
 import {
   businessConversations, customers, messagingAttachments, messagingDeliveries, messagingEvents, messagingMessages,
-  messagingParticipants, templates, templateVersions,
+  messagingParticipants, templates, templateVersions, users,
   CUSTOMER_STATUS, MESSAGE_CATEGORY, MESSAGE_DELIVERY_STATUS, MESSAGE_EVENT_TYPE, MESSAGE_TYPE, MESSAGING_PARTICIPANT_TYPE,
   TEMPLATE_VERSION_STATUS, type TemplateVariableDeclaration,
 } from "@shared/schema";
@@ -225,7 +225,15 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
   try {
     const values: Record<string, unknown> = { ...(input.variables ?? {}) };
     const declared = ((version.variables as TemplateVariableDeclaration[]) ?? []);
-    if (customer.name && declared.some((d) => d.name === "name") && values.name === undefined) values.name = customer.name;
+    if (declared.some((d) => d.name === "name") && (values.name === undefined || values.name === "")) {
+      // Saved name, else the customer's own NeuraTalk profile name, else "there" -- never "Hi ," or a phone number.
+      let name = /[^\d\s+()-]/.test(customer.name ?? "") ? customer.name!.trim() : "";
+      if (!name && customer.linkedUserId) {
+        const [u] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, customer.linkedUserId));
+        if (/[^\d\s+()-]/.test(u?.displayName ?? "")) name = u!.displayName!.trim();
+      }
+      values.name = name || "there";
+    }
     rendered = renderTemplateContent(version.content, declared, values).rendered;
   } catch (err) {
     if (err instanceof TemplateRenderError) throw new TemplateSendError(err.message, "TEMPLATE_VARIABLES");

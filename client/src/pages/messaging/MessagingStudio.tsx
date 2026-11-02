@@ -3,8 +3,9 @@ import QRCode from "qrcode";
 import { Switch } from "@/components/ui/switch";
 import { useUpload } from "@/hooks/use-upload";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import AutoRespondersSection from "./AutoRespondersSection";
 import {
-  CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
+  Bot, CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth } from "@/lib/a
  * Delivered/read numbers come from the real in-app delivery receipts.
  */
 
-type Section = "profile" | "catalog" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
+type Section = "profile" | "bots" | "catalog" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
 
 interface Customer {
   id: number; name: string | null; phone: string | null; email: string | null;
@@ -126,6 +127,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
 
   const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
     { id: "profile", label: "Chat link & auto replies", icon: <Link2 className="w-4 h-4" /> },
+    { id: "bots", label: "Auto-reply bot", icon: <Bot className="w-4 h-4" /> },
     { id: "catalog", label: "Catalog", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "customers", label: "Customers", icon: <Users className="w-4 h-4" /> },
     { id: "templates", label: "Templates", icon: <FileText className="w-4 h-4" /> },
@@ -158,6 +160,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
         Messages are delivered inside the customer's NeuraTalk app with a notification. Customers who are not on NeuraTalk are skipped and never charged.
       </p>
       {section === "profile" && <ProfileSection {...props} businessId={businessId} />}
+      {section === "bots" && <AutoRespondersSection base={base} />}
       {section === "catalog" && <CatalogSection {...props} />}
       {section === "customers" && <CustomersSection {...props} customers={customersQuery.data?.customers ?? []} loading={customersQuery.isLoading} />}
       {section === "templates" && <TemplatesSection {...props} />}

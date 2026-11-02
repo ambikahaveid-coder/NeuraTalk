@@ -90,6 +90,8 @@ import { registerBusinessMessagingApiRoutes } from "./modules/messaging/api-rout
 import { registerCatalogRoutes } from "./modules/messaging/catalog";
 import { registerOrderRoutes } from "./modules/messaging/orders";
 import { registerFormRoutes } from "./modules/messaging/forms";
+import { registerAutoResponderRoutes } from "./modules/messaging/auto-responders";
+import { registerSimpleSendApi } from "./modules/messaging/simple-send-api";
 import { registerTemplateSendRoutes } from "./modules/messaging/template-routes";
 import { registerBusinessVerificationRoutes } from "./modules/business-verification/routes";
 import { registerMarketingRoutes } from "./modules/marketing/routes";
@@ -225,10 +227,12 @@ export async function registerRoutes(
   registerBroadcastRoutes(app);
   registerOtpRoutes(app); console.log("[Routes] ✓ Business OTP/authentication routes (Phase 6)");
   registerUtilityRoutes(app); console.log("[Routes] ✓ Business utility messaging routes (Phase 7)");
+  registerSimpleSendApi(app);
   registerBusinessMessagingApiRoutes(app); console.log("[Routes] ✓ Business messaging API (X-API-Key: utility events, OTP)");
   registerCatalogRoutes(app); console.log("[Routes] ✓ Business catalog routes");
   registerOrderRoutes(app); console.log("[Routes] ✓ Business order routes");
   registerFormRoutes(app); console.log("[Routes] ✓ Business form routes");
+  registerAutoResponderRoutes(app); console.log("[Routes] ✓ Business auto-responder routes");
   registerTemplateSendRoutes(app); console.log("[Routes] ✓ Business template send + 24h window routes");
   registerBusinessVerificationRoutes(app); console.log("[Routes] ✓ Business verification (blue tick) routes");
   registerMarketingRoutes(app); console.log("[Routes] ✓ Business marketing reporting routes (Phase 8B-R0)");

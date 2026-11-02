@@ -25,7 +25,10 @@ import { deliverCommittedMessage } from "./delivery";
 
 const AWAY_REPEAT_MS = 12 * 60 * 60_000;
 
-async function sendAsBusiness(businessId: number, businessConversationId: number, conversationId: number, content: string, kind: string) {
+async function sendAsBusiness(
+  businessId: number, businessConversationId: number, conversationId: number, content: string, kind: string,
+  extra: { messageType?: string; metadata?: Record<string, unknown> } = {},
+): Promise<number | null> {
   const messageId = await db.transaction(async (tx) => {
     const [business] = await tx.select().from(messagingParticipants).where(and(
       eq(messagingParticipants.conversationId, conversationId),
@@ -35,9 +38,10 @@ async function sendAsBusiness(businessId: number, businessConversationId: number
     const [message] = await tx.insert(messagingMessages).values({
       conversationId,
       senderParticipantId: business.id,
-      messageType: MESSAGE_TYPE.SYSTEM,
+      messageType: (extra.messageType ?? MESSAGE_TYPE.SYSTEM) as typeof MESSAGE_TYPE.SYSTEM,
       category: MESSAGE_CATEGORY.CONVERSATIONAL,
       content,
+      ...(extra.metadata ? { metadata: extra.metadata } : {}),
     }).returning();
     const recipients = await tx.select().from(messagingParticipants)
       .where(and(eq(messagingParticipants.conversationId, conversationId), ne(messagingParticipants.id, business.id)));
@@ -51,22 +55,39 @@ async function sendAsBusiness(businessId: number, businessConversationId: number
     return message.id;
   });
   if (messageId) await deliverCommittedMessage({ businessId, businessConversationId, messageId, publishCreated: true });
+  return messageId;
 }
 
 /** Call after a customer's message committed. Never throws. */
-export async function sendAutoRepliesAfterCustomerMessage(businessId: number, businessConversationId: number): Promise<void> {
+export async function sendAutoRepliesAfterCustomerMessage(
+  businessId: number, businessConversationId: number,
+  trigger?: { messageId: number; text: string; buttonId?: string | null; buttonTitle?: string | null },
+): Promise<void> {
   try {
-    const settings = await getMessagingSettings(businessId);
-    if (!settings || (!settings.greeting.enabled && !settings.away.enabled)) return;
     const [conv] = await db.select().from(businessConversations)
       .where(and(eq(businessConversations.id, businessConversationId), eq(businessConversations.businessId, businessId)));
     if (!conv) return;
+
+    // Keyword / button auto-responders answer first; the greeting still goes on a first message.
+    let answered = false;
+    if (trigger) {
+      const { runAutoResponders } = await import("./auto-responders");
+      answered = await runAutoResponders({
+        businessId, businessConversationId: conv.id, conversationId: conv.conversationId,
+        triggerMessageId: trigger.messageId,
+        message: { text: trigger.text, buttonId: trigger.buttonId, buttonTitle: trigger.buttonTitle },
+        send: (content, extra) => sendAsBusiness(businessId, conv.id, conv.conversationId, content, "auto_responder", extra),
+      });
+    }
+
+    const settings = await getMessagingSettings(businessId);
+    if (!settings || (!settings.greeting.enabled && !settings.away.enabled)) return;
 
     const recent = await db.select({ id: messagingMessages.id, messageType: messagingMessages.messageType, createdAt: messagingMessages.createdAt, content: messagingMessages.content })
       .from(messagingMessages).where(eq(messagingMessages.conversationId, conv.conversationId))
       .orderBy(desc(messagingMessages.createdAt)).limit(50);
 
-    if (settings.greeting.enabled && settings.greeting.text && recent.length === 1) {
+    if (!answered && settings.greeting.enabled && settings.greeting.text && recent.length === 1) {
       await sendAsBusiness(businessId, conv.id, conv.conversationId, settings.greeting.text, "greeting");
     }
     if (settings.away.enabled && settings.away.text && !isWithinOpeningHours(settings)) {

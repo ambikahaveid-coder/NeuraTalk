@@ -750,7 +750,15 @@ export async function sendUserInitiatedMessage(
   await deliverCommittedMessage({ businessId: input.businessId, businessConversationId, messageId: result.message.id });
   // Greeting / away message from the business, if it set them up.
   const { sendAutoRepliesAfterCustomerMessage } = await import("./auto-replies");
-  await sendAutoRepliesAfterCustomerMessage(input.businessId, businessConversationId);
+  const reply = (result.message.metadata as { buttonReply?: { buttonId?: string; title?: string } } | null)?.buttonReply;
+  // Keyword bots react only to typed text and button taps (not photos, forms or locations).
+  const isText = result.message.messageType === "text" && !(result.message.metadata as { location?: unknown } | null)?.location;
+  await sendAutoRepliesAfterCustomerMessage(input.businessId, businessConversationId, isText || reply ? {
+    messageId: result.message.id,
+    text: String(result.message.content ?? ""),
+    buttonId: reply?.buttonId ?? null,
+    buttonTitle: reply?.title ?? null,
+  } : undefined);
 
   return result;
 }
