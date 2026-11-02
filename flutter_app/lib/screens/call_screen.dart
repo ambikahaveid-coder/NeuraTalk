@@ -72,6 +72,10 @@ class _CallScreenState extends State<CallScreen> {
   // (and therefore must not show "Connected") until the callee has actually
   // answered. See server/modules/calls/lifecycle.ts for the status machine.
   bool _waitingForAnswer = false;
+  // Outgoing call: the room is joined while it rings (mic muted), so audio
+  // starts the moment the other person answers instead of ~2-3 s later.
+  bool _preconnected = false;
+  bool _preconnectFailed = false;
   String _ringingLabel = 'Calling…';
   Timer? _ringingPollTimer;
   Timer? _ringingTimeoutTimer;
@@ -151,6 +155,7 @@ class _CallScreenState extends State<CallScreen> {
       _ringingLabel = 'Calling…';
     });
     unawaited(_startRingback());
+    unawaited(_connect(preconnect: true));
 
     _ringingTimeoutTimer = Timer(_ringingTimeout, () {
       if (!mounted || !_waitingForAnswer) return;
@@ -168,14 +173,7 @@ class _CallScreenState extends State<CallScreen> {
             break;
           case 'answered':
           case 'active':
-            _ringingPollTimer?.cancel();
-            _ringingTimeoutTimer?.cancel();
-            _stopRingback();
-            setState(() {
-              _waitingForAnswer = false;
-              _connecting = true;
-            });
-            _connect();
+            _onAnswered();
             break;
           case 'busy':
             _endWaitingWithMessage('Line busy.');
@@ -234,6 +232,61 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
 
+  /// The other person picked up (seen as them joining the room, or by the
+  /// status poll as a fallback). Idempotent.
+  void _onAnswered() {
+    if (!mounted || !_waitingForAnswer) return;
+    _ringingPollTimer?.cancel();
+    _ringingTimeoutTimer?.cancel();
+    _stopRingback();
+    if (_preconnected) {
+      if (!_muted) unawaited(_setMicMuted(false));
+      setState(() {
+        _waitingForAnswer = false;
+        _connecting = false;
+      });
+      _markConnected();
+    } else {
+      setState(() {
+        _waitingForAnswer = false;
+        _connecting = true;
+      });
+      // Still joining in the background: it finishes as a normal connect.
+      // If that attempt failed, join now.
+      if (_preconnectFailed) {
+        _preconnectFailed = false;
+        _connect();
+      }
+    }
+  }
+
+  Future<void> _setMicMuted(bool muted) async {
+    final local = _room.localParticipant;
+    if (local == null) return;
+    for (final pub in local.audioTrackPublications) {
+      try {
+        if (muted) {
+          await pub.mute();
+        } else {
+          await pub.unmute();
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _markConnected() {
+    if (!mounted || _connectedAt != null) return;
+    setState(() {
+      _connecting = false;
+      _connectedAt = DateTime.now();
+    });
+    _durationTimer?.cancel();
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _connectedAt == null) return;
+      setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
+    });
+  }
+
   void _endWaitingWithMessage(String message) {
     _ringingPollTimer?.cancel();
     _ringingTimeoutTimer?.cancel();
@@ -248,8 +301,12 @@ class _CallScreenState extends State<CallScreen> {
     Future.delayed(const Duration(seconds: 2), _exitScreen);
   }
 
-  Future<void> _connect() async {
+  Future<void> _connect({bool preconnect = false}) async {
     if (!widget.session.hasLiveKitDetails) {
+      if (preconnect) {
+        _preconnectFailed = true;
+        return;
+      }
       setState(() {
         _connecting = false;
         _error = 'Call service is not available right now.';
@@ -286,6 +343,11 @@ class _CallScreenState extends State<CallScreen> {
 
     try {
       await _room.connect(widget.session.livekitUrl, widget.session.livekitToken);
+      if (_ending) {
+        // Hung up while we were still joining.
+        unawaited(_room.disconnect());
+        return;
+      }
       _listener = _room.createListener()
         ..on<lk.RoomDisconnectedEvent>(_onRoomDisconnected)
         ..on<lk.RoomReconnectingEvent>((_) {
@@ -297,7 +359,10 @@ class _CallScreenState extends State<CallScreen> {
         ..on<lk.TrackSubscribedEvent>(_onTrackSubscribed)
         ..on<lk.TrackUnsubscribedEvent>(_onTrackUnsubscribed)
         ..on<lk.DataReceivedEvent>(_onDataReceived)
-        ..on<lk.ParticipantConnectedEvent>((_) => _refresh())
+        ..on<lk.ParticipantConnectedEvent>((e) {
+          if (_waitingForAnswer && !widget.session.isGroup && !_isBot(e.participant)) _onAnswered();
+          _refresh();
+        })
         ..on<lk.ParticipantDisconnectedEvent>((_) => _refresh())
         ..on<lk.ParticipantMetadataUpdatedEvent>((_) => _refresh())
         ..on<lk.ActiveSpeakersChangedEvent>((_) => _refresh());
@@ -379,14 +444,15 @@ class _CallScreenState extends State<CallScreen> {
       await _room.setSpeakerOn(_speakerOn);
 
       if (!mounted) return;
-      setState(() {
-        _connecting = false;
-        _connectedAt = DateTime.now();
-      });
-      _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (!mounted || _connectedAt == null) return;
-        setState(() => _elapsed = DateTime.now().difference(_connectedAt!));
-      });
+      if (preconnect && _waitingForAnswer) {
+        // Joined while it rings: nobody hears us until they answer.
+        await _setMicMuted(true);
+        _preconnected = true;
+        // They may already be here (joined while we were connecting).
+        if (_people.isNotEmpty) _onAnswered();
+        return;
+      }
+      _markConnected();
       // A group call I started where nobody picks up: don't wait forever.
       if (widget.session.isGroup && !widget.session.isIncoming) {
         _ringingTimeoutTimer = Timer(_ringingTimeout, () {
@@ -397,6 +463,11 @@ class _CallScreenState extends State<CallScreen> {
         });
       }
     } catch (e) {
+      if (preconnect && _waitingForAnswer) {
+        // Try again when they answer; don't alarm the caller while it rings.
+        _preconnectFailed = true;
+        return;
+      }
       unawaited(OngoingCall.stop());
       if (!mounted) return;
       setState(() {
@@ -751,17 +822,36 @@ class _CallScreenState extends State<CallScreen> {
     final remoteName = ContactResolver.instance.displayNameFor(widget.session.remoteName);
     final hasRemoteVideo = _remoteVideoTrack != null;
     final hasLocalVideo = _videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true;
+    final fullScreenVideo = hasRemoteVideo && !widget.session.isGroup && _error == null;
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        if (_connectedAt != null && _error == null) {
+          // A stray back gesture must not hang up a live call.
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(const SnackBar(content: Text('The call is still on. Tap the red button to end it.')));
+          return;
+        }
         await _endCall();
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle.light,
         child: Scaffold(
           backgroundColor: AppColors.navy,
-          body: SafeArea(
+          body: Stack(children: [
+            if (fullScreenVideo) ...[
+              Positioned.fill(child: lk.VideoTrackRenderer(_remoteVideoTrack!, fit: lk.VideoViewFit.cover)),
+              // Keeps the top bar and buttons readable over bright video.
+              const Positioned(top: 0, left: 0, right: 0, height: 140, child: IgnorePointer(child: DecoratedBox(
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x99000000), Color(0x00000000)])),
+              ))),
+              const Positioned(bottom: 0, left: 0, right: 0, height: 220, child: IgnorePointer(child: DecoratedBox(
+                decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Color(0xB3000000), Color(0x00000000)])),
+              ))),
+            ],
+            SafeArea(
             child: Column(
               children: [
                 _topBar(remoteName),
@@ -774,10 +864,7 @@ class _CallScreenState extends State<CallScreen> {
                         if (widget.session.isGroup && _error == null && !_connecting)
                           _groupGrid(remoteName)
                         else if (hasRemoteVideo)
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(24),
-                            child: lk.VideoTrackRenderer(_remoteVideoTrack!, fit: lk.VideoViewFit.cover),
-                          )
+                          const SizedBox.shrink() // drawn full screen behind everything
                         else
                           _RemotePlaceholder(
                             name: remoteName,
@@ -842,6 +929,7 @@ class _CallScreenState extends State<CallScreen> {
               ],
             ),
           ),
+          ]),
         ),
       ),
     );
@@ -861,12 +949,7 @@ class _CallScreenState extends State<CallScreen> {
       height: 60,
       child: Row(
         children: [
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'End call',
-            icon: const Icon(Icons.arrow_back, color: AppColors.onAccent),
-            onPressed: _endCall,
-          ),
+          const SizedBox(width: 52),
           Expanded(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
