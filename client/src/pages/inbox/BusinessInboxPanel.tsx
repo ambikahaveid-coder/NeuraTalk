@@ -111,6 +111,7 @@ interface MessageRow {
     buttons?: Array<{ type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string }>;
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     buttonReply?: { messageId: number; buttonId: string; title?: string };
+    products?: Array<{ id: number; name: string; pricePaise: number | null; imageUrl: string | null; description?: string | null }>;
   } | null;
 }
 
@@ -131,8 +132,8 @@ function templateBlanks(t: SendableTemplate): string[] {
 function MessageExtras({ message, alignEnd }: { message: MessageRow; alignEnd: boolean }) {
   const meta = message.metadata ?? null;
   if (!meta) return null;
-  const { header, footer, buttons, location } = meta;
-  if (!header && !footer && !buttons?.length && !location) return null;
+  const { header, footer, buttons, location, products } = meta;
+  if (!header && !footer && !buttons?.length && !location && !products?.length) return null;
   const mapUrl = location ? `https://www.google.com/maps?q=${location.latitude},${location.longitude}` : null;
   return (
     <div className={cn("flex flex-col gap-1 max-w-[80%] text-xs", alignEnd ? "items-end self-end" : "items-start self-start")} data-testid={`message-extras-${message.id}`}>
@@ -141,6 +142,17 @@ function MessageExtras({ message, alignEnd }: { message: MessageRow; alignEnd: b
         <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary underline">
           <MapPin className="w-3.5 h-3.5" /> Open location{location?.name ? ` — ${location.name}` : ""}
         </a>
+      ) : null}
+      {products?.length ? (
+        <div className="flex max-w-full gap-1.5 overflow-x-auto pb-1" data-testid={`product-cards-${message.id}`}>
+          {products.map((p) => (
+            <div key={p.id} className="w-32 shrink-0 overflow-hidden rounded-lg border bg-card">
+              <div className="flex h-20 items-center justify-center bg-muted text-2xl">{p.imageUrl ? <img src={p.imageUrl} alt="" className="h-20 w-full object-cover" /> : "🛍️"}</div>
+              <p className="truncate px-2 pt-1 font-medium text-foreground">{p.name}</p>
+              <p className="px-2 pb-1.5 text-muted-foreground">{p.pricePaise == null ? "Price on request" : `₹${(p.pricePaise / 100).toLocaleString("en-IN")}`}</p>
+            </div>
+          ))}
+        </div>
       ) : null}
       {footer ? <p className="text-muted-foreground">{footer}</p> : null}
       {buttons?.length ? (
@@ -444,6 +456,24 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
     ? (settingsQuery.data?.settings.quickReplies ?? []).filter((q) => q.shortcut.startsWith(messageInput.slice(1).toLowerCase()))
     : [];
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [pickedProducts, setPickedProducts] = useState<number[]>([]);
+  const sendProducts = useMutation({
+    mutationFn: async () => (await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/products`, { itemIds: pickedProducts })).json(),
+    onSuccess: () => {
+      setCatalogOpen(false);
+      setPickedProducts([]);
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations", selectedId, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/business", businessId, "conversations"] });
+    },
+    onError: (error: any) => {
+      const text = String(error?.message ?? "");
+      toast({
+        title: "Couldn't send products",
+        description: text.includes("SERVICE_WINDOW_CLOSED") ? "The customer hasn't written in the last 24 hours. Send an approved template instead." : text.replace(/^\d+:\s*/, ""),
+        variant: "destructive",
+      });
+    },
+  });
   const { uploadFile, isUploading } = useUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sendFile = async (file: File) => {
@@ -887,27 +917,31 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
         </DialogContent>
       </Dialog>
 
-      <Dialog open={catalogOpen} onOpenChange={setCatalogOpen}>
+      <Dialog open={catalogOpen} onOpenChange={(o) => { setCatalogOpen(o); if (!o) setPickedProducts([]); }}>
         <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Send a catalog item</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Send products</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">The customer gets cards with photo and price and can add them to an order. Choose up to 10.</p>
           <ul className="divide-y">
-            {(catalogQuery.data?.items ?? []).filter((i) => i.isAvailable).map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  className="w-full text-left py-2 hover:bg-muted/50 px-2 rounded"
-                  onClick={() => {
-                    const price = item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`;
-                    setMessageInput(`${item.name} — ${price}${item.description ? `\n${item.description}` : ""}`);
-                    setCatalogOpen(false);
-                  }}
-                >
-                  <p className="font-medium">{item.name}</p>
-                  <p className="text-sm text-muted-foreground">{item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`}</p>
-                </button>
-              </li>
-            ))}
+            {(catalogQuery.data?.items ?? []).filter((i) => i.isAvailable).map((item) => {
+              const on = pickedProducts.includes(item.id);
+              return (
+                <li key={item.id}>
+                  <label className="flex w-full cursor-pointer items-center gap-3 rounded px-2 py-2 hover:bg-muted/50" data-testid={`pick-product-${item.id}`}>
+                    <input type="checkbox" checked={on} disabled={!on && pickedProducts.length >= 10}
+                      onChange={() => setPickedProducts(on ? pickedProducts.filter((x) => x !== item.id) : [...pickedProducts, item.id])} />
+                    <span className="flex-1">
+                      <span className="block font-medium">{item.name}</span>
+                      <span className="block text-sm text-muted-foreground">{item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`}</span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
           </ul>
+          <Button disabled={!pickedProducts.length || sendProducts.isPending} onClick={() => sendProducts.mutate()} data-testid="button-send-products">
+            {sendProducts.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Send {pickedProducts.length || ""} {pickedProducts.length === 1 ? "product" : "products"}
+          </Button>
         </DialogContent>
       </Dialog>
     </div>

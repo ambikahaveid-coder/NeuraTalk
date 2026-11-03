@@ -379,8 +379,9 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   }
   const senderParticipantId = ownParticipant.id;
 
-  // Form messages exist only when the server built their details (forms.ts).
-  const serverBuiltType = input.extraMetadata && (input.messageType === "form" || input.messageType === "form_response") ? input.messageType : null;
+  // Form and product-card messages exist only when the server built their details (forms.ts, catalog.ts),
+  // so nobody can send a product card with a made-up price.
+  const serverBuiltType = input.extraMetadata && (input.messageType === "form" || input.messageType === "form_response" || input.messageType === "product") ? input.messageType : null;
   const messageType = serverBuiltType
     ? serverBuiltType
     : input.location

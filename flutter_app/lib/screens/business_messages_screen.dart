@@ -18,6 +18,7 @@ import '../widgets/reactions.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/business_chat_extras.dart';
 import '../widgets/location_share.dart';
+import '../widgets/product_cards.dart';
 import 'call_screen.dart';
 
 /// Messages from businesses (NeuraTalk's own business chat): order updates,
@@ -911,6 +912,17 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     }
   }
 
+  /// "Add to order" on a product card: one more in the cart, then the order sheet.
+  void _addFromCard(Map<String, dynamic> product) {
+    final itemId = (product['id'] as num?)?.toInt();
+    if (itemId == null || !_catalog.any((c) => (c['id'] as num?)?.toInt() == itemId)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This product is not available right now.')));
+      return;
+    }
+    setState(() => _cart[itemId] = ((_cart[itemId] ?? 0) + 1).clamp(1, 99));
+    _openCatalog();
+  }
+
   bool _formAnswered(int messageId) => _messages.any((x) => ((x['metadata'] as Map?)?['formResponse'] as Map?)?['formMessageId'] == messageId);
 
   Widget _bubble(Map<String, dynamic> m) {
@@ -925,6 +937,9 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     final shown = translated != null && !showingOriginal ? translated : original;
     final attachments = (m['attachments'] as List? ?? const []).whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList();
     final location = m['messageType'] == 'location' ? ((m['metadata'] as Map?)?['location'] as Map?) : null;
+    final products = m['messageType'] == 'product'
+        ? (((m['metadata'] as Map?)?['products'] as List?) ?? const []).whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList()
+        : const <Map<String, dynamic>>[];
     final link = attachments.isEmpty && location == null ? firstLinkIn(shown) : null;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -965,6 +980,19 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               submitted: _formAnswered(id),
               onSubmit: mine || _blocked ? null : (answers) => _submitForm(id, answers),
             )
+          else if (products.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(products.length == 1 ? 'Product' : '${products.length} products',
+                  style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w600)),
+            ),
+            ProductCardsView(
+              products: products,
+              // Price and availability come from the catalog as it is now, not from the old message.
+              isAvailable: (itemId) => _catalog.any((c) => (c['id'] as num?)?.toInt() == itemId),
+              onAdd: mine || _blocked ? null : (p) => _addFromCard(p),
+            ),
+          ]
           else if (location != null)
             ChatLocationAttachment(
               geo: 'geo:${location['latitude']},${location['longitude']}',

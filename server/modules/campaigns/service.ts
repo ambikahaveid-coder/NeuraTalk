@@ -538,8 +538,8 @@ async function processOneRecipient(
 
     // Price set by NeuraTalk in Admin (falls back to the old fixed price).
     let pricePaise = PLACEHOLDER_COST_PER_MESSAGE_PAISE;
-    try { pricePaise = await campaignPricePaise(campaign.category); } catch { /* fixed price */ }
-    const charge = await chargeCampaignMessage(tx, businessId, pricePaise);
+    try { pricePaise = await campaignPricePaise(campaign.category, businessId); } catch { /* fixed price */ }
+    const charge = await chargeCampaignMessage(tx, businessId, pricePaise, campaign.category);
     if (!charge.charged) {
       return skip(charge.reason === "billing_not_configured" ? CAMPAIGN_SKIP_REASON.BILLING_NOT_CONFIGURED : CAMPAIGN_SKIP_REASON.INSUFFICIENT_CREDIT);
     }
@@ -839,7 +839,7 @@ export async function getCampaignPreflight(businessId: number, campaignId: numbe
   const billingConfigured = !!billingAccount && !billingAccount.isBlocked;
   const availableBalancePaise = billingAccount?.walletBalancePaise ?? 0;
   let unitPricePaise = PLACEHOLDER_COST_PER_MESSAGE_PAISE;
-  try { unitPricePaise = await campaignPricePaise(campaign.category); } catch { /* fixed price */ }
+  try { unitPricePaise = await campaignPricePaise(campaign.category, businessId); } catch { /* fixed price */ }
   const estimatedCostPaise = eligibleCount * unitPricePaise;
   const affordableRecipientCount = billingConfigured && unitPricePaise > 0 ? Math.floor(availableBalancePaise / unitPricePaise) : (billingConfigured ? eligibleCount : 0);
   const sufficientCreditForAllEligible = billingConfigured && availableBalancePaise >= estimatedCostPaise;

@@ -475,6 +475,8 @@ app.use((req, res, next) => {
     await ensureAutoResponderTables();
     const { ensureAutomationAdminTables } = await import("./modules/messaging/automation-admin");
     await ensureAutomationAdminTables();
+    const { ensureMessageCreditTables } = await import("./modules/billing/message-credits");
+    await ensureMessageCreditTables();
     const { ensureVerificationTable } = await import("./modules/business-verification/routes");
     await ensureVerificationTable();
     // Business chat: location / buttons / button replies live here.

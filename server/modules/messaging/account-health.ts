@@ -16,7 +16,7 @@ import { db } from "../../db";
 import { organizations, customers, customerConsents, campaigns, campaignRecipients, abuseReports, CAMPAIGN_RECIPIENT_STATUS, CUSTOMER_CONSENT_STATUS } from "@shared/schema";
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { listPolicyActions, isRestricted, type PolicyAction } from "./policy";
-import { getMessagePrices } from "./pricing";
+import { getMessagePricesFor } from "./pricing";
 
 export const MESSAGING_TIERS = [250, 1000, 10_000, 100_000] as const;
 export const DEFAULT_MESSAGING_TIER = MESSAGING_TIERS[0];
@@ -167,7 +167,7 @@ export async function getAccountHealth(businessId: number): Promise<AccountHealt
     await saveLimit(businessId, { tier, pinned: false, updatedAt: new Date(now).toISOString() });
   }
 
-  const [notices, prices] = await Promise.all([listPolicyActions(businessId, 10), getMessagePrices()]);
+  const [notices, prices] = await Promise.all([listPolicyActions(businessId, 10), getMessagePricesFor(businessId)]);
   const restricted = isRestricted(notices);
 
   const base: Omit<AccountHealth, "advice"> = {

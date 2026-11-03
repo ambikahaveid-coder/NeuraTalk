@@ -19,7 +19,10 @@ import { db } from "../../db";
 import { billingAccounts } from "@shared/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 
-type DbLike = Pick<typeof db, "select" | "update">;
+type DbLike = Pick<typeof db, "select" | "update"> & { execute?: typeof db.execute };
+
+/** Categories shown on the business's statement. */
+export type MessageChargeCategory = "marketing" | "utility" | "authentication" | string;
 
 export interface ChargeResult {
   charged: boolean;
@@ -37,7 +40,7 @@ export interface ChargeResult {
  * actual message/delivery-intent creation -- so a charge and its
  * corresponding send either both commit or both roll back together.
  */
-export async function chargeMessage(tx: DbLike, businessId: number, costPaise: number): Promise<ChargeResult> {
+export async function chargeMessage(tx: DbLike, businessId: number, costPaise: number, category?: MessageChargeCategory): Promise<ChargeResult> {
   const [account] = await tx.select().from(billingAccounts).where(eq(billingAccounts.organizationId, businessId));
   if (!account) return { charged: false, reason: "billing_not_configured" };
   if (account.isBlocked) return { charged: false, reason: "insufficient_credit" };
@@ -48,5 +51,14 @@ export async function chargeMessage(tx: DbLike, businessId: number, costPaise: n
     .returning();
 
   if (!updated) return { charged: false, reason: "insufficient_credit" };
+  // Daily statement line (same transaction: a rolled-back send is not on the statement either).
+  if (category && typeof tx.execute === "function") {
+    await tx.execute(sql`
+      INSERT INTO business_message_usage_daily (business_id, day, category, messages, amount_paise)
+      VALUES (${businessId}, (now() AT TIME ZONE 'Asia/Kolkata')::date, ${String(category).slice(0, 30)}, 1, ${costPaise})
+      ON CONFLICT (business_id, day, category) DO UPDATE SET
+        messages = business_message_usage_daily.messages + 1,
+        amount_paise = business_message_usage_daily.amount_paise + EXCLUDED.amount_paise`);
+  }
   return { charged: true, billingAccountId: account.id, costPaise };
 }

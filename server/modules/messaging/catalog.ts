@@ -62,6 +62,36 @@ export async function listCatalog(businessId: number, onlyAvailable: boolean) {
     .orderBy(asc(businessCatalogItems.sortOrder), asc(businessCatalogItems.id));
 }
 
+export const MAX_PRODUCTS_PER_CARD = 10;
+
+/**
+ * A product-card message built from the catalog as it is now: only this
+ * business's items, only available ones, in the order asked. Null when none
+ * are left (deleted or marked unavailable since).
+ */
+export async function productCardMessage(businessId: number, itemIds: number[]): Promise<{ content: string; metadata: Record<string, unknown> } | null> {
+  const wanted = Array.from(new Set(itemIds.filter((n) => Number.isSafeInteger(n) && n > 0))).slice(0, MAX_PRODUCTS_PER_CARD);
+  if (!wanted.length) return null;
+  const items = (await listCatalog(businessId, true)).filter((i) => wanted.includes(i.id));
+  if (!items.length) return null;
+  items.sort((a, b) => wanted.indexOf(a.id) - wanted.indexOf(b.id));
+  const price = (p: number | null) => (p == null ? "price on request" : `₹${(p / 100).toLocaleString("en-IN")}`);
+  const content = items.length === 1
+    ? `🛍️ ${items[0].name} — ${price(items[0].pricePaise)}`
+    : `🛍️ ${items.length} products: ${items.map((i) => i.name).join(", ")}`.slice(0, 500);
+  return {
+    content,
+    metadata: { products: items.map(({ id, name, description, pricePaise, imageUrl }) => ({ id, name, description, pricePaise, imageUrl })) },
+  };
+}
+
+/** Item ids that don't belong to this business (for validating saved bots). */
+export async function foreignOrMissingItems(businessId: number, itemIds: number[]): Promise<number[]> {
+  if (!itemIds.length) return [];
+  const own = new Set((await listCatalog(businessId, false)).map((i) => i.id));
+  return itemIds.filter((id) => !own.has(id));
+}
+
 export function registerCatalogRoutes(app: Express): void {
   const view = [requireAuth, requireCompanyAccess("businessId"), requirePermission(PERMISSIONS.MESSAGING_VIEW)];
   const manage = [requireAuth, requireCompanyAccess("businessId"), requireRole("company_admin", "super_admin")];
@@ -114,6 +144,31 @@ export function registerCatalogRoutes(app: Express): void {
       res.json({ success: true });
     } catch (error) { return fail(res, error, "Failed to remove item"); }
   });
+
+  // Team inbox: send product cards into a customer chat (24-hour rule applies, like any typed message).
+  app.post("/api/business/:businessId/conversations/:conversationId/products",
+    requireAuth, requireCompanyAccess("businessId"), requirePermission(PERMISSIONS.MESSAGING_SEND), async (req: Request, res: Response) => {
+      try {
+        const businessId = Number(req.params.businessId);
+        const parsed = z.object({ itemIds: z.array(z.number().int().positive()).min(1).max(MAX_PRODUCTS_PER_CARD) }).safeParse(req.body ?? {});
+        if (!parsed.success) return res.status(400).json({ success: false, error: `Choose 1 to ${MAX_PRODUCTS_PER_CARD} products` });
+        if ((await foreignOrMissingItems(businessId, parsed.data.itemIds)).length) return res.status(400).json({ success: false, error: "Some products aren't in your catalog" });
+        const card = await productCardMessage(businessId, parsed.data.itemIds);
+        if (!card) return res.status(400).json({ success: false, error: "These products are not available right now" });
+        const { sendBusinessAgentMessage } = await import("./service");
+        const sent = await sendBusinessAgentMessage({
+          businessId, businessConversationId: Number(req.params.conversationId), authenticatedUserId: req.user!.id,
+          content: card.content, messageType: "product", extraMetadata: card.metadata,
+        } as Parameters<typeof sendBusinessAgentMessage>[0]);
+        res.status(201).json({ success: true, message: sent.message });
+      } catch (error) {
+        const name = (error as Error)?.name;
+        if (name === "ServiceWindowClosedError") return res.status(409).json({ success: false, code: "SERVICE_WINDOW_CLOSED", error: "The customer hasn't written in the last 24 hours. Send an approved template instead." });
+        if (name === "NotFoundError") return res.status(404).json({ success: false, error: "Conversation not found" });
+        if (name === "NotYourAssignmentError") return res.status(403).json({ success: false, error: "This conversation is assigned to someone else" });
+        return fail(res, error, "Failed to send products");
+      }
+    });
 
   // Customer: what this business offers (available items only).
   app.get("/api/messaging/business/:businessId/catalog", requireAuth, async (req: Request, res: Response) => {

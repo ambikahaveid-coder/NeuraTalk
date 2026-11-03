@@ -123,7 +123,7 @@ export function registerAutomationAdminRoutes(app: Express): void {
     const orgId = Number(req.params.orgId);
     if (!Number.isSafeInteger(orgId) || orgId <= 0) return res.status(400).json({ success: false, error: "Invalid id." });
     const bots = rows<Record<string, unknown>>(await db.execute(sql`
-      SELECT r.id, r.name, r.trigger_type, r.keywords, r.reply_text, r.buttons, r.is_active, r.cooldown_seconds,
+      SELECT r.id, r.name, r.trigger_type, r.keywords, r.reply_text, r.buttons, r.product_ids, r.is_active, r.cooldown_seconds,
         (SELECT count(*)::int FROM business_auto_responder_runs x WHERE x.responder_id = r.id) AS hits
       FROM business_auto_responders r WHERE r.business_id = ${orgId} ORDER BY r.priority DESC, r.id`));
     const calls = rows<Record<string, unknown>>(await db.execute(sql`
@@ -136,7 +136,7 @@ export function registerAutomationAdminRoutes(app: Express): void {
     res.json({
       success: true,
       controls: await getAutomationControls(orgId),
-      bots: bots.map((b) => ({ id: b.id, name: b.name, triggerType: b.trigger_type, keywords: b.keywords, replyText: b.reply_text, buttons: b.buttons, isActive: b.is_active, cooldownSeconds: b.cooldown_seconds, hits: b.hits })),
+      bots: bots.map((b) => ({ id: b.id, name: b.name, productCount: Array.isArray(b.product_ids) ? b.product_ids.length : 0, triggerType: b.trigger_type, keywords: b.keywords, replyText: b.reply_text, buttons: b.buttons, isActive: b.is_active, cooldownSeconds: b.cooldown_seconds, hits: b.hits })),
       apiCalls: calls.map((c) => ({ id: Number(c.id), apiKeyId: c.api_key_id, endpoint: c.endpoint, kind: c.kind, httpStatus: c.http_status, code: c.code, chargedPaise: c.charged_paise, createdAt: c.created_at })),
       apiErrors7d: errors.map((e) => ({ code: e.code ?? `HTTP_${e.http_status}`, count: e.n })),
     });

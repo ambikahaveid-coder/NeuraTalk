@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/nt_ui.dart';
+import '../widgets/product_cards.dart';
 import 'business_account.dart';
 
 /// Auto-reply bot: when a customer types a word like "price" (or taps a
@@ -56,7 +57,7 @@ class _BusinessAutoReplyScreenState extends State<BusinessAutoReplyScreen> {
       ];
 
   Map<String, dynamic> _body(Map<String, dynamic> b) => {
-        for (final k in const ['name', 'triggerType', 'matchType', 'keywords', 'replyText', 'buttons', 'formId', 'priority', 'cooldownSeconds', 'isActive']) k: b[k],
+        for (final k in const ['name', 'triggerType', 'matchType', 'keywords', 'replyText', 'buttons', 'formId', 'productIds', 'priority', 'cooldownSeconds', 'isActive']) k: b[k] ?? (k == 'productIds' ? const [] : null),
       };
 
   Future<void> _toggle(Map<String, dynamic> b) async {
@@ -207,8 +208,25 @@ class _AutoReplyEditorState extends State<_AutoReplyEditor> {
       if (b['type'] == 'quick_reply') (b['id']?.toString(), TextEditingController(text: '${b['title']}')),
   ];
   bool _saving = false;
+  // Catalog responder: products sent as cards after the reply.
+  late final List<int> _productIds = [for (final p in (widget.initial?['productIds'] as List? ?? const [])) (p as num).toInt()];
+  List<Map<String, dynamic>> _catalog = const [];
 
   String get _base => '${context.read<BusinessAccount>().base}/auto-responders';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final res = await ApiService.get('${context.read<BusinessAccount>().base}/catalog');
+        final items = ((res as Map)['items'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+        if (mounted) setState(() => _catalog = items);
+      } catch (_) {
+        // No catalog access: the product section stays hidden.
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -252,6 +270,7 @@ class _AutoReplyEditorState extends State<_AutoReplyEditor> {
       'replyText': _reply.text.trim(),
       'buttons': buttons.take(3).toList(),
       'formId': widget.initial?['formId'],
+      'productIds': _productIds,
       'priority': (widget.initial?['priority'] as num?)?.toInt() ?? 100,
       'cooldownSeconds': _cooldown,
       'isActive': widget.initial?['isActive'] ?? true,
@@ -388,6 +407,28 @@ class _AutoReplyEditorState extends State<_AutoReplyEditor> {
             title: Text('${b['title']}'),
             subtitle: Text('${b['url'] ?? b['phone'] ?? ''} · change it on the computer'),
           ),
+        if (_catalog.any((i) => i['isAvailable'] != false)) ...[
+          const SizedBox(height: 12),
+          Text('Also send products (up to 10)', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final i in _catalog.where((i) => i['isAvailable'] != false))
+              FilterChip(
+                label: Text('${i['name']} · ${productPrice(i['pricePaise'])}'),
+                selected: _productIds.contains((i['id'] as num).toInt()),
+                onSelected: (on) => setState(() {
+                  final id = (i['id'] as num).toInt();
+                  if (on && _productIds.length < 10) {
+                    _productIds.add(id);
+                  } else {
+                    _productIds.remove(id);
+                  }
+                }),
+              ),
+          ]),
+          const SizedBox(height: 4),
+          Text('Customers get cards with photo and price and can add them to an order.', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+        ],
         const SizedBox(height: 12),
         DropdownButtonFormField<int>(
           initialValue: const [0, 60, 600, 3600, 86400].contains(_cooldown) ? _cooldown : 60,

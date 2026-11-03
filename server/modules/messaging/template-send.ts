@@ -241,7 +241,7 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
   }
 
   let price = 10;
-  try { price = await campaignPricePaise(template.category); } catch { /* default */ }
+  try { price = await campaignPricePaise(template.category, input.businessId); } catch { /* default */ }
 
   const result = await db.transaction(async (tx) => {
     if (template.category === MESSAGE_CATEGORY.MARKETING) {
@@ -250,7 +250,7 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
       const throughput = await reserveBusinessThroughputSlot(tx, input.businessId);
       if (!throughput.allowed) throw new TemplateSendError("Too many offers this hour. Try again later.", "THROUGHPUT_CAP", 429);
     }
-    const charge = await chargeCampaignMessage(tx, input.businessId, price);
+    const charge = await chargeCampaignMessage(tx, input.businessId, price, template.category);
     if (!charge.charged) {
       throw new TemplateSendError(
         charge.reason === "billing_not_configured" ? "Billing isn't set up for your business yet." : "Not enough balance in your wallet.",

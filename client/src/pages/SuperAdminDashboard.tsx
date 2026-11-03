@@ -33,10 +33,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDuration, languageName, CallLogsSection, LanguagesSection, FeatureFlagsSection, LegalSection, SupportSection, SystemHealthSection, SlaDashboardSection, AbuseReportsSection, VoiceClonesSection, PaymentGatewaysSection, ComplianceSection, PlatformSettingsSection, WebhooksSection, TenantsSection, DiagnosticsSection, CommunicationApiSection, LocationsSection } from "./AdminSections";
 import { PhoneLinesSection } from "./admin/PhoneLinesSection";
 import { BusinessAutomationSection } from "./admin/BusinessAutomationSection";
+import { MessageCreditsAdminSection } from "./admin/MessageCreditsAdminSection";
 import { LogoWithIcon } from "@/components/Logo";
 import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth, type PolicyNotice } from "@/lib/account-health";
 
-type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "voices" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations" | "phone-lines" | "bots-api";
+type Section = "overview" | "companies" | "users" | "billing" | "analytics" | "calls" | "languages" | "integrations" | "feature-flags" | "legal" | "support" | "health" | "sla" | "abuse" | "voices" | "payments" | "audit" | "settings" | "compliance" | "platform-settings" | "webhooks" | "tenants" | "diagnostics" | "communication-api" | "locations" | "phone-lines" | "bots-api" | "message-credits";
 
 const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: string }[] = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="w-4 h-4" />, group: "Dashboard" },
@@ -46,6 +47,7 @@ const menuItems: { id: Section; label: string; icon: React.ReactNode; group?: st
   { id: "calls", label: "Call Logs", icon: <PhoneCall className="w-4 h-4" />, group: "Management" },
   { id: "bots-api", label: "Bots & API", icon: <Key className="w-4 h-4" />, group: "Management" },
   { id: "billing", label: "Billing & Plans", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
+  { id: "message-credits", label: "Message Credits", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
   { id: "payments", label: "Payment Gateways", icon: <CreditCard className="w-4 h-4" />, group: "Revenue" },
   { id: "analytics", label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, group: "Revenue" },
   { id: "languages", label: "Languages", icon: <Globe className="w-4 h-4" />, group: "Platform" },
@@ -161,7 +163,7 @@ export default function SuperAdminDashboard() {
               <div className="min-w-0">
               <h1 className="text-2xl font-bold" data-testid="text-admin-section-title">{activeItem?.label ?? "Overview"}</h1>
               <p className="text-sm text-muted-foreground">
-                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", "phone-lines": "Exotel line, incoming calls and business numbers", "bots-api": "Company auto-reply bots and API sending: usage and pause", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", voices: "Voices people recorded for translated calls", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
+                {{ overview: "Platform overview and quick actions", companies: "Manage B2B company accounts", tenants: "Per-tenant database isolation, security policy & health", users: "Manage platform users & role assignments", billing: "Revenue plans, subscriptions & invoices", payments: "Payment gateway configuration", analytics: "Platform metrics, charts & reports", calls: "View all call logs & quality metrics", languages: "Manage supported translation languages", integrations: "Enterprise API keys & third-party configs", webhooks: "Per-company webhook endpoints", "communication-api": "Communication API sessions & pricing", "phone-lines": "Exotel line, incoming calls and business numbers", "bots-api": "Company auto-reply bots and API sending: usage and pause", "message-credits": "Confirm business payments, credit packs and special rates", locations: "Countries, states, cities & pincodes", "feature-flags": "Toggle platform features & rollout control", "platform-settings": "Generic platform key/value configuration", legal: "Legal documents, privacy policy & terms", support: "Support contacts & help resources", health: "Real-time system health & service status", sla: "Availability, latency & throughput SLAs", diagnostics: "Active translator bots & live pipeline test", compliance: "Backup jobs & data residency policies", abuse: "Review and act on user-submitted reports", voices: "Voices people recorded for translated calls", audit: "System activity and audit trail", settings: "Platform-wide configuration" }[activeSection]}
               </p>
               </div>
             </div>
@@ -221,6 +223,7 @@ export default function SuperAdminDashboard() {
           {activeSection === "locations" && <LocationsSection />}
           {activeSection === "phone-lines" && <PhoneLinesSection />}
           {activeSection === "bots-api" && <BusinessAutomationSection />}
+          {activeSection === "message-credits" && <MessageCreditsAdminSection />}
           {activeSection === "audit" && <AuditSection />}
           {activeSection === "settings" && <SettingsSection />}
         </div>

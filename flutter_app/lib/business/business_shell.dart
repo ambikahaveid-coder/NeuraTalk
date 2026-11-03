@@ -32,6 +32,7 @@ import 'business_tools_screen.dart';
 import 'template_picker.dart';
 import '../widgets/business_chat_extras.dart';
 import '../widgets/location_share.dart';
+import '../widgets/product_cards.dart';
 import '../utils/phone_format.dart';
 
 /// NeuraTalk Business: like WhatsApp Business, inside NeuraTalk. Chats with
@@ -769,6 +770,81 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     }
   }
 
+  /// Pick up to 10 catalog items and send them as product cards.
+  Future<void> _sendProducts() async {
+    List<Map<String, dynamic>> items;
+    try {
+      final res = await ApiService.get('$_base/catalog');
+      items = ((res as Map)['items'] as List? ?? const []).whereType<Map>().map((m) => Map<String, dynamic>.from(m)).where((i) => i['isAvailable'] != false).toList();
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load your catalog.')));
+      return;
+    }
+    if (!mounted) return;
+    if (items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add products in Tools → Catalog first.')));
+      return;
+    }
+    final picked = await showModalBottomSheet<List<int>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      builder: (sheet) {
+        final chosen = <int>{};
+        return StatefulBuilder(builder: (context, setSheet) => SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                title: Text('Send products', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+                subtitle: Text('The customer sees photo and price and can add them to an order. Up to 10.', style: TextStyle(color: AppColors.textSecondary)),
+              ),
+              Flexible(
+                child: ListView(shrinkWrap: true, children: [
+                  for (final i in items)
+                    CheckboxListTile(
+                      value: chosen.contains((i['id'] as num).toInt()),
+                      onChanged: (v) => setSheet(() {
+                        final id = (i['id'] as num).toInt();
+                        if (v == true && chosen.length < 10) {
+                          chosen.add(id);
+                        } else {
+                          chosen.remove(id);
+                        }
+                      }),
+                      title: Text('${i['name']}', style: TextStyle(color: AppColors.ink)),
+                      subtitle: Text(productPrice(i['pricePaise']), style: TextStyle(color: AppColors.textSecondary)),
+                    ),
+                ]),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: chosen.isEmpty ? null : () => Navigator.pop(sheet, chosen.toList()),
+                    child: Text(chosen.isEmpty ? 'Choose products' : 'Send ${chosen.length} ${chosen.length == 1 ? 'product' : 'products'}'),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ));
+      },
+    );
+    if (picked == null || picked.isEmpty || !mounted) return;
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/products', {'itemIds': picked});
+      await _load(quiet: true);
+    } catch (e) {
+      if (e is ApiException && e.statusCode == 409 && mounted) setState(() => _windowOpen = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Products not sent. Try again.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _attach() async {
     final picked = await AttachmentPicker.show(context, onLocation: _shareLocation);
     for (final (file, name) in picked.take(5)) {
@@ -1023,6 +1099,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             child: Row(children: [
               IconButton(tooltip: 'Attach a photo, file or location', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
               IconButton(tooltip: 'Send a form', onPressed: _sending ? null : _sendForm, icon: Icon(Icons.assignment_outlined, color: AppColors.textSecondary)),
+              IconButton(tooltip: 'Send products', onPressed: _sending ? null : _sendProducts, icon: Icon(Icons.shopping_bag_outlined, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -1108,6 +1185,13 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
             Text(shownText, style: TextStyle(color: AppColors.ink, fontSize: 15)),
           if ((m['metadata'] as Map?)?['footer'] is String)
             Text('${(m['metadata'] as Map)['footer']}', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          if (m['messageType'] == 'product' && (m['metadata'] as Map?)?['products'] is List)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: ProductCardsView(
+                products: ((m['metadata'] as Map)['products'] as List).whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList(),
+              ),
+            ),
           // Our buttons as the customer sees them (not tappable here).
           if ((m['metadata'] as Map?)?['buttons'] is List)
             MessageButtonsView(buttons: (m['metadata'] as Map)['buttons'] as List),

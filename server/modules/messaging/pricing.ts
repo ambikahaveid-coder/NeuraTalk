@@ -70,8 +70,34 @@ export async function setMessagePrices(input: { marketingPaise: number; utilityP
   return getMessagePrices();
 }
 
-/** Price of one campaign message in its category. */
-export async function campaignPricePaise(category: string): Promise<number> {
-  const p = await getMessagePrices();
+/**
+ * Prices for one business: its special rates (set by NeuraTalk in
+ * business_message_rates, see billing/message-credits.ts) where set, else the
+ * standard prices. No cache: a rate change must apply on every server at once.
+ */
+export async function getMessagePricesFor(businessId?: number | null): Promise<MessagePrices & { special: boolean }> {
+  const base = await getMessagePrices();
+  if (!businessId) return { ...base, special: false };
+  try {
+    const [r] = rows(await db.execute(sql`
+      SELECT marketing_paise, utility_paise, otp_paise FROM business_message_rates WHERE business_id = ${businessId}`));
+    if (!r) return { ...base, special: false };
+    const pick = (v: unknown, d: number) => (v === null || v === undefined ? d : Number(v));
+    const special = r.marketing_paise != null || r.utility_paise != null || r.otp_paise != null;
+    return {
+      marketingPaise: pick(r.marketing_paise, base.marketingPaise),
+      utilityPaise: pick(r.utility_paise, base.utilityPaise),
+      otpPaise: pick(r.otp_paise, base.otpPaise),
+      updatedAt: base.updatedAt,
+      special,
+    };
+  } catch {
+    return { ...base, special: false }; // rates table not created yet
+  }
+}
+
+/** Price of one campaign message in its category, for this business. */
+export async function campaignPricePaise(category: string, businessId?: number | null): Promise<number> {
+  const p = await getMessagePricesFor(businessId);
   return category === "marketing" ? p.marketingPaise : p.utilityPaise;
 }

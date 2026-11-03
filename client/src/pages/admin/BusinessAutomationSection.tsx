@@ -19,7 +19,7 @@ type CompanyRow = {
 };
 type Detail = {
   controls: { botsPaused: boolean; apiPaused: boolean; reason: string | null; updatedAt: string | null };
-  bots: Array<{ id: number; name: string; triggerType: string; keywords: string[]; replyText: string; isActive: boolean; hits: number; buttons: Array<{ title: string }> }>;
+  bots: Array<{ id: number; name: string; triggerType: string; keywords: string[]; replyText: string; isActive: boolean; hits: number; productCount?: number; buttons: Array<{ title: string }> }>;
   apiCalls: Array<{ id: number; apiKeyId: number | null; endpoint: string; kind: string | null; httpStatus: number; code: string | null; chargedPaise: number; createdAt: string }>;
   apiErrors7d: Array<{ code: string; count: number }>;
 };
@@ -105,7 +105,7 @@ function CompanyDetail({ company, onClose }: { company: CompanyRow; onClose: () 
                       <TableRow key={b.id}>
                         <TableCell className="font-medium">{b.name}</TableCell>
                         <TableCell className="max-w-[180px] truncate text-xs">{b.triggerType === "button" ? "Button tap" : b.keywords.join(", ")}</TableCell>
-                        <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground" title={b.replyText}>{b.replyText}</TableCell>
+                        <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground" title={b.replyText}>{b.replyText}{b.productCount ? ` · ${b.productCount} product card${b.productCount === 1 ? "" : "s"}` : ""}</TableCell>
                         <TableCell className="text-right">{b.hits}</TableCell>
                         <TableCell>{b.isActive ? <Badge variant="secondary">On</Badge> : <Badge variant="outline">Off</Badge>}</TableCell>
                       </TableRow>

@@ -21,11 +21,13 @@ import { getAuthToken } from "@/hooks/use-auth";
 type ButtonDef = { type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string };
 interface Responder {
   id: number; name: string; triggerType: "keyword" | "button"; matchType: "exact" | "contains" | "starts_with";
-  keywords: string[]; replyText: string; buttons: ButtonDef[]; formId: number | null; priority: number;
+  keywords: string[]; replyText: string; buttons: ButtonDef[]; formId: number | null; productIds: number[]; priority: number;
   cooldownSeconds: number; isActive: boolean; hits?: number; lastHitAt?: string | null;
 }
 interface Run { id: number; responderName: string; matched: string; customerName: string | null; createdAt: string }
 interface FormLite { id: number; name: string; title: string }
+interface Product { id: number; name: string; pricePaise: number | null; imageUrl: string | null; isAvailable: boolean }
+const price = (p: number | null) => (p == null ? "Price on request" : `₹${(p / 100).toLocaleString("en-IN")}`);
 
 const MATCH_LABEL: Record<string, string> = {
   contains: "Message contains the word",
@@ -46,14 +48,14 @@ async function call<T = any>(method: string, path: string, body?: unknown): Prom
 
 const blank = (): Omit<Responder, "id"> => ({
   name: "", triggerType: "keyword", matchType: "contains", keywords: [], replyText: "", buttons: [],
-  formId: null, priority: 100, cooldownSeconds: 60, isActive: true,
+  formId: null, productIds: [], priority: 100, cooldownSeconds: 60, isActive: true,
 });
 
 // Button ids are unique per business so a tap starts exactly the auto-reply chosen for it.
 const slug = (s: string) => `${s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 30) || "btn"}_${Math.random().toString(36).slice(2, 7)}`;
 
 /** The reply as the customer will see it: a chat bubble with buttons under it. */
-function ReplyPreview({ text, buttons, formTitle }: { text: string; buttons: ButtonDef[]; formTitle?: string }) {
+function ReplyPreview({ text, buttons, formTitle, products = [] }: { text: string; buttons: ButtonDef[]; formTitle?: string; products?: Product[] }) {
   const shown = text.replace(/\{\{\s*first_name\s*\}\}/gi, "Ravi").replace(/\{\{\s*name\s*\}\}/gi, "Ravi Kumar");
   return (
     <div className="rounded-lg bg-[#efeae2] dark:bg-[#0b141a] p-3">
@@ -67,6 +69,17 @@ function ReplyPreview({ text, buttons, formTitle }: { text: string; buttons: But
           {b.title || "Button"}
         </div>
       ))}
+      {products.length > 0 && (
+        <div className="mt-1 flex max-w-[85%] gap-1.5 overflow-x-auto">
+          {products.map((p) => (
+            <div key={p.id} className="w-28 shrink-0 overflow-hidden rounded-lg bg-white shadow-sm dark:bg-[#202c33]">
+              <div className="flex h-16 items-center justify-center bg-muted text-xl">{p.imageUrl ? <img src={p.imageUrl} alt="" className="h-16 w-full object-cover" /> : "🛍️"}</div>
+              <p className="truncate px-2 pt-1 text-xs font-medium text-[#111b21] dark:text-[#e9edef]">{p.name}</p>
+              <p className="px-2 pb-1 text-xs text-[#667781] dark:text-[#8696a0]">{price(p.pricePaise)}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {formTitle && (
         <div className="mt-1 max-w-[85%] rounded-lg bg-white dark:bg-[#202c33] px-3 py-2 text-sm shadow-sm">📝 {formTitle} <span className="text-xs text-muted-foreground">· form</span></div>
       )}
@@ -74,8 +87,8 @@ function ReplyPreview({ text, buttons, formTitle }: { text: string; buttons: But
   );
 }
 
-function Editor({ initial, forms, buttonIds, onCancel, onSave, saving }: {
-  initial: Omit<Responder, "id"> & { id?: number }; forms: FormLite[]; buttonIds: { id: string; title: string }[];
+function Editor({ initial, forms, products, buttonIds, onCancel, onSave, saving }: {
+  initial: Omit<Responder, "id"> & { id?: number }; forms: FormLite[]; products: Product[]; buttonIds: { id: string; title: string }[];
   onCancel: () => void; onSave: (r: Omit<Responder, "id"> & { id?: number }) => void; saving: boolean;
 }) {
   const [r, setR] = useState(initial);
@@ -88,6 +101,7 @@ function Editor({ initial, forms, buttonIds, onCancel, onSave, saving }: {
   };
   const setButton = (i: number, b: Partial<ButtonDef>) => set("buttons", r.buttons.map((x, j) => (j === i ? { ...x, ...b } : x)));
   const formTitle = forms.find((f) => f.id === r.formId)?.title;
+  const chosen = (r.productIds ?? []).map((id) => products.find((p) => p.id === id)).filter((p): p is Product => Boolean(p));
 
   return (
     <Card data-testid="auto-responder-editor">
@@ -185,6 +199,25 @@ function Editor({ initial, forms, buttonIds, onCancel, onSave, saving }: {
             ))}
           </div>
 
+          {products.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Also send products from your catalog (optional, up to 10)</Label>
+              <div className="flex max-h-48 flex-wrap gap-1.5 overflow-y-auto rounded-md border p-2" data-testid="ar-products">
+                {products.filter((p) => p.isAvailable).map((p) => {
+                  const on = (r.productIds ?? []).includes(p.id);
+                  return (
+                    <button key={p.id} type="button" data-testid={`ar-product-${p.id}`}
+                      onClick={() => set("productIds", on ? r.productIds.filter((x) => x !== p.id) : [...(r.productIds ?? []), p.id].slice(0, 10))}
+                      className={`rounded-full border px-3 py-1 text-xs ${on ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                      {p.name} · {price(p.pricePaise)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">Customers see a card with photo and price and can add it to an order. Sold-out items are skipped automatically.</p>
+            </div>
+          )}
+
           {forms.length > 0 && (
             <div className="space-y-1.5">
               <Label>Also send a form (optional)</Label>
@@ -228,7 +261,7 @@ function Editor({ initial, forms, buttonIds, onCancel, onSave, saving }: {
         </div>
         <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">What the customer sees</p>
-          <ReplyPreview text={r.replyText} buttons={r.buttons} formTitle={formTitle} />
+          <ReplyPreview text={r.replyText} buttons={r.buttons} formTitle={formTitle} products={chosen} />
         </div>
       </CardContent>
     </Card>
@@ -244,6 +277,7 @@ export default function AutoRespondersSection({ base }: { base: string }) {
   });
   const runs = useQuery<{ runs: Run[] }>({ queryKey: [...key, "runs"], queryFn: () => call("GET", `${base}/auto-responders/runs?limit=20`), retry: false });
   const forms = useQuery<{ forms: FormLite[] }>({ queryKey: [base, "forms"], queryFn: () => call("GET", `${base}/forms`), retry: false });
+  const catalog = useQuery<{ items: Product[] }>({ queryKey: [base, "catalog"], queryFn: () => call("GET", `${base}/catalog`), retry: false });
   const [editing, setEditing] = useState<(Omit<Responder, "id"> & { id?: number }) | null>(null);
   const [testText, setTestText] = useState("");
   const [testResult, setTestResult] = useState<{ text: string; match: { responder: Responder; matched: string; reply: string } | null } | null>(null);
@@ -274,7 +308,7 @@ export default function AutoRespondersSection({ base }: { base: string }) {
   const max = list.data?.limits.maxResponders ?? 50;
 
   if (editing) {
-    return <Editor initial={editing} forms={forms.data?.forms ?? []} buttonIds={buttonIds} onCancel={() => setEditing(null)} onSave={(r) => save.mutate(r)} saving={save.isPending} />;
+    return <Editor initial={{ ...editing, productIds: editing.productIds ?? [] }} forms={forms.data?.forms ?? []} products={catalog.data?.items ?? []} buttonIds={buttonIds} onCancel={() => setEditing(null)} onSave={(r) => save.mutate(r)} saving={save.isPending} />;
   }
 
   return (
@@ -320,6 +354,7 @@ export default function AutoRespondersSection({ base }: { base: string }) {
                   </div>
                   <p className="line-clamp-2 text-sm text-muted-foreground">{r.replyText}</p>
                   {r.buttons.length > 0 && <p className="text-xs text-muted-foreground">Buttons: {r.buttons.map((b) => b.title).join(" · ")}</p>}
+                  {(r.productIds?.length ?? 0) > 0 && <p className="text-xs text-muted-foreground">Products: {r.productIds.map((id) => catalog.data?.items.find((p) => p.id === id)?.name ?? `#${id}`).join(" · ")}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={r.isActive} onCheckedChange={() => toggle.mutate(r)} aria-label={`Turn ${r.name} ${r.isActive ? "off" : "on"}`} />

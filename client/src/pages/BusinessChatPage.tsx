@@ -89,6 +89,7 @@ interface BusinessMessage {
   /** The message in my language (business messages), original kept in `content`. */
   translatedContent?: string | null;
   attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
+  metadata?: { products?: Array<{ id: number; name: string; description?: string | null; pricePaise: number | null; imageUrl: string | null }> } | null;
 }
 
 interface PublicProfile {
@@ -491,13 +492,27 @@ export default function BusinessChatPage() {
                     // viewerParticipantId, never assumed. A message whose
                     // sender isn't the viewer is the business's reply.
                     const isMine = viewerParticipantId != null && message.senderParticipantId === viewerParticipantId;
+                    const products = message.metadata?.products ?? [];
                     return (
-                      // Future translation home: ChatMessage's existing
-                      // secondaryContent prop is exactly where a translated
-                      // rendering would go once business translation ships --
-                      // no rewrite needed, just pass a value here.
+                      <div key={message.id} className="space-y-1.5">
+                      {products.length > 0 && !isMine && (
+                        <div className="flex gap-2 overflow-x-auto pb-1" data-testid={`customer-product-cards-${message.id}`}>
+                          {products.map((p) => (
+                            <div key={p.id} className="w-40 shrink-0 overflow-hidden rounded-xl border bg-card">
+                              <div className="flex h-24 items-center justify-center bg-muted text-3xl">{p.imageUrl ? <img src={p.imageUrl} alt="" className="h-24 w-full object-cover" /> : "🛍️"}</div>
+                              <div className="space-y-1 p-2">
+                                <p className="truncate text-sm font-medium">{p.name}</p>
+                                <p className="text-sm text-muted-foreground">{rupees(p.pricePaise)}</p>
+                                <Button size="sm" variant="outline" className="w-full" onClick={() => setMessageInput(`Hi, I am interested in ${p.name} (${rupees(p.pricePaise)}).`)}>
+                                  Ask about this
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* The original text goes in secondaryContent when a translation is shown. */}
                       <ChatMessage
-                        key={message.id}
                         role={isMine ? "user" : "assistant"}
                         content={message.translatedContent || message.content}
                         secondaryContent={message.translatedContent ? message.content : null}
@@ -521,6 +536,7 @@ export default function BusinessChatPage() {
                         senderName={isMine ? undefined : businessName}
                         status={isMine && message.deliveryToBusiness ? TICK_LABEL[message.deliveryToBusiness] ?? null : null}
                       />
+                      </div>
                     );
                   })
                 )}

@@ -25,6 +25,7 @@ import { requireAuth, requireCompanyAccess, requirePermission, requireRole } fro
 import { logger } from "../../observability";
 import { messageButtonsSchema } from "./template-send";
 import { getAutomationControls } from "./automation-admin";
+import { foreignOrMissingItems, MAX_PRODUCTS_PER_CARD, productCardMessage } from "./catalog";
 
 const rows = <T>(r: unknown) => (r as { rows: T[] }).rows;
 
@@ -51,6 +52,8 @@ export async function ensureAutoResponderTables(): Promise<void> {
       "created_at" timestamp DEFAULT now(),
       "updated_at" timestamp DEFAULT now()
     )`);
+  // Catalog responder: product cards sent after the reply (added Nov 2026).
+  await db.execute(sql`ALTER TABLE "business_auto_responders" ADD COLUMN IF NOT EXISTS "product_ids" jsonb NOT NULL DEFAULT '[]'::jsonb`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "business_auto_responders_business_idx" ON "business_auto_responders" ("business_id", "is_active")`);
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS "business_auto_responder_runs" (
@@ -82,6 +85,8 @@ export const responderSchema = z.object({
   replyText: z.string().trim().min(1, "Write the reply").max(1000),
   buttons: messageButtonsSchema.default([]),
   formId: z.number().int().positive().nullable().optional(),
+  // Catalog responder: up to 10 products sent as cards after the reply.
+  productIds: z.array(z.number().int().positive()).max(MAX_PRODUCTS_PER_CARD).default([]).transform((a) => Array.from(new Set(a))),
   priority: z.number().int().min(1).max(1000).default(100),
   cooldownSeconds: z.number().int().min(0).max(86_400).default(60),
   isActive: z.boolean().default(true),
@@ -90,13 +95,13 @@ export type ResponderInput = z.infer<typeof responderSchema>;
 
 type ResponderRow = {
   id: number; business_id: number; name: string; trigger_type: string; match_type: string; keywords: string[];
-  reply_text: string; buttons: unknown[]; form_id: number | null; priority: number; cooldown_seconds: number;
+  reply_text: string; buttons: unknown[]; form_id: number | null; product_ids: number[]; priority: number; cooldown_seconds: number;
   is_active: boolean; created_at: Date; updated_at: Date;
 };
 
 const present = (r: ResponderRow, extra: Record<string, unknown> = {}) => ({
   id: r.id, name: r.name, triggerType: r.trigger_type, matchType: r.match_type, keywords: r.keywords,
-  replyText: r.reply_text, buttons: r.buttons, formId: r.form_id, priority: r.priority,
+  replyText: r.reply_text, buttons: r.buttons, formId: r.form_id, productIds: r.product_ids ?? [], priority: r.priority,
   cooldownSeconds: r.cooldown_seconds, isActive: r.is_active, createdAt: r.created_at, updatedAt: r.updated_at, ...extra,
 });
 
@@ -217,6 +222,15 @@ export async function runAutoResponders(input: {
       const buttons = Array.isArray(r.buttons) ? r.buttons : [];
       replyId = await input.send(content, { metadata: { ...(buttons.length ? { buttons } : {}), autoResponderId: r.id } });
     }
+    // Catalog responder: current, available products only (a deleted or sold-out item is skipped).
+    const productIds = Array.isArray(r.product_ids) ? r.product_ids.map(Number) : [];
+    if (productIds.length) {
+      const card = await productCardMessage(input.businessId, productIds);
+      if (card) {
+        const cardId = await input.send(card.content, { messageType: "product", metadata: { ...card.metadata, autoResponderId: r.id } });
+        replyId = replyId ?? cardId;
+      }
+    }
     await db.execute(sql`UPDATE business_auto_responder_runs SET reply_message_id = ${replyId} WHERE id = ${claimed[0].id}`);
     return replyId != null;
   } catch (error) {
@@ -262,12 +276,13 @@ export function registerAutoResponderRoutes(app: Express): void {
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the auto-reply." });
     const d = parsed.data;
     if (!(await formBelongs(businessId, d.formId))) return res.status(400).json({ success: false, error: "That form doesn't exist." });
+    if ((await foreignOrMissingItems(businessId, d.productIds)).length) return res.status(400).json({ success: false, error: "Some products aren't in your catalog." });
     const [{ n }] = rows<{ n: number }>(await db.execute(sql`SELECT count(*)::int AS n FROM business_auto_responders WHERE business_id = ${businessId}`));
     if (n >= MAX_RESPONDERS_PER_BUSINESS) return res.status(400).json({ success: false, error: `You can keep up to ${MAX_RESPONDERS_PER_BUSINESS} auto-replies.` });
     const [r] = rows<ResponderRow>(await db.execute(sql`
-      INSERT INTO business_auto_responders (business_id, name, trigger_type, match_type, keywords, reply_text, buttons, form_id, priority, cooldown_seconds, is_active, created_by)
+      INSERT INTO business_auto_responders (business_id, name, trigger_type, match_type, keywords, reply_text, buttons, form_id, product_ids, priority, cooldown_seconds, is_active, created_by)
       VALUES (${businessId}, ${d.name}, ${d.triggerType}, ${d.matchType}, ${JSON.stringify(d.keywords)}::jsonb, ${d.replyText}, ${JSON.stringify(d.buttons)}::jsonb,
-        ${d.formId ?? null}, ${d.priority}, ${d.cooldownSeconds}, ${d.isActive}, ${req.user!.id})
+        ${d.formId ?? null}, ${JSON.stringify(d.productIds)}::jsonb, ${d.priority}, ${d.cooldownSeconds}, ${d.isActive}, ${req.user!.id})
       RETURNING *`));
     res.status(201).json({ success: true, responder: present(r) });
   });
@@ -278,10 +293,11 @@ export function registerAutoResponderRoutes(app: Express): void {
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the auto-reply." });
     const d = parsed.data;
     if (!(await formBelongs(businessId, d.formId))) return res.status(400).json({ success: false, error: "That form doesn't exist." });
+    if ((await foreignOrMissingItems(businessId, d.productIds)).length) return res.status(400).json({ success: false, error: "Some products aren't in your catalog." });
     const updated = rows<ResponderRow>(await db.execute(sql`
       UPDATE business_auto_responders SET name = ${d.name}, trigger_type = ${d.triggerType}, match_type = ${d.matchType},
         keywords = ${JSON.stringify(d.keywords)}::jsonb, reply_text = ${d.replyText}, buttons = ${JSON.stringify(d.buttons)}::jsonb,
-        form_id = ${d.formId ?? null}, priority = ${d.priority}, cooldown_seconds = ${d.cooldownSeconds}, is_active = ${d.isActive}, updated_at = now()
+        form_id = ${d.formId ?? null}, product_ids = ${JSON.stringify(d.productIds)}::jsonb, priority = ${d.priority}, cooldown_seconds = ${d.cooldownSeconds}, is_active = ${d.isActive}, updated_at = now()
       WHERE id = ${Number(req.params.responderId)} AND business_id = ${businessId} RETURNING *`));
     if (!updated.length) return res.status(404).json({ success: false, error: "Auto-reply not found." });
     res.json({ success: true, responder: present(updated[0]) });
