@@ -594,7 +594,9 @@ router.get("/api/personal-chats/stream", requireAuth, async (req: AuthedRequest,
   });
 });
 
-router.post("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: Response) => {
+router.post("/api/personal-chats", requireAuth, (req: AuthedRequest, res: Response) => createThreadHandler(req, res));
+
+async function createThreadHandler(req: AuthedRequest, res: Response) {
   try {
     const viewerId = req.user!.id;
     markUserPresence(viewerId);
@@ -674,7 +676,7 @@ router.post("/api/personal-chats", requireAuth, async (req: AuthedRequest, res: 
     }
     res.status(500).json({ error: "Failed to create personal chat." });
   }
-});
+}
 
 router.get("/api/personal-chats/:threadId", requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
@@ -843,7 +845,36 @@ async function finishMessageInBackground(job: {
   }
 }
 
-router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatSendLimiter, async (req: AuthedRequest, res: Response) => {
+type RouteOutcome = { status: number; body: any };
+
+/** Runs a route handler without HTTP, so other features (broadcast lists)
+ * send exactly like the chat screen does: same checks, translation, push. */
+async function runHandler(
+  handler: (req: AuthedRequest, res: Response) => Promise<unknown>,
+  user: AuthedRequest["user"], params: Record<string, string>, body: unknown,
+): Promise<RouteOutcome> {
+  const out: RouteOutcome = { status: 200, body: null };
+  const res = {
+    status(code: number) { out.status = code; return res; },
+    json(b: unknown) { out.body = b; return res; },
+  } as unknown as Response;
+  await handler({ user, params, body } as unknown as AuthedRequest, res);
+  return out;
+}
+
+/** Find or start the 1:1 chat with someone (as POST /api/personal-chats). */
+export function openPersonalThread(user: AuthedRequest["user"], recipientUserId: number): Promise<RouteOutcome> {
+  return runHandler(createThreadHandler, user, {}, { userId: recipientUserId });
+}
+
+/** Send in a 1:1 chat (as POST /api/personal-chats/:threadId/messages). */
+export function sendPersonalMessage(user: AuthedRequest["user"], threadId: number, body: Record<string, unknown>, extraMetadata: Record<string, unknown> = {}): Promise<RouteOutcome> {
+  return runHandler((req, res) => sendMessageHandler(req, res, extraMetadata), user, { threadId: String(threadId) }, body);
+}
+
+router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatSendLimiter, (req: AuthedRequest, res: Response) => sendMessageHandler(req, res));
+
+async function sendMessageHandler(req: AuthedRequest, res: Response, serverMetadata: Record<string, unknown> = {}) {
   try {
     const viewerId = req.user!.id;
     markUserPresence(viewerId);
@@ -874,7 +905,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
       }
     }
 
-    const extraMeta: Record<string, unknown> = {};
+    const extraMeta: Record<string, unknown> = { ...serverMetadata };
     if (input.messageType === "poll") {
       if (!input.poll) return res.status(400).json({ error: "Add a question and at least two options." });
       Object.assign(extraMeta, pollMetadata(input.poll));
@@ -1015,7 +1046,7 @@ router.post("/api/personal-chats/:threadId/messages", requireAuth, personalChatS
     }
     res.status(500).json({ error: "Failed to send personal message." });
   }
-});
+}
 
 // Delete for everyone -- only the sender may delete their own message.
 // Content is cleared server-side (not just hidden) so it can never be

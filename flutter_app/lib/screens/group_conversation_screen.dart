@@ -19,6 +19,7 @@ import 'call_screen.dart';
 import '../services/call_service.dart';
 import '../widgets/chat_extras.dart';
 import '../widgets/chat_lock.dart';
+import '../widgets/chat_wallpaper.dart';
 import 'conversation_screen.dart';
 
 /// Real group conversation -- server/group-chats.ts. Polls for new messages
@@ -604,7 +605,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
             ]),
           ),
           Expanded(
-            child: provider.loadingMessages
+            child: ChatWallpaper(chatKey: 'group:${widget.groupId}', child: provider.loadingMessages
                 ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                 : provider.messagesError != null
                     ? NtEmptyState(icon: Icons.wifi_off, title: 'Couldn\'t load messages', message: provider.messagesError!, error: true)
@@ -649,7 +650,7 @@ class _GroupConversationScreenState extends State<GroupConversationScreen> {
                                 children: [if (divider != null) divider, shown],
                               );
                             },
-                          ),
+                          )),
           ),
           if (_uploadLabel != null)
             Padding(

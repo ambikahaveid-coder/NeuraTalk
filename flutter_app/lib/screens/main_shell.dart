@@ -10,6 +10,8 @@ import 'settings_screen.dart';
 import 'language_preferences_screen.dart';
 import '../services/call_readiness.dart';
 import '../services/voice_consent.dart';
+import '../services/invite_links.dart';
+import '../widgets/chat_wallpaper.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -38,6 +40,10 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
+    // Chat wallpapers are kept on the server, the same on every device.
+    WallpaperStore.instance.load(force: true);
+    // A group invite link that opened the app (neuratalk.in/g/… or neuratalk://g/…).
+    InviteLinks.instance.start();
     // First login on this device: ask which language to translate into (brand mockup 03).
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final needsLanguage = await LanguagePreferencesScreen.needsFirstRunChoice().catchError((_) => false);

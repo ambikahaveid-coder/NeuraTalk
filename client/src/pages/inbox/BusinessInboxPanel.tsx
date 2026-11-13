@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Clock, ExternalLink, FileText, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowLeft, Building2, Clock, ExternalLink, FileText, IndianRupee, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
+import { ContactCard, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
+import { RequestPaymentDialog } from "@/components/RequestPaymentDialog";
+import { serverMessage } from "@/lib/server-message";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUpload } from "@/hooks/use-upload";
 import { Button } from "@/components/ui/button";
@@ -112,7 +115,7 @@ interface MessageRow {
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     buttonReply?: { messageId: number; buttonId: string; title?: string };
     products?: Array<{ id: number; name: string; pricePaise: number | null; imageUrl: string | null; description?: string | null }>;
-  } | null;
+  } & Pick<ExtrasMeta, "list" | "contact" | "payment"> | null;
 }
 
 interface SendableTemplate {
@@ -129,11 +132,11 @@ function templateBlanks(t: SendableTemplate): string[] {
 }
 
 /** Template header, buttons, footer and shared location under a chat bubble. */
-function MessageExtras({ message, alignEnd }: { message: MessageRow; alignEnd: boolean }) {
+function MessageExtras({ message, alignEnd, onSettlePayment }: { message: MessageRow; alignEnd: boolean; onSettlePayment?: (requestId: number, status: "paid" | "cancelled") => void }) {
   const meta = message.metadata ?? null;
   if (!meta) return null;
-  const { header, footer, buttons, location, products } = meta;
-  if (!header && !footer && !buttons?.length && !location && !products?.length) return null;
+  const { header, footer, buttons, location, products, list, contact, payment } = meta;
+  if (!header && !footer && !buttons?.length && !location && !products?.length && !list && !contact && !payment) return null;
   const mapUrl = location ? `https://www.google.com/maps?q=${location.latitude},${location.longitude}` : null;
   return (
     <div className={cn("flex flex-col gap-1 max-w-[80%] text-xs", alignEnd ? "items-end self-end" : "items-start self-start")} data-testid={`message-extras-${message.id}`}>
@@ -163,6 +166,13 @@ function MessageExtras({ message, alignEnd }: { message: MessageRow; alignEnd: b
               {b.title}
             </span>
           ))}
+        </div>
+      ) : null}
+      {list ? <div className="w-56"><MessageListMenu list={list} /></div> : null}
+      {contact ? <div className="w-64"><ContactCard contact={contact} /></div> : null}
+      {payment ? (
+        <div className="w-64">
+          <PaymentCard payment={payment} onSettle={(s) => onSettlePayment?.(payment.requestId, s)} />
         </div>
       ) : null}
     </div>
@@ -457,6 +467,15 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
     : [];
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [pickedProducts, setPickedProducts] = useState<number[]>([]);
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  async function settlePayment(requestId: number, status: "paid" | "cancelled") {
+    try {
+      await apiRequest("PATCH", `/api/business/${businessId}/payment-requests/${requestId}`, { status });
+    } catch (e) {
+      toast({ title: "Couldn't update the payment", description: serverMessage(e, "Try again."), variant: "destructive" });
+    }
+    await queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+  }
   const sendProducts = useMutation({
     mutationFn: async () => (await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/products`, { itemIds: pickedProducts })).json(),
     onSuccess: () => {
@@ -755,7 +774,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                         timestamp={new Date(message.createdAt)}
                         status={isMine && message.deliveryToCustomer ? TICK_LABEL[message.deliveryToCustomer] ?? null : null}
                       />
-                      <MessageExtras message={message} alignEnd={isMine} />
+                      <MessageExtras message={message} alignEnd={isMine} onSettlePayment={settlePayment} />
                       {!windowClosed ? (
                         <button
                           type="button"
@@ -820,6 +839,9 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                 />
                 <Button variant="ghost" size="icon" aria-label="Attach a photo or file" disabled={isUploading || sendReplyMutation.isPending} onClick={() => fileInputRef.current?.click()} data-testid="button-inbox-attach">
                   {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Request payment (UPI)" onClick={() => setPaymentOpen(true)} data-testid="button-inbox-request-payment">
+                  <IndianRupee className="w-4 h-4" />
                 </Button>
                 {(catalogQuery.data?.items ?? []).some((i) => i.isAvailable) && (
                   <Button variant="ghost" size="icon" aria-label="Send a catalog item" onClick={() => setCatalogOpen(true)} data-testid="button-inbox-catalog">
@@ -944,6 +966,16 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
           </Button>
         </DialogContent>
       </Dialog>
+
+      {selectedId !== null && (
+        <RequestPaymentDialog
+          businessId={businessId}
+          conversationId={selectedId}
+          open={paymentOpen}
+          onOpenChange={setPaymentOpen}
+          onSent={() => queryClient.invalidateQueries({ queryKey: messagesQueryKey })}
+        />
+      )}
     </div>
   );
 }

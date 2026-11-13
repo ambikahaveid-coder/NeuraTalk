@@ -469,6 +469,8 @@ app.use((req, res, next) => {
     await ensureReactionsTable();
     const { ensureOrdersTable } = await import("./modules/messaging/orders");
     await ensureOrdersTable();
+    const { ensureChatPaymentTables } = await import("./modules/messaging/chat-payments");
+    await ensureChatPaymentTables();
     const { ensureFormsTables } = await import("./modules/messaging/forms");
     await ensureFormsTables();
     const { ensureAutoResponderTables } = await import("./modules/messaging/auto-responders");
@@ -501,6 +503,10 @@ app.use((req, res, next) => {
     await ensureChannelTables();
     const { ensureCommunityTables } = await import("./communities");
     await ensureCommunityTables();
+    const { ensureGroupInviteTables } = await import("./group-invites");
+    await ensureGroupInviteTables();
+    const { ensureChatParityTables } = await import("./chat-parity");
+    await ensureChatParityTables();
   }, { optional: true });
   let redisOperational = false;
   try {

@@ -366,7 +366,9 @@ router.post("/api/group-chats/:groupId/members", requireAuth, async (req: Reques
       preferredLanguage: (await profileLanguageOf(Number(userId))) || preferredLanguage || "en",
       role: "member",
     }).returning();
-    
+    const { clearGroupRemoval } = await import("./group-invites");
+    await clearGroupRemoval(groupId, Number(userId));
+
     res.status(201).json(member[0]);
   } catch (error) {
     console.error("Error adding member:", error);
@@ -435,7 +437,12 @@ router.delete("/api/group-chats/:groupId/members/:userId", requireAuth, async (r
         eq(groupChatMembers.groupChatId, groupId),
         eq(groupChatMembers.userId, userId)
       ));
-    
+    // Removed by an admin: the invite link can't bring them back.
+    if (userId !== requesterId) {
+      const { recordGroupRemoval } = await import("./group-invites");
+      await recordGroupRemoval(groupId, userId, requesterId);
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error("Error removing member:", error);

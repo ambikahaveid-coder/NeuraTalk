@@ -26,13 +26,13 @@ import {
   BusinessBlockedError,
 } from "./service";
 import { subscribeToBusinessEvents, subscribeToConsumerEvents, type MessagingRealtimeEvent } from "./realtime";
-import { MESSAGING_PARTICIPANT_TYPE, CUSTOMER_CONSENT_CHANNEL, customers } from "@shared/schema";
+import { MESSAGING_PARTICIPANT_TYPE, CUSTOMER_CONSENT_CHANNEL, customers, businessConversations } from "@shared/schema";
 import { acknowledgeBusinessReads, acknowledgeConsumerDeliveries } from "./delivery";
 import { getMessagingSettings, getPublicBusinessProfile, searchBusinesses, updateMessagingSettings } from "./business-directory";
 import { viewerTranslationLanguage, withTranslations } from "./translate";
 import { attachmentInputSchema, AttachmentNotOwnedError } from "./attachments";
 import { isTyping } from "./reactions";
-import { messageButtonsSchema } from "./template-send";
+import { messageButtonsSchema, messageContactSchema, messageListSchema } from "./template-send";
 import { getCustomerConsents, setChannelConsent } from "../customers/service";
 import { db } from "../../db";
 import { and, eq } from "drizzle-orm";
@@ -209,10 +209,16 @@ const createMessageSchema = z.object({
   location: locationSchema.optional(),
   // Interactive reply: up to 3 buttons under the text (inside 24 h).
   buttons: messageButtonsSchema.optional(),
+  // List menu: one button that opens up to 10 options (inside 24 h).
+  list: messageListSchema.optional(),
+  // A contact card (name + phone).
+  contact: messageContactSchema.optional(),
   // category is deliberately NOT accepted here -- structural governance,
   // see doc 24 section 6. Any category field in the request body is ignored.
-}).refine((v) => v.content.trim() || v.attachment || v.location, { message: "content must not be empty" })
-  .refine((v) => !v.buttons?.length || v.content.trim(), { message: "Buttons go with a text message" });
+}).refine((v) => v.content.trim() || v.attachment || v.location || v.contact, { message: "content must not be empty" })
+  .refine((v) => !v.buttons?.length || v.content.trim(), { message: "Buttons go with a text message" })
+  .refine((v) => !v.list || (v.content.trim() && !v.buttons?.length && !v.attachment && !v.location && !v.contact), { message: "A list menu goes with a text message, without buttons, files or a location" })
+  .refine((v) => !v.contact || (!v.attachment && !v.location && !v.buttons?.length), { message: "Send a contact card on its own" });
 
 export async function postMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -243,6 +249,8 @@ export async function postMessage(req: Request, res: Response) {
       replyToMessageId: parsed.data.replyToMessageId,
       location: parsed.data.location,
       buttons: parsed.data.buttons,
+      list: parsed.data.list,
+      contact: parsed.data.contact,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
@@ -343,6 +351,18 @@ export async function sendUserMessage(req: Request, res: Response) {
   }
 }
 
+/** Blue ticks for the customer: everything they sent in this chat is read. */
+export async function markConversationRead(req: Request, res: Response) {
+  const businessId = Number(req.params.businessId);
+  const conversationId = Number(req.params.id);
+  if (!Number.isFinite(businessId) || !Number.isFinite(conversationId)) return badRequest(res, "Invalid id");
+  const [conv] = await db.select({ id: businessConversations.id }).from(businessConversations)
+    .where(and(eq(businessConversations.id, conversationId), eq(businessConversations.businessId, businessId)));
+  if (!conv) return res.status(404).json({ success: false, error: "Conversation not found" });
+  const marked = await acknowledgeBusinessReads(businessId, conversationId);
+  return res.json({ success: true, marked });
+}
+
 export async function getMessages(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
   const conversationId = Number(req.params.id);
@@ -354,7 +374,9 @@ export async function getMessages(req: Request, res: Response) {
   if (offset !== undefined && !Number.isFinite(offset)) return badRequest(res, "Invalid offset");
 
   // An agent opening the latest page of a conversation has read it.
-  if (!offset) {
+  // Software reading through the API can pass ?markRead=false and mark it
+  // read later with POST .../read (when a person has really seen it).
+  if (!offset && req.query.markRead !== "false") {
     await acknowledgeBusinessReads(businessId, conversationId).catch((error) => {
       logger.warn("Messaging", `read receipt failed: ${String(error)}`);
     });

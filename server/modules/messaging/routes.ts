@@ -57,6 +57,14 @@ export function registerMessagingRoutes(app: Express): void {
     ctrl.postMessage,
   );
 
+  app.post(
+    "/api/business/:businessId/conversations/:id/read",
+    requireAuth,
+    requireCompanyAccess("businessId"),
+    requirePermission(PERMISSIONS.MESSAGING_VIEW),
+    ctrl.markConversationRead,
+  );
+
   app.get(
     "/api/business/:businessId/conversations/:id/messages",
     requireAuth,

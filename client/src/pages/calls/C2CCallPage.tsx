@@ -33,7 +33,10 @@ import {
   Signal,
   PauseCircle,
   PlayCircle,
+  ScreenShare,
+  ScreenShareOff,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useLiveKitCall } from "@/hooks/use-livekit-call";
 import { useContacts, type Contact } from "@/hooks/use-contacts";
 import { useToast } from "@/hooks/use-toast";
@@ -597,7 +600,16 @@ export default function C2CCallPage({
                       className="w-full h-full object-cover"
                       data-testid="video-remote"
                     />
-                    {showRemoteVideoWaiting && (
+                    {/* Their shared screen, shown whole over their camera. */}
+                    <video
+                      ref={call.remoteScreenRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className={cn("absolute inset-0 w-full h-full object-contain bg-black", !call.hasRemoteScreen && "hidden")}
+                      data-testid="video-remote-screen"
+                    />
+                    {showRemoteVideoWaiting && !call.hasRemoteScreen && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white">
                         <div className="text-center px-6">
                           <VideoOff className="w-10 h-10 mx-auto mb-3 opacity-80" />
@@ -706,6 +718,20 @@ export default function C2CCallPage({
                     <VideoOff className="w-5 h-5" />
                   )}
                 </Button>
+                {call.canShareScreen && !isPstnRoute && (
+                  <Button
+                    variant={call.isSharingScreen ? "destructive" : "secondary"}
+                    size="icon"
+                    onClick={call.toggleScreenShare}
+                    disabled={!isActive}
+                    aria-label={call.isSharingScreen ? "Stop sharing screen" : "Share screen"}
+                    aria-pressed={call.isSharingScreen}
+                    title={call.isSharingScreen ? "Stop sharing screen" : "Share screen"}
+                    data-testid="button-screen-share"
+                  >
+                    {call.isSharingScreen ? <ScreenShareOff className="w-5 h-5" /> : <ScreenShare className="w-5 h-5" />}
+                  </Button>
+                )}
                 <Button
                   variant={call.isOnHold ? "destructive" : "secondary"}
                   size="icon"

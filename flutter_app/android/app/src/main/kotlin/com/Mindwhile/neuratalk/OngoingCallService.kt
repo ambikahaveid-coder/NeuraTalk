@@ -31,12 +31,18 @@ class OngoingCallService : Service() {
         }
 
         val video = intent?.getBooleanExtra(EXTRA_VIDEO, false) ?: false
+        val screen = intent?.getBooleanExtra(EXTRA_SCREEN, false) ?: false
         val peer = intent?.getStringExtra(EXTRA_PEER)?.takeIf { it.isNotBlank() }
 
         var types = 0
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (video) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        }
+        // Screen share: Android 10+ needs this type running (after the person
+        // agreed to share) before the screen can be captured.
+        if (screen && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         }
 
         try {
@@ -98,5 +104,6 @@ class OngoingCallService : Service() {
         const val ACTION_STOP = "com.Mindwhile.neuratalk.ONGOING_CALL_STOP"
         const val EXTRA_VIDEO = "video"
         const val EXTRA_PEER = "peer"
+        const val EXTRA_SCREEN = "screen"
     }
 }

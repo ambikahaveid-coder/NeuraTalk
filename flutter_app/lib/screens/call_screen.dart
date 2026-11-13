@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter_webrtc/flutter_webrtc.dart' as webrtc show Helper;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,6 +48,9 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _durationTimer;
   Duration _elapsed = Duration.zero;
   lk.VideoTrack? _remoteVideoTrack;
+  /// The other person's shared screen, while they share.
+  lk.VideoTrack? _remoteScreenTrack;
+  bool _sharingScreen = false;
 
   // Live translated captions from the translator bot's data messages.
   String? _captionOriginal;
@@ -518,7 +523,12 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (event.track is lk.VideoTrack) {
-      setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
+      // Their shared screen is shown over their camera while they share.
+      if (event.publication.source == lk.TrackSource.screenShareVideo) {
+        setState(() => _remoteScreenTrack = event.track as lk.VideoTrack);
+      } else {
+        setState(() => _remoteVideoTrack = event.track as lk.VideoTrack);
+      }
       return;
     }
     if (_isTranslationForSomeoneElse(event.publication.name)) {
@@ -540,6 +550,10 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.session.isGroup) _refresh();
     if (event.track == _remoteVideoTrack) {
       setState(() => _remoteVideoTrack = null);
+      return;
+    }
+    if (event.track == _remoteScreenTrack) {
+      setState(() => _remoteScreenTrack = null);
       return;
     }
     _applyTranslatedTrack(event.publication.name, subscribed: false);
@@ -757,6 +771,43 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() => _videoOn = next);
   }
 
+  /// My camera (not my shared screen) for the small self-view.
+  lk.VideoTrack? get _localCameraTrack {
+    for (final pub in _room.localParticipant?.videoTrackPublications ?? const <lk.LocalTrackPublication<lk.LocalVideoTrack>>[]) {
+      if (pub.source == lk.TrackSource.camera && pub.track != null) return pub.track;
+    }
+    return null;
+  }
+
+  /// Share my screen in the call (Android asks the person first, every time).
+  Future<void> _toggleScreenShare() async {
+    final next = !_sharingScreen;
+    final peer = ContactResolver.instance.displayNameFor(widget.session.remoteName);
+    try {
+      if (next) {
+        if (Platform.isAndroid) {
+          final agreed = await webrtc.Helper.requestCapturePermission();
+          if (!agreed) return;
+          // Android 10+: a screen-capture service must run before capture starts.
+          await OngoingCall.start(video: _videoOn, peer: peer, screen: true);
+        }
+        await _room.localParticipant?.setScreenShareEnabled(true, captureScreenAudio: false);
+      } else {
+        await _room.localParticipant?.setScreenShareEnabled(false);
+        if (Platform.isAndroid) await OngoingCall.start(video: _videoOn, peer: peer);
+      }
+      if (mounted) setState(() => _sharingScreen = next);
+      if (next && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are sharing your screen. Everything on it is visible to the other person.')));
+      }
+    } catch (_) {
+      if (Platform.isAndroid && next) unawaited(OngoingCall.start(video: _videoOn, peer: peer));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not share your screen.')));
+      }
+    }
+  }
+
   Future<void> _switchCamera() async {
     try {
       final devices = await lk.Hardware.instance.videoInputs();
@@ -820,8 +871,9 @@ class _CallScreenState extends State<CallScreen> {
   @override
   Widget build(BuildContext context) {
     final remoteName = ContactResolver.instance.displayNameFor(widget.session.remoteName);
-    final hasRemoteVideo = _remoteVideoTrack != null;
-    final hasLocalVideo = _videoOn && _room.localParticipant?.videoTrackPublications.isNotEmpty == true;
+    final shownRemote = _remoteScreenTrack ?? _remoteVideoTrack;
+    final hasRemoteVideo = shownRemote != null;
+    final hasLocalVideo = _videoOn && _localCameraTrack != null;
     final fullScreenVideo = hasRemoteVideo && !widget.session.isGroup && _error == null;
     return PopScope(
       canPop: _allowPop,
@@ -842,7 +894,8 @@ class _CallScreenState extends State<CallScreen> {
           backgroundColor: AppColors.navy,
           body: Stack(children: [
             if (fullScreenVideo) ...[
-              Positioned.fill(child: lk.VideoTrackRenderer(_remoteVideoTrack!, fit: lk.VideoViewFit.cover)),
+              // A shared screen is shown whole (contain); a face fills the screen.
+              Positioned.fill(child: lk.VideoTrackRenderer(shownRemote, fit: _remoteScreenTrack != null ? lk.VideoViewFit.contain : lk.VideoViewFit.cover)),
               // Keeps the top bar and buttons readable over bright video.
               const Positioned(top: 0, left: 0, right: 0, height: 140, child: IgnorePointer(child: DecoratedBox(
                 decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0x99000000), Color(0x00000000)])),
@@ -888,7 +941,7 @@ class _CallScreenState extends State<CallScreen> {
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(14),
                                 child: lk.VideoTrackRenderer(
-                                  _room.localParticipant!.videoTrackPublications.first.track as lk.VideoTrack,
+                                  _localCameraTrack!,
                                   fit: lk.VideoViewFit.cover,
                                 ),
                               ),
@@ -977,6 +1030,13 @@ class _CallScreenState extends State<CallScreen> {
               ],
             ),
           ),
+          if (!widget.session.isGroup)
+            IconButton(
+              tooltip: _sharingScreen ? 'Stop sharing screen' : 'Share screen',
+              icon: Icon(_sharingScreen ? Icons.stop_screen_share_outlined : Icons.screen_share_outlined,
+                  color: _sharingScreen ? AppColors.orange : AppColors.onAccent),
+              onPressed: enabled ? _toggleScreenShare : null,
+            ),
           IconButton(
             tooltip: _showCaptions ? 'Hide live transcript' : 'Show live transcript',
             icon: Icon(_showCaptions ? Icons.closed_caption : Icons.closed_caption_off_outlined, color: AppColors.onAccent),

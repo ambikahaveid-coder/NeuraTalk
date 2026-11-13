@@ -327,6 +327,10 @@ export interface CreateMessageInput {
   buttonReply?: { messageId: number; buttonId: string; title?: string };
   /** Interactive message: up to 3 buttons (already validated). */
   buttons?: Array<Record<string, unknown>>;
+  /** Interactive list menu (already validated, see messageListSchema). */
+  list?: Record<string, unknown>;
+  /** A shared contact card (already validated, see messageContactSchema). */
+  contact?: { name: string; phone: string; email?: string; organization?: string };
   /** Server-built extras (a form, a form response). Never taken from a request body. */
   extraMetadata?: Record<string, unknown>;
 }
@@ -381,7 +385,7 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
 
   // Form and product-card messages exist only when the server built their details (forms.ts, catalog.ts),
   // so nobody can send a product card with a made-up price.
-  const serverBuiltType = input.extraMetadata && (input.messageType === "form" || input.messageType === "form_response" || input.messageType === "product") ? input.messageType : null;
+  const serverBuiltType = input.extraMetadata && (input.messageType === "form" || input.messageType === "form_response" || input.messageType === "product" || input.messageType === "payment_request") ? input.messageType : null;
   const messageType = serverBuiltType
     ? serverBuiltType
     : input.location
@@ -402,8 +406,14 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
         eq(messagingMessages.conversationId, bizConversation.conversationId),
         isNull(messagingMessages.deletedAt),
       ));
-    const button = ((target?.metadata as { buttons?: Array<{ type: string; id?: string; title: string }> } | null)?.buttons ?? [])
-      .find((b) => b.type === "quick_reply" && b.id === input.buttonReply!.buttonId);
+    const targetMeta = target?.metadata as {
+      buttons?: Array<{ type: string; id?: string; title: string }>;
+      list?: { sections?: Array<{ rows?: Array<{ id: string; title: string }> }> };
+    } | null;
+    // A quick-reply button, or an option of a list menu.
+    const button = (targetMeta?.buttons ?? []).find((b) => b.type === "quick_reply" && b.id === input.buttonReply!.buttonId)
+      ?? (targetMeta?.list?.sections ?? []).flatMap((s) => s.rows ?? []).map((r) => ({ type: "list_row", id: r.id, title: r.title }))
+        .find((r) => r.id === input.buttonReply!.buttonId);
     if (!target || !button || target.sender === ownParticipant.id) throw new Error("VALIDATION_BUTTON");
     buttonReply = { messageId: target.id, buttonId: button.id!, title: button.title };
   }
@@ -411,6 +421,8 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   // A file or a location may be sent without a caption; lists and notifications show a label.
   const content = buttonReply ? buttonReply.title : input.location
     ? `📍 ${input.location.name?.trim() || input.location.address?.trim() || "Location"}`
+    : input.contact
+    ? `👤 ${input.contact.name}`
     : input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
   if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
   if (content.length > 8192) throw new Error("VALIDATION_CONTENT_TOO_LONG");
@@ -431,6 +443,8 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   if (input.location) metadata.location = input.location;
   if (buttonReply) metadata.buttonReply = buttonReply;
   if (input.buttons?.length) metadata.buttons = input.buttons;
+  if (input.list) metadata.list = input.list;
+  if (input.contact) metadata.contact = input.contact;
   if (input.extraMetadata) Object.assign(metadata, input.extraMetadata);
   // A tapped button replies to the message it was on.
   if (buttonReply && !replyToMessageId) replyToMessageId = buttonReply.messageId;

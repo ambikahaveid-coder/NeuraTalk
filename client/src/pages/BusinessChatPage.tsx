@@ -14,6 +14,8 @@ import { QueryErrorState } from "@/components/QueryErrorState";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { serverMessage } from "@/lib/server-message";
+import { ContactCard, MessageButtons, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
 
 /**
  * P1-3 / P1-3A / P1-4: smallest production-quality consumer UI for
@@ -89,7 +91,7 @@ interface BusinessMessage {
   /** The message in my language (business messages), original kept in `content`. */
   translatedContent?: string | null;
   attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
-  metadata?: { products?: Array<{ id: number; name: string; description?: string | null; pricePaise: number | null; imageUrl: string | null }> } | null;
+  metadata?: ({ products?: Array<{ id: number; name: string; description?: string | null; pricePaise: number | null; imageUrl: string | null }> } & ExtrasMeta) | null;
 }
 
 interface PublicProfile {
@@ -287,6 +289,33 @@ export default function BusinessChatPage() {
     // itself is the real dependency and is included below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId, isValidBusinessId, queryClient]);
+
+  /** The reply button / list option I already chose on a business message. */
+  const tappedReply = (messageId: number): string | null => {
+    for (const m of messagesQuery.data?.messages ?? []) {
+      const br = m.metadata?.buttonReply;
+      if (br?.messageId === messageId && viewerParticipantId != null && m.senderParticipantId === viewerParticipantId) return br.buttonId;
+    }
+    return null;
+  };
+  const refreshMessages = () => queryClient.invalidateQueries({ queryKey: messagesQueryKey });
+  async function replyWithButton(messageId: number, buttonId: string) {
+    try {
+      await apiRequest("POST", `/api/messaging/business/${businessId}/messages`, { buttonReply: { messageId, buttonId } });
+    } catch (e) {
+      toast({ title: "Couldn't send", description: serverMessage(e, "Try again."), variant: "destructive" });
+    }
+    await refreshMessages();
+  }
+  async function sayPaid(requestId: number, reference?: string) {
+    try {
+      await apiRequest("POST", `/api/messaging/business/${businessId}/payment-requests/${requestId}/paid`, reference ? { reference } : {});
+    } catch (e) {
+      throw new Error(serverMessage(e, "Could not send. Try again."));
+    } finally {
+      await refreshMessages();
+    }
+  }
 
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
@@ -511,8 +540,9 @@ export default function BusinessChatPage() {
                           ))}
                         </div>
                       )}
-                      {/* The original text goes in secondaryContent when a translation is shown. */}
-                      <ChatMessage
+                      {/* The original text goes in secondaryContent when a translation is shown.
+                          A contact or payment card from the business is shown on its own, like WhatsApp. */}
+                      {!(!isMine && (message.metadata?.contact || message.metadata?.payment)) && <ChatMessage
                         role={isMine ? "user" : "assistant"}
                         content={message.translatedContent || message.content}
                         secondaryContent={message.translatedContent ? message.content : null}
@@ -535,7 +565,26 @@ export default function BusinessChatPage() {
                         // already had no counter-example against.
                         senderName={isMine ? undefined : businessName}
                         status={isMine && message.deliveryToBusiness ? TICK_LABEL[message.deliveryToBusiness] ?? null : null}
-                      />
+                      />}
+                      {!isMine && (message.metadata?.buttons?.length || message.metadata?.list || message.metadata?.contact || message.metadata?.payment) && (
+                        <div className="max-w-[85%] sm:max-w-[70%]" data-testid={`business-extras-${message.id}`}>
+                          {message.metadata?.buttons?.length ? (
+                            <MessageButtons buttons={message.metadata.buttons} tappedId={tappedReply(message.id)} onReply={(id) => replyWithButton(message.id, id)} />
+                          ) : null}
+                          {message.metadata?.list && (
+                            <MessageListMenu list={message.metadata.list} pickedId={tappedReply(message.id)} onPick={(id) => replyWithButton(message.id, id)} />
+                          )}
+                          {message.metadata?.contact && <ContactCard contact={message.metadata.contact} />}
+                          {message.metadata?.payment && (
+                            <PaymentCard payment={message.metadata.payment} onPaid={(ref) => sayPaid(message.metadata!.payment!.requestId, ref)} />
+                          )}
+                          {(message.metadata?.contact || message.metadata?.payment) && (
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                              {businessName ? `${businessName} · ` : ""}{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       </div>
                     );
                   })

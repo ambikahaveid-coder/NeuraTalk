@@ -29,6 +29,7 @@ import 'business_categories.dart';
 import 'business_onboarding_screen.dart';
 import 'business_profile_screen.dart';
 import 'business_tools_screen.dart';
+import 'business_payments_screen.dart';
 import 'template_picker.dart';
 import '../widgets/business_chat_extras.dart';
 import '../widgets/location_share.dart';
@@ -770,6 +771,64 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     }
   }
 
+  /// Ask the customer to pay by UPI. The money goes straight to our UPI ID.
+  Future<void> _requestPayment() async {
+    Map? settings;
+    try {
+      settings = ((await ApiService.get('$_base/payment-settings')) as Map)['settings'] as Map?;
+    } catch (_) {}
+    if (!mounted) return;
+    if (settings == null) {
+      settings = await showUpiSettingsDialog(context, widget.businessId);
+      if (settings == null || !mounted) return;
+    }
+    final amount = TextEditingController();
+    final note = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Request payment'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(controller: amount, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Amount (₹)', prefixText: '₹ ')),
+          TextField(controller: note, maxLength: 80, decoration: const InputDecoration(labelText: 'For (optional)', hintText: 'e.g. 2 idli + dosa')),
+          Text('Paid to ${settings!['upiId']} — straight to your bank. NeuraTalk never holds the money.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Send request')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final rupees = double.tryParse(amount.text.trim().replaceAll(',', ''));
+    if (rupees == null || rupees < 1) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter an amount of ₹1 or more.')));
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/payment-request', {
+        'amountPaise': (rupees * 100).round(),
+        if (note.text.trim().isNotEmpty) 'note': note.text.trim(),
+      });
+      await _load(quiet: true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not send the request.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _settlePayment(Map payment, String status) async {
+    try {
+      await ApiService.patch('$_base/payment-requests/${payment['requestId']}', {'status': status});
+      await _load(quiet: true);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not update the payment.')));
+    }
+  }
+
   /// Pick up to 10 catalog items and send them as product cards.
   Future<void> _sendProducts() async {
     List<Map<String, dynamic>> items;
@@ -1100,6 +1159,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
               IconButton(tooltip: 'Attach a photo, file or location', onPressed: _sending ? null : _attach, icon: Icon(Icons.attach_file, color: AppColors.textSecondary)),
               IconButton(tooltip: 'Send a form', onPressed: _sending ? null : _sendForm, icon: Icon(Icons.assignment_outlined, color: AppColors.textSecondary)),
               IconButton(tooltip: 'Send products', onPressed: _sending ? null : _sendProducts, icon: Icon(Icons.shopping_bag_outlined, color: AppColors.textSecondary)),
+              IconButton(tooltip: 'Request payment (UPI)', onPressed: _sending ? null : _requestPayment, icon: Icon(Icons.currency_rupee, color: AppColors.textSecondary)),
               Expanded(
                 child: TextField(
                   controller: _input,
@@ -1195,6 +1255,14 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
           // Our buttons as the customer sees them (not tappable here).
           if ((m['metadata'] as Map?)?['buttons'] is List)
             MessageButtonsView(buttons: (m['metadata'] as Map)['buttons'] as List),
+          if ((m['metadata'] as Map?)?['list'] is Map) MessageListView(list: (m['metadata'] as Map)['list'] as Map),
+          if ((m['metadata'] as Map?)?['contact'] is Map) ContactCardView(contact: (m['metadata'] as Map)['contact'] as Map),
+          if ((m['metadata'] as Map?)?['payment'] is Map)
+            PaymentCardView(
+              payment: (m['metadata'] as Map)['payment'] as Map,
+              businessView: true,
+              onSettle: (s) => _settlePayment((m['metadata'] as Map)['payment'] as Map, s),
+            ),
           if ((m['metadata'] as Map?)?['buttonReply'] is Map)
             Text('Tapped a button', style: TextStyle(color: AppColors.textMuted, fontSize: 11, fontStyle: FontStyle.italic)),
           if (link != null) LinkPreviewCard(url: link),

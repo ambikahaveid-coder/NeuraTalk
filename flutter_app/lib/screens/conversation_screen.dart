@@ -27,6 +27,7 @@ import 'contact_info_screen.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/chat_extras.dart';
 import '../widgets/chat_lock.dart';
+import '../widgets/chat_wallpaper.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -1102,6 +1103,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 case 'disappearing':
                   _showDisappearingDialog();
                   break;
+                case 'wallpaper':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => WallpaperPickerScreen(chatKey: 'personal:$_threadId')));
+                  break;
                 case 'block':
                   _toggleBlock();
                   break;
@@ -1117,6 +1121,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               PopupMenuItem(value: 'export', child: Text('Export chat', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'lock', child: Text(ChatLock.instance.isLocked('p:$_threadId') ? 'Unlock chat' : 'Lock chat', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'disappearing', child: Text('Disappearing messages', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'wallpaper', child: Text('Wallpaper', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(
                 value: 'block',
                 child: Text(_blockedByMe ? 'Unblock' : 'Block', style: TextStyle(color: _blockedByMe ? AppColors.ink : AppColors.red)),
@@ -1130,7 +1135,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
         children: [
           _languageBar(provider),
           Expanded(
-            child: provider.loadingMessages
+            child: ChatWallpaper(chatKey: 'personal:$_threadId', child: provider.loadingMessages
                 ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
                 : provider.messagesError != null
                     ? Center(child: Text(provider.messagesError!, style: const TextStyle(color: AppColors.red)))
@@ -1163,7 +1168,7 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                             ),
                             ),
                             ]),
-                          ),
+                          )),
           ),
           if (provider.peerTyping)
             Padding(

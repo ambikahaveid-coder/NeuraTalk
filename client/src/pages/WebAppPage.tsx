@@ -267,6 +267,33 @@ function ChatList({ open, onOpen }: { open: ChatRef | null; onOpen: (c: ChatRef)
 }
 
 // ---------------------------------------------------------------- conversation
+type Wallpaper = { chatKey: string; kind: "preset" | "color" | "none"; value: string; dim: number };
+
+// Same colours as the app (flutter_app/lib/widgets/chat_wallpaper.dart).
+const WALLPAPER_PRESETS: Record<string, { light: [string, string]; dark: [string, string] }> = {
+  doodle: { light: ["#EFF4FA", "#E3ECF7"], dark: ["#0E1624", "#121D2E"] },
+  sky: { light: ["#DDEEFF", "#F4F9FF"], dark: ["#0B2340", "#10192B"] },
+  mint: { light: ["#DDF5EA", "#F3FBF7"], dark: ["#0C2A21", "#0F1C18"] },
+  sand: { light: ["#F6EBDD", "#FBF6EF"], dark: ["#2B2117", "#1B1611"] },
+  rose: { light: ["#FBE3EA", "#FDF3F6"], dark: ["#2E1520", "#1C1116"] },
+  night: { light: ["#1B2440", "#2B2F5A"], dark: ["#070B18", "#141834"] },
+  lavender: { light: ["#E9E3FB", "#F6F3FE"], dark: ["#1E1836", "#151223"] },
+  leaf: { light: ["#E4F1D9", "#F4F9EE"], dark: ["#17260F", "#11180C"] },
+};
+
+export function wallpaperCss(w: Wallpaper | undefined, dark: boolean): React.CSSProperties | null {
+  if (!w || w.kind === "none") return null;
+  const dim = Math.max(0, Math.min(80, w.dim || 0)) / 100;
+  const shade = dim ? `linear-gradient(rgba(0,0,0,${dim}), rgba(0,0,0,${dim})), ` : "";
+  if (w.kind === "color" && /^#[0-9a-fA-F]{6}$/.test(w.value)) return { background: `${shade}${w.value}` };
+  const p = WALLPAPER_PRESETS[w.value];
+  if (w.kind === "preset" && p) {
+    const [a, b] = dark ? p.dark : p.light;
+    return { background: `${shade}linear-gradient(135deg, ${a}, ${b})` };
+  }
+  return null;
+}
+
 function Conversation({ chat, onBack }: { chat: ChatRef; onBack: () => void }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -279,6 +306,13 @@ function Conversation({ chat, onBack }: { chat: ChatRef; onBack: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const { uploadFile, isUploading } = useUpload();
+  // The same wallpaper as on the phone (set in the app: chat menu → Wallpaper).
+  const wallpapers = useQuery<{ wallpapers: Wallpaper[] }>({ queryKey: ["web", "wallpapers"], queryFn: () => api("/api/chat-wallpapers"), staleTime: 60_000 });
+  const wallpaperStyle = wallpaperCss(
+    wallpapers.data?.wallpapers.find((w) => w.chatKey === `${isGroup ? "group" : "personal"}:${chat.id}`)
+      ?? wallpapers.data?.wallpapers.find((w) => w.chatKey === "default"),
+    typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
+  );
 
   const detail = useQuery<any>({
     queryKey: ["web", "conv", chat.kind, chat.id],
@@ -378,7 +412,11 @@ function Conversation({ chat, onBack }: { chat: ChatRef; onBack: () => void }) {
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-[4%] py-4 bg-[radial-gradient(hsl(var(--muted))_1px,transparent_1px)] [background-size:18px_18px]" data-testid="web-messages">
+      <div
+        className={cn("flex-1 overflow-y-auto px-[4%] py-4", !wallpaperStyle && "bg-[radial-gradient(hsl(var(--muted))_1px,transparent_1px)] [background-size:18px_18px]")}
+        style={wallpaperStyle ?? undefined}
+        data-testid="web-messages"
+      >
         {detail.isLoading && <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}
         {messages.map((m, i) => {
           const prev = messages[i - 1];

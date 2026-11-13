@@ -6,6 +6,8 @@ import '../widgets/nt_ui.dart';
 import '../providers/group_chat_provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/chat_wallpaper.dart';
+import 'chat_parity_screens.dart';
 
 /// Real group member management -- server/group-chats.ts's member endpoints
 /// already enforce admin/moderator permissions server-side (confirmed by
@@ -238,6 +240,26 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                           }
                         },
                       ),
+                    // (A community's announcement group is joined through the
+                    // community's invite; the server says so if tried here.)
+                    if (_selfIsAdmin)
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                        leading: CircleAvatar(radius: 22, backgroundColor: AppColors.blueTint, child: Icon(Icons.link, color: AppColors.cyan)),
+                        title: Text('Invite via link', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                        subtitle: Text('Share a link or QR code to join', style: TextStyle(color: AppColors.textSecondary)),
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => GroupInviteLinkScreen(groupId: widget.groupId, groupName: _group?['name']?.toString() ?? 'Group'),
+                        )),
+                      ),
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                      leading: CircleAvatar(radius: 22, backgroundColor: AppColors.blueTint, child: Icon(Icons.wallpaper_outlined, color: AppColors.cyan)),
+                      title: Text('Wallpaper', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => WallpaperPickerScreen(chatKey: 'group:${widget.groupId}'),
+                      )),
+                    ),
                     NtSectionHeader('${members.length} member${members.length == 1 ? '' : 's'}'),
                     if (_selfCanAddMembers)
                       ListTile(

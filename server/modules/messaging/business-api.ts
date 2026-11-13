@@ -17,9 +17,9 @@ import { logger } from "../../observability";
 import { businessActorUserId } from "./api-routes";
 import { apiNotPaused, recordApiUse } from "./automation-admin";
 
-type Rule = { method: string; path: RegExp; doc: string; target?: string };
+type Rule = { method: string; path: RegExp; pattern: string; doc: string; target?: string };
 const id = "\\d+";
-const R = (method: string, p: string, doc: string, target?: string): Rule => ({ method, path: new RegExp(`^${p.replace(/:id/g, id)}$`), doc, target });
+const R = (method: string, p: string, doc: string, target?: string): Rule => ({ method, path: new RegExp(`^${p.replace(/:id/g, id)}$`), pattern: p, doc, target });
 
 /** Open endpoints. `target` (when set) replaces the business path, e.g. uploads. */
 export const ROUTES: Rule[] = [
@@ -27,11 +27,13 @@ export const ROUTES: Rule[] = [
   R("GET", "/conversations", "List conversations (?status=, ?assignment=, ?limit=, ?offset=)"),
   R("POST", "/chats", "Start a chat with a customer by phone number"),
   R("GET", "/conversations/:id", "One conversation"),
-  R("GET", "/conversations/:id/messages", "Message history (customer messages include translatedContent in your language)"),
-  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply buttons, or a reply to a message (replyToMessageId); 24-hour rule"),
+  R("GET", "/conversations/:id/messages", "Message history (customer messages include translatedContent in your language). Marks them read unless ?markRead=false"),
+  R("POST", "/conversations/:id/read", "Mark the customer's messages as read (blue ticks)"),
+  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply buttons, a list menu (list), a contact card (contact), or a reply to a message (replyToMessageId); 24-hour rule"),
   R("POST", "/conversations/:id/template", "Send an approved template (any time)"),
   R("POST", "/conversations/:id/products", "Send product cards from your catalog"),
   R("POST", "/conversations/:id/form", "Send a form"),
+  R("POST", "/conversations/:id/payment-request", "Ask the customer to pay by UPI: { amountPaise, note?, orderId? }"),
   R("POST", "/conversations/:id/typing", "Show 'typing…' to the customer"),
   R("POST", "/conversations/:id/messages/:id/reaction", "React to a message"),
   R("PATCH", "/conversations/:id/labels", "Set labels on a conversation"),
@@ -56,6 +58,10 @@ export const ROUTES: Rule[] = [
   R("DELETE", "/catalog/:id", "Remove an item"),
   R("GET", "/orders", "Orders customers placed"),
   R("PATCH", "/orders/:id", "Update an order's status (accepted, ready, delivered, cancelled)"),
+  // UPI payments (money goes straight to your UPI ID; NeuraTalk never holds it)
+  R("GET", "/payment-settings", "Your UPI ID for payment requests"),
+  R("GET", "/payment-requests", "Payment requests and their status (?status=requested|customer_paid|paid|cancelled)"),
+  R("PATCH", "/payment-requests/:id", "Mark a payment request paid (money arrived) or cancelled"),
   // Forms and bots
   R("GET", "/forms", "Forms"),
   R("POST", "/forms", "Create a form"),
@@ -89,7 +95,7 @@ export function registerBusinessApiBridge(app: Express): void {
 
     const sub = req.path.slice(PREFIX.length) || "/";
     if (sub === "/" && req.method === "GET") {
-      return res.json({ success: true, docs: "https://neuratalk.in/api-docs", endpoints: ROUTES.map((r) => ({ method: r.method, path: PREFIX + r.path.source.slice(1, -1).replace(/\\d\+/g, ":id"), description: r.doc })) });
+      return res.json({ success: true, docs: "https://neuratalk.in/api-docs", endpoints: ROUTES.map((r) => ({ method: r.method, path: PREFIX + r.pattern, description: r.doc })) });
     }
     const rule = ROUTES.find((r) => r.method === req.method && r.path.test(sub));
     if (!rule) return res.status(404).json({ success: false, code: "NOT_AN_API_ENDPOINT", error: `${req.method} ${PREFIX}${sub} is not part of the business API. GET ${PREFIX} lists the endpoints.` });

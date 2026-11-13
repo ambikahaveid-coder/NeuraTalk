@@ -3,6 +3,18 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "Group links, broadcast lists, wallpapers, screen share and UPI payments",
+    date: "14 November 2026",
+    highlights: [
+      "Group invite links and QR codes: admins can reset or turn off the link; someone an admin removed can't rejoin through it",
+      "Broadcast lists: one message to up to 256 people, each as a normal chat from you; only people who have messaged you or saved your number receive it",
+      "Chat wallpapers for all chats or one chat, the same on your phone and on the web",
+      "Share your screen in a call, from the app or a computer browser",
+      "Businesses can ask for payment in the chat: the customer pays straight to the business's UPI ID and taps \"I've paid\"; NeuraTalk never holds the money",
+      "Business API: list menus, contact cards, mark as read, and UPI payment requests",
+    ],
+  },
+  {
     title: "NeuraTalk partners",
     date: "13 November 2026",
     highlights: [

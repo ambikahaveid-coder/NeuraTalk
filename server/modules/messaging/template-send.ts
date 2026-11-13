@@ -50,6 +50,37 @@ export const messageButtonsSchema = z.array(messageButtonSchema).max(3).superRef
 });
 export type MessageButton = z.infer<typeof messageButtonSchema>;
 
+/**
+ * List menu (like WhatsApp "list messages"): the customer taps one button,
+ * picks one of up to 10 options, and that option comes back as their reply.
+ */
+export const messageListSchema = z.object({
+  button: z.string().trim().min(1).max(20),
+  sections: z.array(z.object({
+    title: z.string().trim().max(24).optional(),
+    rows: z.array(z.object({
+      id: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/, "Option ids use letters, numbers, - and _"),
+      title: z.string().trim().min(1).max(24),
+      description: z.string().trim().max(72).optional(),
+    })).min(1).max(10),
+  })).min(1).max(10),
+}).superRefine((list, ctx) => {
+  const ids = list.sections.flatMap((s) => s.rows.map((r) => r.id));
+  if (ids.length > 10) ctx.addIssue({ code: "custom", message: "A list can have up to 10 options in all" });
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Each option needs a different id" });
+  if (list.sections.length > 1 && list.sections.some((s) => !s.title)) ctx.addIssue({ code: "custom", message: "Give each section a title" });
+});
+export type MessageList = z.infer<typeof messageListSchema>;
+
+/** A contact card the business shares (a branch, a delivery person, a helpline). */
+export const messageContactSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  phone: z.string().trim().regex(/^\+?[0-9 ]{8,16}$/, "Enter a valid phone number"),
+  email: z.string().trim().email().max(120).optional(),
+  organization: z.string().trim().max(80).optional(),
+});
+export type MessageContact = z.infer<typeof messageContactSchema>;
+
 /** Optional bold line above the text and small line below it (like WhatsApp). */
 export const templateHeaderSchema = z.string().trim().max(60).optional();
 export const templateFooterSchema = z.string().trim().max(60).optional();

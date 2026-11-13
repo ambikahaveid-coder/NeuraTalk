@@ -1004,7 +1004,9 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text('${(m['metadata'] as Map)['header']}', style: TextStyle(color: AppColors.ink, fontSize: 15, fontWeight: FontWeight.w800)),
               ),
-            if (attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original))
+            // A contact or payment card says it all; no repeated caption.
+            if ((attachments.isEmpty || !RegExp(r'^(📷|🎬|🎤|📄) ').hasMatch(original)) &&
+                (m['metadata'] as Map?)?['contact'] == null && (m['metadata'] as Map?)?['payment'] == null)
               Text(shown, style: TextStyle(color: AppColors.ink, fontSize: 15)),
             if ((m['metadata'] as Map?)?['footer'] is String)
               Padding(
@@ -1018,6 +1020,19 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               buttons: (m['metadata'] as Map)['buttons'] as List,
               tappedId: _tappedButton(id),
               onQuickReply: _blocked ? null : (b) => _send(buttonReply: {'messageId': id, 'buttonId': b['id']}),
+            ),
+          if (!mine && (m['metadata'] as Map?)?['list'] is Map)
+            MessageListView(
+              list: (m['metadata'] as Map)['list'] as Map,
+              pickedId: _tappedButton(id),
+              onPick: _blocked ? null : (row) => _send(buttonReply: {'messageId': id, 'buttonId': row['id']}),
+            ),
+          if ((m['metadata'] as Map?)?['contact'] is Map) ContactCardView(contact: (m['metadata'] as Map)['contact'] as Map),
+          if ((m['metadata'] as Map?)?['payment'] is Map)
+            PaymentCardView(
+              payment: (m['metadata'] as Map)['payment'] as Map,
+              businessId: mine ? null : widget.businessId,
+              onChanged: () => _load(quiet: true),
             ),
           if (_orders[id] != null) _orderStrip(_orders[id]!),
           if (translated != null)

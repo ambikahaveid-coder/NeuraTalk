@@ -137,6 +137,9 @@ export function useLiveKitCall() {
   const readyTranslationTracksRef = useRef(new Set<string>());
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteScreenRef = useRef<HTMLVideoElement>(null);
+  const [hasRemoteScreen, setHasRemoteScreen] = useState(false);
+  const [isSharingScreen, setIsSharingScreen] = useState(false);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -190,6 +193,8 @@ export function useLiveKitCall() {
     setIsMuted(false);
     setIsOnHold(false);
     setIsVideoOn(true);
+    setIsSharingScreen(false);
+    setHasRemoteScreen(false);
     setError(null);
     setStatus(nextStatus);
   }, []);
@@ -353,6 +358,10 @@ export function useLiveKitCall() {
         setStatus("active");
         void updateServerCallStatus(activeCallId, "active");
       })
+      // The browser's own "Stop sharing" bar ends the screen share.
+      .on(RoomEvent.LocalTrackUnpublished, (pub: any) => {
+        if (pub?.source === Track.Source.ScreenShare) setIsSharingScreen(false);
+      })
       .on(RoomEvent.ParticipantDisconnected, () => {
         syncRoomParticipantState(room, activeCallId);
       })
@@ -361,11 +370,22 @@ export function useLiveKitCall() {
         // The bot only publishes audio; every audio track is attached and
         // applyAudioRouting decides which ones are audible.
         if (isBot && track.kind !== Track.Kind.Audio) return;
+        // Their shared screen has its own element, shown over their camera.
+        if (track.source === Track.Source.ScreenShare) {
+          if (remoteScreenRef.current && track.mediaStreamTrack) remoteScreenRef.current.srcObject = new MediaStream([track.mediaStreamTrack]);
+          setHasRemoteScreen(true);
+          return;
+        }
         attachRemoteTrack(track);
         if (track.kind === Track.Kind.Audio) applyAudioRouting(room);
         if (!isBot) syncRoomParticipantState(room, activeCallId);
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+        if (track.source === Track.Source.ScreenShare) {
+          if (remoteScreenRef.current) remoteScreenRef.current.srcObject = null;
+          setHasRemoteScreen(false);
+          return;
+        }
         track.detach().forEach((el: HTMLMediaElement) => el.remove());
         const mediaTrack = track.mediaStreamTrack;
         if (mediaTrack && remoteStreamRef.current) {
@@ -620,6 +640,24 @@ export function useLiveKitCall() {
       if (remoteAudioRef.current) remoteAudioRef.current.muted = next;
     } catch {}
   }, [callId, isOnHold, isMuted]);
+
+  /** Browsers that can share a screen (desktop Chrome/Edge/Firefox/Safari). */
+  const canShareScreen = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
+
+  const toggleScreenShare = useCallback(async () => {
+    const lp = roomRef.current?.localParticipant;
+    if (!lp) return;
+    const next = !isSharingScreen;
+    try {
+      await lp.setScreenShareEnabled(next, { audio: false });
+      setIsSharingScreen(next);
+      setError(null);
+    } catch (err: any) {
+      // Closing the browser's picker is not an error.
+      if (err?.name === "NotAllowedError" || err?.name === "AbortError") return;
+      setError("Could not share your screen.");
+    }
+  }, [isSharingScreen]);
 
   const toggleVideo = useCallback(async () => {
     const lp = roomRef.current?.localParticipant;
@@ -877,6 +915,11 @@ export function useLiveKitCall() {
     toggleMute,
     toggleHold,
     toggleVideo,
+    canShareScreen,
+    isSharingScreen,
+    toggleScreenShare,
+    hasRemoteScreen,
+    remoteScreenRef,
     sendDataMessage,
     updateLanguage,
     updateTranslationMode,

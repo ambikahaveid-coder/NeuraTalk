@@ -13,10 +13,11 @@ class OngoingCall {
   static const MethodChannel _channel = MethodChannel('neuratalk/ongoing_call');
   static bool _running = false;
 
-  static Future<void> start({required bool video, String? peer}) async {
+  /// [screen]: also allow screen capture (call it again with false when sharing stops).
+  static Future<void> start({required bool video, String? peer, bool screen = false}) async {
     if (!Platform.isAndroid) return;
     try {
-      await _channel.invokeMethod('start', {'video': video, 'peer': peer});
+      await _channel.invokeMethod('start', {'video': video, 'peer': peer, 'screen': screen});
       _running = true;
     } catch (_) {
       // The call continues; only background audio is affected.
