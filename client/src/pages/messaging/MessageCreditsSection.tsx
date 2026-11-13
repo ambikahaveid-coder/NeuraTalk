@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { BrandMark } from "@/components/BrandMark";
 import { getAuthToken, useAuth } from "@/hooks/use-auth";
 
 /**
@@ -25,6 +26,7 @@ interface Overview {
   packs: Pack[];
   plan: CurrentPlan | null;
   plans: Plan[];
+  managedBy?: { brandName: string; logoUrl: string | null; primaryColor: string | null; supportEmail: string | null; supportPhone: string | null } | null;
   payment: { ready: boolean; upiId: string; payeeName: string; bankName: string; accountNumber: string; ifsc: string; note: string };
   customAmount: { minPaise: number };
   requests: RechargeRequest[];
@@ -47,7 +49,7 @@ const rs = (p: number, digits = 2) => `₹${(p / 100).toLocaleString("en-IN", { 
 const CATEGORY: Record<string, string> = { marketing: "Offers", utility: "Order & account updates", authentication: "Verification codes" };
 const METHOD: Record<string, string> = { upi: "UPI", bank_transfer: "Bank transfer (NEFT/IMPS/RTGS)", cheque: "Cheque", cash_deposit: "Cash deposit at bank" };
 const STATUS: Record<string, { label: string; icon: React.ReactNode; variant: "secondary" | "outline" | "destructive" | "default" }> = {
-  pending: { label: "Waiting for NeuraTalk", icon: <Clock className="h-3 w-3" />, variant: "outline" },
+  pending: { label: "Waiting for confirmation", icon: <Clock className="h-3 w-3" />, variant: "outline" },
   approved: { label: "Credit added", icon: <CheckCircle2 className="h-3 w-3" />, variant: "secondary" },
   rejected: { label: "Not confirmed", icon: <XCircle className="h-3 w-3" />, variant: "destructive" },
   cancelled: { label: "Cancelled", icon: <XCircle className="h-3 w-3" />, variant: "outline" },
@@ -85,7 +87,7 @@ export default function MessageCreditsSection({ base }: { base: string }) {
       ...(buying?.packId ? { packId: buying.packId } : buying?.planId ? { planId: buying.planId } : { amountPaise: Math.round(Number(buying?.amountRupees ?? 0) * 100) }),
       method, paymentReference: reference.trim(),
     }),
-    onSuccess: () => { toast({ title: "Payment sent for confirmation", description: "NeuraTalk checks it with the bank, usually within a working day. Then the credit is added or the plan starts." }); setBuying(null); setReference(""); qc.invalidateQueries({ queryKey: key }); },
+    onSuccess: () => { toast({ title: "Payment sent for confirmation", description: `${q.data?.managedBy?.brandName ?? "NeuraTalk"} checks it with the bank, usually within a working day. Then the credit is added or the plan starts.` }); setBuying(null); setReference(""); qc.invalidateQueries({ queryKey: key }); },
     onError: (e: Error) => toast({ title: "Couldn't send", description: e.message, variant: "destructive" }),
   });
   const cancel = useMutation({
@@ -151,6 +153,17 @@ export default function MessageCreditsSection({ base }: { base: string }) {
         </CardContent></Card>
       </div>
 
+      {d.managedBy && (
+        <Card data-testid="managed-by-card">
+          <CardContent className="flex flex-wrap items-center gap-3 p-4">
+            <BrandMark name={d.managedBy.brandName} logoUrl={d.managedBy.logoUrl} color={d.managedBy.primaryColor} />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Managed by {d.managedBy.brandName}</p>
+              <p className="text-xs text-muted-foreground">You buy credit and plans from {d.managedBy.brandName}. For help: {[d.managedBy.supportEmail, d.managedBy.supportPhone].filter(Boolean).join(" · ") || "contact your partner"}.</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <Card data-testid="plan-card">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div>
@@ -174,11 +187,15 @@ export default function MessageCreditsSection({ base }: { base: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Buy credit or a plan</CardTitle>
-            <CardDescription>Pay first, then send us the payment reference. After NeuraTalk confirms the payment with the bank, the credit is added or the plan starts.</CardDescription>
+            <CardDescription>Pay first, then send the payment reference. After {d.managedBy?.brandName ?? "NeuraTalk"} confirms the payment with the bank, the credit is added or the plan starts.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {!d.payment.ready ? (
-              <p className="text-sm text-muted-foreground">Payment details aren't set up yet. Write to support@mindwhile.com to buy credit.</p>
+              <p className="text-sm text-muted-foreground">
+                {d.managedBy
+                  ? `${d.managedBy.brandName} hasn't added its payment details yet. Contact ${d.managedBy.supportEmail || d.managedBy.supportPhone || "them"} to buy credit.`
+                  : "Payment details aren't set up yet. Write to support@mindwhile.com to buy credit."}
+              </p>
             ) : (
               <>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -216,7 +233,7 @@ export default function MessageCreditsSection({ base }: { base: string }) {
                 {buying && (
                   <div className="grid gap-6 rounded-lg border p-4 lg:grid-cols-2">
                     <div className="space-y-2">
-                      <p className="text-sm font-medium">1. Pay {payRupees > 0 ? rs(payRupees * 100) : "the amount"} to NeuraTalk</p>
+                      <p className="text-sm font-medium">1. Pay {payRupees > 0 ? rs(payRupees * 100) : "the amount"} to {d.managedBy?.brandName ?? "NeuraTalk"}</p>
                       {selectedPlan && <p className="text-xs text-muted-foreground">{selectedPlan.name}: {selectedPlan.includedMinutes.toLocaleString("en-IN")} AI minutes for {selectedPlan.durationDays} days, starting when NeuraTalk confirms the payment.</p>}
                       {!selectedPack && !selectedPlan && (
                         <Input type="number" min={d.customAmount.minPaise / 100} placeholder={`Amount in ₹ (min ${d.customAmount.minPaise / 100})`} value={buying.amountRupees ?? ""}

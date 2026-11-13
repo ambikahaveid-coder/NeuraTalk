@@ -22,6 +22,7 @@ import { BillingEngine } from "../../billing-engine";
 import { createAuditLog } from "../../audit";
 import { logger } from "../../observability";
 import { getMessagePrices, getMessagePricesFor } from "../messaging/pricing";
+import { partnerContextForBusiness, paymentReferenceInUse } from "../partners/partners";
 
 const rows = <T>(r: unknown) => (r as { rows: T[] }).rows;
 const INSTRUCTIONS_KEY = "business_payment_instructions";
@@ -90,6 +91,9 @@ export async function ensureMessageCreditTables(): Promise<void> {
 
 export type PaymentInstructions = { upiId: string; payeeName: string; bankName: string; accountNumber: string; ifsc: string; note: string };
 const EMPTY_INSTRUCTIONS: PaymentInstructions = { upiId: "", payeeName: "", bankName: "", accountNumber: "", ifsc: "", note: "" };
+
+/** NeuraTalk's own UPI / bank details (where businesses and partners pay NeuraTalk). */
+export async function getNeuraTalkPaymentDetails() { const i = await getInstructions(); return { ready: instructionsReady(i), ...i }; }
 
 async function getInstructions(): Promise<PaymentInstructions> {
   const [row] = await db.select().from(platformSettings).where(eq(platformSettings.key, INSTRUCTIONS_KEY));
@@ -199,7 +203,7 @@ export async function creditsOverview(businessId: number) {
   const requests = rows<RequestRow>(await db.execute(sql`
     SELECT r.*, p.name AS plan_name FROM business_recharge_requests r LEFT JOIN billing_plans p ON p.id = r.plan_id
     WHERE r.business_id = ${businessId} ORDER BY r.created_at DESC LIMIT 20`));
-  const [plan, plans] = await Promise.all([currentPlan(businessId), buyablePlans()]);
+  const [plan, plans, partner] = await Promise.all([currentPlan(businessId), buyablePlans(), partnerContextForBusiness(businessId)]);
   const usage = rows<{ day: string; category: string; messages: number; amount_paise: number }>(await db.execute(sql`
     SELECT to_char(day, 'YYYY-MM-DD') AS day, category, messages, amount_paise FROM business_message_usage_daily
     WHERE business_id = ${businessId} AND day > (now() AT TIME ZONE 'Asia/Kolkata')::date - 30 ORDER BY day DESC, category`));
@@ -212,10 +216,12 @@ export async function creditsOverview(businessId: number) {
     // Rough days left at the last 30 days' pace; only shown when it's a useful number (under a year).
     daysLeft: perDay > 0 && balancePaise / perDay < 365 ? Math.floor(balancePaise / perDay) : null,
     rates: { marketingPaise: prices.marketingPaise, utilityPaise: prices.utilityPaise, otpPaise: prices.otpPaise, special: prices.special, freeReplies: true },
-    packs: packs.map(presentPack),
+    // A partner's business buys from its partner: NeuraTalk's packs (and their bonus) don't apply.
+    packs: partner ? [] : packs.map(presentPack),
     plan,
     plans: plans.map(presentPlan),
-    payment: { ready: instructionsReady(instructions), ...instructions },
+    payment: partner ? partner.payment : { ready: instructionsReady(instructions), ...instructions },
+    managedBy: partner ? partner.brand : null,
     customAmount: { minPaise: MIN_CUSTOM_RECHARGE_PAISE },
     requests: requests.map(presentRequest),
     usage: usage.map((u) => ({ day: u.day, category: u.category, messages: Number(u.messages), amountPaise: Number(u.amount_paise) })),
@@ -271,12 +277,15 @@ export function registerMessageCreditRoutes(app: Express): void {
       if (!plan) return res.status(400).json({ success: false, error: "That plan is not offered." });
       price = plan.price_in_paise; credit = 0; // a plan gives minutes, not wallet credit
     }
+    const partner = await partnerContextForBusiness(businessId);
+    if (partner && d.packId) return res.status(400).json({ success: false, error: "Buy credit from your partner by amount." });
+    if (await paymentReferenceInUse(d.paymentReference)) return res.status(409).json({ success: false, error: "This payment reference was already used. Check the UTR from your bank app." });
     const [{ n }] = rows<{ n: number }>(await db.execute(sql`SELECT count(*)::int AS n FROM business_recharge_requests WHERE business_id = ${businessId} AND status = 'pending'`));
     if (n >= MAX_PENDING_REQUESTS) return res.status(429).json({ success: false, error: "You already have payments waiting for confirmation. NeuraTalk will confirm them soon." });
     try {
       const [r] = rows<RequestRow>(await db.execute(sql`
-        INSERT INTO business_recharge_requests (business_id, pack_id, kind, plan_id, price_paise, credit_paise, method, payment_reference, note, requested_by)
-        VALUES (${businessId}, ${d.packId ?? null}, ${kind}, ${d.planId ?? null}, ${price}, ${credit}, ${d.method}, ${d.paymentReference.toUpperCase()}, ${d.note ?? null}, ${req.user!.id})
+        INSERT INTO business_recharge_requests (business_id, pack_id, kind, plan_id, price_paise, credit_paise, method, payment_reference, note, requested_by, partner_id)
+        VALUES (${businessId}, ${d.packId ?? null}, ${kind}, ${d.planId ?? null}, ${price}, ${credit}, ${d.method}, ${d.paymentReference.toUpperCase()}, ${d.note ?? null}, ${req.user!.id}, ${partner?.partnerId ?? null})
         RETURNING *, (SELECT name FROM billing_plans WHERE id = plan_id) AS plan_name`));
       res.status(201).json({ success: true, request: presentRequest(r) });
     } catch (error) {
@@ -320,10 +329,10 @@ export function registerMessageCreditRoutes(app: Express): void {
     const pending = rows<RequestRow>(await db.execute(sql`
       SELECT r.*, o.name AS business_name, (SELECT name FROM billing_plans WHERE id = r.plan_id) AS plan_name, coalesce(u.display_name, u.phone, u.username) AS requester
       FROM business_recharge_requests r JOIN organizations o ON o.id = r.business_id LEFT JOIN users u ON u.id = r.requested_by
-      WHERE r.status = 'pending' ORDER BY r.created_at`));
+      WHERE r.status = 'pending' AND r.partner_id IS NULL ORDER BY r.created_at`));
     const recent = rows<RequestRow>(await db.execute(sql`
       SELECT r.*, o.name AS business_name, (SELECT name FROM billing_plans WHERE id = r.plan_id) AS plan_name FROM business_recharge_requests r JOIN organizations o ON o.id = r.business_id
-      WHERE r.status <> 'pending' ORDER BY r.decided_at DESC NULLS LAST LIMIT 30`));
+      WHERE r.status <> 'pending' AND r.partner_id IS NULL ORDER BY r.decided_at DESC NULLS LAST LIMIT 30`));
     const packs = rows<PackRow>(await db.execute(sql`SELECT * FROM business_credit_packs ORDER BY display_order, price_paise`));
     const [totals] = rows<{ received: number; credited: number; spent: number }>(await db.execute(sql`
       SELECT
@@ -357,7 +366,7 @@ export function registerMessageCreditRoutes(app: Express): void {
     // Claim first (pending → approved), so two admins clicking at once can't credit twice.
     const [r] = rows<RequestRow>(await db.execute(sql`
       UPDATE business_recharge_requests SET status = 'approved', decided_by = ${req.user!.id}, decided_at = now(), decision_note = ${note}
-      WHERE id = ${Number(req.params.requestId)} AND status = 'pending' RETURNING *`));
+      WHERE id = ${Number(req.params.requestId)} AND status = 'pending' AND partner_id IS NULL RETURNING *`));
     if (!r) return res.status(409).json({ success: false, error: "This request was already decided." });
     if (r.kind === "plan" && r.plan_id) {
       try {
@@ -387,7 +396,7 @@ export function registerMessageCreditRoutes(app: Express): void {
     if (reason.length < 5) return res.status(400).json({ success: false, error: "Write the reason (the business sees it)." });
     const [r] = rows<RequestRow>(await db.execute(sql`
       UPDATE business_recharge_requests SET status = 'rejected', decided_by = ${req.user!.id}, decided_at = now(), decision_note = ${reason}
-      WHERE id = ${Number(req.params.requestId)} AND status = 'pending' RETURNING *`));
+      WHERE id = ${Number(req.params.requestId)} AND status = 'pending' AND partner_id IS NULL RETURNING *`));
     if (!r) return res.status(409).json({ success: false, error: "This request was already decided." });
     await createAuditLog({ userId: req.user!.id, organizationId: r.business_id, action: AUDIT_ACTION.UPDATE as never, entityType: "recharge_request", entityId: r.id, newValue: { status: "rejected", reason } });
     res.json({ success: true, request: presentRequest(r) });

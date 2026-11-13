@@ -94,6 +94,7 @@ import { registerAutoResponderRoutes } from "./modules/messaging/auto-responders
 import { registerSimpleSendApi } from "./modules/messaging/simple-send-api";
 import { registerAutomationAdminRoutes } from "./modules/messaging/automation-admin";
 import { registerMessageCreditRoutes } from "./modules/billing/message-credits";
+import { registerPartnerRoutes } from "./modules/partners/partners";
 import { registerTemplateSendRoutes } from "./modules/messaging/template-routes";
 import { registerBusinessVerificationRoutes } from "./modules/business-verification/routes";
 import { registerMarketingRoutes } from "./modules/marketing/routes";
@@ -237,6 +238,7 @@ export async function registerRoutes(
   registerAutoResponderRoutes(app); console.log("[Routes] ✓ Business auto-responder routes");
   registerAutomationAdminRoutes(app);
   registerMessageCreditRoutes(app);
+  registerPartnerRoutes(app);
   registerTemplateSendRoutes(app); console.log("[Routes] ✓ Business template send + 24h window routes");
   registerBusinessVerificationRoutes(app); console.log("[Routes] ✓ Business verification (blue tick) routes");
   registerMarketingRoutes(app); console.log("[Routes] ✓ Business marketing reporting routes (Phase 8B-R0)");

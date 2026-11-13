@@ -64,3 +64,37 @@ Safety built in:
 - **No automatic GST invoice for these payments.** Issue invoices from your accounting software.
 - **No online payment.** When Razorpay is switched on, it can replace manual confirmation.
 - **Businesses aren't told by SMS or email** when a plan is about to end. They see it in the app and dashboard only.
+
+## Partners (resellers / white-label)
+
+A partner sells NeuraTalk Business under its own brand, like a WhatsApp Business reseller. Super Admin → **Partners**.
+
+**Create a partner**
+1. Ask the partner owner to sign in to NeuraTalk once with their mobile number. It must not be a number that runs a business.
+2. Click **+ Partner**. Fill in the company name, the brand shown, the link name (their page becomes `neuratalk.in/p/<link>`) and the owner's mobile.
+3. Set the deal (all optional):
+   - **Bonus %** on every top-up. Example: 10% means they pay ₹10,000 and get ₹11,000.
+   - **Wholesale rates** per delivered message, in paise. Their businesses are charged these rates.
+4. Send the partner their link. They open **neuratalk.in/partner** after signing in.
+
+**Money flow**
+
+| Who pays | What happens |
+|---|---|
+| Partner → NeuraTalk | Partner pays your UPI/bank and sends the UTR in Partner panel → Wallet. **You confirm it in Partners → Partner payments.** The partner wallet gets the amount plus the bonus. |
+| Business → partner | The business pays the partner's own UPI/bank, shown in the business's Wallet & plan. **The partner confirms it**, not you. The credit, or the plan at NeuraTalk's plan price, comes out of the partner's wallet. |
+| Partner → business | The partner can also give credit or start a plan directly. Both come out of its wallet. The partner can take back only unused credit. |
+
+A partner can never give out more than it paid for. Every movement is in its wallet history and in the business's wallet ledger.
+
+**What a partner can and can't do**
+- It sees only its own businesses.
+- It can pause its own business (paid sending and calls stop). It can't lift a pause that NeuraTalk set.
+- Staff can view and add businesses. Only owners move money, confirm payments or change settings.
+- **Pause partner** (with a reason): the partner can still look, but can't move money or add businesses. Its sign-in page is hidden. Its businesses keep using the credit they already have.
+- **Move an existing business** under a partner by its company id (Partners → Manage).
+
+**Not done yet**
+- No own domain per partner (e.g. `chat.partner.com`). They use `neuratalk.in/p/<link>`.
+- No partner logo upload. The partner pastes an https link to its logo.
+- The customer-facing app always shows NeuraTalk. Only the business side shows the partner.

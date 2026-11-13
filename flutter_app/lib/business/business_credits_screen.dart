@@ -30,6 +30,9 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
   String? _error;
 
   String get _base => '${context.read<BusinessAccount>().base}/credits';
+  /// Who the business buys from: its partner (reseller), or NeuraTalk.
+  Map<String, dynamic>? get _partner => _d?['managedBy'] is Map ? Map<String, dynamic>.from(_d!['managedBy'] as Map) : null;
+  String get _seller => '${_partner?['brandName'] ?? 'NeuraTalk'}';
 
   @override
   void initState() {
@@ -51,13 +54,13 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
     final sent = await Navigator.push<bool>(context, MaterialPageRoute(
       builder: (_) => ChangeNotifierProvider<BusinessAccount>.value(
         value: account,
-        child: _BuyScreen(pack: pack, payment: Map<String, dynamic>.from(_d!['payment'] as Map), minPaise: ((_d!['customAmount'] as Map)['minPaise'] as num).toInt()),
+        child: _BuyScreen(pack: pack, seller: _seller, payment: Map<String, dynamic>.from(_d!['payment'] as Map), minPaise: ((_d!['customAmount'] as Map)['minPaise'] as num).toInt()),
       ),
     ));
     if (sent == true) {
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sent. NeuraTalk adds the credit after checking the payment, usually within a working day.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sent. $_seller adds the credit after checking the payment, usually within a working day.')));
       }
     }
   }
@@ -113,7 +116,25 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
                     ? 'Your plan ends on ${day(plan['endsAt'])}. Renew it so calls keep working.'
                     : null;
 
+    final partner = _partner;
     return ListView(padding: const EdgeInsets.only(bottom: 32), children: [
+      if (partner != null)
+        _card(child: Row(children: [
+          CircleAvatar(
+            backgroundColor: AppColors.blueTint,
+            child: Text('${partner['brandName']}'.isEmpty ? '?' : '${partner['brandName']}'.substring(0, 1), style: TextStyle(color: AppColors.cyan, fontWeight: FontWeight.w800)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Managed by ${partner['brandName']}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700)),
+              Text(
+                'You buy credit and plans from ${partner['brandName']}. Help: ${[partner['supportEmail'], partner['supportPhone']].where((v) => v != null && '$v'.isNotEmpty).join(' · ')}',
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+              ),
+            ]),
+          ),
+        ])),
       if (planWarning != null)
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -172,7 +193,11 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
         child: Text('BUY CREDIT OR A PLAN', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
       ),
       if (!paymentReady)
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text('Payment details aren\'t set up yet. Write to support@mindwhile.com to buy credit.', style: TextStyle(color: AppColors.textSecondary)))
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text(
+          partner != null
+              ? '${partner['brandName']} hasn\'t added its payment details yet. Contact them to buy credit.'
+              : 'Payment details aren\'t set up yet. Write to support@mindwhile.com to buy credit.',
+          style: TextStyle(color: AppColors.textSecondary)))
       else ...[
         for (final p in packs)
           ListTile(
@@ -238,7 +263,7 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
       'approved' => (isPlan ? 'Plan started' : 'Credit added', AppColors.green, Icons.check_circle),
       'rejected' => ('Not confirmed', AppColors.red, Icons.cancel),
       'cancelled' => ('Cancelled', AppColors.textMuted, Icons.cancel_outlined),
-      _ => ('Waiting for NeuraTalk', AppColors.orange, Icons.schedule),
+      _ => ('Waiting for confirmation', AppColors.orange, Icons.schedule),
     };
     return ListTile(
       leading: Icon(icon, color: color),
@@ -266,7 +291,8 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
 }
 
 class _BuyScreen extends StatefulWidget {
-  const _BuyScreen({required this.pack, required this.payment, required this.minPaise});
+  const _BuyScreen({required this.pack, required this.payment, required this.minPaise, this.seller = 'NeuraTalk'});
+  final String seller;
   final Map<String, dynamic>? pack;
   final Map<String, dynamic> payment;
   final int minPaise;
@@ -351,7 +377,7 @@ class _BuyScreenState extends State<_BuyScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(widget.pack != null ? 'Buy ${widget.pack!['name']}' : 'Buy credit')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        Text('1. Pay NeuraTalk', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 16)),
+        Text('1. Pay ${widget.seller}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700, fontSize: 16)),
         const SizedBox(height: 8),
         if (widget.pack == null)
           TextField(
@@ -403,7 +429,7 @@ class _BuyScreenState extends State<_BuyScreen> {
           child: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text("I've paid — send for confirmation"),
         ),
         const SizedBox(height: 8),
-        Text('NeuraTalk checks the payment with the bank, then adds the credit or starts the plan. Each payment reference can be used once.',
+        Text('The payment is checked with the bank, then you get the credit or the plan starts. Each payment reference can be used once.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
       ]),
     );

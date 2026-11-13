@@ -33,6 +33,8 @@ export function MobileNav() {
   // Inside a business chat the composer sits at the bottom of the screen,
   // as in any messaging app; the tab bar would cover it.
   if (location.startsWith("/business-chat/")) return null;
+  // The business dashboard, the partner panel and admin have their own menus; this one is for personal use.
+  if (/^\/(company|partner|admin|p)(\/|$)/.test(location)) return null;
 
   return (
     <nav 

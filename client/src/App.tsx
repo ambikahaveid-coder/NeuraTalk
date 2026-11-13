@@ -15,6 +15,8 @@ const AppLogin = lazy(() => import("@/pages/AppLogin"));
 const LinkDevicePage = lazy(() => import("@/pages/LinkDevicePage"));
 const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
+const PartnerPanel = lazy(() => import("@/pages/partner/PartnerPanel"));
+const PartnerSignInPage = lazy(() => import("@/pages/partner/PartnerSignInPage"));
 const SuperAdminDashboard = lazy(() => import("@/pages/SuperAdminDashboard"));
 const ChatPage = lazy(() => import("@/pages/ChatPage"));
 const WebAppPage = lazy(() => import("@/pages/WebAppPage"));
@@ -163,7 +165,8 @@ function takeReturnTo(): string | null {
   try {
     const value = sessionStorage.getItem(RETURN_TO_KEY);
     sessionStorage.removeItem(RETURN_TO_KEY);
-    return value && /^\/(b|business-chat)\//.test(value) ? value : null;
+    // Business links / QR codes, and a partner's sign-in page (back to the partner panel or the business dashboard).
+    return value && (/^\/(b|business-chat)\//.test(value) || /^\/(partner|company)(\?|$)/.test(value)) ? value : null;
   } catch {
     return null;
   }
@@ -181,7 +184,7 @@ function ProtectedRoute({
   if (!isAuthenticated) {
     // A business link / QR code opened while signed out: come back to it after login.
     const here = window.location.pathname + window.location.search;
-    if (/^\/(b|business-chat)\//.test(window.location.pathname)) {
+    if (/^\/(b|business-chat)\//.test(window.location.pathname) || /^\/partner(\/|$)/.test(window.location.pathname)) {
       try { sessionStorage.setItem(RETURN_TO_KEY, here); } catch { /* storage unavailable */ }
     }
     return <Redirect to={recentSignOutDestination() ?? "/login"} />;
@@ -255,6 +258,14 @@ function Router() {
         )}
       </Route>
       
+      {/* Partners (resellers): their own sign-in page and their panel. */}
+      <Route path="/p/:slug">
+        {(params) => <Suspense fallback={<PageLoader />}><PartnerSignInPage slug={params.slug} /></Suspense>}
+      </Route>
+      <Route path="/partner">
+        <ProtectedRoute component={PartnerPanel} />
+      </Route>
+
       <Route path="/dashboard">
         <ProtectedRoute component={ConsumerDashboard} />
       </Route>

@@ -53,6 +53,10 @@ export default function BusinessTermsPage() {
         <li><strong>How to pay.</strong> In the dashboard or the NeuraTalk Business app (Wallet &amp; plan), choose a credit pack, an amount, or a
           plan, pay to the UPI ID or bank account shown there, and send us the payment reference (UTR). We check it against our bank statement,
           then add the credit or start the plan. Each payment reference can be used once. If we can't find the payment, we tell you why in the same screen.</li>
+        <li><strong>If a NeuraTalk partner manages your account</strong> (you see "Managed by …"), you buy credit and plans from that
+          partner and pay the partner, under your own agreement with it; the partner confirms your payments and supports you. Prices you pay
+          the partner are set by the partner. These terms and our messaging rules still apply to you, and NeuraTalk can still act on your account
+          to protect customers.</li>
         <li><strong>Plans</strong> give AI translation minutes for business calls for the number of days shown. They do not renew on their own.
           When a plan ends you have 7 days to renew; after that your business account is paused until a new plan is paid. Your wallet balance is kept.</li>
         <li><strong>Wallet.</strong> Messages, and calls after your plan minutes run out, are paid from your prepaid wallet. Extra credit given

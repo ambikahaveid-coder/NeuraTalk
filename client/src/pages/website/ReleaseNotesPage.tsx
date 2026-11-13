@@ -3,6 +3,16 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "NeuraTalk partners",
+    date: "13 November 2026",
+    highlights: [
+      "Partners can sell NeuraTalk Business under their own name, logo and colour, with their own sign-in page",
+      "Partner panel: create businesses, give them credit and plans, confirm their payments, pause a business, add staff",
+      "Partners buy wholesale credit from NeuraTalk; every rupee given to a business comes out of what the partner paid",
+      "A partner's businesses see \"Managed by\" the partner, pay the partner, and get the partner's support contact",
+    ],
+  },
+  {
     title: "Business bots, product cards and paying for credit",
     date: "13 November 2026",
     highlights: [

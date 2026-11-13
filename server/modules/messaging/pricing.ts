@@ -79,15 +79,21 @@ export async function getMessagePricesFor(businessId?: number | null): Promise<M
   const base = await getMessagePrices();
   if (!businessId) return { ...base, special: false };
   try {
+    // Order: this business's special rate → its partner's wholesale rate → standard price.
     const [r] = rows(await db.execute(sql`
-      SELECT marketing_paise, utility_paise, otp_paise FROM business_message_rates WHERE business_id = ${businessId}`));
+      SELECT b.marketing_paise AS bm, b.utility_paise AS bu, b.otp_paise AS bo,
+             p.marketing_paise AS pm, p.utility_paise AS pu, p.otp_paise AS po
+      FROM (SELECT ${businessId}::int AS id) x
+      LEFT JOIN business_message_rates b ON b.business_id = x.id
+      LEFT JOIN partner_businesses pb ON pb.business_id = x.id
+      LEFT JOIN partners p ON p.id = pb.partner_id`));
     if (!r) return { ...base, special: false };
-    const pick = (v: unknown, d: number) => (v === null || v === undefined ? d : Number(v));
-    const special = r.marketing_paise != null || r.utility_paise != null || r.otp_paise != null;
+    const pick = (...vals: unknown[]) => Number(vals.find((v) => v !== null && v !== undefined));
+    const special = [r.bm, r.bu, r.bo, r.pm, r.pu, r.po].some((v) => v !== null && v !== undefined);
     return {
-      marketingPaise: pick(r.marketing_paise, base.marketingPaise),
-      utilityPaise: pick(r.utility_paise, base.utilityPaise),
-      otpPaise: pick(r.otp_paise, base.otpPaise),
+      marketingPaise: pick(r.bm, r.pm, base.marketingPaise),
+      utilityPaise: pick(r.bu, r.pu, base.utilityPaise),
+      otpPaise: pick(r.bo, r.po, base.otpPaise),
       updatedAt: base.updatedAt,
       special,
     };

@@ -225,6 +225,19 @@ export default function CompanyDashboard() {
     enabled: canManageCompany && (activeTab === "overview" || activeTab === "api" || activeTab === "reports"),
   });
 
+  // A partner (reseller) that manages this business: "Managed by …" in the sidebar.
+  const orgIdForPartner = (user as { organization?: { id?: number } } | null)?.organization?.id ?? 0;
+  const managedBy = useQuery<{ partner: { brandName: string; supportEmail: string | null; supportPhone: string | null } | null }>({
+    queryKey: ["/api/business", orgIdForPartner, "managed-by"],
+    queryFn: async () => {
+      const res = await fetch(`/api/business/${orgIdForPartner}/managed-by`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+      if (!res.ok) return { partner: null };
+      return res.json();
+    },
+    enabled: orgIdForPartner > 0,
+    staleTime: 10 * 60_000,
+  });
+
   const { data: auditData } = useQuery<AuditLogResponse>({
     queryKey: ["/api/enterprise/audit-logs"],
     queryFn: async () => {
@@ -295,7 +308,9 @@ export default function CompanyDashboard() {
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground md:h-10 md:w-10 md:text-lg">{businessName.charAt(0).toUpperCase()}</span>
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold leading-tight" data-testid="text-business-name">{businessName}</p>
-            <p className="hidden text-xs text-muted-foreground md:block">NeuraTalk Business</p>
+            <p className="hidden truncate text-xs text-muted-foreground md:block" data-testid="text-managed-by">
+              {managedBy.data?.partner ? `Managed by ${managedBy.data.partner.brandName}` : "NeuraTalk Business"}
+            </p>
           </div>
           <div className="flex items-center md:hidden">
             <ThemeToggle />
