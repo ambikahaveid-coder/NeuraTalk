@@ -156,7 +156,11 @@ export function registerOrderRoutes(app: Express): void {
         ...(parsed.data.note ? [`Note: ${parsed.data.note}`] : []),
       ].join("\n");
 
-      const sent = await sendUserInitiatedMessage({ businessId, authenticatedUserId: req.user!.id, content: text });
+      // Order details travel with the message, so the business's webhook gets them (message.received → order).
+      const sent = await sendUserInitiatedMessage({
+        businessId, authenticatedUserId: req.user!.id, content: text,
+        extraMetadata: { order: { items, totalPaise: total, note: parsed.data.note ?? null } },
+      });
       const [conv] = await db.select({ id: businessConversations.id }).from(businessConversations)
         .innerJoin(customers, eq(customers.id, businessConversations.customerId))
         .where(and(eq(businessConversations.businessId, businessId), eq(customers.linkedUserId, req.user!.id)))

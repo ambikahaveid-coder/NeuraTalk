@@ -613,6 +613,40 @@ export async function loadUser(
 }
 
 /**
+ * The request user for a business API key: the business's admin, with the
+ * same role and permissions the dashboard gives them (no session).
+ * Used only by the business API bridge (modules/messaging/business-api.ts).
+ */
+export async function buildApiActorUser(userId: number): Promise<Request["user"] | null> {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId), with: { organization: true } });
+  if (!user || !user.isActive || !user.organizationId) return null;
+  const membership = (await db.select().from(orgMembers).where(and(
+    eq(orgMembers.organizationId, user.organizationId),
+    eq(orgMembers.userId, user.id),
+  )).limit(1))[0] ?? null;
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: (user as { displayName?: string | null }).displayName ?? null,
+    email: user.email,
+    phone: user.phone,
+    avatarUrl: user.avatarUrl,
+    preferredLanguage: user.preferredLanguage,
+    pushNotificationsEnabled: user.pushNotificationsEnabled,
+    translationEnabled: user.translationEnabled,
+    role: user.role,
+    organizationId: user.organizationId,
+    tenantSlug: user.organization?.slug ?? null,
+    memberRole: membership?.memberRole ?? null,
+    permissions: buildPermissionSet(user.role, membership?.memberRole ?? null, membership?.permissions),
+    sessionId: null,
+    sessionScope: "api_key",
+    mfaVerifiedAt: null,
+    organization: user.organization ? { id: user.organization.id, name: user.organization.name, slug: user.organization.slug, status: user.organization.status } : null,
+  } as unknown as Request["user"];
+}
+
+/**
  * Require authentication - user must be logged in
  */
 export function requireAuth(

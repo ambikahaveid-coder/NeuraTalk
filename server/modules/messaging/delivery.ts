@@ -185,13 +185,17 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
     const [senderParticipant] = await db.select().from(messagingParticipants).where(eq(messagingParticipants.id, message.senderParticipantId));
     if (senderParticipant && isCustomerSide(senderParticipant)) {
       void notifyBusinessTeam(input.businessId, businessConversationId, bizConv.assignedToUserId ?? null, customer?.id ?? null, message.content);
-      const meta = (message.metadata ?? {}) as { buttonReply?: unknown; location?: unknown; formResponse?: unknown };
+      const meta = (message.metadata ?? {}) as { buttonReply?: unknown; location?: unknown; formResponse?: unknown; order?: unknown };
       notifyBusinessServer(input.businessId, "message.received", {
         messageId: message.id, customerId: customer?.id ?? null, text: message.content, messageType: message.messageType,
         replyToMessageId: message.replyToMessageId ?? null,
         ...(meta.buttonReply ? { buttonReply: meta.buttonReply } : {}),
         ...(meta.formResponse ? { formResponse: meta.formResponse } : {}),
         ...(meta.location ? { location: meta.location } : {}),
+        // An order placed from the catalog / product cards (items, quantities, total).
+        ...(meta.order ? { order: meta.order } : {}),
+        // Photos, files and voice: fetch them with GET /api/v1/me/conversations/:id/messages.
+        conversationId: businessConversationId,
         createdAt: (message.createdAt ?? now).toISOString(),
       });
     } else {

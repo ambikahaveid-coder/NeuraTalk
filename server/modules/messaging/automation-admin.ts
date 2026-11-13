@@ -57,7 +57,7 @@ export async function apiNotPaused(req: Request, res: Response, next: NextFuncti
   try {
     const c = await getAutomationControls(businessId);
     if (c.apiPaused) {
-      return res.status(403).json({ success: false, status: "failed", code: "PAUSED_BY_NEURATALK", error: `NeuraTalk paused API sending for this business.${c.reason ? " Reason: " + c.reason : ""} Contact support.` });
+      return res.status(403).json({ success: false, status: "failed", code: "PAUSED_BY_NEURATALK", error: `NeuraTalk paused API sending for this business.${c.reason ? " Reason: " + c.reason.replace(/[.\s]+$/, "") + "." : ""} Contact support@mindwhile.com.` });
     }
   } catch (error) {
     logger.warn("AutomationAdmin", `control check failed: ${String(error)}`);
@@ -78,7 +78,7 @@ export function recordApiUse(req: Request, res: Response, next: NextFunction) {
     const charged = Number(b?.chargedPaise ?? b?.message?.chargedPaise ?? 0) || 0;
     db.execute(sql`
       INSERT INTO business_api_send_log (business_id, api_key_id, endpoint, kind, http_status, code, charged_paise)
-      VALUES (${apiKey.organizationId}, ${apiKey.id ?? null}, ${(req.baseUrl + req.path).slice(0, 120)}, ${kind}, ${res.statusCode},
+      VALUES (${apiKey.organizationId}, ${apiKey.id ?? null}, ${String(req.originalUrl || req.baseUrl + req.path).split("?")[0].slice(0, 120)}, ${kind}, ${res.statusCode},
         ${typeof b?.code === "string" ? b.code.slice(0, 60) : null}, ${charged})`)
       .catch((error) => logger.warn("AutomationAdmin", `usage log failed: ${String(error)}`));
   });

@@ -58,7 +58,7 @@ function organizationIdOf(req: Request): number {
 }
 
 /** The business account that API actions are recorded against (audit trail). */
-async function businessActorUserId(organizationId: number): Promise<number> {
+export async function businessActorUserId(organizationId: number): Promise<number> {
   const [admin] = await db.select({ id: users.id }).from(users)
     .where(and(eq(users.organizationId, organizationId), inArray(users.role, ["company_admin", "super_admin"])))
     .orderBy(asc(users.id)).limit(1);

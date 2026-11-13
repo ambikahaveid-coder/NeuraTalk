@@ -21,6 +21,8 @@ export const API_KEY_PERMISSIONS = [
   "recording:control",
   // Business messaging from the company's own systems (utility messages, OTP).
   "messages:send",
+  // The full business API (/api/v1/me/...): chats, customers, catalog, orders, templates, profile.
+  "business:api",
 ] as const;
 
 export type ApiKeyPermission = typeof API_KEY_PERMISSIONS[number];
@@ -79,6 +81,8 @@ const permissionAliases: Partial<Record<ApiKeyPermission, ApiKeyPermission[]>> =
   "ws:subscribe": ["voice-chat"],
   "masking:manage": ["voice-chat"],
   "recording:control": ["voice-chat"],
+  // Keys made for business messaging get the full business API.
+  "business:api": ["messages:send"],
 };
 
 setInterval(() => {

@@ -29,6 +29,22 @@ import {
 
 const API_ENDPOINTS = [
   {
+    category: "Business API — /api/v1/me (your business; header X-API-Key). GET /api/v1/me lists every endpoint",
+    endpoints: [
+      { method: "GET", path: "/api/v1/me/conversations", description: "Your customer conversations, newest first (?limit=, ?offset=, ?assignment=all).", body: null, response: { success: true, conversations: [{ id: 31, customer: { id: 17, name: "Ravi" }, lastMessage: { content: "Is it ready?" }, unreadCount: 1 }] } },
+      { method: "GET", path: "/api/v1/me/conversations/31/messages", description: "Message history. Customer messages include translatedContent in your language; content keeps the original.", body: null, response: { success: true, messages: [{ id: 901, content: "రెడీ నా?", translatedContent: "Is it ready?", messageType: "text" }] } },
+      { method: "POST", path: "/api/v1/me/conversations/31/messages", description: "Reply within 24 hours: text, reply buttons (up to 3), a location, an attachment (see /media), or a reply to a message.", body: { content: "Yes, ready for pickup.", replyToMessageId: 901, buttons: [{ type: "quick_reply", id: "coming", title: "I'm coming" }] }, response: { success: true, message: { id: 902, messageType: "text", replyToMessageId: 901 } } },
+      { method: "POST", path: "/api/v1/me/media", description: "Get an upload address. PUT the file to uploadURL, then send { attachment: { url: objectPath, mimeType, sizeBytes, title } }.", body: { name: "invoice.pdf", size: 52000, contentType: "application/pdf" }, response: { uploadURL: "https://…", objectPath: "/objects/uploads/…" } },
+      { method: "POST", path: "/api/v1/me/conversations/31/template", description: "Send an approved template at any time.", body: { templateVersionId: 42, variables: { order_id: "A-1009" } }, response: { success: true, messageId: 903 } },
+      { method: "POST", path: "/api/v1/me/conversations/31/products", description: "Send product cards (photo, today's price, Add to order).", body: { itemIds: [5, 7] }, response: { success: true, message: { id: 904, messageType: "product" } } },
+      { method: "POST", path: "/api/v1/me/broadcast-templates", description: "Create a template. NeuraTalk reviews it; it can be sent once approved.", body: { name: "order_ready", category: "utility", content: "Hi {{name}}, order {{order_id}} is ready." }, response: { success: true, templateId: 12, versionId: 42, review: "pending" } },
+      { method: "POST", path: "/api/v1/me/customers", description: "Add a customer (also GET/PUT /customers/:id, POST /customers/:id/consent, POST /customers/import).", body: { name: "Ravi", phone: "+919876543210" }, response: { success: true, customer: { id: 17 } } },
+      { method: "POST", path: "/api/v1/me/catalog", description: "Add a catalog item (PATCH/DELETE /catalog/:id).", body: { name: "Kaju Barfi 500 g", pricePaise: 45000 }, response: { success: true, item: { id: 5 } } },
+      { method: "PATCH", path: "/api/v1/me/orders/77", description: "Move an order forward; the customer sees each step in the chat.", body: { status: "accepted" }, response: { success: true } },
+      { method: "GET", path: "/api/v1/me/credits", description: "Wallet balance, plan, your prices and spending (read-only).", body: null, response: { success: true, balancePaise: 250000, plan: { name: "Starter", minutesRemaining: 420 } } },
+    ],
+  },
+  {
     category: "Business Messaging — send header X-API-Key: ntk_ent_…",
     endpoints: [
       {

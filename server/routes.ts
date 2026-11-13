@@ -95,6 +95,7 @@ import { registerSimpleSendApi } from "./modules/messaging/simple-send-api";
 import { registerAutomationAdminRoutes } from "./modules/messaging/automation-admin";
 import { registerMessageCreditRoutes } from "./modules/billing/message-credits";
 import { registerPartnerRoutes } from "./modules/partners/partners";
+import { registerBusinessApiBridge } from "./modules/messaging/business-api";
 import { registerTemplateSendRoutes } from "./modules/messaging/template-routes";
 import { registerBusinessVerificationRoutes } from "./modules/business-verification/routes";
 import { registerMarketingRoutes } from "./modules/marketing/routes";
@@ -125,6 +126,8 @@ export async function registerRoutes(
   // Compliance & Regional Routing (Founder's Roadmap)
   app.use(complianceRoutes);
   app.use(loadUser);
+  // Business API key → its own business, before any business route.
+  registerBusinessApiBridge(app);
   app.use(loadTenantContext);
 
   // Health check endpoint
