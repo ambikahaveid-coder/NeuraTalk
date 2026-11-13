@@ -128,7 +128,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
 
   const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
     { id: "profile", label: "Chat link & auto replies", icon: <Link2 className="w-4 h-4" /> },
-    { id: "credits", label: "Message credits", icon: <Wallet className="w-4 h-4" /> },
+    { id: "credits", label: "Wallet & plan", icon: <Wallet className="w-4 h-4" /> },
     { id: "bots", label: "Auto-reply bot", icon: <Bot className="w-4 h-4" /> },
     { id: "catalog", label: "Catalog", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "customers", label: "Customers", icon: <Users className="w-4 h-4" /> },

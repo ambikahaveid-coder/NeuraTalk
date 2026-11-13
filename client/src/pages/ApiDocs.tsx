@@ -41,7 +41,7 @@ const API_ENDPOINTS = [
       {
         method: "POST",
         path: "/api/v1/messaging/messages",
-        description: "Send an approved template to a customer (any time). The customer reads it in their own language inside NeuraTalk.",
+        description: "Send an approved template to a customer (any time). The customer reads it in their own language inside NeuraTalk. Charged from your wallet at your rate; an empty wallet gives 402, and 403 PAUSED_BY_NEURATALK means NeuraTalk paused your API sending (the reason is in your dashboard).",
         body: { phone: "+919876543210", name: "Ravi", templateVersionId: 42, variables: { order_id: "A-1009" } },
         response: { success: true, message: { id: 9001, customerId: 17, type: "template", chargedPaise: 10 } },
       },
@@ -51,6 +51,13 @@ const API_ENDPOINTS = [
         description: "Reply with free text — only within 24 hours of the customer's last message (otherwise 409 SERVICE_WINDOW_CLOSED: send a template).",
         body: { phone: "+919876543210", text: "Your refund is processed." },
         response: { success: true, message: { id: 9002, customerId: 17, type: "text", windowClosesAt: "2026-11-01T10:00:00.000Z" } },
+      },
+      {
+        method: "GET",
+        path: "/api/v1/send?apikey=KEY&phone=9876543210&text=order_ready&Params=A-1009,Rs 450",
+        description: "One-line Send API for software that can only call a URL (also POST). text = approved template name; Params fill its variables in order ({{name}} comes from the customer). message=... sends free text within 24 hours; stype=auth sends a code. Prefer the X-API-Key header: a key in a URL can end up in logs.",
+        body: null,
+        response: { success: true, status: "sent", type: "template", messageId: 9004, chargedPaise: 10, notes: [] },
       },
       {
         method: "GET",

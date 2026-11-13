@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import {
-  BadgeCheck, BarChart3, Ban, Bolt, Clock, Code2, ClipboardList, KeyRound, Languages, Megaphone,
-  MessageSquare, PhoneCall, QrCode, ShoppingBag, Store, Tags, Truck, Users,
+  BadgeCheck, BarChart3, Ban, Bolt, Bot, Clock, Code2, ClipboardList, KeyRound, Languages, Megaphone,
+  MessageSquare, PhoneCall, QrCode, ShoppingBag, Store, Tags, Truck, Users, Wallet,
 } from "lucide-react";
 import { COMPANY } from "./site-facts";
 import {
@@ -19,6 +19,10 @@ const FEATURES = [
   { icon: ClipboardList, title: "Forms in chat", desc: "Send a short form for bookings or feedback. Answers are collected in one list you can download." },
   { icon: BarChart3, title: "Statistics", desc: "Messages sent, delivered, read and received over the last 30 days." },
   { icon: Users, title: "Your team", desc: "Add team members with roles. A campaign can need a second person's approval before it goes out." },
+  { icon: Bot, title: "Auto-reply bot", desc: "When a customer types a word like \"price\" or taps a button, your answer goes at once, day and night, in any language. Add buttons, a form, or product cards." },
+  { icon: ShoppingBag, title: "Product cards", desc: "Send products from your catalog as cards with photo and today's price. Customers add them to an order with one tap." },
+  { icon: Code2, title: "Send API", desc: "Send approved templates, codes and replies from your own software with an API key, as JSON or as a one-line URL." },
+  { icon: Wallet, title: "Wallet and plans", desc: "Pay first by UPI or bank transfer from the app or dashboard. See your balance, plan minutes, prices and a statement of every rupee spent." },
 ];
 
 const MESSAGE_TYPES = [
@@ -126,7 +130,7 @@ export default function BusinessPage() {
             ] },
             { icon: Code2, title: "Good to know", items: [
               "Messages are delivered inside NeuraTalk. Customers need the NeuraTalk app; SMS delivery is not offered.",
-              "Updates, login codes and campaigns are paid from the business's prepaid wallet. Chatting with customers is not charged per message, and customers never pay to message a business.",
+              "Updates, login codes and campaigns are paid from the business's prepaid wallet; AI call minutes come with a monthly plan. Replying to a customer who wrote in the last 24 hours is not charged, and customers never pay to message a business.",
               "A number that is already someone's personal NeuraTalk stays personal; use a separate number for the business.",
             ] },
           ].map((b) => (

@@ -67,7 +67,7 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
     final d = _d;
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Message credits')),
+      appBar: AppBar(title: const Text('Wallet & plan')),
       body: _error != null
           ? NtEmptyState(icon: Icons.wifi_off, title: "Couldn't load credits", message: _error!, error: true, actionLabel: 'Try again', onAction: _load)
           : d == null
@@ -95,8 +95,35 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
       byCat[c] = (prev.$1 + ((u['messages'] as num?)?.toInt() ?? 0), prev.$2 + ((u['amountPaise'] as num?)?.toInt() ?? 0));
     }
     final paymentReady = (d['payment'] as Map?)?['ready'] == true;
+    final plan = d['plan'] is Map ? Map<String, dynamic>.from(d['plan'] as Map) : null;
+    final plans = (d['plans'] as List? ?? const []).whereType<Map>().map((m) => {...Map<String, dynamic>.from(m), 'isPlan': true}).toList();
+    String day(Object? iso) {
+      final t = iso == null ? null : DateTime.tryParse('$iso')?.toLocal();
+      if (t == null) return '';
+      const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${t.day} ${m[t.month - 1]} ${t.year}';
+    }
+    final planWarning = plan == null
+        ? null
+        : plan['suspended'] == true
+            ? 'Your business is paused because the plan ended. Buy a plan below; it starts when NeuraTalk confirms the payment.'
+            : plan['inGrace'] == true
+                ? 'Your plan ended. Renew by ${day(plan['graceEndsAt'])} or your business account will be paused.'
+                : plan['endingSoon'] == true
+                    ? 'Your plan ends on ${day(plan['endsAt'])}. Renew it so calls keep working.'
+                    : null;
 
     return ListView(padding: const EdgeInsets.only(bottom: 32), children: [
+      if (planWarning != null)
+        Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: (plan!['endingSoon'] == true ? AppColors.orange : AppColors.red).withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(planWarning, style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+        ),
       if (d['isLow'] == true)
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -114,6 +141,20 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
         Text('Spent in 30 days: ${_rs(d['spent30dPaise'] as num)}', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
       ])),
       _card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Your plan (AI translated calls)', style: TextStyle(color: AppColors.textSecondary)),
+        const SizedBox(height: 4),
+        Text('${plan?['name'] ?? 'No plan'}', style: TextStyle(color: AppColors.ink, fontSize: 18, fontWeight: FontWeight.w800)),
+        if (plan != null)
+          Text(
+            '${plan['minutesRemaining'] ?? 0} AI minutes left'
+            '${plan['endsAt'] != null && plan['inGrace'] != true && plan['suspended'] != true ? ' · ends ${day(plan['endsAt'])}' : ''}',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+        const SizedBox(height: 6),
+        Text('When plan minutes run out, calls are paid from your balance. Messages are always paid from your balance. Plans don\'t renew on their own.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+      ])),
+      _card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Expanded(child: Text('Price per delivered message', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w700))),
           if (rates['special'] == true) Chip(label: const Text('Special rate'), visualDensity: VisualDensity.compact, backgroundColor: AppColors.blueTint),
@@ -128,10 +169,10 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
       ])),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-        child: Text('BUY CREDIT', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+        child: Text('BUY CREDIT OR A PLAN', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
       ),
       if (!paymentReady)
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text('Payment details aren\'t set up yet. Write to support@neuratalk.in to buy credit.', style: TextStyle(color: AppColors.textSecondary)))
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: Text('Payment details aren\'t set up yet. Write to support@mindwhile.com to buy credit.', style: TextStyle(color: AppColors.textSecondary)))
       else ...[
         for (final p in packs)
           ListTile(
@@ -149,6 +190,14 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
           subtitle: Text('From ${_rs(((d['customAmount'] as Map)['minPaise'] as num), digits: 0)}', style: TextStyle(color: AppColors.textSecondary)),
           trailing: const Icon(Icons.chevron_right),
         ),
+        for (final p in plans)
+          ListTile(
+            onTap: () => _buy(p),
+            leading: CircleAvatar(backgroundColor: AppColors.blueTint, child: Icon(Icons.call_outlined, color: AppColors.cyan)),
+            title: Text('Plan: ${p['name']} · ${_rs(p['pricePaise'] as num, digits: 0)}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+            subtitle: Text('${p['includedMinutes']} AI minutes · ${p['durationDays']} days', style: TextStyle(color: AppColors.textSecondary)),
+            trailing: const Icon(Icons.chevron_right),
+          ),
       ],
       if (requests.isNotEmpty) ...[
         Padding(
@@ -184,15 +233,16 @@ class _BusinessCreditsScreenState extends State<BusinessCreditsScreen> {
 
   Widget _requestTile(Map<String, dynamic> r) {
     final status = '${r['status']}';
+    final isPlan = r['kind'] == 'plan';
     final (label, color, icon) = switch (status) {
-      'approved' => ('Credit added', AppColors.green, Icons.check_circle),
+      'approved' => (isPlan ? 'Plan started' : 'Credit added', AppColors.green, Icons.check_circle),
       'rejected' => ('Not confirmed', AppColors.red, Icons.cancel),
       'cancelled' => ('Cancelled', AppColors.textMuted, Icons.cancel_outlined),
       _ => ('Waiting for NeuraTalk', AppColors.orange, Icons.schedule),
     };
     return ListTile(
       leading: Icon(icon, color: color),
-      title: Text('Paid ${_rs(r['pricePaise'] as num)} → ${_rs(r['creditPaise'] as num)}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
+      title: Text(isPlan ? 'Plan: ${r['planName'] ?? 'plan'} · paid ${_rs(r['pricePaise'] as num)}' : 'Paid ${_rs(r['pricePaise'] as num)} → ${_rs(r['creditPaise'] as num)}', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
       subtitle: Text(
         '${_methods[r['method']] ?? r['method']} · ${r['paymentReference']}\n$label${status == 'rejected' && r['decisionNote'] != null ? ': ${r['decisionNote']}' : ''}',
         style: TextStyle(color: status == 'rejected' ? AppColors.red : AppColors.textSecondary),
@@ -259,7 +309,9 @@ class _BuyScreenState extends State<_BuyScreen> {
     setState(() => _sending = true);
     try {
       await ApiService.post('${context.read<BusinessAccount>().base}/credits/requests', {
-        if (widget.pack != null) 'packId': widget.pack!['id'] else 'amountPaise': _payPaise,
+        if (widget.pack?['isPlan'] == true) 'planId': widget.pack!['id']
+        else if (widget.pack != null) 'packId': widget.pack!['id']
+        else 'amountPaise': _payPaise,
         'method': _method,
         'paymentReference': _ref.text.trim(),
       });
@@ -309,7 +361,11 @@ class _BuyScreenState extends State<_BuyScreen> {
             decoration: InputDecoration(labelText: 'Amount in ₹', helperText: 'At least ${_rs(widget.minPaise, digits: 0)}', prefixText: '₹ '),
           )
         else
-          Text('Pay ${_rs(_payPaise)} · you get ${_rs(widget.pack!['creditPaise'] as num)} credit', style: TextStyle(color: AppColors.textPrimary, fontSize: 15)),
+          Text(
+            widget.pack!['isPlan'] == true
+                ? 'Pay ${_rs(_payPaise)} · ${widget.pack!['includedMinutes']} AI minutes for ${widget.pack!['durationDays']} days, starting when NeuraTalk confirms'
+                : 'Pay ${_rs(_payPaise)} · you get ${_rs(widget.pack!['creditPaise'] as num)} credit',
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 15)),
         const SizedBox(height: 8),
         if ('${p['upiId']}'.isNotEmpty) ...[
           FilledButton.icon(
@@ -347,7 +403,7 @@ class _BuyScreenState extends State<_BuyScreen> {
           child: _sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Text("I've paid — send for confirmation"),
         ),
         const SizedBox(height: 8),
-        Text('Credit is added after NeuraTalk confirms the payment with the bank. Each payment reference can be used once.',
+        Text('NeuraTalk checks the payment with the bank, then adds the credit or starts the plan. Each payment reference can be used once.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
       ]),
     );

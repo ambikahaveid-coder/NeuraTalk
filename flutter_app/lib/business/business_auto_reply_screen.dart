@@ -131,7 +131,7 @@ class _BusinessAutoReplyScreenState extends State<BusinessAutoReplyScreen> {
                         child: Text(
                           'NeuraTalk paused your auto-replies. Customers get no automatic answers until this is lifted.'
                           '${_pausedReason!.isNotEmpty ? ' Reason: $_pausedReason' : ''}'
-                          '${_pausedReason!.contains('support@') ? '' : ' Contact support@neuratalk.in.'}',
+                          '${_pausedReason!.contains('support@') ? '' : ' Contact support@mindwhile.com.'}',
                           style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w600),
                         ),
                       ),

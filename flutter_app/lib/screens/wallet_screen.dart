@@ -84,6 +84,23 @@ class _WalletScreenState extends State<WalletScreen> {
       // Unknown: fall through to the billing page, which explains itself.
     }
     if (!context.mounted) return;
+    if (isBusinessApp) {
+      // Businesses pay by UPI/bank and send the reference; NeuraTalk confirms (Tools → Wallet & plan).
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: Text('Buy a plan or credit', style: TextStyle(color: AppColors.ink)),
+          content: Text(
+            'Open Tools → Wallet & plan. Pay by UPI or bank transfer and send the payment reference. '
+            'The plan starts, or the credit is added, as soon as NeuraTalk confirms the payment.',
+            style: TextStyle(color: AppColors.textSecondary),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('OK'))],
+        ),
+      );
+      return;
+    }
     if (!paymentsOn) {
       await showDialog<void>(
         context: context,

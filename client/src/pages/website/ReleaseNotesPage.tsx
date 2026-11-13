@@ -3,6 +3,18 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "Business bots, product cards and paying for credit",
+    date: "13 November 2026",
+    highlights: [
+      "Auto-reply bot for businesses: a word like \"price\" or a button tap gets an instant answer, with buttons, a form or product cards",
+      "Product cards: businesses send products with photo and today's price; customers add them to an order with one tap",
+      "Businesses can buy wallet credit and monthly plans from the app or dashboard by UPI or bank transfer; NeuraTalk confirms each payment",
+      "Wallet & plan screen: balance, plan minutes and end date, prices, and a statement of what was spent",
+      "One-line Send API for business software, with an API key",
+      "NeuraTalk can pause a business's bots or API sending if customers are harmed; the business sees the reason",
+    ],
+  },
+  {
     title: "Free calls, data in India",
     date: "1 November 2026",
     highlights: [

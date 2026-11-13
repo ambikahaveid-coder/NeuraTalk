@@ -49,7 +49,7 @@ class BusinessToolsScreen extends StatelessWidget {
             const _Section('Your business'),
             _tool(Icons.storefront_outlined, 'Business profile', 'Logo, about, address, website', () => open(const BusinessProfileScreen())),
             _tool(Icons.shopping_bag_outlined, 'Catalog', 'Products and services with prices', () => open(const BusinessCatalogScreen())),
-            _tool(Icons.account_balance_wallet_outlined, 'Message credits', 'Balance, prices, buy credit, spending', () => open(const BusinessCreditsScreen())),
+            _tool(Icons.account_balance_wallet_outlined, 'Wallet & plan', 'Balance, plan, prices, buy credit or a plan', () => open(const BusinessCreditsScreen())),
             _tool(Icons.receipt_long_outlined, 'Orders', 'Orders customers sent from your catalog', () => open(const BusinessOrdersScreen())),
             _tool(Icons.qr_code_2, 'Short link & QR code', 'Let customers start a chat with you', () => open(const BusinessLinkScreen())),
             const _Section('Messaging'),

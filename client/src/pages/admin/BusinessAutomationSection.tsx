@@ -84,7 +84,7 @@ function CompanyDetail({ company, onClose }: { company: CompanyRow; onClose: () 
                 <div className="space-y-1.5">
                   <Label htmlFor="pause-reason">Reason (the company sees this)</Label>
                   <Textarea id="pause-reason" rows={2} maxLength={300} value={c.reason} onChange={(e) => setForm({ ...c, reason: e.target.value })}
-                    placeholder="Customers reported repeated messages. Contact support@neuratalk.in." data-testid="input-pause-reason" />
+                    placeholder="Customers reported repeated messages. Contact support@mindwhile.com." data-testid="input-pause-reason" />
                 </div>
               )}
               <div className="flex items-center gap-3">

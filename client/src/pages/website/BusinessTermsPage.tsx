@@ -1,11 +1,14 @@
 import { Link } from "wouter";
 import { LegalPage } from "./LegalPage";
-import { COMPANY, MARKETING_CAP_PER_DAY, POLICIES_UPDATED } from "./site-facts";
+import { COMPANY, MARKETING_CAP_PER_DAY } from "./site-facts";
+
+const BUSINESS_TERMS_UPDATED = "13 November 2026";
 
 /** The contract for businesses: account, team, wallet, API, data roles, suspension. */
 export default function BusinessTermsPage() {
   return (
-    <LegalPage title="NeuraTalk Business Terms" updated={POLICIES_UPDATED} audience="For businesses using the NeuraTalk Business app, the business dashboard or the business API">
+    // Section 4 (paying for credit and plans) changed on 13 November 2026.
+    <LegalPage title="NeuraTalk Business Terms" updated={BUSINESS_TERMS_UPDATED} audience="For businesses using the NeuraTalk Business app, the business dashboard or the business API">
       <p>
         These terms apply in addition to our <Link href="/terms">Terms of Service</Link> when you use NeuraTalk for a business. "You" means the business
         and everyone who uses NeuraTalk on its behalf. By turning on business features you confirm that you are allowed to accept these terms for
@@ -45,11 +48,18 @@ export default function BusinessTermsPage() {
 
       <h2>4. Wallet and charges</h2>
       <ul>
-        <li><strong>Pay first.</strong> There are no free minutes or free credit for businesses. Your wallet is credited only after we
-          receive your payment (online, or by bank transfer against our invoice — we record the payment reference). Until then, sending,
-          business calls and AI translation stay off.</li>
-        <li>Business messages are charged from your prepaid wallet at the rates shown in the dashboard when you send. Messages we skip because the
-          customer blocked you, switched offers off, or reached the daily limit are not charged.</li>
+        <li><strong>Pay first.</strong> There are no free minutes or free credit for businesses. Your wallet is credited, or your plan
+          started, only after we receive your payment and record its reference. Until then, paid sending, business calls and AI translation stay off.</li>
+        <li><strong>How to pay.</strong> In the dashboard or the NeuraTalk Business app (Wallet &amp; plan), choose a credit pack, an amount, or a
+          plan, pay to the UPI ID or bank account shown there, and send us the payment reference (UTR). We check it against our bank statement,
+          then add the credit or start the plan. Each payment reference can be used once. If we can't find the payment, we tell you why in the same screen.</li>
+        <li><strong>Plans</strong> give AI translation minutes for business calls for the number of days shown. They do not renew on their own.
+          When a plan ends you have 7 days to renew; after that your business account is paused until a new plan is paid. Your wallet balance is kept.</li>
+        <li><strong>Wallet.</strong> Messages, and calls after your plan minutes run out, are paid from your prepaid wallet. Extra credit given
+          with a pack (a bonus) is promotional credit: you can use it like any credit, but it has no cash value and is not refunded.</li>
+        <li>Business messages are charged from your prepaid wallet at the rates shown in the dashboard when you send. Replies to a customer who
+          wrote to you in the last 24 hours are not charged. Messages we skip because the customer blocked you, switched offers off, is not on
+          NeuraTalk, or reached the daily limit are not charged. We may agree special rates with a business; they are shown in your dashboard.</li>
         <li>Prices may change; we will show new prices in the dashboard at least 7 days before they apply. Messages already sent keep their price.</li>
         <li>Taxes are added as the law requires. Refunds of unused wallet balance follow our <Link href="/refund-policy">Refund Policy</Link>.</li>
       </ul>

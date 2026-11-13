@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/hooks/use-auth";
 
-type Req = { id: number; businessId: number; businessName: string; pricePaise: number; creditPaise: number; method: string; paymentReference: string; note: string | null; status: string; requestedBy: string | number; decisionNote: string | null; createdAt: string; decidedAt: string | null };
+type Req = { id: number; businessId: number; businessName: string; kind?: string; planName?: string | null; pricePaise: number; creditPaise: number; method: string; paymentReference: string; note: string | null; status: string; requestedBy: string | number; decisionNote: string | null; createdAt: string; decidedAt: string | null };
 type Pack = { id: number; name: string; pricePaise: number; creditPaise: number; bonusPaise: number; isActive: boolean; displayOrder: number };
 type Payment = { upiId: string; payeeName: string; bankName: string; accountNumber: string; ifsc: string; note: string };
 type Data = {
@@ -73,8 +73,8 @@ export function MessageCreditsAdminSection() {
   return (
     <div className="space-y-4" data-testid="message-credits-admin">
       <div>
-        <h2 className="text-xl font-semibold">Message credits</h2>
-        <p className="text-sm text-muted-foreground">Businesses pay first. Check each payment in the bank statement before you confirm it. Confirming adds the credit and is recorded in the wallet ledger and Audit Logs.</p>
+        <h2 className="text-xl font-semibold">Business payments</h2>
+        <p className="text-sm text-muted-foreground">Businesses pay first, for wallet credit or for a monthly plan (AI call minutes). Check each payment in the bank statement before you confirm it. Confirming adds the credit or starts the plan, and is recorded in the wallet ledger and Audit Logs. Plan prices and minutes are set in Billing &amp; Plans.</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-4">
@@ -94,11 +94,11 @@ export function MessageCreditsAdminSection() {
                   <TableRow key={r.id} data-testid={`pending-${r.id}`}>
                     <TableCell className="font-medium">{r.businessName} <span className="text-xs text-muted-foreground">#{r.businessId}</span><p className="text-xs text-muted-foreground">by {String(r.requestedBy)}</p></TableCell>
                     <TableCell className="text-right font-semibold">{rs(r.pricePaise)}</TableCell>
-                    <TableCell className="text-right">{rs(r.creditPaise)}</TableCell>
+                    <TableCell className="text-right">{r.kind === "plan" ? <Badge variant="secondary">Plan: {r.planName ?? "plan"}</Badge> : rs(r.creditPaise)}</TableCell>
                     <TableCell className="text-xs">{METHOD[r.method] ?? r.method} · <span className="font-mono">{r.paymentReference}</span></TableCell>
                     <TableCell className="text-xs">{when(r.createdAt)}</TableCell>
                     <TableCell className="whitespace-nowrap text-right">
-                      <Button size="sm" onClick={() => { if (confirm(`Confirm ${rs(r.pricePaise)} received from ${r.businessName} (ref ${r.paymentReference})? ${rs(r.creditPaise)} credit will be added.`)) approve.mutate(r.id); }} disabled={approve.isPending} data-testid={`approve-${r.id}`}>
+                      <Button size="sm" onClick={() => { if (confirm(`Confirm ${rs(r.pricePaise)} received from ${r.businessName} (ref ${r.paymentReference})? ${r.kind === "plan" ? `The ${r.planName ?? ""} plan will start now.` : `${rs(r.creditPaise)} credit will be added.`}`)) approve.mutate(r.id); }} disabled={approve.isPending} data-testid={`approve-${r.id}`}>
                         <CheckCircle2 className="mr-1 h-4 w-4" /> Confirm
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setRejecting({ id: r.id, reason: "" })} data-testid={`reject-${r.id}`}><XCircle className="mr-1 h-4 w-4" /> Not received</Button>
@@ -212,7 +212,7 @@ export function MessageCreditsAdminSection() {
           <CardContent className="space-y-1">
             {d.recent.map((r) => (
               <p key={r.id} className="text-sm">
-                <span className="text-muted-foreground">{when(r.decidedAt)}</span> · {r.businessName} · {rs(r.pricePaise)} · <span className="font-mono text-xs">{r.paymentReference}</span> ·{" "}
+                <span className="text-muted-foreground">{when(r.decidedAt)}</span> · {r.businessName} · {r.kind === "plan" ? `Plan ${r.planName ?? ""} · ` : ""}{rs(r.pricePaise)} · <span className="font-mono text-xs">{r.paymentReference}</span> ·{" "}
                 {r.status === "approved" ? <Badge variant="secondary">Confirmed</Badge> : r.status === "rejected" ? <Badge variant="destructive">Not received</Badge> : <Badge variant="outline">{r.status}</Badge>}
               </p>
             ))}

@@ -62,6 +62,9 @@ export async function ensureMessageCreditTables(): Promise<void> {
   // A payment reference (UTR) can pay for one request only, unless that request was rejected or cancelled.
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "business_recharge_requests_ref_once"
     ON "business_recharge_requests" (lower("payment_reference")) WHERE "status" IN ('pending', 'approved')`);
+  // A payment is for wallet credit (default) or for a monthly plan (AI call minutes).
+  await db.execute(sql`ALTER TABLE "business_recharge_requests" ADD COLUMN IF NOT EXISTS "kind" text NOT NULL DEFAULT 'credit'`);
+  await db.execute(sql`ALTER TABLE "business_recharge_requests" ADD COLUMN IF NOT EXISTS "plan_id" integer`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "business_recharge_requests_business_idx" ON "business_recharge_requests" ("business_id", "created_at")`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS "business_recharge_requests_status_idx" ON "business_recharge_requests" ("status", "created_at")`);
   await db.execute(sql`
@@ -116,18 +119,87 @@ async function lowBalanceLevel(businessId: number): Promise<number> {
 type PackRow = { id: number; name: string; price_paise: number; credit_paise: number; is_active: boolean; display_order: number };
 const presentPack = (p: PackRow) => ({ id: p.id, name: p.name, pricePaise: p.price_paise, creditPaise: p.credit_paise, bonusPaise: Math.max(0, p.credit_paise - p.price_paise), isActive: p.is_active, displayOrder: p.display_order });
 
-type RequestRow = { id: number; business_id: number; pack_id: number | null; price_paise: number; credit_paise: number; method: string; payment_reference: string; note: string | null; status: string; requested_by: number; decided_by: number | null; decided_at: Date | null; decision_note: string | null; created_at: Date; business_name?: string; requester?: string | null };
+type RequestRow = { id: number; business_id: number; pack_id: number | null; kind?: string; plan_id?: number | null; plan_name?: string | null; price_paise: number; credit_paise: number; method: string; payment_reference: string; note: string | null; status: string; requested_by: number; decided_by: number | null; decided_at: Date | null; decision_note: string | null; created_at: Date; business_name?: string; requester?: string | null };
 const presentRequest = (r: RequestRow) => ({
-  id: r.id, businessId: r.business_id, businessName: r.business_name, packId: r.pack_id, pricePaise: r.price_paise, creditPaise: r.credit_paise,
+  id: r.id, businessId: r.business_id, businessName: r.business_name, packId: r.pack_id,
+  kind: r.kind ?? "credit", planId: r.plan_id ?? null, planName: r.plan_name ?? null,
+  pricePaise: r.price_paise, creditPaise: r.credit_paise,
   method: r.method, paymentReference: r.payment_reference, note: r.note, status: r.status, requestedBy: r.requester ?? r.requested_by,
   decidedAt: r.decided_at, decisionNote: r.decision_note, createdAt: r.created_at,
 });
+
+type PlanRow = { id: number; name: string; description: string | null; price_in_paise: number; duration_days: number; included_minutes: number };
+const presentPlan = (p: PlanRow) => ({ id: p.id, name: p.name, description: p.description, pricePaise: p.price_in_paise, durationDays: p.duration_days, includedMinutes: p.included_minutes });
+
+/** Business plans a company can buy itself (enabled, paid). Free/contract plans are set by NeuraTalk only. */
+async function buyablePlans(): Promise<PlanRow[]> {
+  return rows<PlanRow>(await db.execute(sql`
+    SELECT id, name, description, price_in_paise, duration_days, included_minutes FROM billing_plans
+    WHERE plan_type = 'b2b' AND is_enabled AND price_in_paise > 0 ORDER BY display_order, price_in_paise`));
+}
+
+/** The company's current plan: what it is, minutes left, when it ends, and whether it lapsed. */
+export async function currentPlan(businessId: number) {
+  const [s] = rows<{ id: number; status: string; end_date: Date | null; next_billing_date: Date | null; minutes_remaining: number | null; name: string | null; price_in_paise: number | null }>(await db.execute(sql`
+    SELECT s.id, s.status, s.end_date, s.next_billing_date, s.minutes_remaining, p.name, p.price_in_paise
+    FROM subscriptions s LEFT JOIN billing_plans p ON p.id = s.plan_id
+    WHERE s.organization_id = ${businessId} AND s.status IN ('active', 'pending_payment', 'suspended')
+    ORDER BY s.created_at DESC LIMIT 1`));
+  if (!s) return null;
+  const endsAt = s.end_date ? new Date(s.end_date) : null;
+  const daysLeft = endsAt ? Math.ceil((endsAt.getTime() - Date.now()) / 86_400_000) : null;
+  return {
+    name: s.name, status: s.status, endsAt, daysLeft, minutesRemaining: s.minutes_remaining ?? 0,
+    // pending_payment = ended, in the 7-day grace period; suspended = grace ended.
+    inGrace: s.status === "pending_payment", graceEndsAt: s.status === "pending_payment" ? s.next_billing_date : null,
+    suspended: s.status === "suspended",
+    endingSoon: s.status === "active" && daysLeft !== null && daysLeft <= 5,
+  };
+}
+
+/**
+ * Starts a paid plan for a business after its payment was confirmed: the
+ * previous plan is closed, the new one runs for the plan's days with its
+ * minutes, and a business stopped only because its plan lapsed is resumed.
+ * A business NeuraTalk suspended for another reason stays suspended.
+ */
+export async function activatePlanForBusiness(businessId: number, planId: number, actorUserId: number, reference: string) {
+  const [plan] = rows<PlanRow & { billing_model: string | null }>(await db.execute(sql`
+    SELECT id, name, description, price_in_paise, duration_days, included_minutes, billing_model FROM billing_plans
+    WHERE id = ${planId} AND plan_type = 'b2b'`));
+  if (!plan) throw new Error("PLAN_NOT_FOUND");
+  const days = Math.max(1, plan.duration_days || 30);
+  const sub = await db.transaction(async (tx) => {
+    await tx.execute(sql`UPDATE subscriptions SET status = 'cancelled', end_date = now(), updated_at = now()
+      WHERE organization_id = ${businessId} AND status IN ('active', 'pending_payment', 'suspended')`);
+    const [created] = rows<{ id: number; end_date: Date }>(await tx.execute(sql`
+      INSERT INTO subscriptions (organization_id, plan_id, status, billing_model, start_date, end_date, minutes_remaining, current_usage, auto_renew, next_billing_date)
+      VALUES (${businessId}, ${plan.id}, 'active', ${plan.billing_model || "prepaid"}, now(), now() + make_interval(days => ${days}),
+        ${plan.included_minutes || 0}, 0, false, now() + make_interval(days => ${days}))
+      RETURNING id, end_date`));
+    // Resume only a lapse-suspension (see billing-scheduler.ts), never a suspension for other reasons.
+    const resumed = rows<{ id: number }>(await tx.execute(sql`
+      UPDATE billing_accounts SET is_blocked = false, blocked_reason = NULL, blocked_at = NULL, status = 'active', updated_at = now()
+      WHERE organization_id = ${businessId} AND is_blocked AND blocked_reason LIKE 'Subscription expired%' RETURNING id`));
+    if (resumed.length) await tx.execute(sql`UPDATE organizations SET status = 'approved' WHERE id = ${businessId} AND status = 'suspended'`);
+    return created;
+  });
+  await BillingEngine.assignPlanToOrganization({ organizationId: businessId, assignedPlanId: plan.id, billingType: (plan.billing_model || "prepaid") as "prepaid" }).catch((error) => {
+    logger.error("MessageCredits", "assign plan failed", error instanceof Error ? error : new Error(String(error)));
+  });
+  await createAuditLog({ userId: actorUserId, organizationId: businessId, action: AUDIT_ACTION.UPDATE as never, entityType: "subscription", entityId: sub.id,
+    newValue: { plan: plan.name, minutes: plan.included_minutes, endsAt: sub.end_date, paymentReference: reference } });
+  return { subscriptionId: sub.id, endsAt: sub.end_date, planName: plan.name, minutes: plan.included_minutes };
+}
 
 /** Balance, rates, packs, how to pay, requests and the last 30 days' spending — the company's credits page. */
 export async function creditsOverview(businessId: number) {
   const [balancePaise, low, prices, instructions] = await Promise.all([balanceOf(businessId), lowBalanceLevel(businessId), getMessagePricesFor(businessId), getInstructions()]);
   const packs = rows<PackRow>(await db.execute(sql`SELECT * FROM business_credit_packs WHERE is_active ORDER BY display_order, price_paise`));
-  const requests = rows<RequestRow>(await db.execute(sql`SELECT * FROM business_recharge_requests WHERE business_id = ${businessId} ORDER BY created_at DESC LIMIT 20`));
+  const requests = rows<RequestRow>(await db.execute(sql`
+    SELECT r.*, p.name AS plan_name FROM business_recharge_requests r LEFT JOIN billing_plans p ON p.id = r.plan_id
+    WHERE r.business_id = ${businessId} ORDER BY r.created_at DESC LIMIT 20`));
+  const [plan, plans] = await Promise.all([currentPlan(businessId), buyablePlans()]);
   const usage = rows<{ day: string; category: string; messages: number; amount_paise: number }>(await db.execute(sql`
     SELECT to_char(day, 'YYYY-MM-DD') AS day, category, messages, amount_paise FROM business_message_usage_daily
     WHERE business_id = ${businessId} AND day > (now() AT TIME ZONE 'Asia/Kolkata')::date - 30 ORDER BY day DESC, category`));
@@ -141,6 +213,8 @@ export async function creditsOverview(businessId: number) {
     daysLeft: perDay > 0 && balancePaise / perDay < 365 ? Math.floor(balancePaise / perDay) : null,
     rates: { marketingPaise: prices.marketingPaise, utilityPaise: prices.utilityPaise, otpPaise: prices.otpPaise, special: prices.special, freeReplies: true },
     packs: packs.map(presentPack),
+    plan,
+    plans: plans.map(presentPlan),
     payment: { ready: instructionsReady(instructions), ...instructions },
     customAmount: { minPaise: MIN_CUSTOM_RECHARGE_PAISE },
     requests: requests.map(presentRequest),
@@ -151,11 +225,12 @@ export async function creditsOverview(businessId: number) {
 
 const requestSchema = z.object({
   packId: z.number().int().positive().optional(),
+  planId: z.number().int().positive().optional(),
   amountPaise: z.number().int().min(MIN_CUSTOM_RECHARGE_PAISE).max(100_000_000).optional(),
   method: z.enum(["upi", "bank_transfer", "cheque", "cash_deposit"]),
   paymentReference: z.string().trim().min(6, "Enter the UTR / transaction reference of your payment").max(40).regex(/^[A-Za-z0-9\-_/ ]+$/, "Use only letters and numbers from the payment reference"),
   note: z.string().trim().max(300).optional(),
-}).refine((v) => Boolean(v.packId) !== Boolean(v.amountPaise), { message: "Choose a pack or enter an amount" });
+}).refine((v) => [v.packId, v.amountPaise, v.planId].filter(Boolean).length === 1, { message: "Choose a pack, a plan or enter an amount" });
 
 function validIds(req: Request, res: Response, next: NextFunction) {
   for (const key of ["businessId", "requestId", "packId", "orgId"]) {
@@ -185,18 +260,24 @@ export function registerMessageCreditRoutes(app: Express): void {
     if (!parsed.success) return res.status(400).json({ success: false, error: parsed.error.issues[0]?.message ?? "Check the details." });
     const d = parsed.data;
     let price = d.amountPaise ?? 0, credit = d.amountPaise ?? 0;
+    const kind = d.planId ? "plan" : "credit";
     if (d.packId) {
       const [p] = rows<PackRow>(await db.execute(sql`SELECT * FROM business_credit_packs WHERE id = ${d.packId} AND is_active`));
       if (!p) return res.status(400).json({ success: false, error: "That pack is no longer offered." });
       price = p.price_paise; credit = p.credit_paise;
     }
+    if (d.planId) {
+      const plan = (await buyablePlans()).find((p) => p.id === d.planId);
+      if (!plan) return res.status(400).json({ success: false, error: "That plan is not offered." });
+      price = plan.price_in_paise; credit = 0; // a plan gives minutes, not wallet credit
+    }
     const [{ n }] = rows<{ n: number }>(await db.execute(sql`SELECT count(*)::int AS n FROM business_recharge_requests WHERE business_id = ${businessId} AND status = 'pending'`));
     if (n >= MAX_PENDING_REQUESTS) return res.status(429).json({ success: false, error: "You already have payments waiting for confirmation. NeuraTalk will confirm them soon." });
     try {
       const [r] = rows<RequestRow>(await db.execute(sql`
-        INSERT INTO business_recharge_requests (business_id, pack_id, price_paise, credit_paise, method, payment_reference, note, requested_by)
-        VALUES (${businessId}, ${d.packId ?? null}, ${price}, ${credit}, ${d.method}, ${d.paymentReference.toUpperCase()}, ${d.note ?? null}, ${req.user!.id})
-        RETURNING *`));
+        INSERT INTO business_recharge_requests (business_id, pack_id, kind, plan_id, price_paise, credit_paise, method, payment_reference, note, requested_by)
+        VALUES (${businessId}, ${d.packId ?? null}, ${kind}, ${d.planId ?? null}, ${price}, ${credit}, ${d.method}, ${d.paymentReference.toUpperCase()}, ${d.note ?? null}, ${req.user!.id})
+        RETURNING *, (SELECT name FROM billing_plans WHERE id = plan_id) AS plan_name`));
       res.status(201).json({ success: true, request: presentRequest(r) });
     } catch (error) {
       if (String((error as { code?: string })?.code) === "23505" || /business_recharge_requests_ref_once/.test(String(error))) {
@@ -220,12 +301,14 @@ export function registerMessageCreditRoutes(app: Express): void {
       SELECT to_char(day, 'YYYY-MM-DD') AS day, category, messages, amount_paise FROM business_message_usage_daily
       WHERE business_id = ${businessId} AND day > (now() AT TIME ZONE 'Asia/Kolkata')::date - 90 ORDER BY day, category`));
     const credits = rows<RequestRow>(await db.execute(sql`
-      SELECT * FROM business_recharge_requests WHERE business_id = ${businessId} AND status = 'approved'
-        AND decided_at > now() - interval '90 days' ORDER BY decided_at`));
+      SELECT r.*, p.name AS plan_name FROM business_recharge_requests r LEFT JOIN billing_plans p ON p.id = r.plan_id
+      WHERE r.business_id = ${businessId} AND r.status = 'approved' AND r.decided_at > now() - interval '90 days' ORDER BY r.decided_at`));
     const lines = [
       ["Date", "Type", "Messages", "Amount (Rs)", "Reference"].join(","),
       ...usage.map((u) => [u.day, `Messages: ${u.category}`, u.messages, `-${rupees(Number(u.amount_paise))}`, ""].map(csvCell).join(",")),
-      ...credits.map((c) => [new Date(c.decided_at!).toISOString().slice(0, 10), "Credit added", "", rupees(c.credit_paise), c.payment_reference].map(csvCell).join(",")),
+      ...credits.map((c) => (c.kind === "plan"
+        ? [new Date(c.decided_at!).toISOString().slice(0, 10), `Plan paid: ${c.plan_name ?? "plan"}`, "", rupees(c.price_paise), c.payment_reference]
+        : [new Date(c.decided_at!).toISOString().slice(0, 10), "Credit added", "", rupees(c.credit_paise), c.payment_reference]).map(csvCell).join(",")),
     ];
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="neuratalk-statement-${businessId}.csv"`);
@@ -235,11 +318,11 @@ export function registerMessageCreditRoutes(app: Express): void {
   // ---------------------------------------------------------------- super admin
   app.get("/api/admin/message-credits", ...admin, async (_req: Request, res: Response) => {
     const pending = rows<RequestRow>(await db.execute(sql`
-      SELECT r.*, o.name AS business_name, coalesce(u.display_name, u.phone, u.username) AS requester
+      SELECT r.*, o.name AS business_name, (SELECT name FROM billing_plans WHERE id = r.plan_id) AS plan_name, coalesce(u.display_name, u.phone, u.username) AS requester
       FROM business_recharge_requests r JOIN organizations o ON o.id = r.business_id LEFT JOIN users u ON u.id = r.requested_by
       WHERE r.status = 'pending' ORDER BY r.created_at`));
     const recent = rows<RequestRow>(await db.execute(sql`
-      SELECT r.*, o.name AS business_name FROM business_recharge_requests r JOIN organizations o ON o.id = r.business_id
+      SELECT r.*, o.name AS business_name, (SELECT name FROM billing_plans WHERE id = r.plan_id) AS plan_name FROM business_recharge_requests r JOIN organizations o ON o.id = r.business_id
       WHERE r.status <> 'pending' ORDER BY r.decided_at DESC NULLS LAST LIMIT 30`));
     const packs = rows<PackRow>(await db.execute(sql`SELECT * FROM business_credit_packs ORDER BY display_order, price_paise`));
     const [totals] = rows<{ received: number; credited: number; spent: number }>(await db.execute(sql`
@@ -276,6 +359,16 @@ export function registerMessageCreditRoutes(app: Express): void {
       UPDATE business_recharge_requests SET status = 'approved', decided_by = ${req.user!.id}, decided_at = now(), decision_note = ${note}
       WHERE id = ${Number(req.params.requestId)} AND status = 'pending' RETURNING *`));
     if (!r) return res.status(409).json({ success: false, error: "This request was already decided." });
+    if (r.kind === "plan" && r.plan_id) {
+      try {
+        const plan = await activatePlanForBusiness(r.business_id, r.plan_id, req.user!.id, r.payment_reference);
+        return res.json({ success: true, request: presentRequest(r), plan });
+      } catch (error) {
+        await db.execute(sql`UPDATE business_recharge_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = ${r.id}`);
+        logger.error("MessageCredits", "plan activation failed", error instanceof Error ? error : new Error(String(error)));
+        return res.status(500).json({ success: false, error: "Couldn't start the plan. Nothing was changed; try again." });
+      }
+    }
     try {
       const account = await BillingEngine.adjustOrganizationBalance({
         organizationId: r.business_id, amountPaise: r.credit_paise, type: "wallet_credit", actorUserId: req.user!.id,

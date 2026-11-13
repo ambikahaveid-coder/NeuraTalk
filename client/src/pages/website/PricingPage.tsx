@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ClosingBanner, PAPER, PageHero, PrimaryAction, SectionTitle, reveal } from "./site-ui";
+import { CHAT_MESSAGES_PER_AI_MINUTE } from "./site-facts";
 
 interface BillingPlan {
   id: number;
@@ -126,8 +127,8 @@ export default function PricingPage() {
           <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border bg-border sm:grid-cols-2">
             {[
               ["No surprise renewals", "Plans and top-ups are prepaid and never renew on their own."],
-              ["Pay as you talk", "Translated call time is deducted as you use it; chats are included."],
-              ["Business wallet", "Businesses pay for updates, login codes and campaign messages from a prepaid business wallet. Messages that aren't sent are not charged."],
+              ["Pay as you talk", `Translated call time is deducted as you use it. Every ${CHAT_MESSAGES_PER_AI_MINUTE} translated chat messages use 1 AI minute. Calls and chats without translation are free.`],
+              ["Business wallet and plans", "Businesses pay first: a plan for AI call minutes, and a prepaid wallet for updates, login codes, offers and calls after the plan minutes. Buy both in the dashboard or the Business app by UPI or bank transfer; NeuraTalk confirms the payment. Replies to customers who wrote in the last 24 hours, and messages that aren't delivered, are not charged."],
               ["Clear taxes and refunds", <>Prices show applicable taxes such as GST. See our <Link href="/refund-policy" className="underline underline-offset-2">Refund Policy</Link>.</>],
             ].map(([t, d]) => (
               <motion.div key={t as string} {...reveal} className="bg-background p-7">

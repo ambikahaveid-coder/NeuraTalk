@@ -16,11 +16,15 @@ import { getAuthToken, useAuth } from "@/hooks/use-auth";
  */
 
 interface Pack { id: number; name: string; pricePaise: number; creditPaise: number; bonusPaise: number }
-interface RechargeRequest { id: number; pricePaise: number; creditPaise: number; method: string; paymentReference: string; status: string; decisionNote: string | null; createdAt: string; decidedAt: string | null }
+interface RechargeRequest { id: number; kind?: string; planName?: string | null; pricePaise: number; creditPaise: number; method: string; paymentReference: string; status: string; decisionNote: string | null; createdAt: string; decidedAt: string | null }
+interface Plan { id: number; name: string; description: string | null; pricePaise: number; durationDays: number; includedMinutes: number }
+interface CurrentPlan { name: string | null; status: string; endsAt: string | null; daysLeft: number | null; minutesRemaining: number; inGrace: boolean; graceEndsAt: string | null; suspended: boolean; endingSoon: boolean }
 interface Overview {
   balancePaise: number; lowBalancePaise: number; isLow: boolean; daysLeft: number | null;
   rates: { marketingPaise: number; utilityPaise: number; otpPaise: number; special: boolean };
   packs: Pack[];
+  plan: CurrentPlan | null;
+  plans: Plan[];
   payment: { ready: boolean; upiId: string; payeeName: string; bankName: string; accountNumber: string; ifsc: string; note: string };
   customAmount: { minPaise: number };
   requests: RechargeRequest[];
@@ -72,16 +76,16 @@ export default function MessageCreditsSection({ base }: { base: string }) {
   const isAdmin = ["company_admin", "super_admin"].includes(String((user as { role?: string } | null)?.role ?? ""));
   const key = [base, "credits"];
   const q = useQuery<Overview>({ queryKey: key, queryFn: () => call("GET", `${base}/credits`), retry: false });
-  const [buying, setBuying] = useState<{ packId?: number; amountRupees?: string } | null>(null);
+  const [buying, setBuying] = useState<{ packId?: number; planId?: number; amountRupees?: string } | null>(null);
   const [method, setMethod] = useState("upi");
   const [reference, setReference] = useState("");
 
   const submit = useMutation({
     mutationFn: () => call("POST", `${base}/credits/requests`, {
-      ...(buying?.packId ? { packId: buying.packId } : { amountPaise: Math.round(Number(buying?.amountRupees ?? 0) * 100) }),
+      ...(buying?.packId ? { packId: buying.packId } : buying?.planId ? { planId: buying.planId } : { amountPaise: Math.round(Number(buying?.amountRupees ?? 0) * 100) }),
       method, paymentReference: reference.trim(),
     }),
-    onSuccess: () => { toast({ title: "Payment sent for confirmation", description: "NeuraTalk checks it with the bank and adds the credit, usually within a working day." }); setBuying(null); setReference(""); qc.invalidateQueries({ queryKey: key }); },
+    onSuccess: () => { toast({ title: "Payment sent for confirmation", description: "NeuraTalk checks it with the bank, usually within a working day. Then the credit is added or the plan starts." }); setBuying(null); setReference(""); qc.invalidateQueries({ queryKey: key }); },
     onError: (e: Error) => toast({ title: "Couldn't send", description: e.message, variant: "destructive" }),
   });
   const cancel = useMutation({
@@ -93,8 +97,11 @@ export default function MessageCreditsSection({ base }: { base: string }) {
   if (q.error || !q.data) return <p className="text-sm text-destructive">{(q.error as Error)?.message ?? "Couldn't load credits."}</p>;
   const d = q.data;
   const selectedPack = d.packs.find((p) => p.id === buying?.packId);
-  const payRupees = selectedPack ? selectedPack.pricePaise / 100 : Number(buying?.amountRupees ?? 0);
-  const amountOk = selectedPack || payRupees * 100 >= d.customAmount.minPaise;
+  const selectedPlan = d.plans.find((p) => p.id === buying?.planId);
+  const payRupees = selectedPack ? selectedPack.pricePaise / 100 : selectedPlan ? selectedPlan.pricePaise / 100 : Number(buying?.amountRupees ?? 0);
+  const amountOk = selectedPack || selectedPlan || payRupees * 100 >= d.customAmount.minPaise;
+  const plan = d.plan;
+  const day = (s: string | null) => (s ? new Date(s).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "");
 
   // Last 30 days by type
   const byCat = Object.entries(d.usage.reduce<Record<string, { m: number; a: number }>>((acc, u) => {
@@ -104,6 +111,19 @@ export default function MessageCreditsSection({ base }: { base: string }) {
 
   return (
     <div className="space-y-4" data-testid="message-credits">
+      {plan && (plan.suspended || plan.inGrace || plan.endingSoon) && (
+        <div role="alert" data-testid="plan-banner"
+          className={`flex items-start gap-2 rounded-md border p-3 text-sm ${plan.suspended || plan.inGrace ? "border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"}`}>
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            {plan.suspended
+              ? <><strong>Your business is paused because the plan ended.</strong> Buy a plan below; it starts as soon as NeuraTalk confirms the payment.</>
+              : plan.inGrace
+                ? <><strong>Your plan ended.</strong> Renew by {day(plan.graceEndsAt)} or your business account will be paused.</>
+                : <><strong>Your plan ends on {day(plan.endsAt)}.</strong> Renew it below so calls keep working.</>}
+          </span>
+        </div>
+      )}
       {d.isLow && (
         <div role="alert" className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200" data-testid="low-balance-banner">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -131,15 +151,34 @@ export default function MessageCreditsSection({ base }: { base: string }) {
         </CardContent></Card>
       </div>
 
+      <Card data-testid="plan-card">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Your plan (AI translated calls)</p>
+            <p className="mt-1 text-lg font-semibold">{plan?.name ?? "No plan"}</p>
+            {plan && (
+              <p className="text-sm text-muted-foreground">
+                {plan.minutesRemaining.toLocaleString("en-IN")} AI minutes left
+                {plan.endsAt && !plan.inGrace && !plan.suspended ? ` · ends ${day(plan.endsAt)}` : ""}
+                {plan.inGrace ? " · ended, renew soon" : ""}{plan.suspended ? " · paused" : ""}
+              </p>
+            )}
+          </div>
+          <p className="max-w-md text-xs text-muted-foreground">
+            The plan gives AI translation minutes for calls. When they run out, calls are paid from your balance. Messages are always paid from your balance. Plans don't renew on their own.
+          </p>
+        </CardContent>
+      </Card>
+
       {isAdmin && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Buy message credit</CardTitle>
-            <CardDescription>Pay first, then send us the payment reference. Credit is added after NeuraTalk confirms the payment with the bank.</CardDescription>
+            <CardTitle className="text-base">Buy credit or a plan</CardTitle>
+            <CardDescription>Pay first, then send us the payment reference. After NeuraTalk confirms the payment with the bank, the credit is added or the plan starts.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {!d.payment.ready ? (
-              <p className="text-sm text-muted-foreground">Payment details aren't set up yet. Write to support@neuratalk.in to buy credit.</p>
+              <p className="text-sm text-muted-foreground">Payment details aren't set up yet. Write to support@mindwhile.com to buy credit.</p>
             ) : (
               <>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -153,17 +192,33 @@ export default function MessageCreditsSection({ base }: { base: string }) {
                     </button>
                   ))}
                   <button type="button" onClick={() => setBuying({ amountRupees: "" })} data-testid="pack-custom"
-                    className={`rounded-lg border border-dashed p-4 text-left hover:border-primary ${buying && !buying.packId ? "border-primary ring-2 ring-primary/30" : ""}`}>
+                    className={`rounded-lg border border-dashed p-4 text-left hover:border-primary ${buying && !buying.packId && !buying.planId ? "border-primary ring-2 ring-primary/30" : ""}`}>
                     <p className="text-sm font-medium">Other amount</p>
                     <p className="mt-1 text-sm text-muted-foreground">From {rs(d.customAmount.minPaise, 0)}</p>
                   </button>
                 </div>
+                {d.plans.length > 0 && (
+                  <>
+                    <p className="text-sm font-medium">Plans for AI translated calls</p>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {d.plans.map((p) => (
+                        <button key={p.id} type="button" onClick={() => setBuying({ planId: p.id })} data-testid={`plan-${p.id}`}
+                          className={`rounded-lg border p-4 text-left transition hover:border-primary ${buying?.planId === p.id ? "border-primary ring-2 ring-primary/30" : ""}`}>
+                          <p className="text-sm font-medium">{p.name}</p>
+                          <p className="mt-1 text-2xl font-semibold">{rs(p.pricePaise, 0)}</p>
+                          <p className="text-xs text-muted-foreground">{p.includedMinutes.toLocaleString("en-IN")} AI minutes · {p.durationDays} days</p>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 {buying && (
                   <div className="grid gap-6 rounded-lg border p-4 lg:grid-cols-2">
                     <div className="space-y-2">
                       <p className="text-sm font-medium">1. Pay {payRupees > 0 ? rs(payRupees * 100) : "the amount"} to NeuraTalk</p>
-                      {!selectedPack && (
+                      {selectedPlan && <p className="text-xs text-muted-foreground">{selectedPlan.name}: {selectedPlan.includedMinutes.toLocaleString("en-IN")} AI minutes for {selectedPlan.durationDays} days, starting when NeuraTalk confirms the payment.</p>}
+                      {!selectedPack && !selectedPlan && (
                         <Input type="number" min={d.customAmount.minPaise / 100} placeholder={`Amount in ₹ (min ${d.customAmount.minPaise / 100})`} value={buying.amountRupees ?? ""}
                           onChange={(e) => setBuying({ amountRupees: e.target.value })} data-testid="input-custom-amount" />
                       )}
@@ -208,11 +263,13 @@ export default function MessageCreditsSection({ base }: { base: string }) {
           <CardHeader><CardTitle className="text-base">Your payments</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {d.requests.map((r) => {
-              const s = STATUS[r.status] ?? STATUS.pending;
+              const isPlan = r.kind === "plan";
+              const base = STATUS[r.status] ?? STATUS.pending;
+              const s = isPlan && r.status === "approved" ? { ...base, label: "Plan started" } : base;
               return (
                 <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm" data-testid={`payment-${r.id}`}>
                   <div>
-                    <p className="font-medium">Paid {rs(r.pricePaise)} → credit {rs(r.creditPaise)}</p>
+                    <p className="font-medium">{isPlan ? `Plan: ${r.planName ?? "plan"} · paid ${rs(r.pricePaise)}` : `Paid ${rs(r.pricePaise)} → credit ${rs(r.creditPaise)}`}</p>
                     <p className="text-xs text-muted-foreground">{METHOD[r.method] ?? r.method} · {r.paymentReference} · {new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</p>
                     {r.status === "rejected" && r.decisionNote && <p className="mt-1 text-xs text-destructive">{r.decisionNote}</p>}
                   </div>

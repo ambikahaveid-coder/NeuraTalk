@@ -317,7 +317,7 @@ export default function AutoRespondersSection({ base }: { base: string }) {
         <div role="alert" className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200" data-testid="bots-paused-banner">
           <strong>NeuraTalk paused your auto-replies.</strong> Customers get no automatic answers until this is lifted.
           {list.data.pausedByNeuraTalk.reason ? ` Reason: ${list.data.pausedByNeuraTalk.reason}` : ""}
-          {/support@/i.test(list.data.pausedByNeuraTalk.reason ?? "") ? "" : " Contact support@neuratalk.in."}
+          {/support@/i.test(list.data.pausedByNeuraTalk.reason ?? "") ? "" : " Contact support@mindwhile.com."}
         </div>
       )}
       <Card>
