@@ -28,6 +28,9 @@ export default function PrivacyPage() {
             <li>We never record the audio of your calls.</li>
             <li>The translated text of a call is kept in your call history for {CALL_TEXT_RETENTION_DAYS} days, then deleted.</li>
             <li>Chats are kept so you can read them on your devices, until you delete them or your account.</li>
+            <li>Private chats are end to end encrypted: only you and the other person can read them, not us.</li>
+            <li>Payments go through your own UPI app. We never hold your money and never ask for your UPI PIN.</li>
+            <li>If someone's AI assistant answers you, it says so, and what you tell it is kept for that person.</li>
             <li>Your cloned voice speaks only your own words, and you can delete it any time.</li>
             <li>We do not sell your data and do not use your calls or messages to train our own AI models.</li>
             <li>You can download your data and delete your account from the app (More → Privacy).</li>
@@ -59,6 +62,8 @@ export default function PrivacyPage() {
           <ul>
             <li>To make calls and chats work: connect people, translate speech and text, speak translations in your voice, show captions and deliver messages and notifications.</li>
             <li>To run NeuraTalk Business: show your name and photo to businesses you chat with, deliver the updates, codes and offers you agreed to, and stop those you blocked or switched off.</li>
+            <li>To run the features you turn on: your AI assistant, payment requests, broadcast lists and private chats.</li>
+            <li>To show businesses' sponsored ads in Business messages and charge the business only for chats started — never using your chats to target ads.</li>
             <li>To bill you correctly and keep track of minutes and messages.</li>
             <li>To keep accounts safe: sign-in, fraud and abuse prevention, and fixing problems.</li>
             <li>To meet legal obligations, such as tax records and lawful requests from authorities.</li>
@@ -113,6 +118,12 @@ export default function PrivacyPage() {
               <tr><td className="border p-2">Chats and files</td><td className="border p-2">Until you delete them or your account (disappearing messages: until their timer ends)</td></tr>
               <tr><td className="border p-2">View-once photos and videos</td><td className="border p-2">In a 1:1 chat, deleted from our storage as soon as they are opened; in a group, kept until the sender deletes the message, and each member can open it once</td></tr>
               <tr><td className="border p-2">Starred messages, stickers, privacy settings</td><td className="border p-2">Until you remove them or delete your account</td></tr>
+              <tr><td className="border p-2">Private chats</td><td className="border p-2">Only as encrypted messages we can't read, until the sender deletes them, their timer ends, or the account is deleted</td></tr>
+              <tr><td className="border p-2">AI assistant conversations ("Messages taken")</td><td className="border p-2">Until the person or business whose assistant it is deletes them or their account</td></tr>
+              <tr><td className="border p-2">UPI ID and payment requests</td><td className="border p-2">Your UPI ID until you remove it; payment requests as long as the chat they're in (and as long as tax law requires for businesses)</td></tr>
+              <tr><td className="border p-2">SMS links sent by businesses</td><td className="border p-2">The link stops working after 30 days; the record that an SMS was sent is kept like other business messages</td></tr>
+              <tr><td className="border p-2">Ads you saw or tapped</td><td className="border p-2">Kept as daily counts for the business's statement; never shown to the business with your name</td></tr>
+              <tr><td className="border p-2">Broadcast lists, wallpapers, group invite links</td><td className="border p-2">Until you delete them or your account</td></tr>
               <tr><td className="border p-2">Voice samples and cloned voice</td><td className="border p-2">Until you delete your voice or your account</td></tr>
               <tr><td className="border p-2">Login codes from businesses</td><td className="border p-2">The readable code is erased as soon as it is used, expires or is replaced</td></tr>
               <tr><td className="border p-2">Billing records</td><td className="border p-2">As long as tax and accounting law requires (typically 8 years)</td></tr>
@@ -144,6 +155,7 @@ export default function PrivacyPage() {
 
           <h2>7a. Things that stay on your phone</h2>
           <ul>
+            <li>The key that opens your <strong>Private chats</strong> is made on your phone and never leaves it. We only receive its public half, which lets others send you encrypted messages.</li>
             <li>The secret code for <strong>locked chats</strong> and the list of chats you locked are kept only in your phone's encrypted storage. We never receive them.</li>
             <li>Names from your address book are read on your phone only.</li>
             <li>When you export a chat, the file is created on your phone and goes only where you choose to share it.</li>

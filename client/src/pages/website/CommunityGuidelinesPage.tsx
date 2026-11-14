@@ -56,6 +56,19 @@ export default function CommunityGuidelinesPage() {
         <li>Group admins choose who joins and may remove members or messages. Admins are responsible for keeping their group within these
           guidelines.</li>
         <li>Do not add people to groups they didn't ask to join for selling, politics or mass messaging.</li>
+        <li>Invite links: anyone with the link can join. Don't post them where they'll attract strangers to a private group, and reset the link
+          if it spreads further than you meant.</li>
+      </ul>
+
+      <h2>4a. Broadcasts, payments and AI assistants</h2>
+      <ul>
+        <li><strong>Broadcast lists</strong> are for people who know you. They only reach people who have messaged you or saved your number; don't
+          try to get around that.</li>
+        <li><strong>Payments:</strong> never ask anyone for their UPI PIN, OTP or card details, never send fake payment requests, and never claim to
+          have paid when you haven't. These are reported to the police where the law requires.</li>
+        <li><strong>AI assistants</strong> must stay honest: don't instruct yours to pretend to be you or a human, to pressure people, or to collect
+          private details. Don't try to trick someone else's assistant into revealing their information.</li>
+        <li><strong>Screen sharing:</strong> only share your screen with people who expect it, and never use it to show someone's private content.</li>
       </ul>
 
       <h2>5. How to report</h2>

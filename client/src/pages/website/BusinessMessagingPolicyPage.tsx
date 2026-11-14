@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED } from "./site-facts";
 
 /**
  * Rules for businesses that message customers on NeuraTalk. Mirrors what the
@@ -13,7 +13,7 @@ export default function BusinessMessagingPolicyPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-4">Business Messaging Policy</h1>
-          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-muted-foreground">Last updated: {POLICIES_UPDATED}</p>
           <p className="text-sm text-muted-foreground mt-2">For every business that uses NeuraTalk Business or the NeuraTalk business API</p>
         </div>
       </section>
@@ -104,6 +104,19 @@ export default function BusinessMessagingPolicyPage() {
             business dashboard. A message that is not sent (no consent, blocked, over a limit, not on NeuraTalk) is not charged. Chatting
             with customers is not charged per message.
           </p>
+
+          <h2>9a. SMS, ads, AI receptionists and payment requests</h2>
+          <ul>
+            <li><strong>SMS</strong> reaches a customer only for the kinds of messages they could receive in the app (with the same consent rules) and only
+              for numbers you got lawfully. Offers by SMS need the customer's consent to offers, just like in the app.</li>
+            <li><strong>Ads</strong> must say who you are, be true, show real prices, and never imitate NeuraTalk, a bank or a government body. No ads
+              for anything the <Link href="/commerce-policy">Commerce Policy</Link> forbids, loans or investments with guaranteed returns, or
+              "earn from home" schemes.</li>
+            <li><strong>AI receptionists</strong> must say they are AI (built in, can't be turned off), stay within your own information, and hand over
+              to a person when asked. Don't instruct one to collect OTPs, PINs, card numbers or ID documents.</li>
+            <li><strong>Payment requests</strong> must match something the customer asked for, with the real amount. Never ask a customer for their UPI PIN
+              or OTP — receiving money never needs one.</li>
+          </ul>
 
           <h2>10. Enforcement</h2>
           <p>Depending on how serious a breach is, we may — without prior notice where customers are at risk:</p>

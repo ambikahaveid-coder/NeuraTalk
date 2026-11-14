@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED } from "./site-facts";
 
 export default function RefundPolicyPage() {
   return (
@@ -7,7 +7,7 @@ export default function RefundPolicyPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Refund Policy</h1>
-          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-muted-foreground">Last updated: {POLICIES_UPDATED}</p>
           <p className="text-sm text-muted-foreground mt-2">In line with the Consumer Protection Act, 2019</p>
         </div>
       </section>
@@ -18,6 +18,11 @@ export default function RefundPolicyPage() {
           <p>
             NeuraTalk plans and wallet top-ups are prepaid in Indian Rupees. Translated call time, and for businesses their updates, login codes
             and campaign messages, are deducted as they are used. Nothing renews or is charged again without you choosing to pay.
+          </p>
+
+          <p>
+            Payments you make to friends or businesses inside a chat go through your own UPI app, straight to them. They are not payments to
+            NeuraTalk, so we can't refund them — ask the person or business, or raise it with your bank.
           </p>
 
           <h2>2. You are never charged for these</h2>
@@ -34,7 +39,10 @@ export default function RefundPolicyPage() {
               <tr><td className="border p-2">You were charged twice, or charged the wrong amount</td><td className="border p-2">Full refund of the extra amount</td></tr>
               <tr><td className="border p-2">A fault on our side used up your minutes or messages</td><td className="border p-2">The minutes or messages restored, or a refund if you prefer</td></tr>
               <tr><td className="border p-2">Minutes or wallet balance already used for calls or messages that worked</td><td className="border p-2">No refund</td></tr>
-              <tr><td className="border p-2">Free minutes and promotional credit</td><td className="border p-2">No cash value</td></tr>
+              <tr><td className="border p-2">AI assistant (₹99) or AI receptionist (₹999), asked within 7 days of paying, with under 10% of its call minutes used</td><td className="border p-2">Full refund</td></tr>
+              <tr><td className="border p-2">An SMS for a customer without NeuraTalk that couldn't be sent</td><td className="border p-2">Given back to the wallet automatically</td></tr>
+              <tr><td className="border p-2">Ad charges for chats started after you paused or ended the ad, or above your daily budget</td><td className="border p-2">Never charged; if it happens, refunded in full</td></tr>
+              <tr><td className="border p-2">Free trials, free minutes and promotional credit</td><td className="border p-2">No cash value</td></tr>
               <tr><td className="border p-2">Business agreements with their own terms</td><td className="border p-2">As set out in that agreement</td></tr>
             </tbody>
           </table>

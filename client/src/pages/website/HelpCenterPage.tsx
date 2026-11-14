@@ -34,6 +34,30 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       { id: "chat-translate", q: "How does chat translation work?", a: "You write in your language, they read it in theirs. Tap a message to see the original. You can switch translation off for a chat with the Translate switch at the top." },
       { id: "groups", q: "Can I chat with a group?", a: "Yes. Chats → Groups. Everyone writes in their own language and reads every message in theirs." },
       { id: "files", q: "Who can see the photos and files I send?", a: "Only the people in that chat or group." },
+      { id: "private-chat", q: "How do I start a Private chat?", a: "Open the chat → menu → Private chat. Messages are encrypted on your phone so only you and the other person can read them; they aren't translated and don't show on the web. Both of you need the latest app. Tap the shield icon to compare security codes." },
+      { id: "group-link", q: "How do I invite people with a link?", a: "Group info → Invite via link (admins only). Share the link or QR code. Reset it to make the old link stop working, or turn it off." },
+      { id: "join-link", q: "How do I join a group from a link?", a: "Tap the link, or Chats menu → Join group with link and paste it. You'll see the group's name and size before you join." },
+      { id: "broadcast", q: "How do broadcast lists work?", a: "Chats menu → Broadcast lists → New list, pick at least 2 people and send. Each person gets it as a normal message from you. Only people who have messaged you or saved your number receive it." },
+      { id: "wallpaper", q: "How do I change the chat wallpaper?", a: "For all chats: Chats menu → Wallpaper. For one chat: open it → menu → Wallpaper. Groups: Group info → Wallpaper." },
+      { id: "screen-share", q: "How do I share my screen in a call?", a: "In a one-to-one call, tap the screen icon at the top. Android asks your permission each time. Tap it again to stop. Everything on your screen is visible, including notifications." },
+    ],
+  },
+  {
+    title: "Your AI assistant",
+    articles: [
+      { id: "assistant-on", q: "How do I turn on my AI assistant?", a: "More → My AI assistant → Assistant on. The first 7 days are free. Then tap \"I'm busy\" times (30 min, 1 hour…) whenever you can't answer." },
+      { id: "assistant-calls", q: "How does the assistant take calls?", a: "If you don't answer within your ring time, or while you're busy, it answers, says it's your AI assistant and takes a message. When a call rings you can also tap \"Let my assistant answer\"." },
+      { id: "assistant-messages", q: "Where do I see what the assistant handled?", a: "More → My AI assistant → Messages taken. Urgent ones are marked, and you get a notification for each." },
+      { id: "assistant-pay", q: "How do I pay for the assistant?", a: "After the free week, it's ₹99 for 30 days. In My AI assistant tap Pay, pay NeuraTalk's UPI ID and enter the UTR. We confirm it, usually within a working day. It doesn't renew by itself." },
+    ],
+  },
+  {
+    title: "Payments",
+    articles: [
+      { id: "upi-id", q: "How do I add my UPI ID?", a: "Open any chat → menu → Request money; NeuraTalk asks for your UPI ID once. It's shown only to people you chat with." },
+      { id: "request-money", q: "How do I ask someone for money?", a: "Chat menu → Request money (UPI), enter the amount. They pay from their UPI app and tap \"I've paid\"; you tap Money received once it's in your bank." },
+      { id: "pay-someone", q: "How do I pay someone?", a: "Chat menu → Pay (UPI). Your UPI app opens with their UPI ID; finish the payment there. Never share your UPI PIN or OTP in a chat." },
+      { id: "payment-problem", q: "I paid but they say they didn't get it", a: "Check the UTR in your UPI app and share it in the chat. NeuraTalk doesn't move the money, so a failed or disputed payment is handled by your bank." },
     ],
   },
   {
@@ -43,6 +67,10 @@ const SECTIONS: { title: string; articles: Article[] }[] = [
       { id: "verified", q: "What does the blue tick mean?", a: "The NeuraTalk team has checked that the business is what it says it is. It is not an endorsement of its products." },
       { id: "block-business", q: "How do I stop messages from a business?", a: "Open the chat, tap its name, then Block, or switch off Receive offers to keep only order updates and codes." },
       { id: "start-business", q: "How do I bring my business to NeuraTalk?", a: "Use the NeuraTalk Business app with a number for your business, and create your profile there. See the NeuraTalk Business page or write to us." },
+      { id: "receptionist", q: "How do I set up the AI receptionist?", a: "NeuraTalk Business → Tools → AI receptionist (or Messaging → AI receptionist on the dashboard). Turn it on, add what customers usually ask, and try a question. 14 days free, then ₹999 for 30 days from your wallet." },
+      { id: "business-payments", q: "How do I take payments from customers?", a: "Tools → Payments (UPI): add your UPI ID. In a chat, tap ₹ and enter the amount. The customer pays from their UPI app; you tap Money received once it's in your bank." },
+      { id: "ads", q: "How do ads work?", a: "Tools → Ads → New ad. NeuraTalk reviews it; then it shows as Sponsored in Business messages. You pay ₹2 per chat started, never more than your daily budget." },
+      { id: "sms", q: "Can I reach customers who don't have NeuraTalk?", a: "Tools → SMS for customers without NeuraTalk. They get one SMS with your name and a link to read your message. ₹0.25 per SMS from your wallet; it starts once NeuraTalk's SMS registration is approved." },
     ],
   },
   {

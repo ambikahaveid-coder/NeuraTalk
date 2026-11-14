@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { LegalPage } from "./LegalPage";
 import { COMPANY, MARKETING_CAP_PER_DAY } from "./site-facts";
 
-const BUSINESS_TERMS_UPDATED = "13 November 2026";
+const BUSINESS_TERMS_UPDATED = "14 November 2026";
 
 /** The contract for businesses: account, team, wallet, API, data roles, suspension. */
 export default function BusinessTermsPage() {
@@ -66,6 +66,25 @@ export default function BusinessTermsPage() {
           NeuraTalk, or reached the daily limit are not charged. We may agree special rates with a business; they are shown in your dashboard.</li>
         <li>Prices may change; we will show new prices in the dashboard at least 7 days before they apply. Messages already sent keep their price.</li>
         <li>Taxes are added as the law requires. Refunds of unused wallet balance follow our <Link href="/refund-policy">Refund Policy</Link>.</li>
+      </ul>
+
+      <h2>4a. Tools that act for you</h2>
+      <ul>
+        <li><strong>AI receptionist.</strong> 14 days free, then ₹999 for 30 days from your wallet (300 call minutes; extra minutes ₹6 each).
+          It answers only from your profile, opening hours, catalog and the notes you give it, always says it is an AI, and hands customers to
+          your team when they ask or when it doesn't know. You are responsible for what you tell it and for honouring the requests it passes on.
+          It never confirms orders, bookings or payments by itself.</li>
+        <li><strong>Payments in chat.</strong> Payment requests go to the UPI ID you enter, straight to your bank. NeuraTalk doesn't collect, hold or
+          settle money for you and isn't a party to the sale. Confirm "paid" only when the money is in your account, and issue your own bills and
+          GST invoices to customers.</li>
+        <li><strong>SMS for customers without NeuraTalk.</strong> Optional, per kind of message you choose. Each SMS is charged from your wallet
+          (₹0.25 now) and refunded if it can't be sent. The SMS text is NeuraTalk's fixed, regulator-registered message with your business name and a
+          link; your own words appear only on the linked page. SMS starts only once NeuraTalk's SMS registration is approved.</li>
+        <li><strong>Ads inside NeuraTalk.</strong> Reviewed by NeuraTalk before they show; you pay per chat started (₹2 now, once per person a day),
+          never more than your daily budget. Ads must be truthful and follow the <Link href="/business-messaging-policy">Business Messaging
+          Policy</Link> and <Link href="/commerce-policy">Commerce Policy</Link>.</li>
+        <li><strong>Partners.</strong> If a NeuraTalk partner manages your account, your plan and wallet payments go to that partner, under these
+          terms. NeuraTalk can still act on your account to protect customers.</li>
       </ul>
 
       <h2>5. Templates, verification and review</h2>

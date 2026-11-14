@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { COMPANY, LEGAL_UPDATED, CALL_TEXT_RETENTION_DAYS, BACKUP_POINT_IN_TIME_DAYS, BACKUP_DAILY_DAYS, BACKUP_MONTHLY_DAYS } from "./site-facts";
+import { COMPANY, POLICIES_UPDATED, CALL_TEXT_RETENTION_DAYS, BACKUP_POINT_IN_TIME_DAYS, BACKUP_DAILY_DAYS, BACKUP_MONTHLY_DAYS } from "./site-facts";
 
 /** Retention periods as the product enforces them today. */
 const ROWS: [string, string, string][] = [
@@ -7,6 +7,11 @@ const ROWS: [string, string, string][] = [
   ["Call history and translated call text", `${CALL_TEXT_RETENTION_DAYS} days after the call`, "Deleted automatically every day by a scheduled job."],
   ["Personal and group chats, files", "Until you delete them or your account", "Clearing a chat removes it from your view; the other person keeps their copy."],
   ["Chats with businesses", "Until the business or you delete them, or your account is deleted", "A business keeps its own record of conversations with its customers."],
+  ["Private chats", "Until the sender deletes them, their timer ends, or the account is deleted", "Stored only encrypted; we can't read them. The keys stay on your phones."],
+  ["AI assistant conversations", "Until the owner deletes them or their account", "Kept for the person or business whose assistant answered, in \"Messages taken\"."],
+  ["UPI ID and payment requests", "UPI ID until you remove it; requests as long as the chat", "Businesses' payment records as long as tax law requires."],
+  ["Business SMS links", "The link works for 30 days", "After that the page shows that the link expired."],
+  ["Sponsored ad views and taps", "As daily counts for the business's statement", "Never shown to the business with your name."],
   ["Voice samples and cloned voice", "Until you delete your voice or your account", "Deleted at our voice provider as well."],
   ["Login codes from businesses", "Readable code erased on use, expiry or replacement", "Only an encrypted copy exists while the code is valid."],
   ["Account profile", "Until you delete your account", "Then your number, name, photo and email are erased."],
@@ -21,7 +26,7 @@ export default function DataRetentionPage() {
       <section className="py-16 px-4 bg-gradient-to-br from-primary/10 via-background to-accent/10">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-4xl font-bold mb-6">Data Retention</h1>
-          <p className="text-muted-foreground">Last updated: {LEGAL_UPDATED}</p>
+          <p className="text-muted-foreground">Last updated: {POLICIES_UPDATED}</p>
           <p className="text-sm text-muted-foreground mt-2">How long NeuraTalk keeps each kind of data, and why</p>
         </div>
       </section>
