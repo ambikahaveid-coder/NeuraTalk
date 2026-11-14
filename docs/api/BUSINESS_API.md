@@ -45,6 +45,8 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | PATCH, DELETE | /api/v1/me/catalog/:id | Change or remove an item |
 | GET | /api/v1/me/orders | Orders |
 | PATCH | /api/v1/me/orders/:id | `{ status }` |
+| GET | /api/v1/me/assistant | AI receptionist: on/off, plan, call minutes left |
+| GET | /api/v1/me/assistant/inbox | What it handled: `summary`, `lead` (order/booking request), `handoff` (needs a person), the conversation |
 | GET, POST | /api/v1/me/ads | Your click-to-chat ads (views, chats, spend), or create one `{ headline, body, button?, dailyBudgetPaise }` (NeuraTalk reviews it) |
 | PATCH | /api/v1/me/ads/:id | `{ action: "pause" \| "resume" \| "end" }`, or a new budget/words (new words go back to review) |
 | GET | /api/v1/me/sms-settings | SMS for customers without NeuraTalk: on/off, which kinds, price, last 30 days |

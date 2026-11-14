@@ -517,6 +517,8 @@ app.use((req, res, next) => {
     await ensurePersonalPaymentTables();
     const { ensurePrivateChatTables } = await import("./private-chats");
     await ensurePrivateChatTables();
+    const { ensureAssistantTables } = await import("./ai-assistant");
+    await ensureAssistantTables();
   }, { optional: true });
   let redisOperational = false;
   try {

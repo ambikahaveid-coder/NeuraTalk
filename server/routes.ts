@@ -49,6 +49,8 @@ import groupInviteRoutes from "./group-invites";
 import chatParityRoutes from "./chat-parity";
 import personalPaymentRoutes from "./personal-payments";
 import privateChatRoutes from "./private-chats";
+import assistantRoutes from "./ai-assistant";
+import assistantVoiceRoutes from "./ai-assistant-voice";
 import { registerLinkPreviewRoutes } from "./link-preview";
 import { registerStatusRoutes } from "./status-routes";
 import { registerBroadcastRoutes } from "./modules/campaigns/broadcast";
@@ -337,6 +339,8 @@ export async function registerRoutes(
   app.use(chatParityRoutes);
   app.use(personalPaymentRoutes);
   app.use(privateChatRoutes);
+  app.use(assistantRoutes);
+  app.use(assistantVoiceRoutes);
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
   registerLinkPreviewRoutes(app);

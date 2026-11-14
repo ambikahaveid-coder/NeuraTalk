@@ -17,6 +17,7 @@ import 'voice_clone_screen.dart';
 import '../services/call_readiness.dart';
 import '../widgets/chat_extras.dart';
 import 'linked_devices_screen.dart';
+import 'assistant_screen.dart';
 
 /// "More" tab — Settings (brand mockup 12).
 class SettingsScreen extends StatelessWidget {
@@ -46,6 +47,7 @@ class SettingsScreen extends StatelessWidget {
       _Row(Icons.person_outline, 'Account', 'Profile, plan and minutes', () => _go(context, const ProfileScreen())),
       _Row(Icons.language, 'Languages', 'You speak ${lang.name}', () => _go(context, const LanguagePreferencesScreen())),
       _Row(Icons.translate, 'Translation', 'Auto-translate chats and calls', () => _go(context, const TranslationSettingsScreen())),
+      _Row(Icons.support_agent, 'My AI assistant', 'Answers chats and calls when you are busy', () => _go(context, const AssistantScreen())),
       _Row(Icons.workspace_premium_outlined, 'Subscription', 'Plans and minutes', () => _go(context, const WalletScreen())),
       _Row(Icons.dark_mode_outlined, 'Appearance', _appearanceLabel(context.watch<ThemeController>().mode), () => _pickAppearance(context)),
       _Row(Icons.notifications_none, 'Notifications', 'Messages and calls', () => _go(context, const NotificationsSettingsScreen())),

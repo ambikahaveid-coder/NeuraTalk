@@ -9,6 +9,7 @@ import { and, desc, eq, ne } from "drizzle-orm";
 import { db } from "../../db";
 import {
   businessConversations,
+  customers,
   messagingDeliveries,
   messagingEvents,
   messagingMessages,
@@ -78,17 +79,31 @@ export async function sendAutoRepliesAfterCustomerMessage(
     if (settings?.greeting.enabled && settings.greeting.text && recent.length === 1) {
       await sendAsBusiness(businessId, conv.id, conv.conversationId, settings.greeting.text, "greeting");
     }
+    let answered = false;
     if (trigger) {
       const { runAutoResponders } = await import("./auto-responders");
-      await runAutoResponders({
+      answered = await runAutoResponders({
         businessId, businessConversationId: conv.id, conversationId: conv.conversationId,
         triggerMessageId: trigger.messageId,
         message: { text: trigger.text, buttonId: trigger.buttonId, buttonTitle: trigger.buttonTitle },
         send: (content, extra) => sendAsBusiness(businessId, conv.id, conv.conversationId, content, "auto_responder", extra),
       });
     }
+    // No keyword bot answer: the AI receptionist (if the business has it on) answers from the business's own information.
+    if (trigger && !answered && trigger.text.trim()) {
+      const [customer] = conv.customerId
+        ? await db.select({ linkedUserId: customers.linkedUserId, name: customers.name }).from(customers).where(eq(customers.id, conv.customerId))
+        : [];
+      const { maybeReplyBusinessChat } = await import("../../ai-assistant");
+      answered = await maybeReplyBusinessChat({
+        businessId, businessConversationId: conv.id, conversationId: conv.conversationId,
+        customerUserId: customer?.linkedUserId ?? null, customerName: customer?.name ?? null, text: trigger.text,
+        withinHours: settings ? isWithinOpeningHours(settings) : true,
+        send: (content, metadata) => sendAsBusiness(businessId, conv.id, conv.conversationId, content, "assistant", { messageType: MESSAGE_TYPE.TEXT, metadata }),
+      });
+    }
     if (!settings) return;
-    if (settings.away.enabled && settings.away.text && !isWithinOpeningHours(settings)) {
+    if (!answered && settings.away.enabled && settings.away.text && !isWithinOpeningHours(settings)) {
       const lastAway = recent.find((m) => m.messageType === MESSAGE_TYPE.SYSTEM && m.content === settings.away.text);
       if (!lastAway || Date.now() - (lastAway.createdAt?.getTime() ?? 0) > AWAY_REPEAT_MS) {
         await sendAsBusiness(businessId, conv.id, conv.conversationId, settings.away.text, "away");

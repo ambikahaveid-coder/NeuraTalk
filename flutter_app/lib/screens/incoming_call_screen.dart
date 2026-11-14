@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../models/call_session.dart';
 import '../services/call_service.dart';
 import '../services/callkit_service.dart';
+import '../services/api_service.dart';
 import '../services/contact_resolver.dart';
 import '../widgets/nt_ui.dart';
 import 'call_screen.dart';
@@ -173,6 +174,26 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     }
   }
 
+  Future<void> _handToAssistant() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await ApiService.post('/api/calls/${widget.session.callId}/assistant', {});
+      widget.callService.markHandledExternally(widget.session.callId);
+      unawaited(CallKitService.endCall(widget.session.callId));
+      widget.callService.clearIncomingCall();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your assistant is taking the call. You\'ll get a summary.')));
+      _exitScreen();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      final off = e is ApiException && e.code == 'ASSISTANT_OFF';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(off ? 'Turn on your AI assistant first (Settings → My AI assistant).' : (e is ApiException ? e.message : 'Could not hand over the call.')),
+      ));
+    }
+  }
+
   Future<void> _reject() async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -237,6 +258,17 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   const SizedBox(height: 10),
                   const LiveBadge(onDark: true, label: 'Live translation on'),
                   const Spacer(flex: 3),
+                  // Busy? The AI assistant answers, says it is your assistant, and takes the message.
+                  if (!session.isGroup)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(foregroundColor: AppColors.onAccent, side: const BorderSide(color: Color(0x66FFFFFF))),
+                        icon: const Icon(Icons.support_agent),
+                        label: const Text('Let my assistant answer'),
+                        onPressed: _busy ? null : _handToAssistant,
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(48, 0, 48, 40),
                     child: Row(

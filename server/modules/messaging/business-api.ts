@@ -58,6 +58,9 @@ export const ROUTES: Rule[] = [
   R("DELETE", "/catalog/:id", "Remove an item"),
   R("GET", "/orders", "Orders customers placed"),
   R("PATCH", "/orders/:id", "Update an order's status (accepted, ready, delivered, cancelled)"),
+  // AI receptionist
+  R("GET", "/assistant", "AI receptionist: on/off, plan, call minutes left"),
+  R("GET", "/assistant/inbox", "Conversations it handled: summaries, order/booking requests (lead), handovers to a person"),
   // Click-to-chat ads inside NeuraTalk
   R("GET", "/ads", "Your ads, their review status, views, chats started and spend"),
   R("POST", "/ads", "Create an ad (NeuraTalk reviews it): { headline, body, button?, dailyBudgetPaise }"),

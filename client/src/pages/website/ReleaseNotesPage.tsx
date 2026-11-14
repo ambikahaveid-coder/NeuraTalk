@@ -3,6 +3,16 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "AI assistant for you, AI receptionist for businesses",
+    date: "14 November 2026",
+    highlights: [
+      "When you're busy, your AI assistant answers chats and calls for you, says it is your assistant, asks what it's about and whether it's urgent, and leaves you a summary",
+      "Tap \"Let my assistant answer\" on an incoming call, or set yourself busy for a while; choose an AI voice or your own",
+      "Businesses: an AI receptionist trained on their catalog, prices, hours and notes answers customers in chat and on calls, takes order and booking requests, and hands over to a person when needed",
+      "7 days free for people (then ₹99 a month), 14 days free for businesses (then ₹999 a month)",
+    ],
+  },
+  {
     title: "Private chats, paying friends, SMS for businesses and sponsored businesses",
     date: "14 November 2026",
     highlights: [

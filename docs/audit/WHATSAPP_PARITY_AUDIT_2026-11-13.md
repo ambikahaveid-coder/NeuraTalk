@@ -89,3 +89,14 @@ Legend: ✅ built and tested · ⚠️ partly, or works differently · ❌ missi
 1. Test on real phones with the new app (screen share, group links, Private chat between two phones, UPI pay).
 2. MSG91 + DLT, then switch SMS live.
 3. Exotel account, then phone-number calls.
+
+## 6. Beyond WhatsApp: AI assistant (14 Nov 2026)
+
+| Feature | WhatsApp | NeuraTalk |
+|---|---|---|
+| Personal AI assistant that answers chats when you're busy | ❌ | ✅ says it is your AI assistant, asks what/urgent, summary in "Messages taken" |
+| AI assistant that answers calls (missed or while busy, or "Let my assistant answer") | ❌ | ✅ in-app calls; AI voice or your own; max 3 min per call |
+| Business AI receptionist in chat and on calls, trained on catalog/prices/hours/FAQ | ❌ (Meta AI for business is limited, not in India apps) | ✅ takes order/booking requests, hands over to a person, quiet while a team member talks |
+| Plans | — | Personal 7 days free then ₹99/month (60 call min); business 14 days free then ₹999/month (300 call min, extra ₹6/min). Trial call minutes: 30 / 100. Editable by super admin. |
+
+Tests: t/105_assistant.mjs (51 checks, fixed test brain, no audio) and t/106_assistant_ui.mjs (browser). The real voice path (LiveKit + speech + AI voice) is not yet tried on a phone.

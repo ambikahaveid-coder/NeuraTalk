@@ -1478,6 +1478,13 @@ async function initiateCallLocked(
         calleeIdentifier: req.calleeIdentifier,
       });
 
+      // Not picked up in time (or the person set themselves busy): their AI assistant answers, if they have it on.
+      if (callee.userId && Number.isFinite(Number(callee.userId))) {
+        void import("../../ai-assistant-voice").then((m) => m.scheduleAssistantForCall({
+          callId, calleeUserId: Number(callee.userId), callerIdentity: req.callerId, callerLanguage: effectiveCallerLanguage,
+        })).catch((error) => logger.warn("SmartCallRouter", `assistant schedule failed for ${callId}: ${String(error)}`));
+      }
+
       if (requestReceivedNs) {
         logSetupLatency(callId, requestedJoinMethod, "total_call_response", elapsedMs(requestReceivedNs));
       }

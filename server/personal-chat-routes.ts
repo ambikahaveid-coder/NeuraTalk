@@ -1024,6 +1024,13 @@ async function sendMessageHandler(req: AuthedRequest, res: Response, serverMetad
       message: formatMessage(message, viewerId, context.viewerLanguage),
     });
 
+    // The other person's AI assistant may answer while they're busy (never answers itself).
+    if (!serverMetadata.assistant && (!input.messageType || input.messageType === "text")) {
+      void import("./ai-assistant").then((m) => m.maybeReplyPersonalChat({
+        threadId, senderId: viewerId, ownerId: context.peerUserId, messageId: message.id, text: input.content,
+      })).catch(() => undefined);
+    }
+
     if (needsBackgroundWork) {
       void finishMessageInBackground({
         messageId: message.id,

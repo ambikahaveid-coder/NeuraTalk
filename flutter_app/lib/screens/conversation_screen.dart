@@ -1681,6 +1681,15 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              if ((message['metadata'] as Map?)?['assistant'] == true && !isDeleted)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.support_agent, size: 14, color: AppColors.cyan),
+                    const SizedBox(width: 4),
+                    Text(isOwn ? 'Sent by your AI assistant' : 'AI assistant', style: TextStyle(color: AppColors.cyan, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
               if (message['forwarded'] == true && !isDeleted)
                 Padding(
                   padding: EdgeInsets.fromLTRB(isMedia ? 8 : 0, isMedia ? 4 : 0, 0, 4),

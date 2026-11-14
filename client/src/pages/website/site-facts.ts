@@ -34,7 +34,7 @@ export const PROCESSORS = [
   { name: "Microsoft Azure", purpose: "Speech recognition, and AI translation of calls", location: "India (Central India, South India)" },
   { name: "LiveKit", purpose: "Real-time audio and video for calls", location: "Nearest region on its global network (India for callers in India)" },
   { name: "ElevenLabs", purpose: "Learning your voice (only if you allow it) and speaking translated words in it", location: "United States / European Union" },
-  { name: "OpenAI", purpose: "Translation of chat messages; backup translation for calls when Azure is unavailable; the in-app assistant", location: "United States" },
+  { name: "OpenAI", purpose: "Translation of chat messages; backup translation for calls when Azure is unavailable; the in-app assistant; the AI assistant / receptionist that answers chats and calls for people and businesses who turn it on", location: "United States" },
   { name: "Deepgram", purpose: "Backup speech recognition, only when Azure is unavailable", location: "United States" },
   { name: "Sarvam AI", purpose: "Backup translation of chat messages", location: "India" },
   { name: "Google Firebase", purpose: "Phone-number sign-in (OTP) and app notifications", location: "Global" },

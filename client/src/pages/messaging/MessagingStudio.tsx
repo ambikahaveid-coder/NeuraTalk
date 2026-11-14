@@ -8,6 +8,7 @@ import MessageCreditsSection from "./MessageCreditsSection";
 import PaymentsSection from "./PaymentsSection";
 import SmsSection from "./SmsSection";
 import AdsSection from "./AdsSection";
+import AssistantSection from "./AssistantSection";
 import {
   Bot, Wallet, IndianRupee, MessageSquareText, CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
 } from "lucide-react";
@@ -30,7 +31,7 @@ import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth } from "@/lib/a
  * Delivered/read numbers come from the real in-app delivery receipts.
  */
 
-type Section = "profile" | "credits" | "bots" | "catalog" | "payments" | "sms" | "ads" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
+type Section = "profile" | "credits" | "bots" | "assistant" | "catalog" | "payments" | "sms" | "ads" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
 
 interface Customer {
   id: number; name: string | null; phone: string | null; email: string | null;
@@ -133,6 +134,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
     { id: "profile", label: "Chat link & auto replies", icon: <Link2 className="w-4 h-4" /> },
     { id: "credits", label: "Wallet & plan", icon: <Wallet className="w-4 h-4" /> },
     { id: "bots", label: "Auto-reply bot", icon: <Bot className="w-4 h-4" /> },
+    { id: "assistant", label: "AI receptionist", icon: <Bot className="w-4 h-4" /> },
     { id: "catalog", label: "Catalog", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "payments", label: "Payments (UPI)", icon: <IndianRupee className="w-4 h-4" /> },
     { id: "sms", label: "SMS", icon: <MessageSquareText className="w-4 h-4" /> },
@@ -170,6 +172,7 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
       {section === "profile" && <ProfileSection {...props} businessId={businessId} />}
       {section === "credits" && <MessageCreditsSection base={base} />}
       {section === "bots" && <AutoRespondersSection base={base} />}
+      {section === "assistant" && <AssistantSection base={base} />}
       {section === "catalog" && <CatalogSection {...props} />}
       {section === "payments" && <PaymentsSection businessId={businessId} />}
       {section === "sms" && <SmsSection base={base} />}
