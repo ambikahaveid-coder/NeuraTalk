@@ -29,7 +29,7 @@ export const ROUTES: Rule[] = [
   R("GET", "/conversations/:id", "One conversation"),
   R("GET", "/conversations/:id/messages", "Message history (customer messages include translatedContent in your language). Marks them read unless ?markRead=false"),
   R("POST", "/conversations/:id/read", "Mark the customer's messages as read (blue ticks)"),
-  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply buttons, a list menu (list), a contact card (contact), a sticker (sticker: WebP/PNG ≤500 KB), or a reply to a message (replyToMessageId); 24-hour rule"),
+  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply / website / call / copy-code buttons, a list menu (list), a contact card (contact), a location request (requestLocation: true), a sticker (sticker: WebP/PNG ≤500 KB), or a reply to a message (replyToMessageId); 24-hour rule"),
   R("POST", "/conversations/:id/template", "Send an approved template (any time)"),
   R("POST", "/conversations/:id/products", "Send product cards from your catalog"),
   R("POST", "/conversations/:id/form", "Send a form"),

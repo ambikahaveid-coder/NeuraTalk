@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import type { AuthenticatedUser } from "../../role-middleware";
@@ -46,7 +47,7 @@ export async function createWebhook(req: Request, res: Response) {
   if (!isOrgAdmin(user, orgId)) return forbidden(res);
 
   const parsed = createWebhookSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const unknownEvents = parsed.data.subscribedEvents.filter((e) => !isValidWebhookEventType(e));
   if (unknownEvents.length > 0) {
@@ -110,7 +111,7 @@ export async function updateWebhook(req: Request, res: Response) {
   if (!isOrgAdmin(user, orgId)) return forbidden(res);
 
   const parsed = updateWebhookSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const updated = await updateWebhookEndpoint(orgId, webhookId, parsed.data);
@@ -154,7 +155,7 @@ export async function toggleWebhook(req: Request, res: Response) {
   if (!isOrgAdmin(user, orgId)) return forbidden(res);
 
   const parsed = toggleWebhookSchema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const updated = await setWebhookEndpointActive(orgId, webhookId, parsed.data.isActive);
   if (!updated) return res.status(404).json({ success: false, error: "Webhook not found" });

@@ -34,19 +34,40 @@ import { deliverCommittedMessage } from "./delivery";
 export const SERVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Message buttons (like WhatsApp): up to 3 per message.
+ * Message buttons (like WhatsApp): up to 3 on a chat message, up to 10 on a template.
  *  - quick_reply: the customer taps it and its title is sent back as their reply
  *  - url: opens an https link
  *  - call: dials a phone number
+ *  - copy_code: copies a coupon or code (up to 20 characters) to the clipboard
  */
 export const messageButtonSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("quick_reply"), id: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9_-]+$/), title: z.string().trim().min(1).max(25) }),
-  z.object({ type: z.literal("url"), title: z.string().trim().min(1).max(25), url: z.string().trim().url().max(500).refine((u) => u.startsWith("https://"), "Links must start with https://") }),
+  z.object({ type: z.literal("url"), title: z.string().trim().min(1).max(25), url: z.string().trim().url().max(2000).refine((u) => u.startsWith("https://"), "Links must start with https://") }),
   z.object({ type: z.literal("call"), title: z.string().trim().min(1).max(25), phone: z.string().trim().regex(/^\+?[0-9 ]{8,16}$/, "Enter a valid phone number") }),
+  z.object({ type: z.literal("copy_code"), title: z.string().trim().min(1).max(25).default("Copy code"), code: z.string().trim().min(1).max(20).regex(/^\S+$/, "A code has no spaces") }),
 ]);
-export const messageButtonsSchema = z.array(messageButtonSchema).max(3).superRefine((buttons, ctx) => {
-  const ids = buttons.filter((b) => b.type === "quick_reply").map((b) => (b as { id: string }).id);
+
+function checkButtons(buttons: Array<{ type: string; id?: string }>, ctx: z.RefinementCtx, limits: { url: number; call: number; copy_code: number }) {
+  const ids = buttons.filter((b) => b.type === "quick_reply").map((b) => b.id);
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Each quick-reply button needs a different id" });
+  for (const [type, max] of Object.entries(limits)) {
+    const n = buttons.filter((b) => b.type === type).length;
+    if (n > max) ctx.addIssue({ code: "custom", message: `Up to ${max} ${type === "url" ? "website" : type === "call" ? "call" : "copy-code"} button${max === 1 ? "" : "s"}` });
+  }
+  // Quick replies stay together, like WhatsApp shows them.
+  const switches = buttons.filter((b, i) => i > 0 && (b.type === "quick_reply") !== (buttons[i - 1].type === "quick_reply")).length;
+  if (switches > 1) {
+    ctx.addIssue({ code: "custom", message: "Put the quick-reply buttons together, before or after the other buttons" });
+  }
+}
+
+/** Chat messages: up to 3 buttons. */
+export const messageButtonsSchema = z.array(messageButtonSchema).max(3, "Up to 3 buttons on a message").superRefine((buttons, ctx) => {
+  checkButtons(buttons, ctx, { url: 3, call: 1, copy_code: 1 });
+});
+/** Templates: up to 10 buttons (10 quick replies, 2 websites, 1 call, 1 copy code). */
+export const templateButtonsSchema = z.array(messageButtonSchema).max(10, "Up to 10 buttons on a template").superRefine((buttons, ctx) => {
+  checkButtons(buttons, ctx, { url: 2, call: 1, copy_code: 1 });
 });
 export type MessageButton = z.infer<typeof messageButtonSchema>;
 
@@ -99,7 +120,7 @@ export function templateMessageExtras(version: { metadata: unknown }): Record<st
 /** Buttons stored on a template version (metadata.buttons), if any. */
 export function templateButtons(version: { metadata: unknown }): MessageButton[] {
   const raw = (version.metadata as { buttons?: unknown } | null)?.buttons;
-  const parsed = messageButtonsSchema.safeParse(raw ?? []);
+  const parsed = templateButtonsSchema.safeParse(raw ?? []);
   return parsed.success ? parsed.data : [];
 }
 

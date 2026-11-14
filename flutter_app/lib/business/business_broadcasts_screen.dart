@@ -390,7 +390,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
         ..addAll(((pick['buttons'] as List?) ?? const []).whereType<Map>().map((b) {
           final d = _ButtonDraft()..type = '${b['type']}';
           d.title.text = '${b['title']}';
-          d.value.text = '${b['url'] ?? b['phone'] ?? ''}';
+          d.value.text = '${b['url'] ?? b['phone'] ?? b['code'] ?? ''}';
           d.fixedId = b['id']?.toString();
           return d;
         }));
@@ -401,7 +401,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
   String? _mediaPath;
   String? _mediaName;
   bool _uploading = false;
-  // Up to 3 buttons: quick reply / website / call.
+  // Up to 10 buttons: quick reply / website / call / copy code.
   final List<_ButtonDraft> _buttons = [];
 
   List<Map<String, dynamic>>? _buttonsPayload() {
@@ -417,6 +417,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
             if (b.type == 'quick_reply') 'id': b.fixedId ?? 'btn_${++n}',
             if (b.type == 'url') 'url': b.value.text.trim(),
             if (b.type == 'call') 'phone': b.value.text.trim(),
+            if (b.type == 'copy_code') 'code': b.value.text.replaceAll(RegExp(r'\s'), ''),
           },
     ];
   }
@@ -438,6 +439,7 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
                   DropdownMenuItem(value: 'quick_reply', child: Text('Quick reply (customer taps to answer)')),
                   DropdownMenuItem(value: 'url', child: Text('Visit website')),
                   DropdownMenuItem(value: 'call', child: Text('Call phone number')),
+                  DropdownMenuItem(value: 'copy_code', child: Text('Copy a code (coupon)')),
                 ],
                 onChanged: (v) => setState(() => b.type = v ?? b.type),
               ),
@@ -448,10 +450,11 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
           if (b.type != 'quick_reply')
             TextField(
               controller: b.value,
-              keyboardType: b.type == 'url' ? TextInputType.url : TextInputType.phone,
+              maxLength: b.type == 'copy_code' ? 20 : null,
+              keyboardType: b.type == 'url' ? TextInputType.url : b.type == 'copy_code' ? TextInputType.text : TextInputType.phone,
               decoration: InputDecoration(
-                labelText: b.type == 'url' ? 'Website (https://…)' : 'Phone number',
-                hintText: b.type == 'url' ? 'https://yourshop.in/offer' : '+91 98xxxxxxxx',
+                labelText: b.type == 'url' ? 'Website (https://…)' : b.type == 'copy_code' ? 'Code (no spaces)' : 'Phone number',
+                hintText: b.type == 'url' ? 'https://yourshop.in/offer' : b.type == 'copy_code' ? 'DIWALI20' : '+91 98xxxxxxxx',
                 isDense: true,
               ),
             ),
@@ -554,10 +557,10 @@ class _NewTemplateScreenState extends State<_NewTemplateScreen> {
         if (_mediaPath != null)
           TextButton(onPressed: () => setState(() { _mediaPath = null; _mediaName = null; }), child: const Text('Remove the file')),
         const SizedBox(height: 12),
-        Text('BUTTONS (OPTIONAL, UP TO 3)', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
+        Text('BUTTONS (OPTIONAL, UP TO 10)', style: TextStyle(color: AppColors.textMuted, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6)),
         const SizedBox(height: 6),
         for (final b in _buttons) _buttonEditor(b),
-        if (_buttons.length < 3)
+        if (_buttons.length < 10)
           OutlinedButton.icon(
             onPressed: () => setState(() => _buttons.add(_ButtonDraft())),
             icon: const Icon(Icons.add),

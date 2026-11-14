@@ -24,7 +24,7 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | GET | /api/v1/me/conversations/:id | One conversation |
 | GET | /api/v1/me/conversations/:id/messages | History. Customer messages carry `translatedContent` in your language. Reading marks them read (blue ticks); add `?markRead=false` to read without that. |
 | POST | /api/v1/me/conversations/:id/read | Mark the customer's messages as read (blue ticks), e.g. once a person in your CRM has seen them |
-| POST | /api/v1/me/conversations/:id/messages | Send (24-hour rule): `{ content }`, `{ buttons:[…≤3] }`, `{ content, list:{…} }` (list menu, below), `{ contact:{name,phone,organization?,email?} }`, `{ sticker:{url,mimeType:"image/webp"\|"image/png",sizeBytes≤500 KB} }` (upload with /media first), `{ location:{latitude,longitude,name} }`, `{ attachment:{url,mimeType,sizeBytes,title} }`, `{ replyToMessageId }` |
+| POST | /api/v1/me/conversations/:id/messages | Send (24-hour rule): `{ content }`, `{ content, buttons:[…≤3] }` (quick reply, website, call, copy code — below), `{ content, requestLocation:true }`, `{ content, list:{…} }` (list menu, below), `{ contact:{name,phone,organization?,email?} }`, `{ sticker:{url,mimeType:"image/webp"\|"image/png",sizeBytes≤500 KB} }` (upload with /media first), `{ location:{latitude,longitude,name} }`, `{ attachment:{url,mimeType,sizeBytes,title} }`, `{ replyToMessageId }` |
 | POST | /api/v1/me/conversations/:id/payment-request | `{ amountPaise, note?, orderId? }`: ask the customer to pay by UPI (see Payments) |
 | POST | /api/v1/me/conversations/:id/template | `{ templateVersionId, variables }`, any time |
 | POST | /api/v1/me/conversations/:id/products | `{ itemIds:[…≤10] }`: product cards |
@@ -76,6 +76,28 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 - Button up to 20 characters. Up to 10 options in all. Option titles up to 24 characters, descriptions up to 72. Ids use letters, numbers, `-` and `_`.
 - The customer picks one option. It arrives as their reply: the option's title as `content`, with `metadata.buttonReply = { messageId, buttonId }`. You get it in the `message.received` webhook, and auto-reply bots react to it.
 - A list goes with text only: no buttons, files or location in the same message.
+
+## Buttons
+
+| Type | Fields | What the customer gets |
+|---|---|---|
+| `quick_reply` | `id`, `title` (≤25) | Taps it; the title comes back as their reply (`metadata.buttonReply`) |
+| `url` | `title`, `url` (https, ≤2000) | Opens the link |
+| `call` | `title`, `phone` | Dials the number |
+| `copy_code` | `code` (≤20, no spaces), `title` (default "Copy code") | Copies a coupon or code |
+
+- A chat message: up to 3 buttons. A template: up to 10 (up to 10 quick replies, 2 websites, 1 call, 1 copy code).
+- Quick replies stay together: before or after the other buttons, not split by them.
+- With more than 3 buttons, customers see 2 and **See all options** for the rest (as on WhatsApp).
+- Errors name the field, e.g. `buttons.0.code: A code has no spaces`.
+
+## Asking for the customer's location
+
+```json
+{ "content": "Please share your location for delivery", "requestLocation": true }
+```
+
+The customer sees a **Send location** button. Their location arrives as a `location` message with `replyToMessageId` set to your request, and `metadata.location = { latitude, longitude }`. Also works on `POST /api/v1/messaging/messages` (by phone number), together with `list`.
 
 ## Payments (UPI)
 

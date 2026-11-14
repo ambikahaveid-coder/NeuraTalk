@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -34,7 +35,7 @@ export async function postCampaign(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createCampaignSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const campaign = await createCampaign(businessId, req.user!.id, parsed.data);
@@ -80,7 +81,7 @@ export async function patchCampaign(req: Request, res: Response) {
   const campaignId = parseId(req.params.campaignId);
   if (businessId === null || campaignId === null) return badRequest(res, "Invalid id");
   const parsed = updateCampaignSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const campaign = await updateCampaign(businessId, req.user!.id, campaignId, parsed.data);
@@ -97,7 +98,7 @@ export async function postSchedule(req: Request, res: Response) {
   const campaignId = parseId(req.params.campaignId);
   if (businessId === null || campaignId === null) return badRequest(res, "Invalid id");
   const parsed = scheduleSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const campaign = await scheduleCampaign(businessId, req.user!.id, campaignId, new Date(parsed.data.scheduledAt));

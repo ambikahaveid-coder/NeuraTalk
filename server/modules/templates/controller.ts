@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -12,7 +13,7 @@ import { TemplateContentError, TemplateRenderError } from "./render";
 import { MESSAGE_CATEGORY, templateVersions } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../../db";
-import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError } from "../messaging/template-send";
+import { prepareTemplateMedia, TemplateSendError, templateButtonsSchema } from "../messaging/template-send";
 
 function badRequest(res: Response, msg: string) {
   return res.status(400).json({ success: false, error: msg });
@@ -41,7 +42,7 @@ export async function postTemplate(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createTemplateSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const template = await createTemplate(businessId, req.user!.id, parsed.data);
@@ -82,8 +83,8 @@ const draftVersionSchema = z.object({
   // its type is read from the file itself, see prepareTemplateMedia.
   mediaType: z.string().trim().max(50).optional(),
   mediaUrl: z.string().trim().startsWith("/objects/").max(2000).optional(),
-  // Up to 3 buttons (quick reply / website / call); NeuraTalk reviews them with the text.
-  buttons: z.array(z.record(z.unknown())).max(3).optional(),
+  // Up to 10 buttons (quick reply / website / call / copy code); NeuraTalk reviews them with the text.
+  buttons: z.array(z.record(z.unknown())).max(10).optional(),
   header: z.string().trim().max(60).optional(),
   footer: z.string().trim().max(60).optional(),
 }).strict();
@@ -93,7 +94,7 @@ export async function putDraftVersion(req: Request, res: Response) {
   const templateId = parseId(req.params.templateId);
   if (businessId === null || templateId === null) return badRequest(res, "Invalid id");
   const parsed = draftVersionSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const input = { ...parsed.data };
@@ -111,7 +112,7 @@ export async function putDraftVersion(req: Request, res: Response) {
     const { buttons, header, footer, ...draft } = input;
     let checkedButtons: unknown[] | undefined;
     if (buttons !== undefined) {
-      const parsedButtons = messageButtonsSchema.safeParse(buttons);
+      const parsedButtons = templateButtonsSchema.safeParse(buttons);
       if (!parsedButtons.success) return badRequest(res, parsedButtons.error.issues[0]?.message ?? "Check the buttons");
       checkedButtons = parsedButtons.data;
     }
@@ -179,7 +180,7 @@ export async function postPreviewVersion(req: Request, res: Response) {
   const versionId = parseId(req.params.versionId);
   if (businessId === null || templateId === null || versionId === null) return badRequest(res, "Invalid id");
   const parsed = previewSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const result = await previewVersion(businessId, templateId, versionId, parsed.data.values);

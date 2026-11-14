@@ -904,8 +904,24 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
     }
   }
 
+  /// Ask the customer to share their location (they get a "Send location" button).
+  Future<void> _askLocation() async {
+    if (_sending) return;
+    final text = _input.text.trim().isEmpty ? 'Please share your location so we can reach you.' : _input.text.trim();
+    setState(() => _sending = true);
+    try {
+      await ApiService.post('$_base/conversations/${widget.conversationId}/messages', {'content': text, 'requestLocation': true});
+      _input.clear();
+      await _load();
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'Could not send. Try again.')));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _attach() async {
-    final picked = await AttachmentPicker.show(context, onLocation: _shareLocation);
+    final picked = await AttachmentPicker.show(context, onLocation: _shareLocation, onAskLocation: _askLocation);
     for (final (file, name) in picked.take(5)) {
       try {
         setState(() => _sending = true);
@@ -1256,6 +1272,7 @@ class _BusinessConversationScreenState extends State<BusinessConversationScreen>
           if ((m['metadata'] as Map?)?['buttons'] is List)
             MessageButtonsView(buttons: (m['metadata'] as Map)['buttons'] as List),
           if ((m['metadata'] as Map?)?['list'] is Map) MessageListView(list: (m['metadata'] as Map)['list'] as Map),
+          if ((m['metadata'] as Map?)?['locationRequest'] == true) const LocationRequestView(),
           if ((m['metadata'] as Map?)?['contact'] is Map) ContactCardView(contact: (m['metadata'] as Map)['contact'] as Map),
           if ((m['metadata'] as Map?)?['payment'] is Map)
             PaymentCardView(

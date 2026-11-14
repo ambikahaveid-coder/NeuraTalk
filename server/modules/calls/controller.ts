@@ -3,6 +3,7 @@
  * Validates input, delegates to service, maps result to HTTP.
  */
 
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { desc, eq, inArray, or } from "drizzle-orm";
@@ -2594,7 +2595,7 @@ export async function transferCall(req: Request, res: Response) {
     const user = req.user!;
     const parsed = transferSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.message });
+      return res.status(400).json({ error: zodMessage(parsed.error) });
     }
 
     const { targetIdentifier, mode, reason } = parsed.data;

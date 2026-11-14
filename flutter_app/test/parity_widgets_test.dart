@@ -109,4 +109,31 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: WallpaperView(kind: 'color', value: '#1F6F5C')));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('more than 3 buttons: 2 show, See all options reveals the rest', (tester) async {
+    final buttons = [
+      for (var i = 1; i <= 5; i++) {'type': 'quick_reply', 'id': 'q$i', 'title': 'Option $i'},
+      {'type': 'copy_code', 'title': 'Copy coupon', 'code': 'DIWALI20'},
+    ];
+    Map? tapped;
+    await tester.pumpWidget(_wrap(MessageButtonsView(buttons: buttons, onQuickReply: (b) => tapped = b)));
+    expect(find.text('Option 1'), findsOneWidget);
+    expect(find.text('Option 3'), findsNothing);
+    expect(find.text('See all options'), findsOneWidget);
+    await tester.tap(find.text('See all options'));
+    await tester.pumpAndSettle();
+    expect(find.text('Option 5'), findsOneWidget);
+    expect(find.text('Copy coupon  DIWALI20'), findsOneWidget);
+    await tester.tap(find.text('Option 5'));
+    expect(tapped?['id'], 'q5');
+  });
+
+  testWidgets('location request: Send location, then Location sent', (tester) async {
+    var asked = 0;
+    await tester.pumpWidget(_wrap(LocationRequestView(onSend: () => asked++)));
+    await tester.tap(find.text('Send location'));
+    expect(asked, 1);
+    await tester.pumpWidget(_wrap(const LocationRequestView(sent: true)));
+    expect(find.text('Location sent'), findsOneWidget);
+  });
 }

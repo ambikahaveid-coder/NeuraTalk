@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -39,7 +40,7 @@ export async function postCustomer(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createCustomerSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const customer = await createCustomer(businessId, req.user!.id, parsed.data);
@@ -143,7 +144,7 @@ export async function putCustomer(req: Request, res: Response) {
   const customerId = parseId(req.params.customerId);
   if (businessId === null || customerId === null) return badRequest(res, "Invalid id");
   const parsed = updateCustomerSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const customer = await updateCustomer(businessId, req.user!.id, customerId, parsed.data);
@@ -185,7 +186,7 @@ export async function postConsent(req: Request, res: Response) {
   const customerId = parseId(req.params.customerId);
   if (businessId === null || customerId === null) return badRequest(res, "Invalid id");
   const parsed = consentSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const consent = await setChannelConsent(businessId, req.user!.id, customerId, parsed.data.channel as any, parsed.data.granted, parsed.data.source);

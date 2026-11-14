@@ -411,6 +411,12 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
     return null;
   }
 
+  /// Did I already send a location after this business message asked for it?
+  bool _sentLocationAfter(Map asked) {
+    final at = '${asked['createdAt'] ?? ''}';
+    return _messages.any((x) => x['messageType'] == 'location' && _isMine(x) && '${x['createdAt'] ?? ''}'.compareTo(at) >= 0);
+  }
+
   Future<void> _send({Map<String, dynamic>? attachment, Map<String, dynamic>? location, Map<String, dynamic>? buttonReply}) async {
     final text = _input.text.trim();
     if ((text.isEmpty && attachment == null && location == null && buttonReply == null) || _sending) return;
@@ -1095,6 +1101,14 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
               list: (m['metadata'] as Map)['list'] as Map,
               pickedId: _tappedButton(id),
               onPick: _blocked ? null : (row) => _send(buttonReply: {'messageId': id, 'buttonId': row['id']}),
+            ),
+          if (!mine && (m['metadata'] as Map?)?['locationRequest'] == true)
+            LocationRequestView(
+              sent: _sentLocationAfter(m),
+              onSend: _blocked ? null : () {
+                setState(() => _replyTo = Map<String, dynamic>.from(m));
+                _shareLocation();
+              },
             ),
           if ((m['metadata'] as Map?)?['contact'] is Map) ContactCardView(contact: (m['metadata'] as Map)['contact'] as Map),
           if ((m['metadata'] as Map?)?['payment'] is Map)

@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -52,7 +53,7 @@ export async function postChallenge(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const challenge = await createChallenge(businessId, req.user!.id, parsed.data);
@@ -92,7 +93,7 @@ export async function postVerify(req: Request, res: Response) {
   const challengeId = parseId(req.params.challengeId);
   if (businessId === null || challengeId === null) return badRequest(res, "Invalid id");
   const parsed = verifySchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const challenge = await verifyChallenge(businessId, req.user!.id, challengeId, parsed.data.code, {

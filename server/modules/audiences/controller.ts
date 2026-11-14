@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -33,7 +34,7 @@ export async function postAudience(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createAudienceSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const audience = await createAudience(businessId, req.user!.id, parsed.data);
@@ -76,7 +77,7 @@ export async function putAudience(req: Request, res: Response) {
   const audienceId = parseId(req.params.audienceId);
   if (businessId === null || audienceId === null) return badRequest(res, "Invalid id");
   const parsed = updateAudienceSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const audience = await updateAudience(businessId, req.user!.id, audienceId, parsed.data);
@@ -106,7 +107,7 @@ export async function postAddMember(req: Request, res: Response) {
   const audienceId = parseId(req.params.audienceId);
   if (businessId === null || audienceId === null) return badRequest(res, "Invalid id");
   const parsed = memberSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const member = await addMember(businessId, req.user!.id, audienceId, parsed.data.customerId);

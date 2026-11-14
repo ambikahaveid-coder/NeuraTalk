@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z, ZodError } from "zod";
 import { logger } from "../../observability";
@@ -53,7 +54,7 @@ export async function patchProfile(req: Request, res: Response) {
   if (businessId === null) return badRequest(res, "Invalid businessId");
 
   const parsed = updateProfileSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const profile = await updateBusinessProfile(businessId, req.user!.id, parsed.data);
@@ -103,7 +104,7 @@ export async function putLogo(req: Request, res: Response) {
   if (businessId === null) return badRequest(res, "Invalid businessId");
 
   const parsed = setLogoSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const logoUrl = await setLogo(businessId, req.user!.id, parsed.data.objectPath);

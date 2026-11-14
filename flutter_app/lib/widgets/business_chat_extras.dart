@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_service.dart';
@@ -87,16 +88,29 @@ class TypingPinger {
   }
 }
 
-/// Buttons under a business message (quick reply / website / call).
+/// Buttons under a business message (quick reply / website / call / copy code).
 /// [onQuickReply] is null when the viewer can't tap them (the business itself).
-class MessageButtonsView extends StatelessWidget {
+/// Like WhatsApp: with more than 3 buttons, 2 show and "See all options" opens the rest.
+class MessageButtonsView extends StatefulWidget {
   const MessageButtonsView({super.key, required this.buttons, this.onQuickReply, this.tappedId});
   final List buttons;
   final void Function(Map button)? onQuickReply;
   /// The quick reply this customer already chose, if any.
   final String? tappedId;
 
+  @override
+  State<MessageButtonsView> createState() => _MessageButtonsViewState();
+}
+
+class _MessageButtonsViewState extends State<MessageButtonsView> {
+  bool _all = false;
+
   Future<void> _open(BuildContext context, Map b) async {
+    if (b['type'] == 'copy_code') {
+      await Clipboard.setData(ClipboardData(text: '${b['code']}'));
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Copied ${b['code']}')));
+      return;
+    }
     final type = b['type'];
     final uri = type == 'url' ? Uri.tryParse('${b['url']}') : type == 'call' ? Uri.tryParse('tel:${'${b['phone']}'.replaceAll(' ', '')}') : null;
     if (uri == null) return;
@@ -107,12 +121,15 @@ class MessageButtonsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final list = buttons.whereType<Map>().toList();
+    final list = widget.buttons.whereType<Map>().toList();
     if (list.isEmpty) return const SizedBox.shrink();
+    final shown = list.length > 3 && !_all ? list.take(2).toList() : list;
+    final tappedId = widget.tappedId;
+    final onQuickReply = widget.onQuickReply;
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        for (final b in list)
+        for (final b in shown)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: OutlinedButton.icon(
@@ -122,16 +139,51 @@ class MessageButtonsView extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
               ),
               icon: Icon(
-                b['type'] == 'url' ? Icons.open_in_new : b['type'] == 'call' ? Icons.call_outlined : Icons.reply,
+                switch (b['type']) {
+                  'url' => Icons.open_in_new,
+                  'call' => Icons.call_outlined,
+                  'copy_code' => Icons.content_copy,
+                  _ => Icons.reply,
+                },
                 size: 16,
               ),
-              label: Text('${b['title']}', overflow: TextOverflow.ellipsis),
+              label: Text(
+                b['type'] == 'copy_code' ? '${b['title']}  ${b['code']}' : '${b['title']}',
+                overflow: TextOverflow.ellipsis,
+              ),
               onPressed: b['type'] == 'quick_reply'
-                  ? (onQuickReply == null || tappedId != null ? null : () => onQuickReply!(b))
+                  ? (onQuickReply == null || tappedId != null ? null : () => onQuickReply(b))
                   : () => _open(context, b),
             ),
           ),
+        if (list.length > 3 && !_all)
+          TextButton.icon(
+            onPressed: () => setState(() => _all = true),
+            icon: const Icon(Icons.list, size: 16),
+            label: const Text('See all options'),
+          ),
       ]),
+    );
+  }
+}
+
+/// "Send location" under a business message that asked for it.
+/// [onSend] is null for the business itself.
+class LocationRequestView extends StatelessWidget {
+  const LocationRequestView({super.key, this.onSend, this.sent = false});
+  final VoidCallback? onSend;
+  final bool sent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(foregroundColor: AppColors.cyan, side: BorderSide(color: AppColors.border), visualDensity: VisualDensity.compact),
+        icon: Icon(sent ? Icons.check : Icons.location_on_outlined, size: 18),
+        label: Text(sent ? 'Location sent' : 'Send location'),
+        onPressed: sent ? null : onSend,
+      ),
     );
   }
 }

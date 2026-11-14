@@ -12,6 +12,7 @@
  * (server/rate-limit.ts: authLimiter, otpRequestLimiter, etc.) are untouched
  * and remain the actual enforcement mechanism today.
  */
+import { zodMessage } from "../zod-message";
 import type { Express, Request, Response } from "express";
 import { db } from "../../db";
 import { rateLimitRules, insertRateLimitRuleSchema } from "@shared/schema";
@@ -38,7 +39,7 @@ export function registerRateLimitAdminRoutes(app: Express): void {
 
   app.post("/api/admin/rate-limit-rules", requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
     const parsed = insertRateLimitRuleSchema.safeParse(req.body);
-    if (!parsed.success) return badRequest(res, parsed.error.message);
+    if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
     try {
       const [rule] = await db.insert(rateLimitRules).values(parsed.data).returning();
@@ -61,7 +62,7 @@ export function registerRateLimitAdminRoutes(app: Express): void {
     if (!Number.isFinite(ruleId)) return badRequest(res, "Invalid rule id");
 
     const parsed = insertRateLimitRuleSchema.partial().safeParse(req.body);
-    if (!parsed.success) return badRequest(res, parsed.error.message);
+    if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
     if (Object.keys(parsed.data).length === 0) return badRequest(res, "No fields to update");
 
     try {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Building2, Clock, ExternalLink, FileText, IndianRupee, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
+import { ArrowLeft, Building2, Clock, Copy, ExternalLink, FileText, IndianRupee, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
 import { ContactCard, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
 import { RequestPaymentDialog } from "@/components/RequestPaymentDialog";
 import { serverMessage } from "@/lib/server-message";
@@ -111,8 +111,9 @@ interface MessageRow {
   metadata?: {
     header?: string | null;
     footer?: string | null;
-    buttons?: Array<{ type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string }>;
+    buttons?: Array<{ type: "quick_reply" | "url" | "call" | "copy_code"; id?: string; title: string; url?: string; phone?: string; code?: string }>;
     location?: { latitude: number; longitude: number; name?: string; address?: string };
+    locationRequest?: boolean;
     buttonReply?: { messageId: number; buttonId: string; title?: string };
     products?: Array<{ id: number; name: string; pricePaise: number | null; imageUrl: string | null; description?: string | null }>;
   } & Pick<ExtrasMeta, "list" | "contact" | "payment"> | null;
@@ -135,8 +136,8 @@ function templateBlanks(t: SendableTemplate): string[] {
 function MessageExtras({ message, alignEnd, onSettlePayment }: { message: MessageRow; alignEnd: boolean; onSettlePayment?: (requestId: number, status: "paid" | "cancelled") => void }) {
   const meta = message.metadata ?? null;
   if (!meta) return null;
-  const { header, footer, buttons, location, products, list, contact, payment } = meta;
-  if (!header && !footer && !buttons?.length && !location && !products?.length && !list && !contact && !payment) return null;
+  const { header, footer, buttons, location, products, list, contact, payment, locationRequest } = meta;
+  if (!header && !footer && !buttons?.length && !location && !products?.length && !list && !contact && !payment && !locationRequest) return null;
   const mapUrl = location ? `https://www.google.com/maps?q=${location.latitude},${location.longitude}` : null;
   return (
     <div className={cn("flex flex-col gap-1 max-w-[80%] text-xs", alignEnd ? "items-end self-end" : "items-start self-start")} data-testid={`message-extras-${message.id}`}>
@@ -162,11 +163,14 @@ function MessageExtras({ message, alignEnd, onSettlePayment }: { message: Messag
         <div className="flex flex-wrap gap-1.5">
           {buttons.map((b, i) => (
             <span key={`${b.title}-${i}`} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-primary">
-              {b.type === "url" ? <ExternalLink className="w-3 h-3" /> : b.type === "call" ? <Phone className="w-3 h-3" /> : <Reply className="w-3 h-3" />}
-              {b.title}
+              {b.type === "url" ? <ExternalLink className="w-3 h-3" /> : b.type === "call" ? <Phone className="w-3 h-3" /> : b.type === "copy_code" ? <Copy className="w-3 h-3" /> : <Reply className="w-3 h-3" />}
+              {b.title}{b.type === "copy_code" && b.code ? <span className="font-mono text-muted-foreground">{b.code}</span> : null}
             </span>
           ))}
         </div>
+      ) : null}
+      {locationRequest ? (
+        <span className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-primary"><MapPin className="w-3 h-3" /> Send location</span>
       ) : null}
       {list ? <div className="w-56"><MessageListMenu list={list} /></div> : null}
       {contact ? <div className="w-64"><ContactCard contact={contact} /></div> : null}
@@ -395,7 +399,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
   }, [businessId, queryClient]);
 
   const sendReplyMutation = useMutation({
-    mutationFn: async (input: string | { content: string; attachment?: Record<string, unknown> }) => {
+    mutationFn: async (input: string | { content: string; attachment?: Record<string, unknown>; requestLocation?: boolean }) => {
       const body: Record<string, unknown> = typeof input === "string" ? { content: input } : { ...input };
       if (replyTo) body.replyToMessageId = replyTo.id;
       const res = await apiRequest("POST", `/api/business/${businessId}/conversations/${selectedId}/messages`, body);
@@ -842,6 +846,17 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="Request payment (UPI)" onClick={() => setPaymentOpen(true)} data-testid="button-inbox-request-payment">
                   <IndianRupee className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Ask the customer for their location"
+                  title="Ask for location (uses the text you typed, or a standard line)"
+                  disabled={sendReplyMutation.isPending}
+                  onClick={() => sendReplyMutation.mutate({ content: messageInput.trim() || "Please share your location so we can reach you.", requestLocation: true })}
+                  data-testid="button-inbox-ask-location"
+                >
+                  <MapPin className="w-4 h-4" />
                 </Button>
                 {(catalogQuery.data?.items ?? []).some((i) => i.isAvailable) && (
                   <Button variant="ghost" size="icon" aria-label="Send a catalog item" onClick={() => setCatalogOpen(true)} data-testid="button-inbox-catalog">

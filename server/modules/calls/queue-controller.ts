@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -35,7 +36,7 @@ export async function joinQueue(req: Request, res: Response) {
     }
     const parsed = joinQueueSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ success: false, error: parsed.error.message });
+      return res.status(400).json({ success: false, error: zodMessage(parsed.error) });
     }
 
     const [queue] = await db.select().from(callQueues).where(eq(callQueues.id, queueId));

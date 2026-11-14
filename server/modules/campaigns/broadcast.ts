@@ -25,7 +25,7 @@ import { createTemplate, createOrEditDraftVersion } from "../templates/service";
 import { createAudience, addMember } from "../audiences/service";
 import { cancelCampaign, createCampaign, updateCampaign, executeCampaign, getCampaignReport, scheduleCampaign } from "./service";
 import { createApprovalRequest, approveRequest } from "../approvals/service";
-import { messageButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons, templateFooterSchema, templateHeaderSchema } from "../messaging/template-send";
+import { templateButtonsSchema, prepareTemplateMedia, TemplateSendError, templateButtons, templateFooterSchema, templateHeaderSchema } from "../messaging/template-send";
 
 const CATEGORIES = ["marketing", "utility"] as const;
 
@@ -116,8 +116,8 @@ export function registerBroadcastRoutes(expressApp: Express): void {
       content: z.string().trim().min(5).max(1024),
       // Optional photo / video / PDF uploaded to NeuraTalk, reviewed with the text.
       mediaUrl: z.string().trim().max(2000).optional(),
-      // Up to 3 buttons (quick reply / website / call), reviewed with the text.
-      buttons: messageButtonsSchema.optional(),
+      // Up to 10 buttons (quick reply / website / call / copy code), reviewed with the text.
+      buttons: templateButtonsSchema.optional(),
       header: templateHeaderSchema,
       footer: templateFooterSchema,
     }).safeParse(req.body ?? {});

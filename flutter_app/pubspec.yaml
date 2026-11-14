@@ -1,7 +1,7 @@
 name: neuratalk
 description: NeuraTalk - Real-time multilingual voice AI communication
 publish_to: 'none'
-version: 2.0.6+30
+version: 2.0.7+31
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

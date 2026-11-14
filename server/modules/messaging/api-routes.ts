@@ -24,7 +24,7 @@ import { logger } from "../../observability";
 import { createCustomer, DuplicateCustomerError } from "../customers/service";
 import * as utility from "../utility/service";
 import * as otp from "../otp/service";
-import { approvedTemplates, messageButtonsSchema, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError, templateButtons } from "./template-send";
+import { approvedTemplates, messageButtonsSchema, messageListSchema, sendTemplateToCustomer, serviceWindow, ServiceWindowClosedError, TemplateSendError, templateButtons } from "./template-send";
 import { sendBusinessAgentMessage, findOrCreateCustomerConversation } from "./service";
 import { apiNotPaused, recordApiUse } from "./automation-admin";
 import { businessConversations, messagingDeliveries, messagingMessages } from "@shared/schema";
@@ -199,8 +199,12 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
     text: z.string().trim().min(1).max(4096).optional(),
     // Interactive reply (inside 24 h): up to 3 buttons under the text.
     buttons: messageButtonsSchema.optional(),
+    // A list menu (up to 10 options), or a "Send location" request, under the text.
+    list: messageListSchema.optional(),
+    requestLocation: z.boolean().optional(),
   }).refine((v) => Boolean(v.templateVersionId) !== Boolean(v.text), { message: "Send either templateVersionId or text" })
-    .refine((v) => !v.buttons || Boolean(v.text), { message: "Buttons go with text; template buttons come from the approved template" });
+    .refine((v) => (!v.buttons && !v.list && !v.requestLocation) || Boolean(v.text), { message: "Buttons, lists and location requests go with text; template buttons come from the approved template" })
+    .refine((v) => [v.buttons?.length, v.list, v.requestLocation].filter(Boolean).length <= 1, { message: "Use buttons, a list or a location request -- one per message" });
 
   app.post("/api/v1/messaging/messages", ...auth, async (req, res) => {
     const parsed = messageSchema.safeParse(req.body ?? {});
@@ -223,6 +227,8 @@ export function registerBusinessMessagingApiRoutes(app: Express): void {
         authenticatedUserId: await businessActorUserId(organizationId),
         content: parsed.data.text!,
         buttons: parsed.data.buttons,
+        list: parsed.data.list,
+        locationRequest: parsed.data.requestLocation,
       });
       return res.status(201).json({ success: true, message: { id: sent.message.id, customerId, type: "text", windowClosesAt: window.closesAt } });
     } catch (error) {

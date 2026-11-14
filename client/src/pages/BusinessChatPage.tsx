@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { serverMessage } from "@/lib/server-message";
-import { ContactCard, MessageButtons, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
+import { ContactCard, LocationRequestButton, MessageButtons, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
 
 /**
  * P1-3 / P1-3A / P1-4: smallest production-quality consumer UI for
@@ -307,6 +307,19 @@ export default function BusinessChatPage() {
     }
     await refreshMessages();
   }
+  /** Did I already send a location after this business message asked for it? */
+  const sentLocationAfter = (message: BusinessMessage): boolean =>
+    (messagesQuery.data?.messages ?? []).some((m) => m.messageType === "location" && viewerParticipantId != null
+      && m.senderParticipantId === viewerParticipantId && m.createdAt >= message.createdAt);
+  async function sendLocation(messageId: number, loc: { latitude: number; longitude: number }) {
+    try {
+      await apiRequest("POST", `/api/messaging/business/${businessId}/messages`, { location: loc, replyToMessageId: messageId });
+    } catch (e) {
+      throw new Error(serverMessage(e, "Could not send. Try again."));
+    } finally {
+      await refreshMessages();
+    }
+  }
   async function sayPaid(requestId: number, reference?: string) {
     try {
       await apiRequest("POST", `/api/messaging/business/${businessId}/payment-requests/${requestId}/paid`, reference ? { reference } : {});
@@ -566,13 +579,16 @@ export default function BusinessChatPage() {
                         senderName={isMine ? undefined : businessName}
                         status={isMine && message.deliveryToBusiness ? TICK_LABEL[message.deliveryToBusiness] ?? null : null}
                       />}
-                      {!isMine && (message.metadata?.buttons?.length || message.metadata?.list || message.metadata?.contact || message.metadata?.payment) && (
+                      {!isMine && (message.metadata?.buttons?.length || message.metadata?.list || message.metadata?.contact || message.metadata?.payment || message.metadata?.locationRequest) && (
                         <div className="max-w-[85%] sm:max-w-[70%]" data-testid={`business-extras-${message.id}`}>
                           {message.metadata?.buttons?.length ? (
                             <MessageButtons buttons={message.metadata.buttons} tappedId={tappedReply(message.id)} onReply={(id) => replyWithButton(message.id, id)} />
                           ) : null}
                           {message.metadata?.list && (
                             <MessageListMenu list={message.metadata.list} pickedId={tappedReply(message.id)} onPick={(id) => replyWithButton(message.id, id)} />
+                          )}
+                          {message.metadata?.locationRequest && (
+                            <LocationRequestButton sent={sentLocationAfter(message)} onSend={(loc) => sendLocation(message.id, loc)} />
                           )}
                           {message.metadata?.contact && <ContactCard contact={message.metadata.contact} />}
                           {message.metadata?.payment && (

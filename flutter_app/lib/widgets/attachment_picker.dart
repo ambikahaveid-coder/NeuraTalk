@@ -11,7 +11,8 @@ class AttachmentPicker {
   static const maxItems = 10;
 
   /// [onLocation] adds a Location tile; it runs instead of picking files.
-  static Future<List<(File, String)>> show(BuildContext context, {VoidCallback? onLocation}) async {
+  /// [onAskLocation] (businesses) adds "Ask location": the customer gets a Send location button.
+  static Future<List<(File, String)>> show(BuildContext context, {VoidCallback? onLocation, VoidCallback? onAskLocation}) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -49,6 +50,7 @@ class AttachmentPicker {
                 item('video', Icons.videocam, 'Video', const Color(0xFFEA580C)),
                 item('document', Icons.insert_drive_file, 'Document', const Color(0xFF2563EB)),
                 if (onLocation != null) item('location', Icons.location_on, 'Location', const Color(0xFF16A34A)),
+                if (onAskLocation != null) item('ask_location', Icons.share_location, 'Ask location', const Color(0xFF0891B2)),
               ],
             ),
           ),
@@ -58,6 +60,10 @@ class AttachmentPicker {
     if (choice == null || !context.mounted) return const [];
     if (choice == 'location') {
       onLocation?.call();
+      return const [];
+    }
+    if (choice == 'ask_location') {
+      onAskLocation?.call();
       return const [];
     }
 

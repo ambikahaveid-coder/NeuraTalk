@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { ExternalLink, IndianRupee, List, Phone, Reply, User } from "lucide-react";
+import { Check, Copy, ExternalLink, IndianRupee, List, MapPin, Phone, Reply, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  * payment cards. The customer can tap; the business only sees them.
  */
 
-export type MessageButton = { type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string };
+export type MessageButton = { type: "quick_reply" | "url" | "call" | "copy_code"; id?: string; title: string; url?: string; phone?: string; code?: string };
 export type MessageList = { button: string; sections: Array<{ title?: string; rows: Array<{ id: string; title: string; description?: string }> }> };
 export type MessageContact = { name: string; phone: string; email?: string; organization?: string };
 export type MessagePayment = {
@@ -20,17 +20,38 @@ export type MessagePayment = {
   status: "requested" | "customer_paid" | "paid" | "cancelled"; upiLink: string; reference: string;
 };
 export type ExtrasMeta = {
-  buttons?: MessageButton[]; list?: MessageList; contact?: MessageContact; payment?: MessagePayment;
+  buttons?: MessageButton[]; list?: MessageList; contact?: MessageContact; payment?: MessagePayment; locationRequest?: boolean;
   buttonReply?: { messageId: number; buttonId: string; title?: string };
 };
 
 export const rupeesText = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: paise % 100 ? 2 : 0 })}`;
 
 export function MessageButtons({ buttons, tappedId, onReply }: { buttons: MessageButton[]; tappedId?: string | null; onReply?: (id: string) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const [copied, setCopied] = useState(false);
+  // Like WhatsApp: with more than 3 buttons, show 2 and "See all options".
+  const shown = buttons.length > 3 && !showAll ? buttons.slice(0, 2) : buttons;
   return (
     <div className="flex flex-col gap-1.5 mt-1.5" data-testid="message-buttons">
-      {buttons.map((b, i) => {
-        const icon = b.type === "url" ? <ExternalLink className="w-3.5 h-3.5" /> : b.type === "call" ? <Phone className="w-3.5 h-3.5" /> : <Reply className="w-3.5 h-3.5" />;
+      {shown.map((b, i) => {
+        const icon = b.type === "url" ? <ExternalLink className="w-3.5 h-3.5" /> : b.type === "call" ? <Phone className="w-3.5 h-3.5" /> : b.type === "copy_code" ? <Copy className="w-3.5 h-3.5" /> : <Reply className="w-3.5 h-3.5" />;
+        if (b.type === "copy_code" && b.code) {
+          return (
+            <Button
+              key={i}
+              variant="outline"
+              size="sm"
+              data-testid="message-copy-code"
+              onClick={() => {
+                void navigator.clipboard?.writeText(b.code!).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => undefined);
+              }}
+            >
+              {copied ? <Check className="w-3.5 h-3.5" /> : icon}
+              <span className="ml-1.5">{copied ? "Copied" : b.title}</span>
+              <span className="ml-1.5 font-mono text-xs text-muted-foreground">{b.code}</span>
+            </Button>
+          );
+        }
         if (b.type === "url" && b.url) {
           return <Button key={i} asChild variant="outline" size="sm"><a href={b.url} target="_blank" rel="noopener noreferrer">{icon}<span className="ml-1.5">{b.title}</span></a></Button>;
         }
@@ -50,6 +71,40 @@ export function MessageButtons({ buttons, tappedId, onReply }: { buttons: Messag
           </Button>
         );
       })}
+      {buttons.length > 3 && !showAll && (
+        <Button variant="ghost" size="sm" onClick={() => setShowAll(true)} data-testid="message-buttons-all">
+          <List className="w-3.5 h-3.5" /><span className="ml-1.5">See all options</span>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** "Send location" under a business message that asked for it. */
+export function LocationRequestButton({ onSend, sent }: { onSend?: (loc: { latitude: number; longitude: number }) => Promise<void>; sent?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  function share() {
+    if (!onSend) return;
+    if (!navigator.geolocation) { setError("This browser can't share a location."); return; }
+    setBusy(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onSend({ latitude: pos.coords.latitude, longitude: pos.coords.longitude })
+          .catch((e) => setError(e instanceof Error ? e.message : "Could not send."))
+          .finally(() => setBusy(false));
+      },
+      () => { setBusy(false); setError("Allow location access in your browser, then try again."); },
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  }
+  return (
+    <div className="mt-1.5">
+      <Button variant="outline" size="sm" className="w-full" disabled={!onSend || busy || sent} onClick={share} data-testid="message-location-request">
+        <MapPin className="w-3.5 h-3.5" /><span className="ml-1.5">{sent ? "Location sent" : busy ? "Finding you…" : "Send location"}</span>
+      </Button>
+      {error && <p className="text-xs text-destructive mt-1" role="alert">{error}</p>}
     </div>
   );
 }

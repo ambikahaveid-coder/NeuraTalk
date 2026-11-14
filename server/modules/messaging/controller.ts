@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -54,7 +55,7 @@ export async function createConversation(req: Request, res: Response) {
   if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
 
   const parsed = createConversationSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const result = await createBusinessConversation({
@@ -160,7 +161,7 @@ export async function setConversationAssignmentHandler(req: Request, res: Respon
   if (!Number.isFinite(businessId) || !Number.isFinite(conversationId)) return badRequest(res, "Invalid id");
 
   const parsed = assignmentSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   try {
     const conversation = await adminSetConversationAssignment(businessId, conversationId, req.user!.id, parsed.data.assigneeUserId);
@@ -213,6 +214,8 @@ const createMessageSchema = z.object({
   list: messageListSchema.optional(),
   // A contact card (name + phone).
   contact: messageContactSchema.optional(),
+  // Ask the customer to share their location ("Send location" button under the text).
+  requestLocation: z.boolean().optional(),
   // A sticker: an uploaded WebP/PNG up to 500 KB, shown without a bubble.
   sticker: attachmentInputSchema.extend({
     mimeType: z.enum(["image/webp", "image/png"], { errorMap: () => ({ message: "Stickers are WebP or PNG images" }) }),
@@ -224,7 +227,8 @@ const createMessageSchema = z.object({
   .refine((v) => !v.sticker || (!v.content.trim() && !v.attachment && !v.location && !v.contact && !v.buttons?.length && !v.list), { message: "Send a sticker on its own" })
   .refine((v) => !v.buttons?.length || v.content.trim(), { message: "Buttons go with a text message" })
   .refine((v) => !v.list || (v.content.trim() && !v.buttons?.length && !v.attachment && !v.location && !v.contact), { message: "A list menu goes with a text message, without buttons, files or a location" })
-  .refine((v) => !v.contact || (!v.attachment && !v.location && !v.buttons?.length), { message: "Send a contact card on its own" });
+  .refine((v) => !v.contact || (!v.attachment && !v.location && !v.buttons?.length), { message: "Send a contact card on its own" })
+  .refine((v) => !v.requestLocation || (v.content.trim() && !v.buttons?.length && !v.list && !v.attachment && !v.location && !v.contact), { message: "A location request goes with a text message on its own, e.g. \"Share your location for delivery\"" });
 
 export async function postMessage(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
@@ -234,7 +238,7 @@ export async function postMessage(req: Request, res: Response) {
   const parsed = createMessageSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     if (parsed.error.issues.some((i) => i.message === "content must not be empty")) return badRequest(res, "content must not be empty");
-    return badRequest(res, parsed.error.message);
+    return badRequest(res, zodMessage(parsed.error));
   }
 
   try {
@@ -258,6 +262,7 @@ export async function postMessage(req: Request, res: Response) {
       buttons: parsed.data.buttons,
       list: parsed.data.list,
       contact: parsed.data.contact,
+      locationRequest: parsed.data.requestLocation,
     });
     return res.status(201).json({ success: true, ...result });
   } catch (error) {
@@ -303,7 +308,7 @@ export async function sendUserMessage(req: Request, res: Response) {
   const parsed = sendUserMessageSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     if (parsed.error.issues.some((i) => i.message === "content must not be empty")) return badRequest(res, "content must not be empty");
-    return badRequest(res, parsed.error.message);
+    return badRequest(res, zodMessage(parsed.error));
   }
 
   try {
@@ -617,7 +622,7 @@ export async function setUserBusinessPreferences(req: Request, res: Response) {
   const businessId = Number(req.params.businessId);
   if (!Number.isFinite(businessId) || businessId <= 0) return badRequest(res, "Invalid businessId");
   const parsed = preferencesSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
   const customer = await findOwnCustomerRecord(businessId, req.user!.id);
   if (!customer) return res.status(404).json({ success: false, error: "You have no chat with this business" });
   try {

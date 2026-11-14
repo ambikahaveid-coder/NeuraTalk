@@ -73,7 +73,8 @@ export default function BusinessMessagingPolicyPage() {
             <li>You may message a customer first only if they gave you their number and would expect to hear from you.</li>
             <li>New business-started chats are limited per business per day. The limit protects customers and may be lowered for
               accounts that customers block or report.</li>
-            <li>If the number is not on NeuraTalk yet, the message waits until they join. NeuraTalk does not send SMS.</li>
+            <li>If the number is not on NeuraTalk yet, the message waits until they join — unless you switched on SMS for customers
+              without NeuraTalk (see 9a), in which case they get one SMS with a link to read it.</li>
           </ul>
 
           <h2>6. Marketing limits</h2>

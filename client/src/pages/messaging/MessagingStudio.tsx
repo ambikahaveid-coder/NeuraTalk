@@ -46,7 +46,7 @@ interface Campaign {
   createdAt: string; completedAt: string | null;
 }
 interface Consent { channel: string; status: string; source: string | null }
-interface TemplateButton { type: "quick_reply" | "url" | "call"; id?: string; title: string; url?: string; phone?: string }
+interface TemplateButton { type: "quick_reply" | "url" | "call" | "copy_code"; id?: string; title: string; url?: string; phone?: string; code?: string }
 
 const CATEGORY_LABEL: Record<string, string> = {
   marketing: "Offers & promotions",
@@ -386,7 +386,13 @@ function TemplatesSection(props: SectionProps) {
   const buttonProblem = buttons.map((b) => !b.title.trim() ? "Each button needs a label"
     : b.type === "url" && !/^https:\/\/\S+\.\S+/.test(b.url ?? "") ? "Website buttons need a link starting with https://"
     : b.type === "call" && (b.phone ?? "").replace(/\D/g, "").length < 10 ? "Call buttons need a phone number"
-    : null).find(Boolean) ?? null;
+    : b.type === "copy_code" && !/^\S{1,20}$/.test((b.code ?? "").trim()) ? "Copy-code buttons need a code (up to 20 characters, no spaces)"
+    : null).find(Boolean)
+    ?? (buttons.filter((b) => b.type === "url").length > 2 ? "Up to 2 website buttons"
+      : buttons.filter((b) => b.type === "call").length > 1 ? "Only 1 call button"
+      : buttons.filter((b) => b.type === "copy_code").length > 1 ? "Only 1 copy-code button"
+      : buttons.filter((b, i) => i > 0 && (b.type === "quick_reply") !== (buttons[i - 1].type === "quick_reply")).length > 1 ? "Keep the quick-reply buttons together"
+      : null);
 
   const create = useAction(props, async () => {
     const created = await call<any>("POST", `${props.base}/templates`, { name: name.trim(), category });
@@ -399,6 +405,7 @@ function TemplatesSection(props: SectionProps) {
         buttons: buttons.map((b, i) => b.type === "quick_reply"
           ? { type: "quick_reply", id: (b.id || b.title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || `btn${i + 1}`).slice(0, 40), title: b.title.trim() }
           : b.type === "url" ? { type: "url", title: b.title.trim(), url: (b.url ?? "").trim() }
+          : b.type === "copy_code" ? { type: "copy_code", title: b.title.trim(), code: (b.code ?? "").trim() }
           : { type: "call", title: b.title.trim(), phone: (b.phone ?? "").trim() }),
       } : {}),
     });
@@ -486,8 +493,8 @@ function TemplatesSection(props: SectionProps) {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>Buttons (up to 3)</Label>
-                  {buttons.length < 3 && (
+                  <Label>Buttons (up to 10 — customers see 2, then "See all options")</Label>
+                  {buttons.length < 10 && (
                     <Button type="button" variant="ghost" size="sm" onClick={() => setButtons((b) => [...b, { type: "quick_reply", title: "" }])} data-testid="button-template-add-button">
                       <Plus className="w-4 h-4 mr-1" />Add button
                     </Button>
@@ -502,12 +509,14 @@ function TemplatesSection(props: SectionProps) {
                           <SelectItem value="quick_reply">Quick reply</SelectItem>
                           <SelectItem value="url">Open website</SelectItem>
                           <SelectItem value="call">Call</SelectItem>
+                          <SelectItem value="copy_code">Copy code</SelectItem>
                         </SelectContent>
                       </Select>
-                      <Input aria-label="Button label" maxLength={25} placeholder="Label" value={b.title} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, title: e.target.value } : x))} />
+                      <Input aria-label="Button label" maxLength={25} placeholder={b.type === "copy_code" ? "Copy code" : "Label"} value={b.title} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, title: e.target.value } : x))} />
                       <Button type="button" variant="ghost" size="icon" aria-label="Remove button" onClick={() => setButtons((all) => all.filter((_, j) => j !== i))}><Trash2 className="w-4 h-4" /></Button>
                     </div>
                     {b.type === "url" && <Input aria-label="Website link" placeholder="https://yourshop.in/offers" value={b.url ?? ""} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, url: e.target.value } : x))} />}
+                    {b.type === "copy_code" && <Input aria-label="Code to copy" maxLength={20} placeholder="DIWALI20" value={b.code ?? ""} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, code: e.target.value.replace(/\s+/g, "") } : x))} />}
                     {b.type === "call" && <Input aria-label="Phone number" inputMode="tel" placeholder="+91 98765 43210" value={b.phone ?? ""} onChange={(e) => setButtons((all) => all.map((x, j) => j === i ? { ...x, phone: e.target.value } : x))} />}
                   </div>
                 ))}

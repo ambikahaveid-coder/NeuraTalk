@@ -327,6 +327,8 @@ export interface CreateMessageInput {
   buttonReply?: { messageId: number; buttonId: string; title?: string };
   /** Interactive message: up to 3 buttons (already validated). */
   buttons?: Array<Record<string, unknown>>;
+  /** Ask the customer to share their location (shows a "Send location" button). */
+  locationRequest?: boolean;
   /** Interactive list menu (already validated, see messageListSchema). */
   list?: Record<string, unknown>;
   /** The attachment is a sticker (shown small, without a bubble). */
@@ -446,6 +448,7 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   if (buttonReply) metadata.buttonReply = buttonReply;
   if (input.buttons?.length) metadata.buttons = input.buttons;
   if (input.list) metadata.list = input.list;
+  if (input.locationRequest) metadata.locationRequest = true;
   if (input.contact) metadata.contact = input.contact;
   if (input.sticker && input.attachment) metadata.sticker = true;
   if (input.extraMetadata) Object.assign(metadata, input.extraMetadata);

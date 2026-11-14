@@ -1,3 +1,4 @@
+import { zodMessage } from "../zod-message";
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { logger } from "../../observability";
@@ -50,7 +51,7 @@ export async function postCreateRequest(req: Request, res: Response) {
   const businessId = parseId(req.params.businessId);
   if (businessId === null) return badRequest(res, "Invalid businessId");
   const parsed = createSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const policy = getApprovalPolicy(parsed.data.resourceType);
   if (!policy) return badRequest(res, `Unsupported resourceType. Registered types: ${listRegisteredResourceTypes().join(", ") || "(none)"}`);
@@ -120,7 +121,7 @@ const rejectSchema = z.object({ reason: z.string().trim().min(1).max(1000) }).st
 
 export async function postReject(req: Request, res: Response) {
   const parsed = rejectSchema.safeParse(req.body ?? {});
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
   return decideAction(req, res, (businessId, actorUserId, requestId, superAdminFlag) => rejectRequest(businessId, actorUserId, requestId, parsed.data.reason, superAdminFlag));
 }
 

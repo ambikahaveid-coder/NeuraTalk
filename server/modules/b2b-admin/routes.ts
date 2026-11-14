@@ -3,6 +3,7 @@
  * All endpoints require org-admin or super-admin role.
  */
 
+import { zodMessage } from "../zod-message";
 import type { Express, Request, Response } from "express";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -72,7 +73,7 @@ async function addVirtualNumber(req: Request, res: Response) {
   });
 
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const [inserted] = await db.insert(communicationVirtualNumbers).values({
     phoneNumber: parsed.data.phoneNumber,
@@ -98,7 +99,7 @@ async function updateVirtualNumberStatus(req: Request, res: Response) {
     status: z.enum(["available", "assigned", "maintenance", "disabled"]),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const [updated] = await db.update(communicationVirtualNumbers)
     .set({ status: parsed.data.status, updatedAt: new Date() })
@@ -152,7 +153,7 @@ async function addOrgDID(req: Request, res: Response) {
   });
 
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   // verify org exists
   const [org] = await db.select({ id: organizations.id })
@@ -194,7 +195,7 @@ async function updateOrgDID(req: Request, res: Response) {
     ivrConfig: z.record(z.unknown()).optional(),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const [updated] = await db.update(orgDIDNumbers)
     .set({ ...parsed.data, updatedAt: new Date() })
@@ -231,7 +232,7 @@ async function setOrgOutboundCallerId(req: Request, res: Response) {
     callerId: z.string().min(8),   // E.164 phone number
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const [org] = await db.select({ id: organizations.id, settings: organizations.settings })
     .from(organizations).where(eq(organizations.id, orgId));
@@ -314,7 +315,7 @@ async function upsertAgentSkill(req: Request, res: Response) {
     priority: z.number().int().min(1).max(10).default(1),
   });
   const parsed = schema.safeParse(req.body);
-  if (!parsed.success) return badRequest(res, parsed.error.message);
+  if (!parsed.success) return badRequest(res, zodMessage(parsed.error));
 
   const [agent] = await db.select({ id: users.id })
     .from(users)
