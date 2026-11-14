@@ -29,7 +29,7 @@ export const ROUTES: Rule[] = [
   R("GET", "/conversations/:id", "One conversation"),
   R("GET", "/conversations/:id/messages", "Message history (customer messages include translatedContent in your language). Marks them read unless ?markRead=false"),
   R("POST", "/conversations/:id/read", "Mark the customer's messages as read (blue ticks)"),
-  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply buttons, a list menu (list), a contact card (contact), or a reply to a message (replyToMessageId); 24-hour rule"),
+  R("POST", "/conversations/:id/messages", "Send text, a photo/video/document/voice (attachment), a location, reply buttons, a list menu (list), a contact card (contact), a sticker (sticker: WebP/PNG ≤500 KB), or a reply to a message (replyToMessageId); 24-hour rule"),
   R("POST", "/conversations/:id/template", "Send an approved template (any time)"),
   R("POST", "/conversations/:id/products", "Send product cards from your catalog"),
   R("POST", "/conversations/:id/form", "Send a form"),
@@ -58,6 +58,13 @@ export const ROUTES: Rule[] = [
   R("DELETE", "/catalog/:id", "Remove an item"),
   R("GET", "/orders", "Orders customers placed"),
   R("PATCH", "/orders/:id", "Update an order's status (accepted, ready, delivered, cancelled)"),
+  // Click-to-chat ads inside NeuraTalk
+  R("GET", "/ads", "Your ads, their review status, views, chats started and spend"),
+  R("POST", "/ads", "Create an ad (NeuraTalk reviews it): { headline, body, button?, dailyBudgetPaise }"),
+  R("PATCH", "/ads/:id", "Pause, resume, end, or change the budget/words of an ad"),
+  // SMS for customers without NeuraTalk (read-only here; turn on in the dashboard)
+  R("GET", "/sms-settings", "Is SMS for customers without NeuraTalk on, which kinds, price, last 30 days"),
+  R("GET", "/sms-messages", "SMS sent for you (customer, status, opened)"),
   // UPI payments (money goes straight to your UPI ID; NeuraTalk never holds it)
   R("GET", "/payment-settings", "Your UPI ID for payment requests"),
   R("GET", "/payment-requests", "Payment requests and their status (?status=requested|customer_paid|paid|cancelled)"),

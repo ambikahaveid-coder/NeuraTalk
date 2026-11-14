@@ -23,6 +23,8 @@ import 'business_profile_screen.dart';
 import 'business_auto_reply_screen.dart';
 import 'business_credits_screen.dart';
 import 'business_payments_screen.dart';
+import 'business_sms_screen.dart';
+import 'business_ads_screen.dart';
 
 /// Business tools (WhatsApp Business → Tools): profile, catalog, automatic
 /// replies, quick replies, link & QR, statistics and the verified tick.
@@ -53,6 +55,8 @@ class BusinessToolsScreen extends StatelessWidget {
             _tool(Icons.account_balance_wallet_outlined, 'Wallet & plan', 'Balance, plan, prices, buy credit or a plan', () => open(const BusinessCreditsScreen())),
             _tool(Icons.receipt_long_outlined, 'Orders', 'Orders customers sent from your catalog', () => open(const BusinessOrdersScreen())),
             _tool(Icons.currency_rupee, 'Payments (UPI)', 'Your UPI ID; ask customers to pay in the chat', () => open(const BusinessPaymentsScreen())),
+            _tool(Icons.ads_click, 'Ads', 'Show up as "Sponsored" and get new chats', () => open(const BusinessAdsScreen())),
+            _tool(Icons.sms_outlined, 'SMS for customers without NeuraTalk', 'Your message as an SMS with a link to read it', () => open(const BusinessSmsScreen())),
             _tool(Icons.qr_code_2, 'Short link & QR code', 'Let customers start a chat with you', () => open(const BusinessLinkScreen())),
             const _Section('Messaging'),
             _tool(Icons.waving_hand_outlined, 'Greeting message', 'Welcome new customers automatically', () => open(const GreetingMessageScreen())),

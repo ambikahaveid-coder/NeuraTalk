@@ -24,7 +24,7 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | GET | /api/v1/me/conversations/:id | One conversation |
 | GET | /api/v1/me/conversations/:id/messages | History. Customer messages carry `translatedContent` in your language. Reading marks them read (blue ticks); add `?markRead=false` to read without that. |
 | POST | /api/v1/me/conversations/:id/read | Mark the customer's messages as read (blue ticks), e.g. once a person in your CRM has seen them |
-| POST | /api/v1/me/conversations/:id/messages | Send (24-hour rule): `{ content }`, `{ buttons:[…≤3] }`, `{ content, list:{…} }` (list menu, below), `{ contact:{name,phone,organization?,email?} }`, `{ location:{latitude,longitude,name} }`, `{ attachment:{url,mimeType,sizeBytes,title} }`, `{ replyToMessageId }` |
+| POST | /api/v1/me/conversations/:id/messages | Send (24-hour rule): `{ content }`, `{ buttons:[…≤3] }`, `{ content, list:{…} }` (list menu, below), `{ contact:{name,phone,organization?,email?} }`, `{ sticker:{url,mimeType:"image/webp"\|"image/png",sizeBytes≤500 KB} }` (upload with /media first), `{ location:{latitude,longitude,name} }`, `{ attachment:{url,mimeType,sizeBytes,title} }`, `{ replyToMessageId }` |
 | POST | /api/v1/me/conversations/:id/payment-request | `{ amountPaise, note?, orderId? }`: ask the customer to pay by UPI (see Payments) |
 | POST | /api/v1/me/conversations/:id/template | `{ templateVersionId, variables }`, any time |
 | POST | /api/v1/me/conversations/:id/products | `{ itemIds:[…≤10] }`: product cards |
@@ -45,6 +45,10 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | PATCH, DELETE | /api/v1/me/catalog/:id | Change or remove an item |
 | GET | /api/v1/me/orders | Orders |
 | PATCH | /api/v1/me/orders/:id | `{ status }` |
+| GET, POST | /api/v1/me/ads | Your click-to-chat ads (views, chats, spend), or create one `{ headline, body, button?, dailyBudgetPaise }` (NeuraTalk reviews it) |
+| PATCH | /api/v1/me/ads/:id | `{ action: "pause" \| "resume" \| "end" }`, or a new budget/words (new words go back to review) |
+| GET | /api/v1/me/sms-settings | SMS for customers without NeuraTalk: on/off, which kinds, price, last 30 days |
+| GET | /api/v1/me/sms-messages | SMS sent for you (number masked, status, opened) |
 | GET | /api/v1/me/payment-settings | Your UPI ID (set it in the dashboard → Payments (UPI)) |
 | GET | /api/v1/me/payment-requests | Requests and status: `requested`, `customer_paid`, `paid`, `cancelled` (`?status=`) |
 | PATCH | /api/v1/me/payment-requests/:id | `{ status: "paid" }` once the money is in your bank, or `"cancelled"` |
@@ -80,6 +84,20 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 5. UPI apps don't report back, so the customer taps **I've paid** and may add the 12-digit UTR. The status becomes `customer_paid`.
 6. Check your bank or UPI app, then `PATCH /payment-requests/:id { "status": "paid" }`. The customer gets "Payment received" in the chat.
 
+## SMS for customers without NeuraTalk
+
+Turn it on in the dashboard (Messaging → SMS) or the app (Tools → SMS) and pick the kinds: updates, codes, offers. Then:
+
+- An update, code or offer to a customer who isn't on NeuraTalk goes ahead instead of being refused (`NOT_ON_NEURATALK`).
+- They get one SMS: "<Your business> sent you a message on NeuraTalk. Read it: neuratalk.in/m/…". The link shows the full message for 30 days.
+- Each SMS is charged from your wallet (₹0.25 now). If it can't be sent, the charge is refunded.
+- The delivery shows as sent (and as read once they open the link). The `message.sent` webhook has `channel: "sms"`.
+- SMS goes out only after NeuraTalk's SMS template is approved under TRAI DLT. Until then, `GET /sms-settings` shows `available: false`.
+
+## Click-to-chat ads
+
+Your ad shows as "Sponsored" in customers' Business messages (app and web) after NeuraTalk approves it. A tap opens a chat with you. You pay per new chat started (₹2 now, once per person a day) from your wallet, never more than your daily budget. Showing the ad is free.
+
 ## Also available
 
 - `POST /api/v1/messaging/messages`: send by phone number (template or text).
@@ -91,6 +109,5 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 
 ## Not offered (honest)
 
-- **SMS to people without NeuraTalk.** Customers need the NeuraTalk app.
-- **Sticker messages from the API.**
+- **The text of your message in an SMS.** Customers without NeuraTalk (if you turn SMS on) get one fixed, regulator-approved SMS with your business name and a link to read the message; India's DLT rules don't allow free-form business SMS.
 - **Card or netbanking checkout in chat.** Payment requests are UPI only, paid straight to you, and confirmed by you (no automatic payment confirmation).

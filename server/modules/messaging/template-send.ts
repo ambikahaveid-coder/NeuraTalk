@@ -241,8 +241,10 @@ export async function sendTemplateToCustomer(input: SendTemplateInput): Promise<
   if (!customer) throw new TemplateSendError("Customer not found.", "CUSTOMER_NOT_FOUND", 404);
   if (customer.status !== CUSTOMER_STATUS.ACTIVE) throw new TemplateSendError("This customer is blocked or archived.", "CUSTOMER_INACTIVE", 409);
   if (customer.blockedByCustomerAt) throw new TemplateSendError("This customer has blocked your business.", "BLOCKED_BY_CUSTOMER", 409);
-  if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer))) {
-    throw new TemplateSendError("This customer isn't on NeuraTalk yet. Invite them first.", "NOT_ON_NEURATALK", 409);
+  if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer))
+    // Not on NeuraTalk: still sent when it will reach them by SMS (sms-fallback.ts).
+    && !(await import("./sms-fallback").then((m) => m.smsCovers(input.businessId, template.category, customer.normalizedPhone ?? customer.phone)))) {
+    throw new TemplateSendError("This customer isn't on NeuraTalk yet. Invite them first, or turn on SMS for customers without NeuraTalk.", "NOT_ON_NEURATALK", 409);
   }
   if (template.category === MESSAGE_CATEGORY.MARKETING && !(await isEligibleForChannel(input.businessId, customer.id, MESSAGE_CATEGORY.MARKETING as any))) {
     throw new TemplateSendError("This customer hasn't agreed to receive offers from you.", "NO_MARKETING_CONSENT", 409);

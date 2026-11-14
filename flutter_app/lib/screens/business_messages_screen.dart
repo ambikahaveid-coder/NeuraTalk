@@ -44,6 +44,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
   void initState() {
     super.initState();
     _load();
+    _loadAds();
     _refresh = Timer.periodic(const Duration(seconds: 15), (_) => _load(quiet: true));
   }
 
@@ -100,6 +101,56 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
     _load(quiet: true);
   }
 
+  /// "Sponsored" businesses (NeuraTalk's own click-to-chat ads, reviewed by NeuraTalk).
+  List<Map<String, dynamic>> _ads = [];
+  Future<void> _loadAds() async {
+    try {
+      final res = await ApiService.get('/api/ads/feed');
+      final list = (res is Map ? res['ads'] : null) as List? ?? const [];
+      if (mounted) setState(() => _ads = list.whereType<Map>().map((a) => Map<String, dynamic>.from(a)).toList());
+    } catch (_) {/* no ads is fine */}
+  }
+
+  Future<void> _openAd(Map<String, dynamic> ad) async {
+    try {
+      final res = await ApiService.post('/api/ads/${ad['id']}/chat', {});
+      if (!mounted) return;
+      await _open((res['businessId'] as num).toInt(), '${ad['businessName']}');
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e is ApiException ? e.message : 'This offer has ended.')));
+      _loadAds();
+    }
+  }
+
+  Widget _adCard(Map<String, dynamic> ad) => Container(
+        margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.border)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          NtAvatar(name: '${ad['businessName']}', avatarUrl: ad['logoUrl'] as String?, size: 44),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(child: Text('${ad['businessName']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5))),
+                const SizedBox(width: 6),
+                Text('Sponsored', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5, fontWeight: FontWeight.w600)),
+              ]),
+              Text('${ad['headline']}', style: TextStyle(color: AppColors.ink, fontSize: 15.5, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text('${ad['body']}', style: TextStyle(color: AppColors.textSecondary, fontSize: 13.5)),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: () => _openAd(ad),
+                icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                label: Text('${ad['button'] ?? 'Chat now'}'),
+                style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+              ),
+            ]),
+          ),
+        ]),
+      );
+
   @override
   Widget build(BuildContext context) {
     final searchingNow = _query.trim().length >= 2;
@@ -150,6 +201,7 @@ class _BusinessMessagesScreenState extends State<BusinessMessagesScreen> {
                   ),
               Divider(color: AppColors.border),
             ],
+            if (!searchingNow) for (final ad in _ads) _adCard(ad),
             if (_loading)
               Padding(padding: const EdgeInsets.all(32), child: Center(child: CircularProgressIndicator(color: AppColors.cyan)))
             else if (_error != null)
@@ -941,6 +993,23 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
         ? (((m['metadata'] as Map?)?['products'] as List?) ?? const []).whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList()
         : const <Map<String, dynamic>>[];
     final link = attachments.isEmpty && location == null ? firstLinkIn(shown) : null;
+    // A sticker: the picture on its own, no bubble (like WhatsApp).
+    if ((m['metadata'] as Map?)?['sticker'] == true && attachments.isNotEmpty) {
+      return Align(
+        alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(crossAxisAlignment: mine ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
+            SizedBox(
+              width: 140,
+              height: 140,
+              child: ChatImageAttachment(objectPath: '${attachments.first['url']}', name: 'Sticker'),
+            ),
+            Text(formatClockTime(m['createdAt']), style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
+          ]),
+        ),
+      );
+    }
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: GestureDetector(

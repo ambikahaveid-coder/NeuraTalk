@@ -494,7 +494,9 @@ async function processOneRecipient(
     // Messages are delivered only inside NeuraTalk; a contact with no linked
     // account would be charged and marked SENT for a message nobody can see.
     // They may have joined NeuraTalk since being added, so look again first.
-    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))) {
+    // Unless the business turned on SMS for customers without NeuraTalk.
+    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))
+      && !(await import("../messaging/sms-fallback").then((m) => m.smsCovers(businessId, String(campaign.category), customer.normalizedPhone ?? customer.phone, tx as any)))) {
       return skip(CAMPAIGN_SKIP_REASON.CUSTOMER_NOT_ON_NEURATALK);
     }
 

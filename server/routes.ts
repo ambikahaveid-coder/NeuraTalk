@@ -47,6 +47,8 @@ import channelRoutes from "./channels";
 import communityRoutes from "./communities";
 import groupInviteRoutes from "./group-invites";
 import chatParityRoutes from "./chat-parity";
+import personalPaymentRoutes from "./personal-payments";
+import privateChatRoutes from "./private-chats";
 import { registerLinkPreviewRoutes } from "./link-preview";
 import { registerStatusRoutes } from "./status-routes";
 import { registerBroadcastRoutes } from "./modules/campaigns/broadcast";
@@ -92,6 +94,8 @@ import { registerBusinessMessagingApiRoutes } from "./modules/messaging/api-rout
 import { registerCatalogRoutes } from "./modules/messaging/catalog";
 import { registerOrderRoutes } from "./modules/messaging/orders";
 import { registerChatPaymentRoutes } from "./modules/messaging/chat-payments";
+import { registerSmsFallbackRoutes } from "./modules/messaging/sms-fallback";
+import { registerBusinessAdRoutes } from "./modules/messaging/business-ads";
 import { registerFormRoutes } from "./modules/messaging/forms";
 import { registerAutoResponderRoutes } from "./modules/messaging/auto-responders";
 import { registerSimpleSendApi } from "./modules/messaging/simple-send-api";
@@ -241,6 +245,8 @@ export async function registerRoutes(
   registerCatalogRoutes(app); console.log("[Routes] ✓ Business catalog routes");
   registerOrderRoutes(app); console.log("[Routes] ✓ Business order routes");
   registerChatPaymentRoutes(app);
+  registerSmsFallbackRoutes(app);
+  registerBusinessAdRoutes(app);
   registerFormRoutes(app); console.log("[Routes] ✓ Business form routes");
   registerAutoResponderRoutes(app); console.log("[Routes] ✓ Business auto-responder routes");
   registerAutomationAdminRoutes(app);
@@ -329,6 +335,8 @@ export async function registerRoutes(
   app.use(communityRoutes);
   app.use(groupInviteRoutes);
   app.use(chatParityRoutes);
+  app.use(personalPaymentRoutes);
+  app.use(privateChatRoutes);
   app.use(groupChatsRoutes);
   app.use(personalChatRoutes);
   registerLinkPreviewRoutes(app);

@@ -329,6 +329,8 @@ export interface CreateMessageInput {
   buttons?: Array<Record<string, unknown>>;
   /** Interactive list menu (already validated, see messageListSchema). */
   list?: Record<string, unknown>;
+  /** The attachment is a sticker (shown small, without a bubble). */
+  sticker?: boolean;
   /** A shared contact card (already validated, see messageContactSchema). */
   contact?: { name: string; phone: string; email?: string; organization?: string };
   /** Server-built extras (a form, a form response). Never taken from a request body. */
@@ -423,7 +425,7 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
     ? `📍 ${input.location.name?.trim() || input.location.address?.trim() || "Location"}`
     : input.contact
     ? `👤 ${input.contact.name}`
-    : input.content?.trim() || (input.attachment ? attachmentLabel(messageType, input.attachment) : "");
+    : input.content?.trim() || (input.attachment ? (input.sticker ? "🙂 Sticker" : attachmentLabel(messageType, input.attachment)) : "");
   if (!content) throw new Error("VALIDATION_EMPTY_CONTENT");
   if (content.length > 8192) throw new Error("VALIDATION_CONTENT_TOO_LONG");
 
@@ -445,6 +447,7 @@ async function createMessageTx(tx: DbLike, input: CreateMessageInput): Promise<C
   if (input.buttons?.length) metadata.buttons = input.buttons;
   if (input.list) metadata.list = input.list;
   if (input.contact) metadata.contact = input.contact;
+  if (input.sticker && input.attachment) metadata.sticker = true;
   if (input.extraMetadata) Object.assign(metadata, input.extraMetadata);
   // A tapped button replies to the message it was on.
   if (buttonReply && !replyToMessageId) replyToMessageId = buttonReply.messageId;

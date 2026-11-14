@@ -6,7 +6,7 @@ import { COMPANY, PROCESSORS, CALL_TEXT_RETENTION_DAYS, BACKUP_POINT_IN_TIME_DAY
 const PRACTICES = [
   { icon: MapPin, title: "Stored in India", desc: "Accounts, chats, call history, files and backups are stored in India (AWS, Mumbai), encrypted at rest. The database accepts connections only from our own servers." },
   { icon: DatabaseBackup, title: "Backed up every day", desc: `Encrypted backups in India: restore to any point in the last ${BACKUP_POINT_IN_TIME_DAYS} days, and daily copies for ${BACKUP_DAILY_DAYS} days.` },
-  { icon: Lock, title: "Encrypted in transit", desc: "Calls, messages and files travel over encrypted connections (TLS, and SRTP for call media). Calls are not end-to-end encrypted, because translation needs our servers to process speech." },
+  { icon: Lock, title: "Encrypted in transit", desc: "Calls, messages and files travel over encrypted connections (TLS, and SRTP for call media). Calls and normal chats are not end-to-end encrypted, because translation needs our servers. Private chats (no translation) are encrypted on your phone so only the two of you can read them." },
   { icon: MicOff, title: "No call recordings", desc: `Call audio is never stored. The translated text of a call stays in the caller's history for ${CALL_TEXT_RETENTION_DAYS} days and is then deleted automatically.` },
   { icon: FileLock2, title: "Private files", desc: "Photos, videos and documents sent in a chat can only be opened by the people in that conversation, with their own signed-in session." },
   { icon: UserRound, title: "Your voice is yours", desc: "A cloned voice speaks only its owner's own words. Learning a voice from calls needs the owner's permission, and the voice can be deleted at any time." },

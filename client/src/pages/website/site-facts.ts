@@ -38,6 +38,7 @@ export const PROCESSORS = [
   { name: "Deepgram", purpose: "Backup speech recognition, only when Azure is unavailable", location: "United States" },
   { name: "Sarvam AI", purpose: "Backup translation of chat messages", location: "India" },
   { name: "Google Firebase", purpose: "Phone-number sign-in (OTP) and app notifications", location: "Global" },
+  { name: "MSG91", purpose: "SMS from a business to a customer who isn't on NeuraTalk (only if the business turns it on): the customer's number, the business's name and a link", location: "India" },
 ];
 
 /** Free AI and pay-first rules (server/free-trial.ts, server/ai-chat-usage.ts, server/billing-engine.ts). */
@@ -59,7 +60,7 @@ export const CALL_TEXT_RETENTION_DAYS = 30;
 export const LEGAL_UPDATED = "1 November 2026";
 
 /** Last full review of the policies (database moved to India, free AI minutes, pay-first billing). */
-export const POLICIES_UPDATED = "1 November 2026";
+export const POLICIES_UPDATED = "14 November 2026";
 
 /** Minimum age to use NeuraTalk (Terms, Privacy, Age policy). */
 export const MINIMUM_AGE = 18;

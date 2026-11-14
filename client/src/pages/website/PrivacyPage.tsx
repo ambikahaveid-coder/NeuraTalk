@@ -42,6 +42,9 @@ export default function PrivacyPage() {
               <tr><td className="border p-2">Account</td><td className="border p-2">Mobile number, name, profile photo, preferred language, app settings.</td></tr>
               <tr><td className="border p-2">Calls</td><td className="border p-2">Who called whom, when and for how long; the text of what was said and its translation (call audio is not stored).</td></tr>
               <tr><td className="border p-2">Chats</td><td className="border p-2">Messages, their translations, and photos, videos, documents, voice messages, locations, polls and votes, contact cards and stickers you choose to send; reactions; which messages you starred.</td></tr>
+              <tr><td className="border p-2">Private chats</td><td className="border p-2">Only encrypted messages we cannot read, your phone's public key, and when messages were sent, delivered and read. The key that opens them stays on your phone.</td></tr>
+              <tr><td className="border p-2">UPI payments in chat</td><td className="border p-2">Your UPI ID and name if you add them (shown only to people you chat with), payment requests, their amounts and status, and the UTR you choose to enter. The money itself goes through your bank's UPI app, not through us.</td></tr>
+              <tr><td className="border p-2">Ads you see</td><td className="border p-2">Which sponsored business ads were shown to you and which you tapped, so businesses pay only for chats started and see totals (never who you are).</td></tr>
               <tr><td className="border p-2">Your voice</td><td className="border p-2">Voice samples you record, or speech from your calls if you allow NeuraTalk to learn your voice, and the cloned voice made from them.</td></tr>
               <tr><td className="border p-2">Contacts</td><td className="border p-2">If you allow it, numbers from your address book are checked against NeuraTalk to show who uses it. They are not stored on our servers; names are read on your phone only.</td></tr>
               <tr><td className="border p-2">Businesses you talk to</td><td className="border p-2">Your chats with businesses, which updates and offers you agreed to, and whether you blocked a business. A business may also add your number to its customer list (for example from its own records); it must have your permission to send you offers, and you can stop them with STOP or by blocking it.</td></tr>
@@ -130,7 +133,9 @@ export default function PrivacyPage() {
           <h2>7. Security</h2>
           <p>
             Calls, messages and files travel over encrypted connections. Translation needs our servers to process speech and text, so calls
-            are not end-to-end encrypted. Files you send can only be opened by the people in that conversation. Login codes from businesses are
+            and normal chats are not end-to-end encrypted. A <strong>Private chat</strong> (🔒, in the app's chat menu) is different: it is
+            not translated, and its messages are encrypted on your phone so that only you and the other person can read them — not
+            NeuraTalk. Private chats are only on your phones, not on the web, and a new phone cannot read older private messages. Files you send can only be opened by the people in that conversation. Login codes from businesses are
             stored encrypted. The database, files and backups are encrypted at rest, and the database accepts connections only from our own
             servers. Access to production data is limited to staff who need it. If a breach affects your data, we will inform you and the Data
             Protection Board without delay, as the DPDP Rules, 2025 require.

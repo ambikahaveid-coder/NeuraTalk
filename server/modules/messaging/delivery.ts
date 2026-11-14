@@ -200,7 +200,13 @@ export async function deliverCommittedMessage(input: DeliverCommittedMessageInpu
       });
     } else {
       if (toSent.length) notifyBusinessServer(input.businessId, "message.sent", { messageId: message.id, customerId: customer?.id ?? null, category: message.category });
-      if (toFailed.length) {
+      // Not on NeuraTalk: an SMS with a link to read it, if the business turned that on.
+      const bySms = toFailed.length && !blockedByCustomer
+        ? await import("./sms-fallback").then(({ trySmsFallback }) => trySmsFallback({ businessId: input.businessId, messageId: message.id, customerId: customer?.id ?? null, deliveryIds: toFailed }))
+        : false;
+      if (bySms) {
+        notifyBusinessServer(input.businessId, "message.sent", { messageId: message.id, customerId: customer?.id ?? null, category: message.category, channel: "sms" });
+      } else if (toFailed.length) {
         notifyBusinessServer(input.businessId, "message.failed", {
           messageId: message.id, customerId: customer?.id ?? null, reason: blockedByCustomer ? "blocked_by_customer" : CUSTOMER_NOT_ON_NEURATALK,
         });

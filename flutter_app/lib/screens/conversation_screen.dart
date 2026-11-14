@@ -28,6 +28,8 @@ import '../widgets/link_preview.dart';
 import '../widgets/chat_extras.dart';
 import '../widgets/chat_lock.dart';
 import '../widgets/chat_wallpaper.dart';
+import '../widgets/p2p_payment.dart';
+import 'private_chat_screen.dart';
 
 /// Real 1:1 conversation with another NeuraTalk user — server/personal-
 /// chat-routes.ts. Separate from the NEURA AI assistant screen/data.
@@ -1106,6 +1108,15 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
                 case 'wallpaper':
                   Navigator.push(context, MaterialPageRoute(builder: (_) => WallpaperPickerScreen(chatKey: 'personal:$_threadId')));
                   break;
+                case 'private':
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => PrivateChatScreen(threadId: _threadId, peerName: displayName)));
+                  break;
+                case 'request_money':
+                  requestMoney(context, _threadId, displayName, onSent: () => context.read<PersonalChatProvider>().openThread(_threadId));
+                  break;
+                case 'pay':
+                  payPeer(context, _threadId, displayName);
+                  break;
                 case 'block':
                   _toggleBlock();
                   break;
@@ -1115,6 +1126,9 @@ class _ConversationScreenState extends State<ConversationScreen> with WidgetsBin
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(value: 'private', child: Text('🔒 Private chat (encrypted)', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'request_money', child: Text('Request money (UPI)', style: TextStyle(color: AppColors.ink))),
+              PopupMenuItem(value: 'pay', child: Text('Pay (UPI)', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'search', child: Text('Search', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'starred', child: Text('Starred messages', style: TextStyle(color: AppColors.ink))),
               PopupMenuItem(value: 'clear', child: Text('Clear chat', style: TextStyle(color: AppColors.ink))),
@@ -1698,6 +1712,8 @@ class _PersonalMessageBubbleState extends State<_PersonalMessageBubble> {
                 PollCard(poll: poll, question: texts.primary.isNotEmpty ? texts.primary : null, apiBase: widget.apiBase, messageId: message['id'] is int ? message['id'] as int : null, onVoted: widget.onChanged)
               else if (contact != null)
                 ContactCardView(contact: contact, myUserId: widget.myUserId, onMessage: widget.onOpenChat)
+              else if (!isDeleted && (message['metadata'] as Map?)?['payment'] is Map)
+                P2pPaymentCard(payment: (message['metadata'] as Map)['payment'] as Map, myUserId: widget.myUserId, onChanged: widget.onChanged)
               else if (messageType == 'attachment' && attachmentUrl != null)
                 ChatImageAttachment(objectPath: attachmentUrl, name: attachmentTitle ?? 'photo.jpg')
               else if (messageType == 'file' && attachmentUrl != null && MediaStore.kindOf(attachmentTitle ?? '', mime: attachmentMime) == MediaKind.video)

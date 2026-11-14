@@ -6,8 +6,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AutoRespondersSection from "./AutoRespondersSection";
 import MessageCreditsSection from "./MessageCreditsSection";
 import PaymentsSection from "./PaymentsSection";
+import SmsSection from "./SmsSection";
+import AdsSection from "./AdsSection";
 import {
-  Bot, Wallet, IndianRupee, CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
+  Bot, Wallet, IndianRupee, MessageSquareText, CheckCircle2, ClipboardCheck, Copy, FileText, ImagePlus, KeyRound, Link2, Loader2, Megaphone, Plus, Send, ShieldCheck, ShoppingBag, Trash2, UserPlus, Users, XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +30,7 @@ import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth } from "@/lib/a
  * Delivered/read numbers come from the real in-app delivery receipts.
  */
 
-type Section = "profile" | "credits" | "bots" | "catalog" | "payments" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
+type Section = "profile" | "credits" | "bots" | "catalog" | "payments" | "sms" | "ads" | "customers" | "templates" | "approvals" | "audiences" | "campaigns" | "codes";
 
 interface Customer {
   id: number; name: string | null; phone: string | null; email: string | null;
@@ -133,6 +135,8 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
     { id: "bots", label: "Auto-reply bot", icon: <Bot className="w-4 h-4" /> },
     { id: "catalog", label: "Catalog", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "payments", label: "Payments (UPI)", icon: <IndianRupee className="w-4 h-4" /> },
+    { id: "sms", label: "SMS", icon: <MessageSquareText className="w-4 h-4" /> },
+    { id: "ads", label: "Ads", icon: <Megaphone className="w-4 h-4" /> },
     { id: "customers", label: "Customers", icon: <Users className="w-4 h-4" /> },
     { id: "templates", label: "Templates", icon: <FileText className="w-4 h-4" /> },
     { id: "approvals", label: "Approvals", icon: <ClipboardCheck className="w-4 h-4" /> },
@@ -168,6 +172,8 @@ export default function MessagingStudio({ businessId }: { businessId: number }) 
       {section === "bots" && <AutoRespondersSection base={base} />}
       {section === "catalog" && <CatalogSection {...props} />}
       {section === "payments" && <PaymentsSection businessId={businessId} />}
+      {section === "sms" && <SmsSection base={base} />}
+      {section === "ads" && <AdsSection base={base} />}
       {section === "customers" && <CustomersSection {...props} customers={customersQuery.data?.customers ?? []} loading={customersQuery.isLoading} />}
       {section === "templates" && <TemplatesSection {...props} />}
       {section === "approvals" && <ApprovalsSection {...props} />}

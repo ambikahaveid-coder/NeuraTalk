@@ -171,7 +171,10 @@ export async function triggerUtilityMessage(businessId: number, input: TriggerUt
 
     if (customer.status === CUSTOMER_STATUS.BLOCKED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_BLOCKED);
     if (customer.status === CUSTOMER_STATUS.ARCHIVED) return fail(UTILITY_FAILURE_REASON.CUSTOMER_ARCHIVED);
-    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))) return fail(UTILITY_FAILURE_REASON.CUSTOMER_NOT_ON_NEURATALK);
+    if (!customer.linkedUserId && !(await linkCustomerToNeuraTalkUser(customer, tx))
+      && !(await import("../messaging/sms-fallback").then((m) => m.smsCovers(businessId, "utility", customer.normalizedPhone ?? customer.phone, tx as any)))) {
+      return fail(UTILITY_FAILURE_REASON.CUSTOMER_NOT_ON_NEURATALK);
+    }
 
     let resolvedTemplate: ResolvedTemplate;
     try {

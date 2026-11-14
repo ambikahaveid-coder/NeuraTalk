@@ -65,7 +65,9 @@ const BANNED = [
   /24\/7/i,
   /[2-9]0\+ languages/i,
   /[2-9]0\+ language pairs/i,
-  /(?<!not )end-to-end encrypted/i,
+  // Only Private chats are end-to-end encrypted; never claim it for calls or all chats.
+  /(calls|all (chats|messages)|every (chat|message)|everything|NeuraTalk) (are|is) end-to-end encrypted/i,
+  /end-to-end encrypted (calls|translation)/i,
   /SOC 2 (Type II )?(certified|compliant|controls)/i,
   /ISO 27001 (certified|security practices)/i,
   /GDPR[- ]compliant|compliant with GDPR/i,
@@ -74,7 +76,6 @@ const BANNED = [
   /standard voice/i,
   /Kamailio|Airtel\/Jio|SIP trunk/i,
   /Digital ?Ocean/i,
-  /screen sharing/i,
   /\[Registration Number\]/i,
   /USD/,
 ];

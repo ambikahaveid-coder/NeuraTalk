@@ -1140,6 +1140,7 @@ router.post("/api/personal-chats/:threadId/messages/:messageId/forward", require
     const meta = (message.metadata as Record<string, unknown> | null) || {};
     if (meta.viewOnce === true) return res.status(400).json({ error: "View once photos and videos can't be forwarded." });
     if (message.messageType === "poll") return res.status(400).json({ error: "Polls can't be forwarded." });
+    if (meta.payment) return res.status(400).json({ error: "Payment requests can't be forwarded." });
     const messageType = (message.messageType || "text") as "text" | "voice_note" | "attachment" | "file" | "location";
     const attachmentUrl = typeof meta.attachmentUrl === "string" ? meta.attachmentUrl : null;
     // What the forwarder actually saw: their own words, or the version in their language.

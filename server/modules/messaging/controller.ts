@@ -213,9 +213,15 @@ const createMessageSchema = z.object({
   list: messageListSchema.optional(),
   // A contact card (name + phone).
   contact: messageContactSchema.optional(),
+  // A sticker: an uploaded WebP/PNG up to 500 KB, shown without a bubble.
+  sticker: attachmentInputSchema.extend({
+    mimeType: z.enum(["image/webp", "image/png"], { errorMap: () => ({ message: "Stickers are WebP or PNG images" }) }),
+    sizeBytes: z.number().int().positive().max(500 * 1024, "A sticker can be up to 500 KB").optional(),
+  }).optional(),
   // category is deliberately NOT accepted here -- structural governance,
   // see doc 24 section 6. Any category field in the request body is ignored.
-}).refine((v) => v.content.trim() || v.attachment || v.location || v.contact, { message: "content must not be empty" })
+}).refine((v) => v.content.trim() || v.attachment || v.location || v.contact || v.sticker, { message: "content must not be empty" })
+  .refine((v) => !v.sticker || (!v.content.trim() && !v.attachment && !v.location && !v.contact && !v.buttons?.length && !v.list), { message: "Send a sticker on its own" })
   .refine((v) => !v.buttons?.length || v.content.trim(), { message: "Buttons go with a text message" })
   .refine((v) => !v.list || (v.content.trim() && !v.buttons?.length && !v.attachment && !v.location && !v.contact), { message: "A list menu goes with a text message, without buttons, files or a location" })
   .refine((v) => !v.contact || (!v.attachment && !v.location && !v.buttons?.length), { message: "Send a contact card on its own" });
@@ -245,7 +251,8 @@ export async function postMessage(req: Request, res: Response) {
       senderParticipantId: parsed.data.senderParticipantId,
       content: parsed.data.content,
       messageType: parsed.data.messageType,
-      attachment: parsed.data.attachment,
+      attachment: parsed.data.sticker ?? parsed.data.attachment,
+      sticker: !!parsed.data.sticker,
       replyToMessageId: parsed.data.replyToMessageId,
       location: parsed.data.location,
       buttons: parsed.data.buttons,

@@ -3,6 +3,17 @@ import { COMPANY } from "./site-facts";
 /** Written from the product's actual change history — only shipped features. */
 const RELEASES = [
   {
+    title: "Private chats, paying friends, SMS for businesses and sponsored businesses",
+    date: "14 November 2026",
+    highlights: [
+      "Private chat (🔒): end-to-end encrypted on your phone, so only you and the other person can read it; no translation, phone only, with a security code to compare",
+      "Request money from a friend or pay them by UPI inside the chat; the money goes bank to bank through your UPI app",
+      "Businesses can reach customers who aren't on NeuraTalk yet with one SMS and a link to read the message (starts once SMS is approved for NeuraTalk)",
+      "Sponsored businesses: a business can show a short ad in Business messages, reviewed by NeuraTalk; it pays only when someone starts a chat",
+      "Business API: stickers and ads",
+    ],
+  },
+  {
     title: "Group links, broadcast lists, wallpapers, screen share and UPI payments",
     date: "14 November 2026",
     highlights: [

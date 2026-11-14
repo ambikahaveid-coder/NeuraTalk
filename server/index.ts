@@ -280,6 +280,8 @@ function startRedisDependentRuntime(): void {
   }, 60_000).unref?.();
   setInterval(() => {
     deleteExpiredPersonalChatMessages().catch((err) => logger.warn("System", `Disappearing-message cleanup skipped: ${String(err)}`));
+    import("./private-chats").then(({ deleteExpiredPrivateMessages }) => deleteExpiredPrivateMessages())
+      .catch((err) => logger.warn("System", `Private-message cleanup skipped: ${String(err)}`));
   }, 5 * 60_000).unref?.();
   void initFreeSwitchESL();
   void initRTPAIWorker();
@@ -471,6 +473,10 @@ app.use((req, res, next) => {
     await ensureOrdersTable();
     const { ensureChatPaymentTables } = await import("./modules/messaging/chat-payments");
     await ensureChatPaymentTables();
+    const { ensureSmsFallbackTables } = await import("./modules/messaging/sms-fallback");
+    await ensureSmsFallbackTables();
+    const { ensureBusinessAdTables } = await import("./modules/messaging/business-ads");
+    await ensureBusinessAdTables();
     const { ensureFormsTables } = await import("./modules/messaging/forms");
     await ensureFormsTables();
     const { ensureAutoResponderTables } = await import("./modules/messaging/auto-responders");
@@ -507,6 +513,10 @@ app.use((req, res, next) => {
     await ensureGroupInviteTables();
     const { ensureChatParityTables } = await import("./chat-parity");
     await ensureChatParityTables();
+    const { ensurePersonalPaymentTables } = await import("./personal-payments");
+    await ensurePersonalPaymentTables();
+    const { ensurePrivateChatTables } = await import("./private-chats");
+    await ensurePrivateChatTables();
   }, { optional: true });
   let redisOperational = false;
   try {

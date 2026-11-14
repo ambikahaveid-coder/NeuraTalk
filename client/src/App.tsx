@@ -14,6 +14,7 @@ const Landing = lazy(() => import("@/pages/Landing"));
 const AppLogin = lazy(() => import("@/pages/AppLogin"));
 const LinkDevicePage = lazy(() => import("@/pages/LinkDevicePage"));
 const GroupInvitePage = lazy(() => import("@/pages/GroupInvitePage"));
+const SmsMessagePage = lazy(() => import("@/pages/SmsMessagePage"));
 const ConsumerDashboard = lazy(() => import("@/pages/ConsumerDashboard"));
 const CompanyDashboard = lazy(() => import("@/pages/CompanyDashboard"));
 const PartnerPanel = lazy(() => import("@/pages/partner/PartnerPanel"));
@@ -385,6 +386,10 @@ function Router() {
       {/* Group invite link: public, so the app can be opened from it while signed out. */}
       <Route path="/g/:code">
         <Suspense fallback={<PageLoader />}><GroupInvitePage /></Suspense>
+      </Route>
+      {/* The link inside a business SMS: public. */}
+      <Route path="/m/:token">
+        <Suspense fallback={<PageLoader />}><SmsMessagePage /></Suspense>
       </Route>
 
       <Route path="/settings/voice-clone">

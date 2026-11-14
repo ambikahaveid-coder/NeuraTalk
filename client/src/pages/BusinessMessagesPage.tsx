@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { SponsoredBusinesses } from "@/components/SponsoredBusinesses";
 import { ArrowLeft, BadgeCheck, Building2, Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -93,6 +94,7 @@ export default function BusinessMessagesPage() {
             data-testid="input-find-business"
           />
         </div>
+        {query.trim().length < 2 && <SponsoredBusinesses />}
         {query.trim().length >= 2 && (
           <section aria-label="Businesses found">
             {searchQuery.isLoading ? (

@@ -9,7 +9,9 @@ export default function SecurityPolicyPage() {
       <h2>1. How we protect NeuraTalk</h2>
       <ul>
         <li>Calls, messages and files travel over encrypted connections. Because translation needs our servers to process speech and text,
-          calls and chats are <strong>not</strong> end-to-end encrypted — we say this plainly so you can decide what to share.</li>
+          calls and normal chats are <strong>not</strong> end-to-end encrypted — we say this plainly so you can decide what to share.
+          Private chats (🔒, no translation) are the exception: messages are encrypted on your phone (X25519 and AES-256-GCM) and only
+          the two phones in the chat hold the keys, so we cannot read them. You can compare a security code with the other person.</li>
         <li>Photos, videos and documents can only be opened by the people in that chat or group. View-once photos are never sent to the
           receiver's phone as a file path; in 1:1 chats they are deleted from our storage once opened.</li>
         <li>Sign-in uses a one-time code sent to your phone. You can add <strong>two-step verification</strong>: a 6-digit PIN asked after the code,

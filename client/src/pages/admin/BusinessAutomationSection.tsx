@@ -35,6 +35,48 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return data as T;
 }
 
+type SmsAdmin = {
+  mode: "live" | "test" | "off"; pricePaise: number; businessesTurnedOn: number;
+  setup: { MSG91_AUTH_KEY: boolean; MSG91_SMS_TEMPLATE_ID: boolean; SMS_FALLBACK_ENABLED: boolean };
+  last30Days: Array<{ businessId: number; name: string; sms: number; amountPaise: number; failed: number; opened: number }>;
+};
+
+/** SMS for customers without NeuraTalk: is it on, and who used it (server/modules/messaging/sms-fallback.ts). */
+function AdminSmsCard() {
+  const q = useQuery<SmsAdmin>({ queryKey: ["/api/admin/sms-fallback"], queryFn: () => call("GET", "/api/admin/sms-fallback") });
+  const d = q.data;
+  if (!d) return null;
+  const missing = Object.entries(d.setup).filter(([, ok]) => !ok).map(([k]) => k);
+  return (
+    <Card data-testid="admin-sms-card">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          SMS for customers without NeuraTalk
+          <Badge variant={d.mode === "live" ? "default" : "secondary"}>{d.mode === "live" ? "Live" : d.mode === "test" ? "Test mode" : "Off"}</Badge>
+        </CardTitle>
+        <CardDescription>
+          {d.mode === "live"
+            ? `Sending through MSG91. ${rupees(d.pricePaise)} per SMS from the business wallet.`
+            : `Off until these are set in AWS Secrets Manager: ${missing.join(", ")} (MSG91 key, the DLT-approved template ID, and SMS_FALLBACK_ENABLED=true).`}
+          {" "}{d.businessesTurnedOn} business{d.businessesTurnedOn === 1 ? " has" : "es have"} it turned on.
+        </CardDescription>
+      </CardHeader>
+      {d.last30Days.length > 0 && (
+        <CardContent className="overflow-x-auto">
+          <Table>
+            <TableHeader><TableRow><TableHead>Business</TableHead><TableHead>SMS (30 days)</TableHead><TableHead>Opened</TableHead><TableHead>Failed</TableHead><TableHead>Charged</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {d.last30Days.map((b) => (
+                <TableRow key={b.businessId}><TableCell>{b.name}</TableCell><TableCell>{b.sms}</TableCell><TableCell>{b.opened}</TableCell><TableCell>{b.failed}</TableCell><TableCell>{rupees(b.amountPaise)}</TableCell></TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 const rupees = (p: number) => `₹${(p / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const when = (s: string | null) => (s ? new Date(s).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "—");
 
@@ -167,6 +209,7 @@ export function BusinessAutomationSection() {
         <h2 className="text-xl font-semibold">Bots & API</h2>
         <p className="text-sm text-muted-foreground">Every company's auto-reply bots and API sending. Pause a company if its bots or API messages hurt customers.</p>
       </div>
+      <AdminSmsCard />
       <div className="grid gap-3 sm:grid-cols-4">
         {[
           { label: "Bot replies (7 days)", value: totals.replies.toLocaleString("en-IN"), icon: <Bot className="h-4 w-4" /> },

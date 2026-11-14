@@ -67,7 +67,8 @@ export default function CommunityGuidelinesPage() {
           Indian law requires. Other complaints follow the timelines on our <Link href="/grievance">Grievance</Link> page.</li>
       </ul>
       <p>
-        Calls and chats on NeuraTalk are processed on our servers for translation and are <strong>not</strong> end-to-end encrypted. Our team does not
+        Calls and normal chats on NeuraTalk are processed on our servers for translation and are <strong>not</strong> end-to-end encrypted
+        (Private chats are, so we can't see them; reports about a private chat need the screenshot the reporter sends). Our team does not
         read chats as a routine. When something is reported, the reviewer looks at the reported messages and what is needed to understand them.
       </p>
 
