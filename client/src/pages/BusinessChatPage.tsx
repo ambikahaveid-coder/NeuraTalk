@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRoute } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BadgeCheck, Building2, Loader2, Paperclip, Phone, Send, ShoppingBag } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, Loader2, MapPin, Paperclip, Phone, Send, ShoppingBag } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUpload } from "@/hooks/use-upload";
 import { Switch } from "@/components/ui/switch";
@@ -579,6 +580,19 @@ export default function BusinessChatPage() {
                         senderName={isMine ? undefined : businessName}
                         status={isMine && message.deliveryToBusiness ? TICK_LABEL[message.deliveryToBusiness] ?? null : null}
                       />}
+                      {message.metadata?.location && (
+                        <div className={cn("flex", isMine && "justify-end")}>
+                        <a
+                          href={`https://www.google.com/maps?q=${message.metadata.location.latitude},${message.metadata.location.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-primary underline"
+                          data-testid={`open-location-${message.id}`}
+                        >
+                          <MapPin className="w-3.5 h-3.5" aria-hidden />Open in Maps
+                        </a>
+                        </div>
+                      )}
                       {!isMine && (message.metadata?.buttons?.length || message.metadata?.list || message.metadata?.contact || message.metadata?.payment || message.metadata?.locationRequest) && (
                         <div className="max-w-[85%] sm:max-w-[70%]" data-testid={`business-extras-${message.id}`}>
                           {message.metadata?.buttons?.length ? (

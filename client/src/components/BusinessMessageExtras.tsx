@@ -21,6 +21,7 @@ export type MessagePayment = {
 };
 export type ExtrasMeta = {
   buttons?: MessageButton[]; list?: MessageList; contact?: MessageContact; payment?: MessagePayment; locationRequest?: boolean;
+  location?: { latitude: number; longitude: number; name?: string; address?: string };
   buttonReply?: { messageId: number; buttonId: string; title?: string };
 };
 
