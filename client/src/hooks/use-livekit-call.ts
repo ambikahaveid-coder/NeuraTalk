@@ -931,7 +931,8 @@ function safeParse(s?: string) {
   try { return s ? JSON.parse(s) : {}; } catch { return {}; }
 }
 
-function isTranslatorBotParticipant(participant: RemoteParticipant) {
+/** The translator (muted unless it carries a translation for me). The AI assistant is NOT one: it is the answering party. */
+export function isTranslatorBotParticipant(participant: Pick<RemoteParticipant, "identity" | "metadata">) {
   const meta = safeParse(participant.metadata) as Record<string, any>;
   return participant.identity === "neuratalk-translator" || meta?.role === "bot";
 }

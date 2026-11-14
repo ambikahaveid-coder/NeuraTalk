@@ -20,6 +20,15 @@ describe("translatedSpeakerFor", () => {
   });
 });
 
+describe("who counts as the translator", () => {
+  it("the translator is a bot; the AI assistant is a person on the call (heard, and the call counts as answered)", async () => {
+    const { isTranslatorBotParticipant } = await import("@/hooks/use-livekit-call");
+    expect(isTranslatorBotParticipant({ identity: "neuratalk-translator", metadata: "" })).toBe(true);
+    expect(isTranslatorBotParticipant({ identity: "x", metadata: JSON.stringify({ role: "bot" }) })).toBe(true);
+    expect(isTranslatorBotParticipant({ identity: "assistant-personal-7", metadata: JSON.stringify({ role: "assistant", assistant: true }) })).toBe(false);
+  });
+});
+
 describe("decideAudioRouting", () => {
   const caller = { participantIdentity: "user-1", isBot: false };
 
@@ -47,6 +56,13 @@ describe("decideAudioRouting", () => {
       false,
     );
     expect(routing).toEqual([true, false]);
+  });
+
+  it("plays the other person's AI assistant (it is the one answering), with or without voice translation", () => {
+    const assistant = { participantIdentity: "assistant-personal-7", isBot: false, trackName: "assistant-voice" };
+    expect(decideAudioRouting([assistant], me, true)).toEqual([true]);
+    expect(decideAudioRouting([assistant], me, false)).toEqual([true]);
+    expect(decideAudioRouting([assistant, { participantIdentity: "neuratalk-translator", isBot: true, trackName: forCallerFromMe, translationReady: true }], me, true)).toEqual([true, false]);
   });
 
   it("never plays the listener's own words translated back", () => {

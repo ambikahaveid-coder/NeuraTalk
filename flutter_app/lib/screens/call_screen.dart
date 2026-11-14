@@ -486,6 +486,9 @@ class _CallScreenState extends State<CallScreen> {
     if (mounted) setState(() {});
   }
 
+  /// The other person's AI assistant took the call (server/ai-assistant-voice.ts).
+  bool get _assistantOnCall => _room.remoteParticipants.values.any((p) => p.identity.startsWith('assistant-'));
+
   static bool _isBot(lk.RemoteParticipant p) {
     if (p.identity == 'neuratalk-translator' || p.identity.startsWith('assistant-')) return true;
     return _metaOf(p.metadata)['role'] == 'bot';
@@ -1023,7 +1026,7 @@ class _CallScreenState extends State<CallScreen> {
                           decoration: BoxDecoration(color: i <= qBars ? qColor : const Color(0x40FFFFFF), borderRadius: BorderRadius.circular(1)),
                         ),
                       const SizedBox(width: 4),
-                      Text(_remoteVideoTrack != null ? remoteName : qLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      Text(_assistantOnCall ? '🤖 AI assistant answered' : _remoteVideoTrack != null ? remoteName : qLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12)),
                     ]),
                   ),

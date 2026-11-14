@@ -79,6 +79,14 @@ async function answerWithAssistant(input: { callId: string; calleeUserId: number
   const svc = await import("./modules/calls/service");
   const call = await svc.getSmartCall(input.callId);
   if (!call || call.status !== "ringing") return false;
+  // The owner may already be in the call (answered a moment ago): never talk over them.
+  if (!assistantTestMode()) {
+    try {
+      const { listParticipants } = await import("./livekit-service");
+      const people = await listParticipants(input.callId);
+      if (people.some((p) => p.identity === String(input.calleeUserId))) return false;
+    } catch { /* room not created yet: nobody has joined */ }
+  }
   try {
     await svc.updateSmartCallStatus(input.callId, "answered" as any, { answeredBy: "assistant", assistantReason: input.reason } as any);
   } catch (error) {
@@ -174,7 +182,10 @@ class AssistantCall {
     const { LocalAudioTrack, RemoteAudioTrack, Room, RoomEvent, TrackPublishOptions, TrackSource, AudioSource } = await rtc();
     const at = new AccessToken(key, secret, {
       identity, name: `${this.ctx.ownerName}'s assistant`, ttl: 600,
-      metadata: JSON.stringify({ role: "bot", assistant: true, language: this.lang }),
+      // NOT role "bot": the caller's app and web treat "bot" as the translator
+      // (muted, and the call would never count as answered). The translator
+      // still skips this participant because its identity starts with "assistant-".
+      metadata: JSON.stringify({ role: "assistant", assistant: true, language: this.lang, ownerName: this.ctx.ownerName }),
     });
     at.addGrant({ room: this.input.callId, roomJoin: true, canPublish: true, canSubscribe: true, canPublishData: true });
     const room = new Room();
@@ -182,11 +193,18 @@ class AssistantCall {
     room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: unknown, participant: RemoteParticipant) => {
       if (participant.identity === this.input.callerIdentity && track instanceof RemoteAudioTrack) void this.listen(track);
     });
+    // The owner picked up after all (or tapped Accept just as it answered): step aside, don't hang up.
+    room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+      if (participant.identity === String(this.input.calleeUserId)) void this.finish("owner joined", false);
+    });
     room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
       if (participant.identity === this.input.callerIdentity) void this.finish("caller hung up", false);
     });
     room.on(RoomEvent.Disconnected, () => void this.finish("room closed", false));
     await room.connect(url, await at.toJwt(), { autoSubscribe: true, dynacast: false });
+    if (Array.from(room.remoteParticipants.values()).some((p) => p.identity === String(this.input.calleeUserId))) {
+      throw new Error("OWNER_ALREADY_IN_CALL");
+    }
     this.source = new AudioSource(PCM_RATE, 1, 200);
     const track = LocalAudioTrack.createAudioTrack("assistant-voice", this.source);
     const options = new TrackPublishOptions();
@@ -271,7 +289,7 @@ class AssistantCall {
             importance = coalesce(importance, 'normal'),
             replies = greatest(replies, 1)
           WHERE id = ${this.session.id} RETURNING *`))[0];
-        if (s && this.session.status === "open") {
+        if (s && this.session.status === "open" && why !== "owner joined") {
           const { sendPushNotification } = await import("./firebase-admin");
           const targets = this.input.owner.kind === "personal" ? [this.input.owner.ownerId] : (await db.select({ id: users.id }).from(users).where(eq(users.organizationId, this.input.owner.ownerId))).map((u) => u.id);
           for (const uid of targets.slice(0, 20)) {
