@@ -58,8 +58,15 @@ export async function scheduleAssistantForCall(input: { callId: string; calleeUs
   try {
     if (input.isGroup || pending.has(input.callId)) return;
     const owner = await assistantOwnerForCallee(input.calleeUserId);
-    if (!owner) return;
+    if (!owner) {
+      // Say why, so a missed answer can be explained (no names or numbers here).
+      const s = await settingsOf("personal", input.calleeUserId);
+      const why = !s.enabled ? "assistant off" : !s.callsEnabled ? "calls off" : "no trial/plan minutes left";
+      logger.warn("AssistantCall", `${input.callId}: assistant not armed (${why})`);
+      return;
+    }
     const delayMs = (owner.busy ? 3 : owner.ringSeconds) * 1000;
+    logger.warn("AssistantCall", `${input.callId}: assistant armed (${owner.kind}, answers in ${delayMs / 1000}s${owner.busy ? ", busy" : ""})`);
     pending.set(input.callId, setTimeout(() => {
       pending.delete(input.callId);
       void answerWithAssistant({ ...input, owner, reason: owner.busy ? "busy" : "no_answer" });
@@ -78,19 +85,26 @@ export function cancelScheduledAssistant(callId: string): void {
 async function answerWithAssistant(input: { callId: string; calleeUserId: number; callerIdentity: string; callerLanguage: string; owner: Owner; reason: string }): Promise<boolean> {
   const svc = await import("./modules/calls/service");
   const call = await svc.getSmartCall(input.callId);
-  if (!call || call.status !== "ringing") return false;
+  if (!call || call.status !== "ringing") {
+    logger.warn("AssistantCall", `${input.callId}: not answering, call is ${call ? call.status : "gone"} (picked up or hung up first)`);
+    return false;
+  }
   // The owner may already be in the call (answered a moment ago): never talk over them.
   if (!assistantTestMode()) {
     try {
       const { listParticipants } = await import("./livekit-service");
       const people = await listParticipants(input.callId);
-      if (people.some((p) => p.identity === String(input.calleeUserId))) return false;
+      if (people.some((p) => p.identity === String(input.calleeUserId))) {
+        logger.warn("AssistantCall", `${input.callId}: not answering, the owner already joined`);
+        return false;
+      }
     } catch { /* room not created yet: nobody has joined */ }
   }
+  logger.warn("AssistantCall", `${input.callId}: answering (${input.reason})`);
   try {
     await svc.updateSmartCallStatus(input.callId, "answered" as any, { answeredBy: "assistant", assistantReason: input.reason } as any);
   } catch (error) {
-    logger.info("AssistantCall", `call ${input.callId} could not be answered by the assistant: ${String(error)}`);
+    logger.warn("AssistantCall", `call ${input.callId} could not be answered by the assistant: ${String(error)}`);
     return false;
   }
   const session = new AssistantCall(input);
@@ -308,7 +322,7 @@ class AssistantCall {
       const svc = await import("./modules/calls/service");
       await svc.endCallById(this.input.callId, "assistant_completed").catch(() => undefined);
     }
-    logger.info("AssistantCall", `assistant finished ${this.input.callId} after ${seconds}s (${why})`);
+    logger.warn("AssistantCall", `assistant finished ${this.input.callId} after ${seconds}s (${why})`);
   }
 
   private fallbackSummary(why: string): string {

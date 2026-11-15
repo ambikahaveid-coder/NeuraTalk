@@ -93,7 +93,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
   String _busyLabel() {
     final until = DateTime.tryParse('${_s['busyUntil'] ?? ''}')?.toLocal();
     if (until == null || until.isBefore(DateTime.now())) return 'Not busy';
-    return 'Busy until ${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
+    // Same day: "Busy until 14:30"; past midnight: "Busy until tomorrow 02:30".
+    final now = DateTime.now();
+    final day = until.day == now.day && until.month == now.month ? '' : 'tomorrow ';
+    return 'Busy until $day${until.hour.toString().padLeft(2, '0')}:${until.minute.toString().padLeft(2, '0')}';
   }
 
   Future<void> _pay() async {
@@ -197,7 +200,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                         child: Wrap(spacing: 8, runSpacing: 8, children: [
                           for (final (label, mins) in [('30 min', 30), ('1 hour', 60), ('2 hours', 120), ('Until tonight', 8 * 60)])
                             ActionChip(label: Text(label), onPressed: () => _busy(mins)),
-                          ActionChip(label: const Text("I'm back"), onPressed: () => _busy(0)),
+                          // Only while busy: "I'm back" means nothing when you aren't.
+                          if (_busyLabel() != 'Not busy')
+                            ActionChip(
+                              avatar: Icon(Icons.check_circle_outline, size: 18, color: AppColors.green),
+                              label: const Text("I'm back"),
+                              onPressed: () => _busy(0),
+                            ),
                         ]),
                       ),
                       SwitchListTile(
