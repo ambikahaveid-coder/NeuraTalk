@@ -88,8 +88,8 @@ async function shareStatusPhoto(authorId: number, objectPath: string, audience: 
 
 const postSchema = z.object({
   kind: z.enum(["text", "photo", "video"]),
-  // Videos: up to 30 seconds (like WhatsApp), sent by the app after trimming.
-  durationSeconds: z.number().int().min(0).max(30).optional(),
+  // Videos: the app keeps the first 30 seconds (like WhatsApp); viewers play at most 30 s.
+  durationSeconds: z.number().int().min(0).max(3600).optional(),
   text: z.string().trim().max(700).optional(),
   mediaUrl: z.string().trim().max(2000).optional(),
   background: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),

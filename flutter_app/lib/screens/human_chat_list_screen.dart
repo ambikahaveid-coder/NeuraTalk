@@ -15,6 +15,7 @@ import '../services/contact_resolver.dart';
 import '../widgets/chat_lock.dart';
 import '../widgets/chat_wallpaper.dart';
 import 'chat_parity_screens.dart';
+import '../widgets/assistant_chat_card.dart';
 
 /// Real human-to-human conversations (server/personal-chat-routes.ts).
 /// This is the "Chat" bottom-nav tab. NEURA AI (the existing assistant,
@@ -34,6 +35,10 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
   bool _showArchived = false;
   bool _showLocked = false;
   String _query = '';
+  final _assistantCard = GlobalKey<AssistantChatCardState>();
+
+  /// The AI assistant card shows in the personal app's Chats (not the business app's personal chats).
+  bool get _showAssistant => widget.title == 'Chats' && !_showArchived && !_showLocked && _query.isEmpty;
 
   void _onLock() {
     if (!mounted) return;
@@ -255,7 +260,9 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               child: const Icon(Icons.add_comment_outlined),
             ),
       body: RefreshIndicator(
-        onRefresh: provider.loadThreads,
+        onRefresh: () async {
+          await Future.wait([provider.loadThreads(), _assistantCard.currentState?.reload() ?? Future.value()]);
+        },
         color: AppColors.cyan,
         child: provider.loadingThreads && provider.threads.isEmpty
             ? Center(child: CircularProgressIndicator(color: AppColors.cyan))
@@ -285,6 +292,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
                               ),
                             ),
                           ),
+                          if (_showAssistant) AssistantChatCard(key: _assistantCard),
                           if (!_showArchived && !_showLocked && ChatLock.instance.count > 0 && _query.isEmpty)
                             ListTile(
                               leading: CircleAvatar(backgroundColor: AppColors.blueTint, child: Icon(Icons.lock_outline, color: AppColors.cyan)),
@@ -315,7 +323,10 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         child: ConstrainedBox(
           constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Center(
+          child: Column(children: [
+            if (_showAssistant) Padding(padding: const EdgeInsets.only(top: 8), child: AssistantChatCard(key: _assistantCard)),
+            SizedBox(height: _showAssistant ? 40 : constraints.maxHeight * 0.22),
+            Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -337,6 +348,7 @@ class _HumanChatListScreenState extends State<HumanChatListScreen> {
               ],
             ),
           ),
+          ]),
         ),
       ),
     );

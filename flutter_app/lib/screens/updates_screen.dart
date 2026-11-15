@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:video_compress/video_compress.dart';
 import 'package:video_player/video_player.dart';
 
 import '../providers/auth_provider.dart';
@@ -109,7 +110,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       builder: (sheet) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           ListTile(leading: Icon(Icons.photo_outlined, color: AppColors.cyan), title: const Text('Photo'), onTap: () => Navigator.pop(sheet, 'photo')),
-          ListTile(leading: Icon(Icons.videocam_outlined, color: AppColors.cyan), title: const Text('Video (up to 30 seconds)'), onTap: () => Navigator.pop(sheet, 'video')),
+          ListTile(leading: Icon(Icons.videocam_outlined, color: AppColors.cyan), title: const Text('Video'), subtitle: const Text('Any length · the first 30 seconds are shared'), onTap: () => Navigator.pop(sheet, 'video')),
         ]),
       ),
     );
@@ -671,31 +672,58 @@ class PhotoStatusComposer extends StatefulWidget {
   State<PhotoStatusComposer> createState() => _PhotoStatusComposerState();
 }
 
-/// Pick a video for a status: up to 30 seconds, like WhatsApp. Returns null (and says why) otherwise.
+/// Pick a video for a status, like WhatsApp: any length; the first 30 seconds
+/// are kept and the video is made small (about 3–6 MB) on the phone, so it
+/// uploads fast and plays at once for everyone.
 Future<(File, String, int)?> pickStatusVideo(BuildContext context) async {
-  final picked = await ImagePicker().pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 30));
-  if (picked == null) return null;
-  final file = File(picked.path);
-  final probe = VideoPlayerController.file(file);
+  final picked = await ImagePicker().pickVideo(source: ImageSource.gallery);
+  if (picked == null || !context.mounted) return null;
+  final progress = ValueNotifier<double>(0);
+  final sub = VideoCompress.compressProgress$.subscribe((p) => progress.value = (p / 100).clamp(0, 1).toDouble());
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => PopScope(
+      canPop: false,
+      child: AlertDialog(
+        content: ValueListenableBuilder<double>(
+          valueListenable: progress,
+          builder: (_, v, __) => Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Preparing your video…', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 14),
+            LinearProgressIndicator(value: v > 0 ? v : null, color: AppColors.cyan),
+            const SizedBox(height: 8),
+            Text(v > 0 ? '${(v * 100).round()}%' : 'Keeping the first 30 seconds', style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+          ]),
+        ),
+      ),
+    ),
+  );
   try {
+    final original = File(picked.path);
+    final probe = VideoPlayerController.file(original);
     await probe.initialize();
-    final secs = probe.value.duration.inMilliseconds / 1000;
-    if (secs > 30.9) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a video up to 30 seconds long.')));
-      }
-      return null;
-    }
-    if (await file.length() > 50 * 1024 * 1024) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That video is too big (over 50 MB).')));
-      return null;
-    }
-    return (file, picked.name, secs.ceil().clamp(1, 30));
+    final total = probe.value.duration.inMilliseconds / 1000;
+    await probe.dispose();
+    final keep = total > 30 ? 30 : total.ceil();
+    final info = await VideoCompress.compressVideo(
+      picked.path,
+      quality: VideoQuality.Res960x540Quality,
+      deleteOrigin: false,
+      includeAudio: true,
+      startTime: 0,
+      duration: total > 30 ? 30 : null,
+    );
+    final out = info?.file;
+    if (out == null || !await out.exists() || await out.length() == 0) throw Exception('compress failed');
+    if (await out.length() > 60 * 1024 * 1024) throw Exception('too big');
+    return (out, 'status-${DateTime.now().millisecondsSinceEpoch}.mp4', keep.clamp(1, 30).toInt());
   } catch (_) {
-    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't open that video.")));
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't prepare that video. Try another one.")));
     return null;
   } finally {
-    await probe.dispose();
+    sub.unsubscribe();
+    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
   }
 }
 
