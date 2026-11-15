@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getAuthToken } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { serverMessage } from "@/lib/server-message";
-import { ContactCard, LocationRequestButton, MessageButtons, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
+import { ContactCard, effectivePrice, LocationRequestButton, PriceTag, MessageButtons, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
 
 /**
  * P1-3 / P1-3A / P1-4: smallest production-quality consumer UI for
@@ -92,14 +92,66 @@ interface BusinessMessage {
   /** The message in my language (business messages), original kept in `content`. */
   translatedContent?: string | null;
   attachments?: Array<{ type: string; url: string; mimeType: string | null; sizeBytes: number | null }>;
-  metadata?: ({ products?: Array<{ id: number; name: string; description?: string | null; pricePaise: number | null; imageUrl: string | null }> } & ExtrasMeta) | null;
+  metadata?: ({ products?: Array<{ id: number; name: string; description?: string | null; pricePaise: number | null; salePricePaise?: number | null; imageUrl: string | null }> } & ExtrasMeta) | null;
 }
 
 interface PublicProfile {
   id: number; name: string; slug: string; logoUrl: string | null; description: string | null;
   category: string | null; city: string | null; website: string | null; verified: boolean; openNow: boolean;
+  about?: string | null; websites?: string[]; email?: string | null; address?: string | null;
+  hours?: Record<string, { open: string; close: string } | null> | null;
 }
-interface CatalogItem { id: number; name: string; description: string | null; pricePaise: number | null; imageUrl: string | null }
+
+/** "21:30" -> "9:30 PM" (as the app shows it). */
+const ampm = (t: string) => { const [h = 0, m = "00"] = [Number(t.split(":")[0]), t.split(":")[1]]; return `${h % 12 === 0 ? 12 : h % 12}:${m ?? "00"} ${h < 12 ? "AM" : "PM"}`; };
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/** "Business info", like WhatsApp: about line, description, address, hours, websites, email. */
+function BusinessInfoDialog({ open, onOpenChange, profile, logoUrl }: { open: boolean; onOpenChange: (v: boolean) => void; profile: PublicProfile; logoUrl?: string | null }) {
+  const websites = profile.websites ?? (profile.website ? [profile.website] : []);
+  const hours = profile.hours ?? null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto" data-testid="dialog-business-info">
+        <DialogHeader><DialogTitle className="sr-only">Business info</DialogTitle></DialogHeader>
+        <div className="flex flex-col items-center text-center gap-1">
+          {logoUrl ? <img src={logoUrl} alt="" className="w-24 h-24 rounded-full object-cover" /> : <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center"><Building2 className="w-10 h-10 text-muted-foreground" /></div>}
+          <p className="text-xl font-bold flex items-center gap-1 mt-2">{profile.name}{profile.verified && <BadgeCheck className="w-5 h-5 text-primary" aria-label="Verified business" />}</p>
+          {profile.category && <p className="text-sm text-muted-foreground">{profile.category}</p>}
+          {profile.about && <p className="text-sm">{profile.about}</p>}
+          <p className={cn("text-xs", profile.verified ? "text-primary" : "text-muted-foreground")}>
+            {profile.verified ? "Verified business — NeuraTalk checked this business" : "Business account — not verified by NeuraTalk yet"}
+          </p>
+        </div>
+        <div className="divide-y text-sm">
+          {profile.description && <p className="py-3 whitespace-pre-wrap">{profile.description}</p>}
+          {(profile.address || profile.city) && (
+            <a className="flex items-start gap-2 py-3 hover:underline" target="_blank" rel="noopener noreferrer"
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${profile.name} ${profile.address ?? profile.city}`)}`}>
+              <MapPin className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />{profile.address ?? profile.city}
+            </a>
+          )}
+          <div className="py-3">
+            <p className={cn("font-medium", profile.openNow ? "text-green-600" : "text-orange-600")}>{profile.openNow ? "Open now" : "Closed now"}</p>
+            {hours && Object.keys(hours).length > 0 && (
+              <ul className="mt-1 text-muted-foreground text-xs space-y-0.5">
+                {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                  const h = hours[String(d)];
+                  return <li key={d}>{DAYS[d]}: {h ? `${ampm(h.open)} – ${ampm(h.close)}` : "Closed"}</li>;
+                })}
+              </ul>
+            )}
+          </div>
+          {websites.map((w) => (
+            <a key={w} href={w} target="_blank" rel="noopener noreferrer" className="block py-3 text-primary hover:underline truncate">{w.replace(/^https?:\/\//, "")}</a>
+          ))}
+          {profile.email && <a href={`mailto:${profile.email}`} className="block py-3 text-primary hover:underline">{profile.email}</a>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+interface CatalogItem { id: number; name: string; description: string | null; pricePaise: number | null; salePricePaise?: number | null; link?: string | null; imageUrl: string | null }
 
 const rupees = (paise: number | null) => (paise == null ? "Price on request" : `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`);
 
@@ -416,6 +468,7 @@ export default function BusinessChatPage() {
   });
   const catalog = catalogQuery.data?.items ?? [];
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const { uploadFile, isUploading } = useUpload();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -457,7 +510,7 @@ export default function BusinessChatPage() {
             <ArrowLeft className="w-5 h-5" />
           </Button>
         </a>
-        <div className="min-w-0 flex items-center gap-2">
+        <button type="button" className="min-w-0 flex items-center gap-2 text-left rounded-md hover:bg-muted/60 px-1 -mx-1" onClick={() => profile && setInfoOpen(true)} aria-label="Business info" data-testid="button-business-info">
           {identityQuery.data?.business?.logoUrl ? (
             <img
               src={identityQuery.data.business.logoUrl}
@@ -478,7 +531,8 @@ export default function BusinessChatPage() {
               </div>
             )}
           </div>
-        </div>
+        </button>
+        {profile && <BusinessInfoDialog open={infoOpen} onOpenChange={setInfoOpen} profile={profile} logoUrl={identityQuery.data?.business?.logoUrl} />}
         <div className="ml-auto flex items-center gap-1 shrink-0">
           {catalog.length > 0 && (
             <Button variant="ghost" size="icon" onClick={() => setCatalogOpen(true)} aria-label="Catalog" data-testid="button-business-catalog">
@@ -545,8 +599,8 @@ export default function BusinessChatPage() {
                               <div className="flex h-24 items-center justify-center bg-muted text-3xl">{p.imageUrl ? <img src={p.imageUrl} alt="" className="h-24 w-full object-cover" /> : "🛍️"}</div>
                               <div className="space-y-1 p-2">
                                 <p className="truncate text-sm font-medium">{p.name}</p>
-                                <p className="text-sm text-muted-foreground">{rupees(p.pricePaise)}</p>
-                                <Button size="sm" variant="outline" className="w-full" onClick={() => setMessageInput(`Hi, I am interested in ${p.name} (${rupees(p.pricePaise)}).`)}>
+                                <p className="text-sm text-muted-foreground"><PriceTag item={p} /></p>
+                                <Button size="sm" variant="outline" className="w-full" onClick={() => setMessageInput(`Hi, I am interested in ${p.name} (${rupees(effectivePrice(p))}).`)}>
                                   Ask about this
                                 </Button>
                               </div>
@@ -687,13 +741,14 @@ export default function BusinessChatPage() {
                 )}
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{item.name}</p>
-                  <p className="text-sm text-primary">{rupees(item.pricePaise)}</p>
+                  <p className="text-sm text-primary"><PriceTag item={item} /></p>
+                  {item.link && <a href={item.link} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">More details</a>}
                   {item.description && <p className="text-xs text-muted-foreground line-clamp-2">{item.description}</p>}
                   <Button
                     size="sm"
                     variant="outline"
                     className="mt-2"
-                    onClick={() => { setMessageInput(`Hi, I am interested in ${item.name} (${rupees(item.pricePaise)}).`); setCatalogOpen(false); }}
+                    onClick={() => { setMessageInput(`Hi, I am interested in ${item.name} (${rupees(effectivePrice(item))}).`); setCatalogOpen(false); }}
                   >
                     Ask about this
                   </Button>

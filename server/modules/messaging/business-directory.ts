@@ -7,6 +7,7 @@
  *    with opening hours, quick replies
  * Settings live in organizations.settings[BUSINESS_MESSAGING_SETTINGS_KEY].
  */
+import { profileExtrasOf } from "../business-profile/service";
 import { z } from "zod";
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "../../db";
@@ -74,6 +75,10 @@ export interface PublicBusinessProfile {
   /** Street address + city, for the business info page. */
   address: string | null;
   website: string | null;
+  /** Like WhatsApp's profile: a short "About" line, up to two websites, the contact email. */
+  about: string | null;
+  websites: string[];
+  email: string | null;
   /** Blue tick: a NeuraTalk admin checked this business (not just signed up). */
   verified: boolean;
   openNow: boolean;
@@ -91,6 +96,7 @@ const publicColumns = {
   addressState: organizations.addressState,
   address: organizations.address,
   website: organizations.website,
+  email: organizations.email,
   verifiedAt: organizations.verifiedAt,
   status: organizations.status,
   isActive: organizations.isActive,
@@ -99,7 +105,7 @@ const publicColumns = {
 
 type PublicRow = { [K in keyof typeof publicColumns]: unknown } & {
   id: number; name: string; slug: string; logoUrl: string | null; description: string | null; industry: string | null;
-  addressCity: string | null; addressState: string | null; address: string | null; website: string | null;
+  addressCity: string | null; addressState: string | null; address: string | null; website: string | null; email: string | null;
   verifiedAt: Date | null; status: string | null; isActive: boolean | null;
 };
 
@@ -115,6 +121,9 @@ function toPublic(row: PublicRow): PublicBusinessProfile {
     city: [row.addressCity, row.addressState].filter(Boolean).join(", ") || null,
     address: [row.address, row.addressCity, row.addressState].filter(Boolean).join(", ") || null,
     website: row.website,
+    about: profileExtrasOf(row.settings).about ?? null,
+    websites: [row.website, profileExtrasOf(row.settings).website2].filter((w): w is string => Boolean(w && String(w).trim())),
+    email: row.email,
     verified: Boolean(row.verifiedAt) && row.status === "approved",
     openNow: isWithinOpeningHours(settings),
     hours: settings.away.hours,

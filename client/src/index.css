@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Telugu:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Tamil:wght@400;600;700&family=Noto+Sans+Kannada:wght@400;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -65,9 +65,9 @@
 
   --radius: 1rem;
   
-  /* Modern Typography - Inter for UI, Outfit for Display */
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Outfit', system-ui, sans-serif;
+  /* One typeface everywhere (web, dashboard, apps): Inter */
+  --font-sans: 'Inter', 'Noto Sans Telugu', 'Noto Sans Devanagari', 'Noto Sans Tamil', 'Noto Sans Kannada', system-ui, sans-serif;
+  --font-display: var(--font-sans);
 }
 
 /* NeuraTalk dark theme (brand navy + blue). Every page follows the person's light/dark choice. */

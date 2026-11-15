@@ -507,7 +507,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
   int get _cartCount => _cart.values.fold(0, (a, b) => a + b);
   int get _cartTotal => _cart.entries.fold(0, (sum, e) {
         final item = _catalog.firstWhere((c) => (c['id'] as num?)?.toInt() == e.key, orElse: () => const {});
-        return sum + ((item['pricePaise'] as num?)?.toInt() ?? 0) * e.value;
+        return sum + (effectivePricePaise(item) ?? 0) * e.value;
       });
 
   Future<void> _placeOrder(String note) async {
@@ -637,8 +637,11 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                                 ? SizedBox(width: 52, height: 52, child: ChatImageAttachment(objectPath: item['imageUrl'] as String, name: item['name']?.toString() ?? 'item'))
                                 : Icon(Icons.shopping_bag_outlined, color: AppColors.cyan),
                             title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
-                            subtitle: Text([_rupees(item['pricePaise']), if (item['description'] != null) item['description']].join('\n'),
-                                maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary)),
+                            subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                              PriceTag(item: item, fontSize: 14),
+                              if (item['description'] != null)
+                                Text('${item['description']}', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.textSecondary)),
+                            ]),
                             isThreeLine: item['description'] != null,
                             trailing: qty == 0
                                 ? Row(mainAxisSize: MainAxisSize.min, children: [
@@ -646,7 +649,7 @@ class _BusinessChatScreenState extends State<BusinessChatScreen> {
                                       tooltip: 'Ask about this',
                                       icon: Icon(Icons.chat_bubble_outline, color: AppColors.textSecondary, size: 20),
                                       onPressed: () {
-                                        _input.text = 'Hi, I am interested in ${item['name']} (${_rupees(item['pricePaise'])}).';
+                                        _input.text = 'Hi, I am interested in ${item['name']} (${_rupees(effectivePricePaise(item))}).';
                                         Navigator.pop(sheet);
                                       },
                                     ),
@@ -1280,7 +1283,12 @@ class BusinessInfoScreen extends StatelessWidget {
     final verified = p['verified'] == true;
     final hours = (p['hours'] as Map?) ?? const {};
     final openNow = p['openNow'] == true || hours.isEmpty;
-    final website = p['website']?.toString();
+    // Up to two websites (like WhatsApp); older servers send just "website".
+    final websites = <String>[
+      for (final w in (p['websites'] as List? ?? [p['website']])) if (w != null && '$w'.trim().isNotEmpty) '$w',
+    ];
+    final email = p['email']?.toString();
+    final tagline = p['about']?.toString();
     final address = (p['address'] ?? p['city'])?.toString();
     final about = p['description']?.toString();
     final category = _cap(p['category']);
@@ -1299,6 +1307,11 @@ class BusinessInfoScreen extends StatelessWidget {
           ]),
         ),
         if (category != null) Center(child: Text(category, style: TextStyle(color: AppColors.textSecondary))),
+        if (tagline != null && tagline.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+            child: Text(tagline, textAlign: TextAlign.center, style: TextStyle(color: AppColors.ink, fontSize: 14.5)),
+          ),
         const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1335,11 +1348,17 @@ class BusinessInfoScreen extends StatelessWidget {
               : Text([for (var d = 1; d <= 7; d++) _dayLine(hours, d % 7)].join('\n'),
                   style: TextStyle(color: AppColors.textSecondary, height: 1.5)),
         ),
-        if (website != null && website.isNotEmpty)
+        for (final website in websites)
           ListTile(
             leading: const Icon(Icons.language),
-            title: Text(website, style: TextStyle(color: AppColors.cyan)),
+            title: Text(website.replaceFirst(RegExp(r'^https?://'), ''), style: TextStyle(color: AppColors.cyan)),
             onTap: () => launchUrl(Uri.parse(website), mode: LaunchMode.externalApplication),
+          ),
+        if (email != null && email.trim().isNotEmpty)
+          ListTile(
+            leading: const Icon(Icons.email_outlined),
+            title: Text(email, style: TextStyle(color: AppColors.cyan)),
+            onTap: () => launchUrl(Uri(scheme: 'mailto', path: email), mode: LaunchMode.externalApplication),
           ),
         if (onCatalog != null)
           ListTile(

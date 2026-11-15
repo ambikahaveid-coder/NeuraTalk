@@ -10,6 +10,36 @@ String productPrice(Object? paise) {
   return '₹${v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2)}';
 }
 
+/// The price a customer pays: the sale price when there is one.
+int? effectivePricePaise(Map item) => ((item['salePricePaise'] ?? item['pricePaise']) as num?)?.toInt();
+
+/// "₹499 ₹699" with the old price struck through when on sale (like WhatsApp's catalog).
+class PriceTag extends StatelessWidget {
+  const PriceTag({super.key, required this.item, this.fontSize = 13, this.color});
+  final Map item;
+  final double fontSize;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final sale = item['salePricePaise'];
+    final price = item['pricePaise'];
+    if (sale == null || price == null) {
+      return Text(productPrice(price), maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: color ?? AppColors.textSecondary, fontSize: fontSize));
+    }
+    return Text.rich(
+      TextSpan(children: [
+        TextSpan(text: productPrice(sale), style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w700, fontSize: fontSize)),
+        const TextSpan(text: '  '),
+        TextSpan(text: productPrice(price), style: TextStyle(color: AppColors.textMuted, fontSize: fontSize - 1, decoration: TextDecoration.lineThrough)),
+      ]),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
 /// Product cards a business sent (message type "product"): photo, name, price.
 /// [onAdd] adds one to the customer's order; null on the business's side.
 class ProductCardsView extends StatelessWidget {
@@ -56,8 +86,7 @@ class ProductCardsView extends StatelessWidget {
                       child: Text('${p['name'] ?? ''}', maxLines: 2, overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 13.5)),
                     ),
-                    Text(productPrice(p['pricePaise']), maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                    PriceTag(item: p),
                   ]),
                 ),
               ),

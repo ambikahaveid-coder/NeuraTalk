@@ -29,6 +29,8 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
   late final TextEditingController _city;
   late final TextEditingController _email;
   late final TextEditingController _website;
+  late final TextEditingController _website2;
+  late final TextEditingController _tagline;
   String? _category;
   bool _saving = false;
   bool _uploading = false;
@@ -44,13 +46,15 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
     _city = TextEditingController(text: t('city'));
     _email = TextEditingController(text: t('email'));
     _website = TextEditingController(text: t('website'));
+    _website2 = TextEditingController(text: t('website2'));
+    _tagline = TextEditingController(text: t('about'));
     final cat = b['category']?.toString();
     _category = cat != null && cat.isNotEmpty ? cat : null;
   }
 
   @override
   void dispose() {
-    for (final c in [_name, _about, _address, _city, _email, _website]) {
+    for (final c in [_name, _about, _address, _city, _email, _website, _website2, _tagline]) {
       c.dispose();
     }
     super.dispose();
@@ -76,8 +80,11 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
     if (!(_form.currentState?.validate() ?? false) || _saving) return;
     final account = context.read<BusinessAccount>();
     setState(() => _saving = true);
-    var website = _website.text.trim();
-    if (website.isNotEmpty && !website.startsWith('http')) website = 'https://$website';
+    String url(String raw) {
+      final w = raw.trim();
+      return w.isNotEmpty && !w.startsWith('http') ? 'https://$w' : w;
+    }
+    final website = url(_website.text);
     try {
       await ApiService.patch('${account.base}/profile', {
         'name': _name.text.trim(),
@@ -87,6 +94,8 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
         'addressCity': _city.text.trim(),
         if (_email.text.trim().isNotEmpty) 'email': _email.text.trim(),
         'website': website,
+        'website2': url(_website2.text),
+        'about': _tagline.text.trim(),
       });
       await account.load();
       if (mounted) {
@@ -150,12 +159,18 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
               onChanged: (v) => setState(() => _category = v),
             ),
             const SizedBox(height: 16),
+            // Like WhatsApp: a one-line "About" under the name, and a longer description.
+            TextFormField(
+              controller: _tagline,
+              maxLength: 139,
+              decoration: const InputDecoration(labelText: 'About (one line)', hintText: 'Fresh tiffins · Home delivery till 10 pm'),
+            ),
             TextFormField(
               controller: _about,
-              maxLength: 500,
+              maxLength: 512,
               minLines: 2,
               maxLines: 5,
-              decoration: const InputDecoration(labelText: 'About', hintText: 'What you offer, delivery, timings…'),
+              decoration: const InputDecoration(labelText: 'Description', hintText: 'What you offer, delivery, timings…'),
             ),
             TextFormField(controller: _address, decoration: const InputDecoration(labelText: 'Address')),
             const SizedBox(height: 16),
@@ -164,7 +179,7 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
             TextFormField(
               controller: _email,
               keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'Email (optional)'),
+              decoration: const InputDecoration(labelText: 'Email (optional)', helperText: 'Customers can see it on your profile'),
               validator: (v) {
                 final t = (v ?? '').trim();
                 return t.isEmpty || RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(t) ? null : 'Enter a valid email';
@@ -175,6 +190,12 @@ class _BusinessProfileScreenState extends State<BusinessProfileScreen> {
               controller: _website,
               keyboardType: TextInputType.url,
               decoration: const InputDecoration(labelText: 'Website (optional)', hintText: 'www.example.com'),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _website2,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'Second website (optional)', hintText: 'instagram.com/yourshop'),
             ),
             const SizedBox(height: 16),
             Row(children: [

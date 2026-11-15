@@ -144,7 +144,8 @@ export function registerOrderRoutes(app: Express): void {
       const unavailable = Array.from(wanted.keys()).filter((id) => !catalog.some((c) => c.id === id && c.isAvailable));
       if (unavailable.length) return res.status(409).json({ success: false, error: "Some items are no longer available. Refresh the catalog." });
 
-      const items: OrderItem[] = catalog.map((c) => ({ itemId: c.id, name: c.name, quantity: wanted.get(c.id)!, pricePaise: c.pricePaise ?? null }));
+      // The price customers saw: the sale price when there is one.
+      const items: OrderItem[] = catalog.map((c) => ({ itemId: c.id, name: c.name, quantity: wanted.get(c.id)!, pricePaise: c.salePricePaise ?? c.pricePaise ?? null }));
       const total = items.reduce((sum, i) => sum + (i.pricePaise ?? 0) * i.quantity, 0);
       const unpriced = items.some((i) => i.pricePaise == null);
 

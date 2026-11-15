@@ -19,6 +19,7 @@
  * fix and submit again. Changing the name later removes the tick
  * (business-profile/service.ts).
  */
+import { profileExtrasOf } from "../business-profile/service";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -241,8 +242,10 @@ export function registerBusinessVerificationRoutes(app: Express): void {
 
   app.get("/api/admin/verification-requests", ...admin, async (req: Request, res: Response) => {
     const status = ["pending", "approved", "rejected", "all"].includes(String(req.query.status)) ? String(req.query.status) : "pending";
-    const list = rows<RequestRow & { org_name: string; org_logo: string | null; org_phone: string | null; org_email: string | null; verified_at: Date | null; submitter: string | null }>(await db.execute(sql`
+    const list = rows<RequestRow & { org_name: string; org_logo: string | null; org_phone: string | null; org_email: string | null; verified_at: Date | null; submitter: string | null;
+      org_industry: string | null; org_description: string | null; org_website: string | null; org_address: string | null; org_city: string | null; org_settings: unknown }>(await db.execute(sql`
       SELECT r.*, o.name AS org_name, o.logo_url AS org_logo, o.phone AS org_phone, o.email AS org_email, o.verified_at,
+             o.industry AS org_industry, o.description AS org_description, o.website AS org_website, o.address AS org_address, o.address_city AS org_city, o.settings AS org_settings,
              COALESCE(NULLIF(u.display_name, ''), u.username, u.phone) AS submitter
       FROM business_verification_requests r
       JOIN organizations o ON o.id = r.business_id
@@ -256,7 +259,13 @@ export function registerBusinessVerificationRoutes(app: Express): void {
         ...presentForBusiness(r),
         panNumber: r.pan_number, // the reviewer checks the full number against the card
         businessDocNumber: r.business_doc_number,
-        business: { id: r.business_id, name: r.org_name, logoUrl: r.org_logo, phone: r.org_phone, email: r.org_email, verified: Boolean(r.verified_at) },
+        // The whole public profile, so the reviewer can check the name against the website and address.
+        business: {
+          id: r.business_id, name: r.org_name, logoUrl: r.org_logo, phone: r.org_phone, email: r.org_email, verified: Boolean(r.verified_at),
+          category: r.org_industry, description: r.org_description, about: profileExtrasOf(r.org_settings).about,
+          websites: [r.org_website, profileExtrasOf(r.org_settings).website2].filter(Boolean),
+          address: [r.org_address, r.org_city].filter(Boolean).join(", ") || null,
+        },
         submittedBy: r.submitter,
         files: (r.files ?? []).map((f, index) => ({ index, kind: f.kind, kindLabel: FILE_KINDS[f.kind] ?? f.kind, name: f.name, mimeType: f.mimeType, sizeBytes: f.sizeBytes })),
       })),

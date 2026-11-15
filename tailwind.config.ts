@@ -83,11 +83,11 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["'Inter'", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)"],
         serif: ["var(--font-serif)"],
         mono: ["var(--font-mono)"],
-        display: ["'Inter'", "system-ui", "sans-serif"],
-        body: ["'Inter'", "system-ui", "sans-serif"],
+        display: ["var(--font-sans)"],
+        body: ["var(--font-sans)"],
       },
       keyframes: {
         "accordion-down": {

@@ -1565,7 +1565,32 @@ interface BusinessProfileData {
   addressPostalCode: string | null;
   logoUrl: string | null;
   status: string | null;
+  about: string | null;
+  website2: string | null;
 }
+/** Same list as the server (BUSINESS_CATEGORIES) and the Business app, so customers can filter by it. */
+const BUSINESS_CATEGORIES = [
+  "Shopping & retail", "Food & restaurant", "Grocery", "Clothing & fashion", "Beauty, spa & salon",
+  "Health & medical", "Education", "Automotive", "Travel & transport", "Hotel & lodging",
+  "Finance & banking", "Professional services", "Real estate", "Home services", "Electronics",
+  "Event planning", "Entertainment", "Non-profit", "Public service", "Other",
+];
+
+/** Only the editable fields, and never null: an empty email or website used to make the save fail. */
+function profilePatch(form: Partial<BusinessProfileData>): Record<string, string> {
+  const keys = ["name", "legalBusinessName", "description", "industry", "website", "website2", "email", "phone", "address", "addressCity", "addressState", "addressCountry", "addressPostalCode", "about"] as const;
+  const out: Record<string, string> = {};
+  for (const k of keys) {
+    const v = form[k];
+    if (v === null || v === undefined) continue;
+    const t = String(v).trim();
+    if (k === "email" && !t) continue;
+    if ((k === "website" || k === "website2") && t && !/^https?:\/\//i.test(t)) { out[k] = `https://${t}`; continue; }
+    out[k] = t;
+  }
+  return out;
+}
+
 interface BusinessBrandingData {
   primaryColor?: string;
   secondaryColor?: string;
@@ -1759,7 +1784,7 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">Business Profile</CardTitle>
-          <CardDescription>Who is this business? Shown to your team and used across billing, invoices, and support.</CardDescription>
+          <CardDescription>What customers see on your NeuraTalk profile. The same profile as in the NeuraTalk Business app — a change here shows there too.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1767,22 +1792,47 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
             {field("legalBusinessName", "Legal Business Name")}
           </div>
           <div>
+            <label className="text-xs text-muted-foreground">About (one line under your name, up to 139 characters)</label>
+            <Input
+              value={form.about ?? ""}
+              maxLength={139}
+              placeholder="Fresh tiffins · Home delivery till 10 pm"
+              onChange={(e) => setForm((f) => ({ ...f, about: e.target.value }))}
+              data-testid="input-profile-about"
+            />
+          </div>
+          <div>
             <label className="text-xs text-muted-foreground">Description</label>
             <textarea
               className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
               rows={3}
+              maxLength={512}
               value={form.description ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               data-testid="input-profile-description"
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {field("industry", "Business Category / Industry")}
-            {field("website", "Website", "https://")}
+            <div>
+              <label className="text-xs text-muted-foreground">Category</label>
+              <select
+                className="flex h-12 w-full rounded-lg border border-input bg-background dark:border-white/10 dark:bg-black/20 px-4 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                value={form.industry ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, industry: e.target.value }))}
+                data-testid="select-profile-industry"
+              >
+                <option value="">Choose a category</option>
+                {Array.from(new Set([...BUSINESS_CATEGORIES, ...(form.industry ? [form.industry] : [])])).map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {field("email", "Email (customers can see it)")}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {field("email", "Support / Contact Email")}
-            {field("phone", "Support / Contact Phone")}
+            {field("website", "Website", "https://")}
+            {field("website2", "Second website (optional)", "https://instagram.com/yourshop")}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {field("phone", "Support / Contact Phone (only your team sees it)")}
           </div>
           <div>{field("address", "Address")}</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1795,7 +1845,7 @@ function SettingsTab({ organization, user, canManageCompany }: { organization: a
             <Button
               size="sm"
               disabled={profileMutation.isPending}
-              onClick={() => profileMutation.mutate(form)}
+              onClick={() => profileMutation.mutate(profilePatch(form))}
               data-testid="button-save-profile"
             >
               {profileMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}

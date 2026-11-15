@@ -493,6 +493,9 @@ app.use((req, res, next) => {
     await _db.execute(_sql`ALTER TABLE "messaging_messages" ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb`);
     // Catalog sections ("Sarees", "Kurtas").
     await _db.execute(_sql`ALTER TABLE "business_catalog_items" ADD COLUMN IF NOT EXISTS "collection" text`);
+    await _db.execute(_sql`ALTER TABLE "business_catalog_items" ADD COLUMN IF NOT EXISTS "sale_price_paise" integer`);
+    await _db.execute(_sql`ALTER TABLE "business_catalog_items" ADD COLUMN IF NOT EXISTS "item_code" text`);
+    await _db.execute(_sql`ALTER TABLE "business_catalog_items" ADD COLUMN IF NOT EXISTS "link" text`);
     // Starred messages + privacy settings (last seen, read receipts).
     const { ensureChatExtrasTables } = await import("./chat-extras");
     await ensureChatExtrasTables();

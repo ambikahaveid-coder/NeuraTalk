@@ -41,7 +41,7 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | GET, POST | /api/v1/me/customers/:id/consent | Read or record consent (`utility`, `marketing`, `authentication`) |
 | GET, POST | /api/v1/me/broadcast-templates | Templates and review status, or create (goes to review) |
 | GET | /api/v1/me/sendable-templates | Approved templates |
-| GET, POST | /api/v1/me/catalog | Catalog |
+| GET, POST | /api/v1/me/catalog | Catalog: `name`, `pricePaise`, `salePricePaise` (lower than the price; customers see the price struck through and orders charge the sale price), `itemCode`, `link` (https), `collection`, `description`, `imageUrl`, `isAvailable` |
 | PATCH, DELETE | /api/v1/me/catalog/:id | Change or remove an item |
 | GET | /api/v1/me/orders | Orders |
 | PATCH | /api/v1/me/orders/:id | `{ status }` |
@@ -59,7 +59,7 @@ For a business's own software: CRM, billing, shop or helpdesk. It works like the
 | GET | /api/v1/me/forms/:id/responses | Answers |
 | GET, POST | /api/v1/me/auto-responders | Auto-reply bots |
 | PUT, DELETE | /api/v1/me/auto-responders/:id | Change or remove a bot |
-| GET, PATCH | /api/v1/me/profile | Business profile |
+| GET, PATCH | /api/v1/me/profile | Business profile (same as the dashboard and the Business app): `name`, `about` (one line, ≤139), `description`, `industry` (category), `website`, `website2`, `email` (shown to customers), `address`, `addressCity`, … |
 | GET | /api/v1/me/account | Account summary |
 | GET | /api/v1/me/messaging-stats | Last 30 days: sent, delivered, read, received |
 | GET | /api/v1/me/credits | Wallet, plan, prices, spending (read-only) |

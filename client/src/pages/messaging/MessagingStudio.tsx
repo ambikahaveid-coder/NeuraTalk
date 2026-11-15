@@ -23,6 +23,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { getAuthToken, useAuth } from "@/hooks/use-auth";
 import { QUALITY_LABEL, NOTICE_LABEL, rupees, type AccountHealth } from "@/lib/account-health";
+import { cn } from "@/lib/utils";
+import { PriceTag } from "@/components/BusinessMessageExtras";
 
 /**
  * Business Messaging studio: everything a business needs to message its
@@ -1050,65 +1052,111 @@ function ProfileSection(props: SectionProps & { businessId: number }) {
 }
 
 // ---------------------------------------------------------------- catalog
-interface CatalogRow { id: number; name: string; description: string | null; pricePaise: number | null; imageUrl: string | null; isAvailable: boolean }
+interface CatalogRow {
+  id: number; name: string; description: string | null; pricePaise: number | null; imageUrl: string | null; isAvailable: boolean;
+  salePricePaise: number | null; itemCode: string | null; link: string | null; collection: string | null;
+}
+
+const paiseToText = (p: number | null | undefined) => (p == null ? "" : String(p / 100));
 
 function CatalogSection(props: SectionProps) {
   const key = [props.base, "catalog"];
   const items = useQuery<{ items: CatalogRow[] }>({ queryKey: key, queryFn: () => call("GET", `${props.base}/catalog`) });
+  // Same fields as WhatsApp's catalog: price, sale price, item code, link, collection, photo.
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [sale, setSale] = useState("");
+  const [code, setCode] = useState("");
+  const [link, setLink] = useState("");
+  const [collection, setCollection] = useState("");
   const [description, setDescription] = useState("");
   const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imageChanged, setImageChanged] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { uploadFile, isUploading } = useUpload();
-  const add = useAction(props, () => call("POST", `${props.base}/catalog`, {
+  const reset = () => { setEditingId(null); setName(""); setPrice(""); setSale(""); setCode(""); setLink(""); setCollection(""); setDescription(""); setImagePath(null); setImageChanged(false); };
+  const edit = (row: CatalogRow) => {
+    setEditingId(row.id); setName(row.name); setPrice(paiseToText(row.pricePaise)); setSale(paiseToText(row.salePricePaise));
+    setCode(row.itemCode ?? ""); setLink(row.link ?? ""); setCollection(row.collection ?? ""); setDescription(row.description ?? "");
+    setImagePath(row.imageUrl); setImageChanged(false);
+  };
+  const body = () => ({
     name: name.trim(),
     description: description.trim() || null,
     pricePaise: price.trim() ? Math.round(Number(price) * 100) : null,
-    imageUrl: imagePath,
-  }), "Added to catalog", [key]);
+    salePricePaise: sale.trim() ? Math.round(Number(sale) * 100) : null,
+    itemCode: code.trim() || null,
+    link: link.trim() ? (/^https?:\/\//i.test(link.trim()) ? link.trim() : `https://${link.trim()}`) : null,
+    collection: collection.trim() || null,
+    ...(editingId == null || imageChanged ? { imageUrl: imagePath } : {}),
+  });
+  const save = useAction(props, () => (editingId == null ? call("POST", `${props.base}/catalog`, body()) : call("PATCH", `${props.base}/catalog/${editingId}`, body())),
+    "Catalog saved", [key]);
   const toggle = useAction(props, (row: CatalogRow) => call("PATCH", `${props.base}/catalog/${row.id}`, { isAvailable: !row.isAvailable }), "Updated", [key]);
   const remove = useAction(props, (id: number) => call("DELETE", `${props.base}/catalog/${id}`), "Removed", [key]);
-  const priceValid = !price.trim() || (Number.isFinite(Number(price)) && Number(price) >= 0);
+  const num = (t: string) => !t.trim() || (Number.isFinite(Number(t)) && Number(t) >= 0);
+  const saleProblem = sale.trim() && !price.trim() ? "Add the price before a sale price"
+    : sale.trim() && Number(sale) >= Number(price) ? "The sale price must be lower than the price" : null;
+  const valid = Boolean(name.trim()) && num(price) && num(sale) && !saleProblem;
 
   return (
     <div className="grid lg:grid-cols-[340px_1fr] gap-4">
       <Card>
-        <CardHeader><CardTitle className="text-base">Add a product or service</CardTitle>
-          <CardDescription>Customers see your catalog in your chat and can ask about any item.</CardDescription></CardHeader>
+        <CardHeader><CardTitle className="text-base">{editingId == null ? "Add a product or service" : "Edit item"}</CardTitle>
+          <CardDescription>Customers see your catalog in your chat and can order or ask about any item. The same catalog as in the NeuraTalk Business app.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
-          <div><Label htmlFor="cat-name">Name</Label><Input id="cat-name" value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div><Label htmlFor="cat-price">Price (₹) — leave empty for "price on request"</Label><Input id="cat-price" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
-          <div><Label htmlFor="cat-desc">Description</Label><Textarea id="cat-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div><Label htmlFor="cat-name">Name</Label><Input id="cat-name" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label htmlFor="cat-price">Price (₹)</Label><Input id="cat-price" inputMode="decimal" placeholder="On request" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
+            <div><Label htmlFor="cat-sale">Sale price (₹)</Label><Input id="cat-sale" inputMode="decimal" placeholder="Optional" value={sale} onChange={(e) => setSale(e.target.value)} data-testid="input-catalog-sale" /></div>
+          </div>
+          {saleProblem && <p className="text-xs text-destructive">{saleProblem}</p>}
+          <div><Label htmlFor="cat-desc">Description</Label><Textarea id="cat-desc" rows={2} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Label htmlFor="cat-code">Item code</Label><Input id="cat-code" maxLength={64} placeholder="SAR-102" value={code} onChange={(e) => setCode(e.target.value)} data-testid="input-catalog-code" /></div>
+            <div><Label htmlFor="cat-coll">Collection</Label><Input id="cat-coll" maxLength={40} placeholder="Sarees" value={collection} onChange={(e) => setCollection(e.target.value)} /></div>
+          </div>
+          <div><Label htmlFor="cat-link">Link</Label><Input id="cat-link" inputMode="url" maxLength={500} placeholder="yourshop.in/saree-102" value={link} onChange={(e) => setLink(e.target.value)} data-testid="input-catalog-link" /></div>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden"
             onChange={async (e) => {
               const file = e.target.files?.[0];
               e.target.value = "";
               if (!file) return;
               const upload = await uploadFile(file);
-              if (upload) setImagePath(upload.objectPath);
+              if (upload) { setImagePath(upload.objectPath); setImageChanged(true); }
             }} />
           <Button variant="outline" className="w-full" onClick={() => fileRef.current?.click()} disabled={isUploading}>
             {isUploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ImagePlus className="w-4 h-4 mr-2" />}{imagePath ? "Photo added — change" : "Add a photo"}
           </Button>
-          <Button className="w-full" disabled={!name.trim() || !priceValid || add.isPending}
-            onClick={() => add.mutate(undefined as never, { onSuccess: () => { setName(""); setPrice(""); setDescription(""); setImagePath(null); } })} data-testid="button-add-catalog-item">
-            <Plus className="w-4 h-4 mr-2" />Add to catalog
-          </Button>
+          <div className="flex gap-2">
+            {editingId != null && <Button variant="ghost" onClick={reset}>Cancel</Button>}
+            <Button className="flex-1" disabled={!valid || save.isPending}
+              onClick={() => save.mutate(undefined as never, { onSuccess: reset })} data-testid="button-add-catalog-item">
+              <Plus className="w-4 h-4 mr-2" />{editingId == null ? "Add to catalog" : "Save changes"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle className="text-base">Catalog ({items.data?.items.length ?? 0})</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Catalog ({items.data?.items.length ?? 0})</CardTitle>
+          <CardDescription>Click an item to edit it.</CardDescription></CardHeader>
         <CardContent>
           {(items.data?.items ?? []).length === 0 ? <Empty>No items yet.</Empty> : (
             <ul className="divide-y">
               {items.data!.items.map((row) => (
-                <li key={row.id} className="py-2 flex items-center gap-3">
-                  {row.imageUrl ? <img src={row.imageUrl} alt="" className="w-12 h-12 rounded-md object-cover" /> : <div className="w-12 h-12 rounded-md bg-muted" />}
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">{row.name}</p>
-                    <p className="text-sm text-muted-foreground">{row.pricePaise == null ? "Price on request" : `₹${(row.pricePaise / 100).toLocaleString("en-IN")}`}</p>
-                  </div>
+                <li key={row.id} className={cn("py-2 flex items-center gap-3", editingId === row.id && "bg-primary/5 rounded-md")}>
+                  <button type="button" className="flex items-center gap-3 min-w-0 flex-1 text-left" onClick={() => edit(row)} data-testid={`catalog-edit-${row.id}`}>
+                    {row.imageUrl ? <img src={row.imageUrl} alt="" className="w-12 h-12 rounded-md object-cover" /> : <div className="w-12 h-12 rounded-md bg-muted" />}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate">{row.name}</p>
+                      <p className="text-sm text-muted-foreground flex flex-wrap gap-x-2">
+                        <PriceTag item={row} />
+                        {row.itemCode && <span>#{row.itemCode}</span>}
+                        {row.collection && <span>· {row.collection}</span>}
+                      </p>
+                    </div>
+                  </button>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     {row.isAvailable ? "Shown" : "Hidden"}
                     <Switch checked={row.isAvailable} onCheckedChange={() => toggle.mutate(row)} aria-label={`Show ${row.name}`} />

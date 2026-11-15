@@ -281,7 +281,7 @@ export type BrainContext = {
 /** What the assistant knows about a business: profile, hours, catalog with today's prices, the owner's FAQ. */
 export async function businessKnowledge(businessId: number, faq: string | null): Promise<string> {
   const [org] = await db.select().from(organizations).where(eq(organizations.id, businessId));
-  const items = rows(await db.execute(sql`SELECT name, description, price_paise, is_available FROM business_catalog_items WHERE business_id = ${businessId} ORDER BY id LIMIT 60`).catch(() => ({ rows: [] })));
+  const items = rows(await db.execute(sql`SELECT name, description, price_paise, sale_price_paise, is_available FROM business_catalog_items WHERE business_id = ${businessId} ORDER BY id LIMIT 60`).catch(() => ({ rows: [] })));
   let hours = "";
   try {
     const { getMessagingSettings } = await import("./modules/messaging/business-directory");
@@ -295,7 +295,7 @@ export async function businessKnowledge(businessId: number, faq: string | null):
     [o.address, o.addressCity].filter(Boolean).length ? `Address: ${[o.address, o.addressCity].filter(Boolean).join(", ")}` : "",
     o.website ? `Website: ${o.website}` : "",
     hours ? `Opening hours (JSON, India time): ${hours}` : "",
-    items.length ? `Catalog (name — price — available):\n${items.map((i: any) => `- ${i.name} — ${i.price_paise == null ? "price on request" : `₹${(i.price_paise / 100).toFixed(i.price_paise % 100 ? 2 : 0)}`} — ${i.is_available === false ? "not available now" : "available"}${i.description ? ` (${String(i.description).slice(0, 80)})` : ""}`).join("\n")}` : "",
+    items.length ? `Catalog (name — price — available):\n${items.map((i: any) => `- ${i.name} — ${i.price_paise == null ? "price on request" : i.sale_price_paise != null ? `₹${(i.sale_price_paise / 100).toFixed(i.sale_price_paise % 100 ? 2 : 0)} (sale; usual price ₹${(i.price_paise / 100).toFixed(i.price_paise % 100 ? 2 : 0)})` : `₹${(i.price_paise / 100).toFixed(i.price_paise % 100 ? 2 : 0)}`} — ${i.is_available === false ? "not available now" : "available"}${i.description ? ` (${String(i.description).slice(0, 80)})` : ""}`).join("\n")}` : "",
     faq ? `Owner's notes and FAQ:\n${faq}` : "",
   ].filter(Boolean).join("\n");
 }

@@ -22,6 +22,12 @@ const itemSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(1000).optional().nullable(),
   pricePaise: z.number().int().nonnegative().max(1_000_000_000).optional().nullable(),
+  // A sale price lower than the price (WhatsApp shows both, the price struck through).
+  salePricePaise: z.number().int().nonnegative().max(1_000_000_000).optional().nullable(),
+  itemCode: z.string().trim().max(64).optional().nullable().transform((v) => (v === undefined ? undefined : v || null)),
+  link: z.string().trim().max(500).optional().nullable()
+    .refine((v) => !v || /^https:\/\/\S+\.\S+/.test(v), "The link must start with https://")
+    .transform((v) => (v === undefined ? undefined : v || null)),
   imageUrl: z.string().trim().max(2000).optional().nullable(),
   isAvailable: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(100_000).optional(),
@@ -31,6 +37,13 @@ const itemSchema = z.object({
 });
 
 class CatalogInputError extends Error {}
+
+/** A sale price must be below the price. */
+function checkSale(price: number | null | undefined, sale: number | null | undefined) {
+  if (sale == null) return;
+  if (price == null) throw new CatalogInputError("Add the price before a sale price");
+  if (sale >= price) throw new CatalogInputError("The sale price must be lower than the price");
+}
 
 async function publishImage(actorUserId: number, objectPath: string | null | undefined): Promise<string | null> {
   if (!objectPath) return null;
@@ -76,12 +89,14 @@ export async function productCardMessage(businessId: number, itemIds: number[]):
   if (!items.length) return null;
   items.sort((a, b) => wanted.indexOf(a.id) - wanted.indexOf(b.id));
   const price = (p: number | null) => (p == null ? "price on request" : `₹${(p / 100).toLocaleString("en-IN")}`);
+  const priceText = (i: { pricePaise: number | null; salePricePaise: number | null }) =>
+    i.salePricePaise != null && i.pricePaise != null ? `${price(i.salePricePaise)} (was ${price(i.pricePaise)})` : price(i.pricePaise);
   const content = items.length === 1
-    ? `🛍️ ${items[0].name} — ${price(items[0].pricePaise)}`
+    ? `🛍️ ${items[0].name} — ${priceText(items[0])}`
     : `🛍️ ${items.length} products: ${items.map((i) => i.name).join(", ")}`.slice(0, 500);
   return {
     content,
-    metadata: { products: items.map(({ id, name, description, pricePaise, imageUrl }) => ({ id, name, description, pricePaise, imageUrl })) },
+    metadata: { products: items.map(({ id, name, description, pricePaise, salePricePaise, itemCode, link, imageUrl }) => ({ id, name, description, pricePaise, salePricePaise, itemCode, link, imageUrl })) },
   };
 }
 
@@ -107,6 +122,7 @@ export function registerCatalogRoutes(app: Express): void {
     try {
       const businessId = Number(req.params.businessId);
       const input = itemSchema.parse(req.body ?? {});
+      checkSale(input.pricePaise, input.salePricePaise);
       const existing = await listCatalog(businessId, false);
       if (existing.length >= MAX_ITEMS) throw new CatalogInputError(`A catalog can hold up to ${MAX_ITEMS} items`);
       const [item] = await db.insert(businessCatalogItems).values({
@@ -114,6 +130,9 @@ export function registerCatalogRoutes(app: Express): void {
         name: input.name,
         description: input.description ?? null,
         pricePaise: input.pricePaise ?? null,
+        salePricePaise: input.salePricePaise ?? null,
+        itemCode: input.itemCode ?? null,
+        link: input.link ?? null,
         imageUrl: await publishImage(req.user!.id, input.imageUrl),
         isAvailable: input.isAvailable ?? true,
         sortOrder: input.sortOrder ?? existing.length,
@@ -127,6 +146,13 @@ export function registerCatalogRoutes(app: Express): void {
     try {
       const businessId = Number(req.params.businessId);
       const input = itemSchema.partial().parse(req.body ?? {});
+      if (input.pricePaise !== undefined || input.salePricePaise !== undefined) {
+        const [cur] = await db.select().from(businessCatalogItems)
+          .where(and(eq(businessCatalogItems.id, Number(req.params.itemId)), eq(businessCatalogItems.businessId, businessId)));
+        // A new price at or below the old sale price ends the sale (first), then the sale must be below the price.
+        if (cur && input.salePricePaise === undefined && input.pricePaise !== undefined && cur.salePricePaise != null && (input.pricePaise == null || cur.salePricePaise >= input.pricePaise)) input.salePricePaise = null;
+        if (cur) checkSale(input.pricePaise !== undefined ? input.pricePaise : cur.pricePaise, input.salePricePaise !== undefined ? input.salePricePaise : cur.salePricePaise);
+      }
       const patch: Record<string, unknown> = { ...input, updatedAt: new Date() };
       if (input.imageUrl !== undefined) patch.imageUrl = await publishImage(req.user!.id, input.imageUrl);
       const [item] = await db.update(businessCatalogItems).set(patch)
@@ -178,7 +204,7 @@ export function registerCatalogRoutes(app: Express): void {
       const [org] = await db.select({ status: organizations.status, isActive: organizations.isActive }).from(organizations).where(eq(organizations.id, businessId));
       if (!org || org.status !== "approved" || !org.isActive) return res.status(404).json({ success: false, error: "Business not found" });
       const items = await listCatalog(businessId, true);
-      const shown = items.map(({ id, name, description, pricePaise, imageUrl, collection }) => ({ id, name, description, pricePaise, imageUrl, collection }));
+      const shown = items.map(({ id, name, description, pricePaise, salePricePaise, itemCode, link, imageUrl, collection }) => ({ id, name, description, pricePaise, salePricePaise, itemCode, link, imageUrl, collection }));
       // Sections in catalog order (first appearance), items without one last.
       const collections = Array.from(new Set(shown.map((i) => i.collection).filter((c): c is string => Boolean(c))));
       res.json({ success: true, items: shown, collections });

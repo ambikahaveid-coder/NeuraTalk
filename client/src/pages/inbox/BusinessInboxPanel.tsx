@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Building2, Clock, Copy, ExternalLink, FileText, IndianRupee, Loader2, MapPin, MessagesSquare, Paperclip, Phone, Reply, Send, ShoppingBag, UserRound, X } from "lucide-react";
-import { ContactCard, MessageListMenu, PaymentCard, type ExtrasMeta } from "@/components/BusinessMessageExtras";
+import { ContactCard, MessageListMenu, PaymentCard, PriceTag, type ExtrasMeta } from "@/components/BusinessMessageExtras";
 import { RequestPaymentDialog } from "@/components/RequestPaymentDialog";
 import { serverMessage } from "@/lib/server-message";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -115,7 +115,7 @@ interface MessageRow {
     location?: { latitude: number; longitude: number; name?: string; address?: string };
     locationRequest?: boolean;
     buttonReply?: { messageId: number; buttonId: string; title?: string };
-    products?: Array<{ id: number; name: string; pricePaise: number | null; imageUrl: string | null; description?: string | null }>;
+    products?: Array<{ id: number; name: string; pricePaise: number | null; salePricePaise?: number | null; imageUrl: string | null; description?: string | null }>;
   } & Pick<ExtrasMeta, "list" | "contact" | "payment"> | null;
 }
 
@@ -153,7 +153,7 @@ function MessageExtras({ message, alignEnd, onSettlePayment }: { message: Messag
             <div key={p.id} className="w-32 shrink-0 overflow-hidden rounded-lg border bg-card">
               <div className="flex h-20 items-center justify-center bg-muted text-2xl">{p.imageUrl ? <img src={p.imageUrl} alt="" className="h-20 w-full object-cover" /> : "🛍️"}</div>
               <p className="truncate px-2 pt-1 font-medium text-foreground">{p.name}</p>
-              <p className="px-2 pb-1.5 text-muted-foreground">{p.pricePaise == null ? "Price on request" : `₹${(p.pricePaise / 100).toLocaleString("en-IN")}`}</p>
+              <p className="px-2 pb-1.5 text-muted-foreground"><PriceTag item={p} /></p>
             </div>
           ))}
         </div>
@@ -968,7 +968,7 @@ export default function BusinessInboxPanel({ businessId }: { businessId: number 
                       onChange={() => setPickedProducts(on ? pickedProducts.filter((x) => x !== item.id) : [...pickedProducts, item.id])} />
                     <span className="flex-1">
                       <span className="block font-medium">{item.name}</span>
-                      <span className="block text-sm text-muted-foreground">{item.pricePaise == null ? "Price on request" : `₹${(item.pricePaise / 100).toLocaleString("en-IN")}`}</span>
+                      <span className="block text-sm text-muted-foreground"><PriceTag item={item} /></span>
                     </span>
                   </label>
                 </li>

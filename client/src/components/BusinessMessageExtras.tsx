@@ -25,6 +25,21 @@ export type ExtrasMeta = {
   buttonReply?: { messageId: number; buttonId: string; title?: string };
 };
 
+/** The price a customer pays: the sale price when there is one. */
+export const effectivePrice = (i: { pricePaise: number | null; salePricePaise?: number | null }) => i.salePricePaise ?? i.pricePaise;
+
+/** "₹499 ₹699" with the old price struck through when on sale (like WhatsApp's catalog). */
+export function PriceTag({ item, className }: { item: { pricePaise: number | null; salePricePaise?: number | null }; className?: string }) {
+  if (item.pricePaise == null) return <span className={cn("text-muted-foreground", className)}>Price on request</span>;
+  if (item.salePricePaise == null) return <span className={className}>{rupeesText(item.pricePaise)}</span>;
+  return (
+    <span className={cn("inline-flex items-baseline gap-1.5", className)} data-testid="price-sale">
+      <span className="font-semibold text-green-600 dark:text-green-400">{rupeesText(item.salePricePaise)}</span>
+      <span className="text-xs text-muted-foreground line-through">{rupeesText(item.pricePaise)}</span>
+    </span>
+  );
+}
+
 export const rupeesText = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2, minimumFractionDigits: paise % 100 ? 2 : 0 })}`;
 
 export function MessageButtons({ buttons, tappedId, onReply }: { buttons: MessageButton[]; tappedId?: string | null; onReply?: (id: string) => void }) {

@@ -47,6 +47,9 @@ const updateProfileSchema = z.object({
   addressState: z.string().trim().max(120).optional(),
   addressCountry: z.string().trim().max(120).optional(),
   addressPostalCode: z.string().trim().max(20).optional(),
+  // Like WhatsApp: a short "About" line and up to two websites.
+  about: z.string().trim().max(139, "About can be up to 139 characters").optional(),
+  website2: z.string().trim().url().max(500).optional().or(z.literal("")),
 }).strict();
 
 export async function patchProfile(req: Request, res: Response) {

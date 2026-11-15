@@ -4387,6 +4387,17 @@ function VerificationRequestsCard() {
               {r.website && <a className="text-primary underline" href={r.website} target="_blank" rel="noreferrer">{r.website}</a>}
               {r.socialUrl && <a className="text-primary underline" href={r.socialUrl} target="_blank" rel="noreferrer">{r.socialUrl}</a>}
             </div>
+            {/* The public profile customers see: check the name against it before giving the tick. */}
+            <div className="rounded-md border bg-muted/40 p-2 text-sm space-y-0.5" data-testid={`verification-profile-${r.id}`}>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">Public profile</p>
+              <p><span className="text-muted-foreground">Category:</span> {r.business?.category || "—"}</p>
+              {r.business?.about && <p><span className="text-muted-foreground">About:</span> {r.business.about}</p>}
+              <p><span className="text-muted-foreground">Description:</span> {r.business?.description || "—"}</p>
+              <p><span className="text-muted-foreground">Address:</span> {r.business?.address || "—"}</p>
+              {(r.business?.websites ?? []).map((w: string) => (
+                <a key={w} className="block text-primary underline truncate" href={w} target="_blank" rel="noreferrer">{w}</a>
+              ))}
+            </div>
             <div className="flex flex-wrap gap-2">
               {(r.files ?? []).map((f: any) => (
                 <Button key={f.index} size="sm" variant="outline" onClick={() => openDoc(r.id, f.index)}>

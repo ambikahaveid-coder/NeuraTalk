@@ -99,7 +99,8 @@ class _BusinessCatalogScreenState extends State<BusinessCatalogScreen> {
                             title: Text(item['name']?.toString() ?? '', style: TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600)),
                             subtitle: Text(
                               [
-                                rupeesOf(item['pricePaise']),
+                                item['salePricePaise'] != null ? '${rupeesOf(item['salePricePaise'])} sale (was ${rupeesOf(item['pricePaise'])})' : rupeesOf(item['pricePaise']),
+                                if ((item['itemCode']?.toString() ?? '').isNotEmpty) '#${item['itemCode']}',
                                 if ((item['collection']?.toString() ?? '').isNotEmpty) item['collection'],
                                 if (!available) 'Hidden from customers',
                               ].join(' · '),
@@ -132,6 +133,11 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
   late final TextEditingController _price = TextEditingController(
       text: widget.item?['pricePaise'] == null ? '' : ((widget.item!['pricePaise'] as num) / 100).toStringAsFixed(((widget.item!['pricePaise'] as num) % 100) == 0 ? 0 : 2));
   late final TextEditingController _about = TextEditingController(text: widget.item?['description']?.toString() ?? '');
+  // Like WhatsApp: a sale price, an item code and a link.
+  late final TextEditingController _sale = TextEditingController(
+      text: widget.item?['salePricePaise'] == null ? '' : ((widget.item!['salePricePaise'] as num) / 100).toStringAsFixed(((widget.item!['salePricePaise'] as num) % 100) == 0 ? 0 : 2));
+  late final TextEditingController _code = TextEditingController(text: widget.item?['itemCode']?.toString() ?? '');
+  late final TextEditingController _link = TextEditingController(text: widget.item?['link']?.toString() ?? '');
   late final TextEditingController _collection = TextEditingController(text: widget.item?['collection']?.toString() ?? '');
   late bool _available = widget.item?['isAvailable'] != false;
   late String? _imagePath = widget.item?['imageUrl'] as String?;
@@ -145,6 +151,9 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
     _name.dispose();
     _price.dispose();
     _about.dispose();
+    _sale.dispose();
+    _code.dispose();
+    _link.dispose();
     super.dispose();
   }
 
@@ -159,10 +168,16 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
     try {
       if (_newImage != null) _imagePath = await MediaStore.upload(_newImage!, 'item.jpg');
       final priceText = _price.text.trim();
+      final saleText = _sale.text.trim();
+      var link = _link.text.trim();
+      if (link.isNotEmpty && !link.startsWith('http')) link = 'https://$link';
       final body = {
         'name': _name.text.trim(),
         'description': _about.text.trim().isEmpty ? null : _about.text.trim(),
         'pricePaise': priceText.isEmpty ? null : (double.parse(priceText) * 100).round(),
+        'salePricePaise': saleText.isEmpty ? null : (double.parse(saleText) * 100).round(),
+        'itemCode': _code.text.trim(),
+        'link': link,
         'isAvailable': _available,
         'collection': _collection.text.trim(),
         if (_newImage != null || _isNew) 'imageUrl': _imagePath,
@@ -254,6 +269,31 @@ class _CatalogItemEditorState extends State<_CatalogItemEditor> {
                 final t = (v ?? '').trim();
                 return t.isEmpty || double.tryParse(t) != null && double.parse(t) >= 0 ? null : 'Enter a number';
               },
+            ),
+            TextFormField(
+              controller: _sale,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'Sale price (₹, optional)', prefixText: '₹ ', helperText: 'Customers see the price struck through'),
+              validator: (v) {
+                final t = (v ?? '').trim();
+                if (t.isEmpty) return null;
+                final sale = double.tryParse(t);
+                final price = double.tryParse(_price.text.trim());
+                if (sale == null || sale < 0) return 'Enter a number';
+                if (price == null) return 'Add the price first';
+                return sale < price ? null : 'Must be lower than the price';
+              },
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _code,
+              maxLength: 64,
+              decoration: const InputDecoration(labelText: 'Item code (optional)', hintText: 'SKU, e.g. SAR-102'),
+            ),
+            TextFormField(
+              controller: _link,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'Link (optional)', hintText: 'yourshop.in/saree-102'),
             ),
             TextFormField(
               controller: _collection,

@@ -3740,6 +3740,10 @@ export const businessCatalogItems = pgTable("business_catalog_items", {
   name: text("name").notNull(),
   description: text("description"),
   pricePaise: integer("price_paise"), // null = "price on request"
+  // Like WhatsApp's catalog: a sale price (shown with the price struck through), an item code and a link.
+  salePricePaise: integer("sale_price_paise"),
+  itemCode: text("item_code"),
+  link: text("link"),
   imageUrl: text("image_url"), // public object path (same rule as the business logo)
   // Section of the catalog ("Sarees", "Kurtas"); null = no section. Added at startup.
   collection: text("collection"),

@@ -38,6 +38,18 @@ export interface BusinessProfileUpdate {
   addressState?: string;
   addressCountry?: string;
   addressPostalCode?: string;
+  /** Short line under the name, like WhatsApp's "About" (up to 139 characters). */
+  about?: string;
+  /** A second website (WhatsApp allows two). */
+  website2?: string;
+}
+
+/** Profile fields kept in organizations.settings (no extra columns). */
+export const PROFILE_EXTRAS_KEY = "profileExtras";
+export type ProfileExtras = { about?: string | null; website2?: string | null };
+export function profileExtrasOf(settings: unknown): ProfileExtras {
+  const raw = ((settings as Record<string, unknown> | null) ?? {})[PROFILE_EXTRAS_KEY] as ProfileExtras | undefined;
+  return { about: raw?.about?.trim() || null, website2: raw?.website2?.trim() || null };
 }
 
 const WRITABLE_PROFILE_FIELDS: (keyof BusinessProfileUpdate)[] = [
@@ -61,6 +73,8 @@ export interface BusinessProfile {
   addressPostalCode: string | null;
   logoUrl: string | null;
   status: string | null;
+  about: string | null;
+  website2: string | null;
 }
 
 function toProfile(org: typeof organizations.$inferSelect): BusinessProfile {
@@ -80,6 +94,7 @@ function toProfile(org: typeof organizations.$inferSelect): BusinessProfile {
     addressPostalCode: org.addressPostalCode,
     logoUrl: org.logoUrl,
     status: org.status,
+    ...(({ about, website2 }) => ({ about: about ?? null, website2: website2 ?? null }))(profileExtrasOf(org.settings)),
   };
 }
 
@@ -106,6 +121,16 @@ export async function updateBusinessProfile(
     }
   }
 
+  // About / second website live in settings.
+  if (patch.about !== undefined || patch.website2 !== undefined) {
+    const settings = { ...((existing.settings as Record<string, unknown>) ?? {}) };
+    const before = profileExtrasOf(settings);
+    const next = { ...before, ...(patch.about !== undefined ? { about: patch.about.trim() || null } : {}), ...(patch.website2 !== undefined ? { website2: patch.website2.trim() || null } : {}) };
+    settings[PROFILE_EXTRAS_KEY] = next;
+    setValues.settings = settings;
+    oldValues.profileExtras = before;
+  }
+
   if (Object.keys(setValues).length === 0) {
     return toProfile(existing);
   }
@@ -124,7 +149,10 @@ export async function updateBusinessProfile(
 
   const [updated] = await db.update(organizations).set(setValues).where(eq(organizations.id, businessId)).returning();
 
-  await AuditHelpers.logSettingsChange(actorUserId, `business_profile:${businessId}`, oldValues, setValues);
+  // Log the profile change only, never the whole settings object.
+  const logged: Record<string, unknown> = { ...setValues };
+  if (logged.settings) { delete logged.settings; logged.profileExtras = profileExtrasOf(setValues.settings); }
+  await AuditHelpers.logSettingsChange(actorUserId, `business_profile:${businessId}`, oldValues, logged);
 
   return toProfile(updated);
 }

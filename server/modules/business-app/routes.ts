@@ -9,6 +9,7 @@
  *  - message statistics
  *  - customers can block a business from their NeuraTalk app
  */
+import { profileExtrasOf } from "../business-profile/service";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { and, eq, gte, sql } from "drizzle-orm";
@@ -168,6 +169,7 @@ async function getAccount(req: Request, res: Response) {
       city: org.addressCity,
       email: org.email,
       website: org.website,
+      ...profileExtrasOf(org.settings),
       phone: org.phone,
       status: org.status,
       verified: Boolean(org.verifiedAt),
