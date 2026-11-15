@@ -38,6 +38,86 @@ const shared = ((globalThis as any).__neuratalkAssistantCalls ??= { pending: new
 const pending = shared.pending;
 const live = shared.live;
 
+/** Everything the assistant needs, made while the phone still rings, so its first word comes at once. */
+type Prepared = {
+  ctx: BrainContext; greeting: string; callerId: number | null; callerName: string | null;
+  voice: { kind: "ai" | "own"; voiceId: string | null; gender: "male" | "female" };
+  frames: Int16Array[] | null;
+};
+const prepared = ((shared as any).prepared ??= new Map()) as Map<string, Promise<Prepared>>;
+
+const langOf = (callerLanguage: string) => {
+  const l = String(callerLanguage || "en").toLowerCase();
+  return l === "auto" ? "en" : l.split(/[-_]/)[0];
+};
+
+/** Speech for a line: the owner's own voice when chosen, else (or if that fails) the AI voice. */
+async function* speechFrames(text: string, lang: string, voice: Prepared["voice"], signal: AbortSignal): AsyncGenerator<Int16Array> {
+  const core = await import("./realtime-translation-core");
+  if (voice.kind === "own" && voice.voiceId) {
+    let any = false;
+    try {
+      for await (const f of core.streamElevenLabsTtsFrames(text, lang, voice.voiceId, signal)) { any = true; yield f; }
+      return;
+    } catch (error) {
+      if (any || signal.aborted) throw error;
+      logger.warn("AssistantCall", `own voice unavailable, using the AI voice: ${String(error)}`);
+    }
+  }
+  yield* core.streamAzureTtsFrames(text, lang, signal, { gender: voice.gender });
+}
+
+async function prepareAssistant(input: { callId: string; callerIdentity: string; callerLanguage: string }, owner: Owner): Promise<Prepared> {
+  const { kind, ownerId } = owner;
+  const lang = langOf(input.callerLanguage);
+  const s = await settingsOf(kind, ownerId);
+  const who = await ownerDisplay(kind, ownerId);
+  const callerNum = Number(input.callerIdentity);
+  const callerId = Number.isInteger(callerNum) ? callerNum : null;
+  const [caller] = callerId ? await db.select({ displayName: users.displayName, username: users.username }).from(users).where(eq(users.id, callerId)) : [];
+  const callerName = (caller?.displayName || caller?.username || "").trim() || null;
+  const ctx: BrainContext = {
+    kind, channel: "call", ownerName: who.name, assistantName: s.assistantName || (kind === "business" ? `${who.name} assistant` : `${who.name}'s AI assistant`),
+    busyNote: s.busyNote, instructions: s.instructions, knowledge: kind === "business" ? await businessKnowledge(ownerId, s.knowledge) : null,
+    counterpartName: callerName, counterpartLanguage: lang, ownerLanguage: who.language,
+  };
+  let voice: Prepared["voice"] = { kind: "ai", voiceId: null, gender: s.voiceGender };
+  if (kind === "personal" && s.voice === "own") {
+    const { lookupClonedVoiceId } = await import("./cloned-voice");
+    const { canSpeakInClonedVoice } = await import("./realtime-translation-core");
+    const id = await lookupClonedVoiceId(String(ownerId)).catch(() => null);
+    if (id && canSpeakInClonedVoice(lang)) voice = { kind: "own", voiceId: id, gender: s.voiceGender };
+  }
+  const greeting = await greetingText(kind, who.name, callerName, lang);
+  let frames: Int16Array[] | null = null;
+  if (!assistantTestMode()) {
+    try {
+      const signal = AbortSignal.timeout(15_000);
+      frames = [];
+      for await (const f of speechFrames(greeting, lang, voice, signal)) frames.push(f);
+    } catch (error) {
+      logger.warn("AssistantCall", `${input.callId}: greeting not pre-made (${String(error)}); it will be spoken live`);
+      frames = null;
+    }
+  }
+  return { ctx, greeting, callerId, callerName, voice, frames };
+}
+
+async function greetingText(kind: OwnerKind, ownerName: string, callerName: string | null, lang: string): Promise<string> {
+  // The caller is known (their NeuraTalk account), so greet them by name and never ask who they are.
+  const hi = callerName ? `Hello ${callerName.split(/\s+/)[0]}` : "Hello";
+  const en = kind === "business"
+    ? `${hi}, thank you for calling ${ownerName}. I'm the AI assistant. How can I help you?`
+    : `${hi}, I'm ${ownerName}'s AI assistant. ${ownerName} can't take your call right now. What is it about, and is it urgent?`;
+  if (lang === "en") return en;
+  try {
+    const { translateChatText } = await import("./translation/chat-translate");
+    return await translateChatText(en, "en", lang);
+  } catch {
+    return en;
+  }
+}
+
 /** Whose assistant (if any) answers calls to this user: their business's, else their own. */
 export async function assistantOwnerForCallee(calleeUserId: number): Promise<(Owner & { ringSeconds: number; busy: boolean }) | null> {
   const [u] = await db.select({ organizationId: users.organizationId }).from(users).where(eq(users.id, calleeUserId));
@@ -67,6 +147,11 @@ export async function scheduleAssistantForCall(input: { callId: string; calleeUs
     }
     const delayMs = (owner.busy ? 3 : owner.ringSeconds) * 1000;
     logger.warn("AssistantCall", `${input.callId}: assistant armed (${owner.kind}, answers in ${delayMs / 1000}s${owner.busy ? ", busy" : ""})`);
+    // Make the greeting (text and voice) now, while it rings.
+    const ready = prepareAssistant(input, owner);
+    ready.catch(() => undefined);
+    prepared.set(input.callId, ready);
+    setTimeout(() => prepared.delete(input.callId), delayMs + 120_000).unref?.();
     pending.set(input.callId, setTimeout(() => {
       pending.delete(input.callId);
       void answerWithAssistant({ ...input, owner, reason: owner.busy ? "busy" : "no_answer" });
@@ -145,31 +230,20 @@ class AssistantCall {
   async run(): Promise<void> {
     const { kind, ownerId } = this.input.owner;
     try {
-      const s = await settingsOf(kind, ownerId);
-      const owner = await ownerDisplay(kind, ownerId);
-      const callerId = Number(this.input.callerIdentity);
-      const [caller] = Number.isInteger(callerId) ? await db.select({ displayName: users.displayName, username: users.username }).from(users).where(eq(users.id, callerId)) : [];
-      const callerName = (caller?.displayName || caller?.username || "").trim() || null;
-      this.ctx = {
-        kind, channel: "call", ownerName: owner.name, assistantName: s.assistantName || (kind === "business" ? `${owner.name} assistant` : `${owner.name}'s AI assistant`),
-        busyNote: s.busyNote, instructions: s.instructions, knowledge: kind === "business" ? await businessKnowledge(ownerId, s.knowledge) : null,
-        counterpartName: callerName, counterpartLanguage: this.lang, ownerLanguage: owner.language,
-      };
-      this.session = await openSession(kind, ownerId, "call", `call:${this.input.callId}`, Number.isInteger(callerId) ? callerId : null, callerName);
-      this.voice.gender = s.voiceGender;
-      if (kind === "personal" && s.voice === "own") {
-        const { lookupClonedVoiceId } = await import("./cloned-voice");
-        const { canSpeakInClonedVoice } = await import("./realtime-translation-core");
-        const id = await lookupClonedVoiceId(String(ownerId)).catch(() => null);
-        if (id && canSpeakInClonedVoice(this.lang)) this.voice = { kind: "own", voiceId: id, gender: s.voiceGender };
-      }
-      const greeting = await this.greeting(owner.name, callerName);
-      await db.execute(sql`UPDATE assistant_sessions SET history = ${JSON.stringify([{ role: "assistant", text: greeting }])}::jsonb WHERE id = ${this.session.id}`);
-      this.session.history = [{ role: "assistant", text: greeting }];
+      // Made while it rang (usually ready by now); made here if the owner handed it over.
+      const ready = prepared.get(this.input.callId) ?? prepareAssistant(this.input, this.input.owner);
+      prepared.delete(this.input.callId);
+      const p = await ready;
+      this.ctx = p.ctx;
+      this.voice = p.voice;
+      this.session = await openSession(kind, ownerId, "call", `call:${this.input.callId}`, p.callerId, p.callerName);
+      await db.execute(sql`UPDATE assistant_sessions SET history = ${JSON.stringify([{ role: "assistant", text: p.greeting }])}::jsonb WHERE id = ${this.session.id}`);
+      this.session.history = [{ role: "assistant", text: p.greeting }];
 
       if (assistantTestMode()) return; // local tests: no media; the turns are driven through /api/test/assistant-call
       await this.join();
-      await this.say(greeting);
+      if (p.frames?.length) await this.play(p.frames);
+      else await this.say(p.greeting);
       // Hard stop: plan minutes or 3 minutes, whichever comes first.
       const access = await accessOf(kind, ownerId);
       const limit = Math.min(MAX_CALL_SECONDS, kind === "business" ? MAX_CALL_SECONDS : Math.max(30, access.voiceSecondsLeft));
@@ -180,18 +254,17 @@ class AssistantCall {
     }
   }
 
-  private async greeting(ownerName: string, callerName: string | null): Promise<string> {
-    // The caller is known (their NeuraTalk account), so greet them by name and never ask who they are.
-    const hi = callerName ? `Hello ${callerName.split(/\s+/)[0]}` : "Hello";
-    const en = this.input.owner.kind === "business"
-      ? `${hi}, thank you for calling ${ownerName}. I'm the AI assistant. How can I help you?`
-      : `${hi}, I'm ${ownerName}'s AI assistant. ${ownerName} can't take your call right now. What is it about, and is it urgent?`;
-    if (this.lang === "en") return en;
+  /** Plays speech made earlier (the greeting). */
+  private async play(frames: Int16Array[]): Promise<void> {
+    if (!this.source) return;
+    const { AudioFrame } = await rtc();
     try {
-      const { translateChatText } = await import("./translation/chat-translate");
-      return await translateChatText(en, "en", this.lang);
-    } catch {
-      return en;
+      for (const frame of frames) {
+        if (this.ended) break;
+        await this.source.captureFrame(new AudioFrame(frame, PCM_RATE, 1, frame.length));
+      }
+    } catch (error) {
+      logger.warn("AssistantCall", `play failed on ${this.input.callId}: ${String(error)}`);
     }
   }
 
@@ -283,19 +356,15 @@ class AssistantCall {
 
   private async say(text: string): Promise<void> {
     if (!this.source || !text.trim()) return;
-    const core = await import("./realtime-translation-core");
     const { AudioFrame } = await rtc();
     const controller = new AbortController();
-    const frames = this.voice.kind === "own" && this.voice.voiceId
-      ? core.streamElevenLabsTtsFrames(text, this.lang, this.voice.voiceId, controller.signal)
-      : core.streamAzureTtsFrames(text, this.lang, controller.signal, { gender: this.voice.gender });
     try {
-      for await (const frame of frames) {
+      for await (const frame of speechFrames(text, this.lang, this.voice, controller.signal)) {
         if (this.ended) { controller.abort(); break; }
         await this.source.captureFrame(new AudioFrame(frame, PCM_RATE, 1, frame.length));
       }
     } catch (error) {
-      logger.warn("AssistantCall", `speak failed on ${this.input.callId}: ${String(error)}`);
+      if (!this.ended) logger.warn("AssistantCall", `speak failed on ${this.input.callId}: ${String(error)}`);
     }
   }
 
