@@ -175,7 +175,8 @@ export async function sendVoIPPush(
   );
 
   if (tokens.length === 0) {
-    logger.info("FirebaseAdmin", "No active device tokens for incoming call push", {
+    // A warning: the callee's phone won't ring (their app must open once to re-register).
+    logger.warn("FirebaseAdmin", "No active device tokens for incoming call push", {
       userId,
       callId: payload.callId,
     });
@@ -269,7 +270,7 @@ export async function sendVoIPPush(
     }
   }
 
-  logger.info("FirebaseAdmin", "Incoming call push sent", {
+  logger.warn("FirebaseAdmin", "Incoming call push sent", {
     userId,
     callId: payload.callId,
     sent: response.successCount,

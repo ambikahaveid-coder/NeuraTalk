@@ -553,9 +553,10 @@ function StatusViewer({ data, onClose }: { data: { name: string; updates: any[] 
   const u = data.updates[i];
   useEffect(() => {
     if (u?.id) api(`/api/status/${u.id}/view`, { method: "POST", body: "{}" }).catch(() => undefined);
-    const t = setTimeout(() => (i + 1 < data.updates.length ? setI(i + 1) : onClose()), 5000);
+    // Videos play to the end (up to 30 s); photos and text show for 5 s.
+    const t = setTimeout(() => (i + 1 < data.updates.length ? setI(i + 1) : onClose()), u?.kind === "video" ? 31000 : 5000);
     return () => clearTimeout(t);
-  }, [i, u?.id, data.updates.length, onClose]);
+  }, [i, u?.id, u?.kind, data.updates.length, onClose]);
   const img = useAuthBlob(u?.mediaUrl);
   if (!u) return null;
   return (
@@ -563,9 +564,10 @@ function StatusViewer({ data, onClose }: { data: { name: string; updates: any[] 
       <div className="flex gap-1 p-3">{data.updates.map((_, k) => <div key={k} className={cn("h-1 flex-1 rounded", k <= i ? "bg-white" : "bg-white/30")} />)}</div>
       <p className="text-white px-4 font-medium">{data.name} · {clock(u.createdAt)}</p>
       <div className="flex-1 flex items-center justify-center p-6" style={u.kind === "text" ? { background: u.background || "#1E66F5" } : undefined}>
-        {u.kind === "photo" ? (img ? <img src={img} alt="" className="max-h-full max-w-full object-contain" /> : <Loader2 className="w-8 h-8 animate-spin text-white" />) : <p className="text-white text-3xl text-center max-w-2xl whitespace-pre-wrap">{u.text ?? u.textContent}</p>}
+        {u.kind === "video" ? (img ? <video src={img} autoPlay playsInline controls className="max-h-full max-w-full" onClick={(e) => e.stopPropagation()} onEnded={() => (i + 1 < data.updates.length ? setI(i + 1) : onClose())} data-testid="web-status-video" /> : <Loader2 className="w-8 h-8 animate-spin text-white" />)
+          : u.kind === "photo" ? (img ? <img src={img} alt="" className="max-h-full max-w-full object-contain" /> : <Loader2 className="w-8 h-8 animate-spin text-white" />) : <p className="text-white text-3xl text-center max-w-2xl whitespace-pre-wrap">{u.text ?? u.textContent}</p>}
       </div>
-      {u.kind === "photo" && (u.text || u.textContent) && <p className="text-white text-center pb-6">{u.text ?? u.textContent}</p>}
+      {(u.kind === "photo" || u.kind === "video") && (u.text || u.textContent) && <p className="text-white text-center pb-6">{u.text ?? u.textContent}</p>}
     </div>
   );
 }

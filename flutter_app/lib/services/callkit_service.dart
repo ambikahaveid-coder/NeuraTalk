@@ -110,6 +110,7 @@ class CallKitService {
       ),
     );
     await FlutterCallkitIncoming.showCallkitIncoming(params);
+    unawaited(CallService.ackRinging(callId));
   }
 
   static Future<void> endCall(String callId) async {

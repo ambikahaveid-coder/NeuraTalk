@@ -83,6 +83,8 @@ export function registerCallsRoutes(app: Express): void {
   app.get("/api/calls/signaling-info", loadUser, requireAuth, requireCallAccess, ctrl.signalingInfo);
   app.get("/api/calls/:callId/details", loadUser, requireAuth, requireCallAccess, ctrl.callDetails);
   app.get("/api/calls/:callId", loadUser, requireAuth, requireCallAccess, ctrl.callById);
+  // The callee's phone tells us it is ringing (caller then sees "Ringing…").
+  app.post("/api/calls/:callId/ringing", loadUser, requireAuth, requireCallAccess, ctrl.calleeRinging);
 
   app.post("/api/calls/native-bridge", loadUser, requireAuth, requireCallAccess, ctrl.nativeBridge);
   app.post("/api/calls/disposition", loadUser, requireAuth, requireCallAccess, ctrl.disposition);

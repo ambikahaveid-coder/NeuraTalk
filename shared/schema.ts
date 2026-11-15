@@ -3760,7 +3760,7 @@ export const statusPosts = pgTable("status_posts", {
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   // Set when a business posts it (userId is then the team member who posted).
   businessId: integer("business_id"),
-  kind: text("kind").notNull(), // "text" | "photo"
+  kind: text("kind").notNull(), // "text" | "photo" | "video"
   textContent: text("text_content"),
   mediaUrl: text("media_url"),
   background: text("background"), // hex colour for text statuses

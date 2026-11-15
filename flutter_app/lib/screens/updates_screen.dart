@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:video_player/video_player.dart';
 
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
@@ -101,9 +102,30 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
   }
 
   Future<void> _newPhoto() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 2048);
-    if (picked == null || !mounted) return;
-    final posted = await Navigator.push<bool>(context, MaterialPageRoute(fullscreenDialog: true, builder: (_) => PhotoStatusComposer(file: File(picked.path), name: picked.name)));
+    // Photo or video (up to 30 seconds), like WhatsApp.
+    final kind = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      builder: (sheet) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(leading: Icon(Icons.photo_outlined, color: AppColors.cyan), title: const Text('Photo'), onTap: () => Navigator.pop(sheet, 'photo')),
+          ListTile(leading: Icon(Icons.videocam_outlined, color: AppColors.cyan), title: const Text('Video (up to 30 seconds)'), onTap: () => Navigator.pop(sheet, 'video')),
+        ]),
+      ),
+    );
+    if (kind == null || !mounted) return;
+    bool? posted;
+    if (kind == 'video') {
+      final picked = await pickStatusVideo(context);
+      if (picked == null || !mounted) return;
+      final (file, name, secs) = picked;
+      posted = await Navigator.push<bool>(context, MaterialPageRoute(fullscreenDialog: true,
+          builder: (_) => PhotoStatusComposer(file: file, name: name, video: true, durationSeconds: secs)));
+    } else {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 2048);
+      if (picked == null || !mounted) return;
+      posted = await Navigator.push<bool>(context, MaterialPageRoute(fullscreenDialog: true, builder: (_) => PhotoStatusComposer(file: File(picked.path), name: picked.name)));
+    }
     if (posted == true) _load();
   }
 
@@ -285,9 +307,12 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
     _show();
   }
 
+  VideoPlayerController? _video;
+
   @override
   void dispose() {
     _progress.dispose();
+    _video?.dispose();
     super.dispose();
   }
 
@@ -296,10 +321,13 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
   Future<void> _show() async {
     _progress.stop();
     _progress.value = 0;
+    final old = _video;
     setState(() {
       _photo = null;
+      _video = null;
       _showOriginal = false;
     });
+    unawaited(old?.dispose());
     final u = _current;
     if (!widget.own && u['seen'] != true && u['id'] != null) {
       unawaited(ApiService.post('/api/status/${u['id']}/view', {}).then<void>((_) {
@@ -312,6 +340,27 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
         if (!mounted || _current != u) return;
         setState(() => _photo = file);
       } catch (_) {}
+    }
+    if (u['kind'] == 'video' && u['mediaUrl'] != null) {
+      try {
+        final file = await MediaStore.download(u['mediaUrl'].toString(), 'status-${u['id']}.mp4');
+        if (!mounted || _current != u) return;
+        final c = VideoPlayerController.file(file);
+        await c.initialize();
+        if (!mounted || _current != u) {
+          await c.dispose();
+          return;
+        }
+        // The bar runs as long as the video (up to 30 s).
+        final d = c.value.duration;
+        _progress.duration = d > Duration.zero && d <= const Duration(seconds: 31) ? d : const Duration(seconds: 30);
+        setState(() => _video = c);
+        await c.play();
+      } catch (_) {
+        _progress.duration = const Duration(seconds: 5);
+      }
+    } else {
+      _progress.duration = const Duration(seconds: 5);
     }
     if (mounted) _progress.forward(from: 0);
   }
@@ -407,7 +456,8 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     final u = _current;
-    final isPhoto = u['kind'] == 'photo';
+    final isVideo = u['kind'] == 'video';
+    final isPhoto = u['kind'] == 'photo' || isVideo;
     final text = u['text']?.toString();
     final original = u['originalText']?.toString();
     return Scaffold(
@@ -415,11 +465,21 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
       body: SafeArea(
         child: GestureDetector(
           onTapUp: (d) => d.localPosition.dx < MediaQuery.of(context).size.width / 3 ? _prev() : _next(),
-          onLongPressStart: (_) => _progress.stop(),
-          onLongPressEnd: (_) => _progress.forward(),
+          onLongPressStart: (_) {
+            _progress.stop();
+            _video?.pause();
+          },
+          onLongPressEnd: (_) {
+            _progress.forward();
+            _video?.play();
+          },
           child: Stack(children: [
             Positioned.fill(
-              child: isPhoto
+              child: isVideo
+                  ? (_video == null
+                      ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                      : Center(child: AspectRatio(aspectRatio: _video!.value.aspectRatio, child: VideoPlayer(_video!))))
+                  : isPhoto
                   ? (_photo == null
                       ? const Center(child: CircularProgressIndicator(color: Colors.white))
                       : Image.file(_photo!, fit: BoxFit.contain))
@@ -603,14 +663,65 @@ class PhotoStatusComposer extends StatefulWidget {
   final File file;
   final String name;
   final String endpoint;
-  const PhotoStatusComposer({super.key, required this.file, required this.name, this.endpoint = '/api/status'});
+  /// A video (up to 30 seconds) instead of a photo.
+  final bool video;
+  final int? durationSeconds;
+  const PhotoStatusComposer({super.key, required this.file, required this.name, this.endpoint = '/api/status', this.video = false, this.durationSeconds});
   @override
   State<PhotoStatusComposer> createState() => _PhotoStatusComposerState();
+}
+
+/// Pick a video for a status: up to 30 seconds, like WhatsApp. Returns null (and says why) otherwise.
+Future<(File, String, int)?> pickStatusVideo(BuildContext context) async {
+  final picked = await ImagePicker().pickVideo(source: ImageSource.gallery, maxDuration: const Duration(seconds: 30));
+  if (picked == null) return null;
+  final file = File(picked.path);
+  final probe = VideoPlayerController.file(file);
+  try {
+    await probe.initialize();
+    final secs = probe.value.duration.inMilliseconds / 1000;
+    if (secs > 30.9) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick a video up to 30 seconds long.')));
+      }
+      return null;
+    }
+    if (await file.length() > 50 * 1024 * 1024) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('That video is too big (over 50 MB).')));
+      return null;
+    }
+    return (file, picked.name, secs.ceil().clamp(1, 30));
+  } catch (_) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Couldn't open that video.")));
+    return null;
+  } finally {
+    await probe.dispose();
+  }
 }
 
 class _PhotoStatusComposerState extends State<PhotoStatusComposer> {
   final _caption = TextEditingController();
   double? _progress;
+  VideoPlayerController? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.video) {
+      _preview = VideoPlayerController.file(widget.file)
+        ..setLooping(true)
+        ..initialize().then((_) {
+          if (mounted) setState(() {});
+          _preview?.play();
+        });
+    }
+  }
+
+  @override
+  void dispose() {
+    _preview?.dispose();
+    super.dispose();
+  }
 
   Future<void> _post() async {
     if (_progress != null) return;
@@ -620,8 +731,9 @@ class _PhotoStatusComposerState extends State<PhotoStatusComposer> {
         if (mounted) setState(() => _progress = p);
       });
       await ApiService.post(widget.endpoint, {
-        'kind': 'photo',
+        'kind': widget.video ? 'video' : 'photo',
         'mediaUrl': path,
+        if (widget.video && widget.durationSeconds != null) 'durationSeconds': widget.durationSeconds,
         if (_caption.text.trim().isNotEmpty) 'text': _caption.text.trim(),
       });
       if (mounted) Navigator.pop(context, true);
@@ -639,7 +751,13 @@ class _PhotoStatusComposerState extends State<PhotoStatusComposer> {
       backgroundColor: Colors.black,
       appBar: AppBar(backgroundColor: Colors.black, foregroundColor: Colors.white, iconTheme: const IconThemeData(color: Colors.white)),
       body: Column(children: [
-        Expanded(child: Image.file(widget.file, fit: BoxFit.contain)),
+        Expanded(
+          child: !widget.video
+              ? Image.file(widget.file, fit: BoxFit.contain)
+              : (_preview?.value.isInitialized ?? false)
+                  ? Center(child: AspectRatio(aspectRatio: _preview!.value.aspectRatio, child: VideoPlayer(_preview!)))
+                  : const Center(child: CircularProgressIndicator(color: Colors.white)),
+        ),
         if (_progress != null) LinearProgressIndicator(value: _progress! > 0 ? _progress : null, color: AppColors.cyan),
         SafeArea(
           top: false,

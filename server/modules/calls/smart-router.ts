@@ -402,6 +402,27 @@ async function storeSmartCall(record: SmartCallRecord): Promise<void> {
   await multi.exec();
 }
 
+/**
+ * Small facts about a live call kept beside it (push result, callee's phone
+ * ringing, owner took over from the assistant). A separate Redis hash, written
+ * field by field, so it can never overwrite a state change happening at the
+ * same moment (rewriting the whole call record did exactly that).
+ */
+const callSideKey = (callId: string) => `smartcall:side:${callId}`;
+export async function setCallSideInfo(callId: string, info: Record<string, string>): Promise<void> {
+  const key = callSideKey(callId);
+  // One field per HSET: works on every Redis version (multi-field HSET needs Redis 4+).
+  for (const [field, value] of Object.entries(info)) await redisClient().hset(key, field, value);
+  await redisClient().expire(key, 4 * 60 * 60);
+}
+export async function getCallSideInfo(callId: string): Promise<Record<string, string>> {
+  try {
+    return (await redisClient().hgetall(callSideKey(callId))) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 async function mutateSmartCall(
   callId: string,
   updater: (current: SmartCallRecord) => SmartCallRecord,
@@ -1031,7 +1052,10 @@ async function sendIncomingCallPush(
       return {};
     });
     if (typeof mod.sendVoIPPush === "function") {
-      await mod.sendVoIPPush(userId, payload);
+      const result = await mod.sendVoIPPush(userId, payload) as { sent: number; failed: number } | undefined;
+      // Remember whether the callee's phone could be reached, so the caller sees
+      // "Calling…" (not reached yet) vs "Ringing…" (their phone is ringing), like WhatsApp.
+      await setCallSideInfo(payload.callId, { calleePush: result && result.sent > 0 ? "sent" : "no_device" }).catch(() => undefined);
     }
   } catch (error) {
     logger.warn("SmartCallRouter", `push failed for ${userId}: ${String(error)}`);

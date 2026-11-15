@@ -456,6 +456,8 @@ export async function listSmartActiveCalls(): Promise<SmartCallRecord[]> {
   return routerListSmartActiveCalls();
 }
 
+export { setCallSideInfo, getCallSideInfo } from "./smart-router";
+
 export async function updateSmartCallStatus(
   callId: string,
   status: string,

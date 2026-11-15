@@ -34,6 +34,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Timer? _vibrateTimer;
   Timer? _statusTimer;
   bool _busy = false;
+  bool _assistantTalking = false;
 
   // Real P0 bug found from physical-device testing: this screen used
   // PopScope(canPop: false) with no onPopInvokedWithResult, and every
@@ -54,6 +55,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     // Ring like a phone call: the phone's own ringtone (respects silent /
     // vibrate mode) plus a vibration pulse, until this screen closes.
     unawaited(FlutterRingtonePlayer().playRingtone(looping: true).catchError((_) {}));
+    unawaited(CallService.ackRinging(widget.session.callId));
     unawaited(HapticFeedback.vibrate());
     _vibrateTimer = Timer.periodic(const Duration(milliseconds: 1600), (_) => HapticFeedback.vibrate());
     // Stop ringing as soon as the caller hangs up (it used to keep ringing
@@ -61,9 +63,13 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     // a reason to stop ringing for you.
     _statusTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
       try {
-        final status = await widget.callService.getCallStatus(widget.session.callId);
+        final state = await widget.callService.getCallState(widget.session.callId);
+        final status = (state['status'] as String?) ?? 'unknown';
+        // My AI assistant is talking to the caller: keep ringing so I can take over.
+        final assistantTalking = state['answeredBy'] == 'assistant';
+        if (assistantTalking != _assistantTalking && mounted) setState(() => _assistantTalking = assistantTalking);
         final over = {'ended', 'cancelled', 'missed', 'failed', 'completed'}.contains(status) ||
-            (!widget.session.isGroup && (status == 'active' || status == 'answered') && !_busy);
+            (!widget.session.isGroup && (status == 'active' || status == 'answered') && !assistantTalking && !_busy);
         if (over && mounted && !_busy) _dismiss();
       } catch (_) {
         // Keep ringing on a network blip; the expiry timer still applies.
@@ -256,10 +262,18 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         style: const TextStyle(color: AppColors.onAccent, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
                   ),
                   const SizedBox(height: 10),
-                  const LiveBadge(onDark: true, label: 'Live translation on'),
+                  if (_assistantTalking)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0x3322C55E), borderRadius: BorderRadius.circular(20)),
+                      child: const Text('🤖 Your AI assistant is talking · Accept to take over',
+                          style: TextStyle(color: AppColors.onAccent, fontWeight: FontWeight.w600)),
+                    )
+                  else
+                    const LiveBadge(onDark: true, label: 'Live translation on'),
                   const Spacer(flex: 3),
                   // Busy? The AI assistant answers, says it is your assistant, and takes the message.
-                  if (!session.isGroup)
+                  if (!session.isGroup && !_assistantTalking)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 20),
                       child: OutlinedButton.icon(

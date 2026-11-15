@@ -193,6 +193,24 @@ class CallService extends ChangeNotifier {
     return (res['status'] as String?) ?? 'unknown';
   }
 
+  /// Status plus whether the callee's phone is actually ringing (and if the AI assistant took it).
+  Future<Map<String, dynamic>> getCallState(String callId) async {
+    return Map<String, dynamic>.from(await ApiService.get('/api/calls/$callId') as Map);
+  }
+
+  /// Tell the server this phone is ringing, so the caller sees "Ringing…" (works
+  /// from the background push handler too, where the app's session isn't loaded yet).
+  static Future<void> ackRinging(String callId) async {
+    if (callId.isEmpty) return;
+    try {
+      if (!ApiService.isLoggedIn) await ApiService.init();
+      if (!ApiService.isLoggedIn) return;
+      await ApiService.post('/api/calls/$callId/ringing', {});
+    } catch (_) {
+      // Best effort: the call still rings without it.
+    }
+  }
+
   Future<void> answerCall(String callId) async {
     await ApiService.post('/api/calls/$callId/connect', {});
   }

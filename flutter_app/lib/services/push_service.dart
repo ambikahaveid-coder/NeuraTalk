@@ -272,8 +272,13 @@ class PushService {
     }
   }
 
+  static DateTime? _registeredAt;
+
   static Future<void> _register(String pushToken, int userId) async {
-    if (_registeredUserId == userId && _registeredToken == pushToken) return;
+    // Re-send at least every 10 minutes: the server drops tokens Google calls dead
+    // (or on a sign-out elsewhere), and a phone without one never rings.
+    final fresh = _registeredAt != null && DateTime.now().difference(_registeredAt!) < const Duration(minutes: 10);
+    if (_registeredUserId == userId && _registeredToken == pushToken && fresh) return;
 
     final deviceId = await _stableDeviceId();
     for (var attempt = 0; attempt < 3; attempt++) {
@@ -287,6 +292,7 @@ class PushService {
         });
         _registeredUserId = userId;
         _registeredToken = pushToken;
+        _registeredAt = DateTime.now();
         return;
       } catch (error) {
         debugPrint(

@@ -153,7 +153,10 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  DateTime _waitStartedAt = DateTime.now();
+
   Future<void> _waitForAnswer() async {
+    _waitStartedAt = DateTime.now();
     setState(() {
       _waitingForAnswer = true;
       _connecting = false;
@@ -170,11 +173,19 @@ class _CallScreenState extends State<CallScreen> {
     _ringingPollTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
       if (!mounted) return;
       try {
-        final status = await widget.callService.getCallStatus(widget.session.callId);
+        final state = await widget.callService.getCallState(widget.session.callId);
+        final status = (state['status'] as String?) ?? 'unknown';
         if (!mounted || !_waitingForAnswer) return;
         switch (status) {
           case 'ringing':
-            setState(() => _ringingLabel = 'Ringing…');
+            // Like WhatsApp: "Calling…" until their phone really rings.
+            final waited = DateTime.now().difference(_waitStartedAt);
+            final label = state['calleeRinging'] == true
+                ? 'Ringing…'
+                : waited > const Duration(seconds: 12)
+                    ? "Calling… their phone isn't reachable yet"
+                    : 'Calling…';
+            if (label != _ringingLabel) setState(() => _ringingLabel = label);
             break;
           case 'answered':
           case 'active':

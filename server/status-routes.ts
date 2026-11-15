@@ -87,11 +87,13 @@ async function shareStatusPhoto(authorId: number, objectPath: string, audience: 
 }
 
 const postSchema = z.object({
-  kind: z.enum(["text", "photo"]),
+  kind: z.enum(["text", "photo", "video"]),
+  // Videos: up to 30 seconds (like WhatsApp), sent by the app after trimming.
+  durationSeconds: z.number().int().min(0).max(30).optional(),
   text: z.string().trim().max(700).optional(),
   mediaUrl: z.string().trim().max(2000).optional(),
   background: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-}).refine((v) => (v.kind === "text" ? Boolean(v.text) : Boolean(v.mediaUrl)), { message: "Write something or pick a photo." });
+}).refine((v) => (v.kind === "text" ? Boolean(v.text) : Boolean(v.mediaUrl)), { message: "Write something, or pick a photo or video." });
 
 async function textFor(post: typeof statusPosts.$inferSelect, language: string): Promise<{ text: string | null; translated: boolean }> {
   const original = post.textContent;
@@ -128,7 +130,7 @@ export function registerStatusRoutes(app: Express): void {
         .where(and(eq(statusPosts.userId, userId), isNull(statusPosts.businessId), gt(statusPosts.expiresAt, new Date())));
       if (n >= MAX_ACTIVE_PER_USER) return res.status(429).json({ error: `You can have up to ${MAX_ACTIVE_PER_USER} updates at a time.` });
 
-      if (parsed.data.kind === "photo") {
+      if (parsed.data.kind === "photo" || parsed.data.kind === "video") {
         const problem = await shareStatusPhoto(userId, parsed.data.mediaUrl!, await statusAudience(userId));
         if (problem) return res.status(problem.startsWith("This photo") ? 403 : 400).json({ error: problem });
       }
@@ -137,7 +139,7 @@ export function registerStatusRoutes(app: Express): void {
         userId,
         kind: parsed.data.kind,
         textContent: parsed.data.text || null,
-        mediaUrl: parsed.data.kind === "photo" ? parsed.data.mediaUrl! : null,
+        mediaUrl: parsed.data.kind === "photo" || parsed.data.kind === "video" ? parsed.data.mediaUrl! : null,
         background: parsed.data.kind === "text" ? (parsed.data.background ?? "#1E66F5") : null,
         originalLanguage: baseLanguage(me?.language),
         expiresAt: new Date(Date.now() + DAY_MS),
@@ -318,7 +320,7 @@ export function registerStatusRoutes(app: Express): void {
       const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(statusPosts)
         .where(and(eq(statusPosts.businessId, businessId), gt(statusPosts.expiresAt, new Date())));
       if (n >= MAX_ACTIVE_PER_USER) return res.status(429).json({ error: `A business can have up to ${MAX_ACTIVE_PER_USER} updates at a time.` });
-      if (parsed.data.kind === "photo") {
+      if (parsed.data.kind === "photo" || parsed.data.kind === "video") {
         // Offers are meant to be seen by every customer, like catalog photos.
         const path = parsed.data.mediaUrl!;
         if (!path.startsWith("/objects/")) return res.status(400).json({ error: "Invalid photo." });
@@ -342,7 +344,7 @@ export function registerStatusRoutes(app: Express): void {
         businessId,
         kind: parsed.data.kind,
         textContent: parsed.data.text || null,
-        mediaUrl: parsed.data.kind === "photo" ? parsed.data.mediaUrl! : null,
+        mediaUrl: parsed.data.kind === "photo" || parsed.data.kind === "video" ? parsed.data.mediaUrl! : null,
         background: parsed.data.kind === "text" ? (parsed.data.background ?? "#1E66F5") : null,
         originalLanguage: baseLanguage(language),
         expiresAt: new Date(Date.now() + DAY_MS),

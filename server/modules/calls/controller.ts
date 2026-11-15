@@ -211,6 +211,23 @@ function isActiveStatus(status: string | null | undefined): boolean {
   return activeStatuses.includes(status ?? "");
 }
 
+/**
+ * Adds what the call's side info knows: "Calling…" → "Ringing…" once the
+ * callee's phone said it rings (like WhatsApp), whether push could reach it
+ * ("no_device" = it can't right now), and who is on the call for the callee
+ * (their AI assistant, or they took over).
+ */
+async function withSideInfo(record: svc.SmartCallRecord) {
+  const base = serializeSmartCall(record);
+  const side = await svc.getCallSideInfo(record.callId);
+  return {
+    ...base,
+    calleeRinging: Boolean(side.calleeRingingAt),
+    calleePush: side.calleePush ?? null,
+    answeredBy: side.answeredBy ?? base.answeredBy,
+  };
+}
+
 function serializeSmartCall(record: svc.SmartCallRecord) {
   const connectedAtMs = record.connectedAt ? Date.parse(record.connectedAt) : NaN;
   const endedAtMs = record.endedAt ? Date.parse(record.endedAt) : Date.now();
@@ -222,6 +239,10 @@ function serializeSmartCall(record: svc.SmartCallRecord) {
     id: record.callId,
     callId: record.callId,
     status: record.status,
+    // Filled from the call's side info by withSideInfo() (callById, connect).
+    calleeRinging: false,
+    calleePush: null as string | null,
+    answeredBy: ((record.metadata as Record<string, unknown> | undefined)?.answeredBy as string | undefined) ?? null,
     joinMethod: record.joinMethod,
     callerUserId: Number.parseInt(record.callerId, 10) || null,
     receiverUserId: record.calleeUserId ? Number.parseInt(record.calleeUserId, 10) || null : null,
@@ -797,6 +818,21 @@ export async function connect(req: Request, res: Response) {
       logConnectStageLatency(rawCallId, call?.joinMethod ?? "pending", "connect_call_lookup", connectElapsedMs(lookupStartNs));
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(req.user!, call)) return sendAccessDenied(res);
+      // The AI assistant already answered for the callee, who now picks up
+      // themselves: no state change -- they join, and the assistant steps aside.
+      const meta = (call.metadata ?? {}) as Record<string, unknown>;
+      const side = await svc.getCallSideInfo(rawCallId);
+      const byAssistant = (side.answeredBy ?? meta.answeredBy) === "assistant";
+      if (call.status === SMART_CALL_STATE.ANSWERED && byAssistant && String(call.calleeUserId ?? "") === String(req.user!.id)) {
+        await svc.setCallSideInfo(rawCallId, { answeredBy: "owner", ownerTookOverAt: new Date().toISOString() });
+        // (On another server the assistant also leaves when it sees the owner join the room.)
+        void import("../../ai-assistant-voice").then((m) => m.ownerTookOver(rawCallId)).catch(() => undefined);
+        return res.json(await withSideInfo(call));
+      }
+      // Answered by the callee's assistant: only the callee can step in.
+      if (call.status === SMART_CALL_STATE.ANSWERED && byAssistant) {
+        return res.status(409).json({ error: "This call was already answered." });
+      }
       let updated;
       const transitionStartNs = process.hrtime.bigint();
       try {
@@ -1555,6 +1591,23 @@ export async function userCalls(req: Request, res: Response) {
   }
 }
 
+/** The callee's phone is showing the incoming call. Only the callee may say so. */
+export async function calleeRinging(req: Request, res: Response) {
+  try {
+    const rawCallId = req.params.callId;
+    if (!svc.isSmartCallId(rawCallId)) return res.status(400).json({ error: "Invalid call ID" });
+    const call = await svc.getSmartCall(rawCallId);
+    if (!call) return res.status(404).json({ error: "Call not found" });
+    if (String(call.calleeUserId ?? "") !== String(req.user!.id)) return sendAccessDenied(res);
+    const side = await svc.getCallSideInfo(rawCallId);
+    if (!side.calleeRingingAt) await svc.setCallSideInfo(rawCallId, { calleeRingingAt: new Date().toISOString() });
+    return res.json({ success: true });
+  } catch (error) {
+    logger.warn("Calls", `ringing ack failed: ${String(error)}`);
+    return res.status(500).json({ error: "Failed" });
+  }
+}
+
 export async function callById(req: Request, res: Response) {
   try {
     const user = req.user!;
@@ -1565,7 +1618,7 @@ export async function callById(req: Request, res: Response) {
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
       return res.json({
-        ...serializeSmartCall(call),
+        ...(await withSideInfo(call)),
         session: buildUnifiedSessionFromSmartCall(call),
       });
     }
@@ -1596,7 +1649,7 @@ export async function callDetails(req: Request, res: Response) {
       if (!call) return res.status(404).json({ error: "Call not found" });
       if (!canAccessSmartCall(user, call)) return sendAccessDenied(res);
       return res.json({
-        ...serializeSmartCall(call),
+        ...(await withSideInfo(call)),
         session: buildUnifiedSessionFromSmartCall(call),
       });
     }

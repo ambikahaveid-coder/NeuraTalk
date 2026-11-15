@@ -76,6 +76,12 @@ export async function scheduleAssistantForCall(input: { callId: string; calleeUs
   }
 }
 
+/** The owner picked up while their assistant was talking: it steps aside (the call goes on). */
+export async function ownerTookOver(callId: string): Promise<void> {
+  cancelScheduledAssistant(callId);
+  await live.get(callId)?.finish("owner joined", false);
+}
+
 export function cancelScheduledAssistant(callId: string): void {
   const t = pending.get(callId);
   if (t) clearTimeout(t);
@@ -145,7 +151,7 @@ class AssistantCall {
       const [caller] = Number.isInteger(callerId) ? await db.select({ displayName: users.displayName, username: users.username }).from(users).where(eq(users.id, callerId)) : [];
       const callerName = (caller?.displayName || caller?.username || "").trim() || null;
       this.ctx = {
-        kind, channel: "call", ownerName: owner.name, assistantName: s.assistantName || (kind === "business" ? `${owner.name} assistant` : "NeuraTalk Assistant"),
+        kind, channel: "call", ownerName: owner.name, assistantName: s.assistantName || (kind === "business" ? `${owner.name} assistant` : `${owner.name}'s AI assistant`),
         busyNote: s.busyNote, instructions: s.instructions, knowledge: kind === "business" ? await businessKnowledge(ownerId, s.knowledge) : null,
         counterpartName: callerName, counterpartLanguage: this.lang, ownerLanguage: owner.language,
       };
@@ -157,7 +163,7 @@ class AssistantCall {
         const id = await lookupClonedVoiceId(String(ownerId)).catch(() => null);
         if (id && canSpeakInClonedVoice(this.lang)) this.voice = { kind: "own", voiceId: id, gender: s.voiceGender };
       }
-      const greeting = await this.greeting(owner.name);
+      const greeting = await this.greeting(owner.name, callerName);
       await db.execute(sql`UPDATE assistant_sessions SET history = ${JSON.stringify([{ role: "assistant", text: greeting }])}::jsonb WHERE id = ${this.session.id}`);
       this.session.history = [{ role: "assistant", text: greeting }];
 
@@ -174,10 +180,12 @@ class AssistantCall {
     }
   }
 
-  private async greeting(ownerName: string): Promise<string> {
+  private async greeting(ownerName: string, callerName: string | null): Promise<string> {
+    // The caller is known (their NeuraTalk account), so greet them by name and never ask who they are.
+    const hi = callerName ? `Hello ${callerName.split(/\s+/)[0]}` : "Hello";
     const en = this.input.owner.kind === "business"
-      ? `Hello, thank you for calling ${ownerName}. I'm the AI assistant. How can I help you?`
-      : `Hello, I'm ${ownerName}'s NeuraTalk assistant, an AI. ${ownerName} can't take the call right now. What is it about, and is it urgent?`;
+      ? `${hi}, thank you for calling ${ownerName}. I'm the AI assistant. How can I help you?`
+      : `${hi}, I'm ${ownerName}'s AI assistant. ${ownerName} can't take your call right now. What is it about, and is it urgent?`;
     if (this.lang === "en") return en;
     try {
       const { translateChatText } = await import("./translation/chat-translate");
@@ -251,18 +259,21 @@ class AssistantCall {
 
   /** What the caller said: think, answer, maybe finish. Turns that arrive while speaking wait their turn. */
   async heard(text: string): Promise<void> {
-    if (this.ended || !text.trim()) return;
+    if (this.ended || !text.trim() || !this.session) return;
     if (this.speaking) { this.queue.push(text); return; }
     this.speaking = true;
     try {
       const result = await converse(this.session, this.ctx, text);
-      this.session = rows(await db.execute(sql`SELECT * FROM assistant_sessions WHERE id = ${this.session.id}`))[0];
+      // Keep the last good copy if the row can't be re-read (never crash the call).
+      this.session = rows(await db.execute(sql`SELECT * FROM assistant_sessions WHERE id = ${this.session.id}`))[0] ?? this.session;
       await this.say(result.reply);
       if (result.done || result.handoff) {
         await new Promise((r) => setTimeout(r, 800));
         await this.finish("done", true);
         return;
       }
+    } catch (error) {
+      logger.warn("AssistantCall", `turn failed on ${this.input.callId}: ${String(error)}`);
     } finally {
       this.speaking = false;
     }
@@ -312,6 +323,7 @@ class AssistantCall {
         }
       }
       await recordVoiceSeconds(this.input.owner.kind, this.input.owner.ownerId, seconds);
+      if (why !== "owner joined") await this.postToChat();
     } catch (error) {
       logger.warn("AssistantCall", `finish bookkeeping failed: ${String(error)}`);
     }
@@ -323,6 +335,34 @@ class AssistantCall {
       await svc.endCallById(this.input.callId, "assistant_completed").catch(() => undefined);
     }
     logger.warn("AssistantCall", `assistant finished ${this.input.callId} after ${seconds}s (${why})`);
+  }
+
+  /**
+   * Personal calls: put what was said into the 1:1 chat with the caller, so the
+   * owner reads it where they'd look anyway (each side sees it translated into
+   * their own language, like any chat message). Marked as the assistant's.
+   */
+  private async postToChat(): Promise<void> {
+    if (this.input.owner.kind !== "personal" || !this.session) return;
+    const callerId = Number(this.input.callerIdentity);
+    if (!Number.isInteger(callerId) || callerId === this.input.owner.ownerId) return;
+    const turns = ((this.session.history ?? []) as Array<{ role: string; text: string }>).filter((t) => t.text?.trim());
+    if (!turns.some((t) => t.role === "caller")) return; // nothing was said: the missed-call entry says enough
+    try {
+      const callerName = (this.ctx?.counterpartName ?? "Caller").split(/\s+/)[0];
+      const lines = turns.map((t) => `${t.role === "caller" ? callerName : "🤖"}: ${t.text.trim()}`);
+      const content = [`📞 ${this.ctx.ownerName}'s AI assistant answered ${callerName}'s call`, ...lines].join("\n").slice(0, 3800);
+      const [ownerUser] = await db.select().from(users).where(eq(users.id, this.input.owner.ownerId));
+      if (!ownerUser) return;
+      const { openPersonalThread, sendPersonalMessage } = await import("./personal-chat-routes");
+      const thread = await openPersonalThread(ownerUser as any, callerId);
+      const threadId = thread.body?.thread?.id as number | undefined;
+      if (!threadId) return;
+      await sendPersonalMessage(ownerUser as any, threadId, { content, clientMessageId: `assistant-call-${this.input.callId}`.slice(0, 120) },
+        { assistant: true, assistantCall: true, assistantSessionId: this.session.id, callId: this.input.callId });
+    } catch (error) {
+      logger.warn("AssistantCall", `could not post the call to the chat: ${String(error)}`);
+    }
   }
 
   private fallbackSummary(why: string): string {
@@ -341,7 +381,14 @@ router.post("/api/calls/:callId/assistant", requireAuth, async (req: Request, re
   if (!call || String(call.calleeUserId) !== String(req.user!.id)) return res.status(404).json({ error: "Call not found." });
   if (call.status !== "ringing") return res.status(409).json({ error: "This call is no longer ringing." });
   const owner = await assistantOwnerForCallee(req.user!.id);
-  if (!owner) return res.status(409).json({ code: "ASSISTANT_OFF", error: "Turn on your assistant first (Settings → AI assistant)." });
+  if (!owner) {
+    // Say the real reason: switched off, or its trial / plan / minutes ran out.
+    const s = await settingsOf("personal", req.user!.id);
+    if (s.enabled && s.callsEnabled) {
+      return res.status(409).json({ code: "ASSISTANT_EXPIRED", error: "Your assistant's free trial or plan has ended (or its call minutes are used up). Renew it in Settings → My AI assistant." });
+    }
+    return res.status(409).json({ code: "ASSISTANT_OFF", error: "Turn on your assistant first (Settings → My AI assistant)." });
+  }
   cancelScheduledAssistant(callId);
   const ok = await answerWithAssistant({ callId, calleeUserId: req.user!.id, callerIdentity: String(call.callerId), callerLanguage: call.callerLanguage || "en", owner, reason: "handed_over" });
   if (!ok) return res.status(409).json({ error: "This call is no longer ringing." });
